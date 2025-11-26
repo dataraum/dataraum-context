@@ -1,0 +1,149 @@
+# Null Value Recognition Configuration
+#
+# These values are treated as NULL during type inference and profiling.
+# Case sensitivity can be configured per value.
+
+version: "1.0.0"
+description: Common representations of null/missing values across data sources
+
+# Standard null representations
+standard_nulls:
+  - value: ""
+    description: Empty string
+    
+  - value: "NULL"
+    case_sensitive: false
+    description: SQL NULL keyword
+    
+  - value: "null"
+    case_sensitive: true
+    description: JSON null
+    
+  - value: "None"
+    case_sensitive: true
+    description: Python None
+    
+  - value: "NaN"
+    case_sensitive: false
+    description: Not a Number
+    
+  - value: "NA"
+    case_sensitive: false
+    description: Not Available
+    
+  - value: "N/A"
+    case_sensitive: false
+    description: Not Applicable
+
+# Spreadsheet nulls
+spreadsheet_nulls:
+  - value: "#N/A"
+    description: Excel N/A error
+    
+  - value: "#NULL!"
+    description: Excel NULL error
+    
+  - value: "#REF!"
+    description: Excel reference error
+    
+  - value: "#VALUE!"
+    description: Excel value error
+    
+  - value: "#DIV/0!"
+    description: Excel division by zero
+    
+  - value: "#NAME?"
+    description: Excel name error
+
+# Placeholder nulls
+placeholder_nulls:
+  - value: "-"
+    description: Dash placeholder
+    context: single_char_only  # Only treat as null if entire value
+    
+  - value: "--"
+    description: Double dash placeholder
+    
+  - value: "---"
+    description: Triple dash placeholder
+    
+  - value: "."
+    description: Period placeholder
+    context: single_char_only
+    
+  - value: "*"
+    description: Asterisk placeholder
+    context: single_char_only
+
+# Explicit missing indicators
+missing_indicators:
+  - value: "MISSING"
+    case_sensitive: false
+    
+  - value: "UNKNOWN"
+    case_sensitive: false
+    
+  - value: "UNDEFINED"
+    case_sensitive: false
+    
+  - value: "NOT SET"
+    case_sensitive: false
+    
+  - value: "NOT PROVIDED"
+    case_sensitive: false
+    
+  - value: "NO DATA"
+    case_sensitive: false
+    
+  - value: "NO VALUE"
+    case_sensitive: false
+
+# Numeric null representations
+numeric_nulls:
+  - value: "-999"
+    description: Common numeric null marker
+    applies_to: numeric_only
+    
+  - value: "-9999"
+    description: Common numeric null marker
+    applies_to: numeric_only
+    
+  - value: "9999"
+    description: Common numeric null marker (positive)
+    applies_to: numeric_only
+    
+  - value: "-1"
+    description: Sometimes used as null for IDs
+    applies_to: id_columns_only
+    context: requires_confirmation
+
+# Date null representations
+date_nulls:
+  - value: "0000-00-00"
+    description: Zero date
+    applies_to: date_only
+    
+  - value: "1900-01-01"
+    description: Excel epoch start (often used as null)
+    applies_to: date_only
+    context: requires_confirmation
+    
+  - value: "1970-01-01"
+    description: Unix epoch start (sometimes used as null)
+    applies_to: date_only
+    context: requires_confirmation
+
+# Whitespace handling
+whitespace_rules:
+  trim_before_check: true
+  treat_whitespace_only_as_null: true
+  max_whitespace_length: 10  # Longer strings of spaces are kept
+
+# Context-specific overrides
+# These can be overridden per source or per column
+context_overrides:
+  # Example: For a specific source, additional null values
+  # source_name:
+  #   additional_nulls:
+  #     - value: "TBD"
+  #     - value: "PENDING"
