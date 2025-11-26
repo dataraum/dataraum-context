@@ -12,12 +12,17 @@ structured context documents interpreted through domain ontologies.
 ```bash
 # Read these first
 cat docs/ARCHITECTURE.md    # High-level design
-cat docs/DATA_MODEL.md      # PostgreSQL schema
+cat docs/DATA_MODEL.md      # SQLAlchemy schema
 cat docs/INTERFACES.md      # Module interfaces
 
-# Check existing prototypes (DO NOT REWRITE)
+# Check configuration
+cat config/llm.yaml         # LLM provider settings
+cat config/prompts/         # Customizable prompts
+
+# Check existing prototypes (USE AS INSPIRATION)
 ls prototypes/pattern_detection/helper/ # PyArrow + Pint pattern detection, check _convertCsvFile in ../main.py
 ls prototypes/topology/                 # TDA-based relationship detection
+ls prototypes/analytics-agents-ts       # Agents and prompts (inside prompts folder) for data-engineering and business-analysis
 ```
 
 ## Core Principles
@@ -51,7 +56,8 @@ src/dataraum_context/
 ├── enrichment/     # Semantic, topological, temporal metadata
 ├── quality/        # Rule generation, scoring, anomalies
 ├── context/        # Context assembly, ontology application
-├── storage/        # PostgreSQL metadata repository
+├── storage/        # SQLAlchemy models and repository
+├── llm/            # LLM providers, prompts, features
 ├── dataflows/      # Hamilton dataflow definitions
 ├── api/            # FastAPI routes
 └── mcp/            # MCP server and tools
@@ -68,12 +74,29 @@ Source (CSV/DB/API)
     ↓
 [profiling] Type resolution → typed_{table}, quarantine_{table}
     ↓
-[enrichment] Semantic, topology, temporal → metadata tables
+[enrichment] LLM semantic analysis → roles, entities, relationships
     ↓
-[quality] Rule generation + assessment → rules, scores
+[enrichment] Topology (TDA) + temporal → additional metadata
     ↓
-[context] Assembly with ontology → ContextDocument (for AI)
+[quality] LLM rule generation + assessment → rules, scores
+    ↓
+[context] Assembly + LLM summary → ContextDocument (for AI)
+         + LLM suggested queries
 ```
+
+## LLM-Powered Features
+
+The following features use LLM (configurable via `config/llm.yaml`):
+
+| Feature | Description | Fallback |
+|---------|-------------|----------|
+| Semantic Analysis | Column roles, entity types, relationships | `config/semantic_overrides.yaml` |
+| Quality Rules | Domain-specific rule generation | `config/rules/*.yaml` |
+| Suggested Queries | Context-aware SQL queries | Skip |
+| Context Summary | Natural language data overview | Skip |
+
+When LLM is disabled, manual YAML configuration is required for semantic analysis.
+Prompts are customizable in `config/prompts/`.
 
 ## Key Design Decisions
 
@@ -107,14 +130,15 @@ Domain ontologies (financial_reporting, marketing, etc.) are YAML configs that:
 ## Existing Prototypes
 
 ### Pattern Detection (`prototypes/pattern_detection/helper`)
-**REIMPLEMENT** take inspiration from the code. Use the yaml configurations for patterns and null values inside config for a reimplementation.
+**REIMPLEMENT** take inspiration from the code. Use the yaml configurations for patterns and null values inside config for a reimplementation. Don't use the stats part.
 
 ```python
 # Entry point
-from prototypes.pattern_detection import detect_patterns
+from helper.convert_csv import ChunkedArrayAnalyzer
 
-result = detect_patterns(arrow_table, column_name)
-# Returns: PatternResult with type_candidates, detected_patterns, detected_unit
+csv_analyzer = ChunkedArrayAnalyzer(header)
+converted_row = csv_analyzer.process_chunked_array(struct_array)
+# Returns: PatternResult with type_candidates, detected_patterns, detected_unit, stats
 ```
 
 Features:
@@ -127,9 +151,16 @@ Features:
 
 ```python
 # Entry point
-from prototypes.topology import analyze_topology
+from core.topology_extractor import TableTopologyExtractor
+from core.relationship_finder import TableRelationshipFinder
 
-result = analyze_topology(tables_dict)  # {name: ArrowTable}
+extractor = TableTopologyExtractor()
+finder = TableRelationshipFinder()
+
+
+topology = extractor.extract_topology(df)
+relationships = finder.find_relationships(tables)
+
 # Returns: TopologyGraph with relationships, confidence scores
 ```
 
@@ -137,6 +168,14 @@ Features:
 - TDA-based structural analysis
 - Semantic similarity integration
 - FK candidate detection with evidence
+
+### Topology Analysis (`prototypes/analytics-agents-ts/`)
+**REIMPLEMENT** - take inspiration from the code, check the data-analysis prompts inside the prompts folder. Check the data-analysis schema inside the prommpts/schemas folder. Follow the same pattern of system prompt, user prompt, JSON Schema as a tool. Only focus on the semantic meaning, skip the data quality part
+
+Features:
+- Analyse the semantics of the provided data schema.
+- Summarize the business purpose.
+- Dynamically create the prompts, with context injected. 
 
 ## Implementation Guidelines
 
@@ -157,14 +196,15 @@ async def some_operation() -> Result[SomeOutput]:
 ```python
 # Use async context managers
 async with get_duckdb_connection() as duckdb_conn:
-    async with get_metadata_connection() as pg_conn:
-        result = await some_operation(duckdb_conn, pg_conn)
+    async with get_metadata_session() as session:
+        result = await some_operation(duckdb_conn, session)
 ```
 
 ### Testing
 - Unit tests for each module
-- Integration tests with DuckDB in-memory + test PostgreSQL
+- Integration tests with DuckDB in-memory + SQLite in-memory
 - Property-based tests for pattern detection
+- Mock LLM responses for deterministic testing
 - Use pytest-asyncio for async tests
 
 ### Code Style
@@ -174,16 +214,65 @@ async with get_duckdb_connection() as duckdb_conn:
 - Docstrings with Args/Returns
 - Max function length: ~50 lines
 
-## Suggested Implementation Order
+## Implementation Order
 
-- *Storage* - SQLAlchemy migrations from DATA_MODEL.md
-- *Staging* - VARCHAR-first loaders
-- *Profiling* - Integrate pattern detection based on the prototype and new configurations
-- *Enrichment* - Integrate and extend TDA prototype, removing ranking attempt
-- *Quality* - Rule generation and scoring
-- *Context* - Assembly and ontology application
-- *API/MCP* - FastAPI routes and MCP tools
-- *Workflows* - Hamilton orchestration
+### Phase 1: Foundation
+These must come first - everything else depends on them.
+
+| Step | Module | Deliverables |
+|------|--------|--------------|
+| 1 | Storage | SQLAlchemy models, Alembic migrations, `llm_cache` table |
+| 2 | Core/Config | Settings, YAML loaders, connection managers |
+
+### Phase 2A: LLM Infrastructure (parallel track)
+
+| Step | Module | Deliverables |
+|------|--------|--------------|
+| 3 | LLM Providers | `LLMProvider` ABC, Anthropic, OpenAI, Mock implementations |
+| 4 | LLM Prompts + Privacy | Template renderer, SDV sample generator, cache logic |
+
+### Phase 2B: Data Pipeline (parallel track)
+
+| Step | Module | Deliverables |
+|------|--------|--------------|
+| 5 | Staging | VARCHAR-first loaders for CSV/Parquet/DB |
+| 6 | Profiling | Pattern detection, type candidates, Pint units |
+
+### Phase 3: Intelligent Enrichment
+Requires: Storage, LLM, Profiling results
+
+| Step | Module | Deliverables |
+|------|--------|--------------|
+| 7 | Enrichment/Semantic | `llm_analyze_semantics()`, manual override loading |
+| 8 | Enrichment/Topology | TDA prototype wrapper, relationship detection |
+| 9 | Enrichment/Temporal | Granularity, completeness, gap analysis |
+
+### Phase 4: Quality & Context
+Requires: All enrichment metadata
+
+| Step | Module | Deliverables |
+|------|--------|--------------|
+| 10 | Quality | `llm_generate_rules()`, rule engine, scoring |
+| 11 | Context | Assembly, `llm_generate_queries()`, `llm_generate_summary()` |
+
+### Phase 5: Interfaces & Orchestration
+Requires: Full pipeline working
+
+| Step | Module | Deliverables |
+|------|--------|--------------|
+| 12 | API/MCP | FastAPI routes, MCP server, 4 tools |
+| 13 | Dataflows | Hamilton DAG, checkpoints, resume logic |
+
+### Testing Strategy
+
+| Phase | Approach |
+|-------|----------|
+| 1-2 | Unit tests with SQLite in-memory |
+| 3-4 | Mock LLM provider (no API calls) |
+| 5-6 | Property-based tests, sample datasets |
+| 7-9 | Integration tests: mock LLM + real DuckDB |
+| 10-11 | Golden file tests for context documents |
+| 12-13 | API contract tests, end-to-end tests |
 
 ## File Locations
 
@@ -196,7 +285,10 @@ async with get_duckdb_connection() as duckdb_conn:
 | Ontology configs | `config/ontologies/` |
 | Pattern configs | `config/patterns/` |
 | Quality rule configs | `config/rules/` |
+| LLM prompts | `config/prompts/` |
+| LLM config | `config/llm.yaml` |
 | Null value lists | `config/null_values.yaml` |
+| Semantic overrides | `config/semantic_overrides.yaml` |
 | Example data | `examples/data/` |
 
 ## Dependencies
@@ -209,7 +301,6 @@ dependencies = [
     "pint>=0.23",
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.19.0",
-    "asyncpg>=0.29.0",  # Optional PostgreSQL support
     "pydantic>=2.0.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
@@ -217,6 +308,17 @@ dependencies = [
     "mcp>=0.1.0",
     "pyyaml>=6.0.0",
 ]
+
+# Optional: LLM providers
+# pip install dataraum-context[anthropic]  # Claude
+# pip install dataraum-context[openai]     # OpenAI
+# pip install dataraum-context[llm]        # Both
+
+# Optional: Synthetic data for privacy
+# pip install dataraum-context[privacy]    # SDV
+
+# Optional: Everything
+# pip install dataraum-context[all]
 ```
 
 ## Quick Reference

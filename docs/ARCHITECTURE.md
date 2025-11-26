@@ -22,13 +22,15 @@ The core insight: AI agents don't need tools to discover metadata at runtime. Th
 │                           CONTEXT LAYER                                      │
 │                                                                             │
 │   ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
-│   │   Ontologies    │    │    Assembly     │    │   Suggested     │        │
-│   │                 │    │                 │    │   Queries       │        │
-│   │ • financial     │───▶│ Combine all     │───▶│                 │        │
-│   │ • marketing     │    │ metadata into   │    │ Generate useful │        │
-│   │ • operations    │    │ ContextDocument │    │ starting points │        │
-│   │ • custom        │    │                 │    │                 │        │
-│   └─────────────────┘    └─────────────────┘    └─────────────────┘        │
+│   │   Ontologies    │    │    Assembly     │    │   LLM Features  │        │
+│   │                 │    │                 │    │                 │        │
+│   │ • financial     │───▶│ Combine all     │◀───│ • Semantic      │        │
+│   │ • marketing     │    │ metadata into   │    │   analysis      │        │
+│   │ • operations    │    │ ContextDocument │    │ • Quality rules │        │
+│   │ • custom        │    │ + Summary       │    │ • Suggested     │        │
+│   └─────────────────┘    └─────────────────┘    │   queries       │        │
+│                                                  │ • Summary       │        │
+│                                                  └─────────────────┘        │
 └─────────────────────────────────────────────────────────────────────────────┘
                                        ↑
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -36,18 +38,18 @@ The core insight: AI agents don't need tools to discover metadata at runtime. Th
 │                                                                             │
 │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │
 │   │ Statistical │  │  Semantic   │  │ Topological │  │  Temporal   │      │
-│   │             │  │             │  │             │  │             │      │
+│   │             │  │   (LLM)     │  │             │  │             │      │
 │   │ • profiles  │  │ • roles     │  │ • FKs (TDA) │  │ • granular- │      │
 │   │ • distribs  │  │ • entities  │  │ • hierarchs │  │   ity       │      │
 │   │ • patterns  │  │ • terms     │  │ • join paths│  │ • gaps      │      │
-│   │ • units     │  │ • domains   │  │ • graph     │  │ • trends    │      │
+│   │ • units     │  │ • relations │  │ • graph     │  │ • trends    │      │
 │   └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘      │
 │          │                │                │                │              │
 │          └────────────────┴────────────────┴────────────────┘              │
 │                                    │                                        │
 │                           ┌────────▼────────┐                              │
 │                           │     Quality     │                              │
-│                           │                 │                              │
+│                           │     (LLM)       │                              │
 │                           │ • rules (gen'd) │                              │
 │                           │ • scores        │                              │
 │                           │ • anomalies     │                              │
@@ -71,33 +73,33 @@ The core insight: AI agents don't need tools to discover metadata at runtime. Th
 └─────────────────────────────────────────────────────────────────────────────┘
                                        ↑
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ORCHESTRATION                                     │
+│                           ORCHESTRATION                                      │
 │                                                                             │
 │   Apache Hamilton Dataflows                                                 │
-│   ┌────────┐   ┌─────────┐   ┌──────────┐   ┌─────────┐   ┌─────────┐       │
-│   │ Stage  │─▶│ Profile │─▶│ Resolve  │─▶│ Enrich  │─▶│ Quality │       │
-│   │        │   │         │   │ Types    │   │         │   │         │       │
-│   └────────┘   └────┬────┘   └────┬─────┘   └─────────┘   └─────────┘       │
+│   ┌────────┐   ┌─────────┐   ┌──────────┐   ┌─────────┐   ┌─────────┐     │
+│   │ Stage  │──▶│ Profile │──▶│ Resolve  │──▶│ Enrich  │──▶│ Quality │     │
+│   │        │   │         │   │ Types    │   │         │   │         │     │
+│   └────────┘   └────┬────┘   └────┬─────┘   └─────────┘   └─────────┘     │
 │                     │             │                                         │
 │                     ▼             ▼                                         │
 │              [CHECKPOINT]  [CHECKPOINT]                                     │
 │              Human review  Quarantine                                       │
 │              of types      review                                           │
-│              (SQL DB)     (SQL DB)                                          │
+│              (SQLAlchemy)  (SQLAlchemy)                                     │
 └─────────────────────────────────────────────────────────────────────────────┘
                                        │
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           METADATA STORAGE                                  │
+│                           METADATA STORAGE                                   │
 │                                                                             │
 │   SQLAlchemy (SQLite dev / PostgreSQL prod)                                 │
-│   ┌─────────────────────────────────────────────────────────────────┐       │
-│   │ metadata.sources          metadata.column_profiles              │       │
-│   │ metadata.tables           metadata.type_candidates              │       │
-│   │ metadata.columns          metadata.semantic_annotations         │       │
-│   │ metadata.relationships    metadata.temporal_profiles            │       │
-│   │ metadata.quality_rules    metadata.quality_scores               │       │
-│   │ metadata.ontologies       metadata.checkpoints                  │       │
-│   └─────────────────────────────────────────────────────────────────┘       │
+│   ┌─────────────────────────────────────────────────────────────────┐      │
+│   │ metadata.sources          metadata.column_profiles              │      │
+│   │ metadata.tables           metadata.type_candidates              │      │
+│   │ metadata.columns          metadata.semantic_annotations         │      │
+│   │ metadata.relationships    metadata.temporal_profiles            │      │
+│   │ metadata.quality_rules    metadata.quality_scores               │      │
+│   │ metadata.ontologies       metadata.checkpoints                  │      │
+│   └─────────────────────────────────────────────────────────────────┘      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -198,23 +200,29 @@ WHERE typed._date_failed;
 
 **Purpose**: Extract semantic, topological, and temporal metadata.
 
-#### Semantic Enrichment
+#### Semantic Enrichment (LLM-Powered)
 
-- **Column Role Detection**: Is this a measure, dimension, key, timestamp?
-- **Entity Detection**: What does this table represent? (customers, transactions, products)
-- **Business Term Mapping**: Match columns to ontology concepts
+When LLM is enabled, semantic analysis is performed by sending table/column metadata 
+to the configured LLM provider. The LLM analyzes:
+
+- **Column Roles**: measure, dimension, key, foreign_key, timestamp, attribute
+- **Entity Types**: What real-world entity does each table/column represent?
+- **Business Terms**: Mapping to ontology concepts
+- **Relationships**: Foreign key and hierarchical relationships
+- **Descriptions**: Human-readable descriptions for documentation
 
 ```python
-# Role detection heuristics
-if column.cardinality_ratio > 0.95 and column.null_ratio == 0:
-    likely_role = "key"
-elif column.dtype in NUMERIC_TYPES and column.semantic_patterns.is_additive:
-    likely_role = "measure"
-elif column.dtype in TIME_TYPES:
-    likely_role = "timestamp"
-else:
-    likely_role = "dimension" or "attribute"
+# LLM semantic analysis (config/prompts/semantic_analysis.yaml)
+result = await llm_analyze_semantics(
+    tables=table_profiles,
+    ontology=selected_ontology,
+    config=llm_config,
+)
+# Returns: SemanticAnalysisResult with annotations and relationships
 ```
+
+**Fallback**: When LLM is disabled, manual definitions are required via 
+`config/semantic_overrides.yaml`.
 
 #### Topological Enrichment (TDA Prototype)
 
@@ -250,24 +258,29 @@ gaps = find_gaps(time_column, granularity)
 
 **Purpose**: Generate and execute quality rules, compute scores.
 
-#### Rule Generation
+#### Rule Generation (LLM-Powered)
 
-Rules are generated from:
-1. **Metadata signals** (null rates → not_null rules, cardinality → unique rules)
-2. **Ontology definitions** (financial data should have non-negative revenue)
-3. **Statistical baselines** (values outside 3σ are anomalies)
+When LLM is enabled, quality rules are generated based on semantic understanding:
 
 ```python
-# Generated rules
-if column.null_ratio == 0:
-    generate_rule(NotNullRule(column))
-
-if column.cardinality_ratio > 0.99:
-    generate_rule(UniqueRule(column))
-
-if relationship.type == "foreign_key" and relationship.is_confirmed:
-    generate_rule(ReferentialIntegrityRule(relationship))
+# LLM rule generation (config/prompts/quality_rules.yaml)
+result = await llm_generate_rules(
+    schema=semantic_analysis,
+    ontology=selected_ontology,
+    config=llm_config,
+)
+# Returns: List of domain-appropriate quality rules
 ```
+
+The LLM considers:
+- Column semantics (e.g., "revenue should be non-negative")
+- Ontology constraints (e.g., financial reporting rules)
+- Cross-column logic (e.g., "start_date <= end_date")
+- Statistical baselines from profiling
+
+**Fallback**: When LLM is disabled, rules come from:
+1. `config/rules/default.yaml` - Standard rules by type/role
+2. `config/ontologies/*.yaml` - Ontology-specific rules
 
 #### Quality Scoring
 
@@ -307,6 +320,22 @@ When context is requested with `ontology=financial_reporting`:
 3. Domain-specific quality rules are applied
 4. Context document is annotated with financial semantics
 
+#### LLM-Generated Content
+
+When LLM is enabled, the context layer generates additional content:
+
+**Suggested Queries** (`config/prompts/suggested_queries.yaml`):
+```python
+queries = await llm_generate_queries(schema, ontology)
+# Returns: Overview, metrics, trends, segments, quality queries
+```
+
+**Context Summary** (`config/prompts/context_summary.yaml`):
+```python
+summary = await llm_generate_summary(schema, quality_scores)
+# Returns: Natural language overview, key facts, warnings
+```
+
 #### Context Document Structure
 
 ```python
@@ -314,7 +343,7 @@ ContextDocument(
     tables=[
         TableContext(
             name="sales",
-            description="Daily sales transactions",  # inferred
+            description="Daily sales transactions",  # LLM-generated
             row_count=1_000_000,
             entity_type="transaction",
             grain_columns=["sale_id"],
@@ -327,6 +356,7 @@ ContextDocument(
                     data_type="DOUBLE",
                     semantic_role="measure",
                     business_name="Sale Amount",
+                    description="Transaction value in USD",  # LLM-generated
                     detected_unit="USD",
                     quality_score=0.98,
                 ),
@@ -348,13 +378,18 @@ ContextDocument(
         overall_score=0.92,
         critical_issues=["Missing data in Q3 2024"],
     ),
-    suggested_queries=[
+    suggested_queries=[  # LLM-generated
         SuggestedQuery(
-            description="Revenue by month",
+            name="Revenue by Month",
+            description="Monthly revenue trend analysis",
+            category="trends",
             sql="SELECT DATE_TRUNC('month', sale_date), SUM(amount) FROM sales GROUP BY 1",
         ),
         ...
-    ]
+    ],
+    summary="This dataset contains 3 years of e-commerce transactions...",  # LLM-generated
+    key_facts=["1M transactions", "4 related tables", "Daily granularity"],
+    warnings=["Data gaps in Q3 2024 may affect trend analysis"],
 )
 ```
 
@@ -483,21 +518,65 @@ quality_rules: [...]
 
 ### Custom Pattern Detectors
 
-Extend pattern detection prototype:
+Add YAML to `config/patterns` directory:
 
-```python
-CUSTOM_PATTERNS = {
-    'my_id_format': r'^[A-Z]{3}-\d{6}$',
-}
+```yaml
+some_patterns:
+  - name: [...]
+    pattern: [...]
+    inferred_type: [...]
+    examples: [...]
 ```
 
-### Custom Quality Rules
+## LLM Integration
 
-```python
-@quality_rule
-def my_custom_rule(table: str, column: str) -> QualityRule:
-    return QualityRule(
-        rule_type="custom",
-        rule_expression="...",
-    )
+The context engine supports optional LLM integration for intelligent analysis.
+Users can choose between:
+
+1. **LLM-powered** - Automatic semantic analysis, quality rules, query suggestions
+2. **Manual** - User-defined configuration in YAML files
+
+### Supported Providers
+
+| Provider | Config | Notes |
+|----------|--------|-------|
+| Anthropic | `anthropic` | Claude models, recommended |
+| OpenAI | `openai` | GPT-4 models |
+| Local | `local` | Any OpenAI-compatible endpoint |
+
+### LLM-Powered Features
+
+| Feature | Description | Manual Alternative |
+|---------|-------------|-------------------|
+| Semantic Analysis | Column roles, entity types, relationships | `config/semantic_overrides.yaml` |
+| Quality Rules | Domain-specific rule generation | `config/rules/*.yaml` |
+| Suggested Queries | Context-aware query generation | Skip |
+| Context Summary | Natural language overview | Skip |
+
+### Prompt Customization
+
+All prompts are stored in `config/prompts/` and can be customized:
+
+```yaml
+# config/prompts/semantic_analysis.yaml
+prompt: |
+  Your custom prompt here...
+  {tables_json}
+  {ontology_concepts}
+```
+
+This allows integration with existing prompt libraries.
+
+### Privacy Protection
+
+For sensitive data, the engine can use SDV (Synthetic Data Vault) to generate 
+synthetic samples instead of sending real data to external LLMs:
+
+```yaml
+# config/llm.yaml
+privacy:
+  use_synthetic_samples: true
+  sensitive_patterns:
+    - ".*email.*"
+    - ".*ssn.*"
 ```

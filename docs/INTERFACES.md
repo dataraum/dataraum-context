@@ -344,19 +344,22 @@ async def auto_decide_types(
 
 ## Enrichment Module
 
-### Semantic Enrichment
+### Semantic Enrichment (LLM-Powered)
 
 ```python
 class SemanticEnrichmentRequest(BaseModel):
     """Request for semantic enrichment."""
     table_ids: list[UUID]
-    ontology: str | None = None  # apply ontology hints
+    ontology: str | None = None  # apply ontology for domain context
+    use_llm: bool = True         # enable LLM analysis
 
 
 class SemanticEnrichmentResult(BaseModel):
     """Result of semantic enrichment."""
     annotations: list[SemanticAnnotation]
     entity_detections: list[EntityDetection]
+    relationships: list[Relationship]  # LLM-detected relationships
+    source: str  # 'llm', 'manual', 'override'
 
 
 class SemanticAnnotation(BaseModel):
@@ -367,9 +370,10 @@ class SemanticAnnotation(BaseModel):
     semantic_role: SemanticRole
     entity_type: str | None = None
     business_name: str | None = None
-    business_description: str | None = None
+    business_description: str | None = None  # LLM-generated description
     
-    annotation_source: str  # 'inferred', 'ontology', 'manual'
+    annotation_source: str  # 'llm', 'manual', 'override'
+    annotated_by: str | None = None  # model name or user
     confidence: float
 
 
@@ -379,12 +383,14 @@ class EntityDetection(BaseModel):
     table_name: str
     
     entity_type: str
+    description: str | None = None  # LLM-generated table description
     confidence: float
     evidence: dict[str, Any]
     
     grain_columns: list[str]
     is_fact_table: bool
     is_dimension_table: bool
+    time_column: str | None = None  # primary time column
 ```
 
 ### Topological Enrichment
@@ -732,10 +738,48 @@ class QualitySummary(BaseModel):
 
 
 class SuggestedQuery(BaseModel):
-    """A suggested SQL query for the context."""
+    """A suggested SQL query for the context (LLM-generated)."""
+    name: str
     description: str
+    category: str  # 'overview', 'metrics', 'trends', 'segments', 'quality'
     sql: str
-    complexity: str  # 'simple', 'medium', 'complex'
+    complexity: str  # 'simple', 'moderate', 'complex'
+
+
+class ContextSummary(BaseModel):
+    """Natural language summary of the data context (LLM-generated)."""
+    summary: str           # 2-3 paragraph overview
+    key_facts: list[str]   # bullet points
+    warnings: list[str]    # important caveats
+```
+
+### Context Document
+
+```python
+class ContextDocument(BaseModel):
+    """
+    The primary output for AI consumption.
+    Combines all metadata with LLM-generated content.
+    """
+    # Core metadata
+    tables: list[TableContext]
+    relationships: list[Relationship]
+    
+    # Ontology
+    ontology: str
+    relevant_metrics: list[MetricDefinition]
+    domain_concepts: list[DomainConcept]
+    
+    # Quality
+    quality_summary: QualitySummary
+    
+    # LLM-generated content
+    suggested_queries: list[SuggestedQuery]  # LLM-generated
+    context_summary: ContextSummary | None   # LLM-generated
+    
+    # Metadata
+    generated_at: datetime
+    llm_features_used: list[str]  # which LLM features contributed
 ```
 
 ### Interface
@@ -770,6 +814,156 @@ async def load_ontology(
 ) -> Result[Ontology]:
     """Load ontology definition."""
     ...
+```
+
+## LLM Module
+
+### Configuration
+```python
+class LLMConfig(BaseModel):
+    """LLM configuration from config/llm.yaml."""
+    active_provider: str  # 'anthropic', 'openai', 'local'
+    
+    features: LLMFeatures
+    limits: LLMLimits
+    privacy: LLMPrivacy
+
+
+class LLMFeatures(BaseModel):
+    """LLM feature toggles."""
+    semantic_analysis: FeatureConfig
+    quality_rule_generation: FeatureConfig
+    suggested_queries: FeatureConfig
+    context_summary: FeatureConfig
+
+
+class FeatureConfig(BaseModel):
+    enabled: bool = True
+    model_tier: str = "balanced"  # 'fast', 'balanced'
+    prompt_file: str
+```
+
+### Provider Interface
+```python
+# llm/providers/base.py
+
+class LLMRequest(BaseModel):
+    """Request to LLM provider."""
+    prompt: str
+    max_tokens: int = 4000
+    temperature: float = 0.0
+    response_format: str = "json"
+
+
+class LLMResponse(BaseModel):
+    """Response from LLM provider."""
+    content: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cached: bool = False
+
+
+class LLMProvider(ABC):
+    """Abstract base for LLM providers."""
+    
+    @abstractmethod
+    async def complete(self, request: LLMRequest) -> LLMResponse:
+        """Send completion request."""
+        pass
+```
+
+### Feature Functions
+```python
+# llm/features/semantic.py
+
+async def llm_analyze_semantics(
+    tables: list[TableProfile],
+    ontology: Ontology,
+    llm_config: LLMConfig,
+    session: AsyncSession,
+) -> Result[SemanticEnrichmentResult]:
+    """
+    Run LLM-based semantic analysis.
+    
+    Returns semantic annotations, entity detections, and relationships
+    for all tables and columns.
+    """
+    ...
+
+
+# llm/features/quality.py
+
+async def llm_generate_rules(
+    schema: SemanticEnrichmentResult,
+    ontology: Ontology,
+    llm_config: LLMConfig,
+    session: AsyncSession,
+) -> Result[list[QualityRule]]:
+    """
+    Generate quality rules using LLM.
+    
+    Rules are domain-appropriate based on semantic understanding.
+    """
+    ...
+
+
+# llm/features/queries.py
+
+async def llm_generate_queries(
+    schema: SemanticEnrichmentResult,
+    ontology: Ontology,
+    llm_config: LLMConfig,
+    session: AsyncSession,
+) -> Result[list[SuggestedQuery]]:
+    """
+    Generate suggested SQL queries using LLM.
+    
+    Queries cover: overview, metrics, trends, segments, quality.
+    """
+    ...
+
+
+# llm/features/summary.py
+
+async def llm_generate_summary(
+    schema: SemanticEnrichmentResult,
+    quality_summary: QualitySummary,
+    llm_config: LLMConfig,
+    session: AsyncSession,
+) -> Result[ContextSummary]:
+    """
+    Generate natural language context summary using LLM.
+    
+    Returns overview, key facts, and warnings.
+    """
+    ...
+```
+
+### Privacy (SDV Integration)
+```python
+# llm/privacy.py
+
+async def prepare_samples_for_llm(
+    table: TableProfile,
+    llm_config: LLMConfig,
+) -> list[dict]:
+    """
+    Prepare sample data for LLM analysis.
+    
+    If use_synthetic_samples is enabled, generates synthetic data
+    using SDV for columns matching sensitive_patterns.
+    """
+    if not llm_config.privacy.use_synthetic_samples:
+        return table.sample_values[:llm_config.privacy.max_sample_values]
+    
+    # Use SDV to generate synthetic samples for sensitive columns
+    synthetic = await generate_synthetic_samples(
+        table, 
+        llm_config.privacy.sensitive_patterns,
+        count=llm_config.privacy.synthetic_sample_count,
+    )
+    return synthetic
 ```
 
 ## API Module (FastAPI)
