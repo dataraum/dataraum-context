@@ -140,18 +140,18 @@ CREATE TABLE metadata.type_decisions (
 ### Semantic Metadata
 
 ```sql
--- Semantic annotations (human-editable)
+-- Semantic annotations (LLM-generated or manual)
 CREATE TABLE metadata.semantic_annotations (
     annotation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     column_id UUID REFERENCES metadata.columns(column_id) ON DELETE CASCADE,
     
     -- Classification
-    semantic_role VARCHAR,      -- 'measure', 'dimension', 'key', 'attribute', 'timestamp'
+    semantic_role VARCHAR,      -- 'measure', 'dimension', 'key', 'foreign_key', 'attribute', 'timestamp'
     entity_type VARCHAR,        -- 'customer', 'transaction', 'product', etc.
     
     -- Business terms
     business_name VARCHAR,      -- human-friendly name
-    business_description TEXT,
+    business_description TEXT,  -- LLM-generated or manual description
     business_domain VARCHAR,    -- 'finance', 'marketing', 'operations'
     
     -- Ontology mapping
@@ -159,9 +159,9 @@ CREATE TABLE metadata.semantic_annotations (
     ontology_uri VARCHAR,       -- URI if using formal ontology
     
     -- Provenance
-    annotation_source VARCHAR,  -- 'inferred', 'manual', 'imported'
+    annotation_source VARCHAR,  -- 'llm', 'manual', 'override'
     annotated_at TIMESTAMPTZ DEFAULT now(),
-    annotated_by VARCHAR,
+    annotated_by VARCHAR,       -- 'claude-sonnet-4-20250514', 'user@example.com', etc.
     confidence DOUBLE PRECISION,
     
     UNIQUE(column_id)
@@ -173,6 +173,7 @@ CREATE TABLE metadata.table_entities (
     table_id UUID REFERENCES metadata.tables(table_id) ON DELETE CASCADE,
     
     detected_entity_type VARCHAR NOT NULL,
+    description TEXT,            -- LLM-generated table description
     confidence DOUBLE PRECISION,
     evidence JSONB,              -- columns/patterns that led to detection
     
@@ -181,6 +182,8 @@ CREATE TABLE metadata.table_entities (
     is_fact_table BOOLEAN,
     is_dimension_table BOOLEAN,
     
+    -- Provenance
+    detection_source VARCHAR,    -- 'llm', 'manual', 'override'
     detected_at TIMESTAMPTZ DEFAULT now()
 );
 ```
@@ -277,7 +280,7 @@ CREATE TABLE metadata.temporal_profiles (
 ### Quality Metadata
 
 ```sql
--- Quality rules
+-- Quality rules (LLM-generated or manual)
 CREATE TABLE metadata.quality_rules (
     rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
@@ -288,18 +291,18 @@ CREATE TABLE metadata.quality_rules (
     -- Rule definition
     rule_name VARCHAR NOT NULL,
     rule_type VARCHAR NOT NULL,  -- 'not_null', 'unique', 'range', 'pattern', 'referential', 'custom'
-    rule_expression TEXT,        -- SQL expression or DSL
+    rule_expression TEXT,        -- SQL expression (DuckDB syntax)
     rule_parameters JSONB,       -- {min, max, pattern, etc.}
     
     -- Metadata
     severity VARCHAR DEFAULT 'warning',  -- 'error', 'warning', 'info'
-    source VARCHAR NOT NULL,             -- 'generated', 'ontology', 'manual'
-    description TEXT,
+    source VARCHAR NOT NULL,             -- 'llm', 'ontology', 'default', 'manual'
+    description TEXT,                    -- LLM-generated rationale
     
     -- Status
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT now(),
-    created_by VARCHAR
+    created_by VARCHAR                   -- 'claude-sonnet-4-20250514', 'user@example.com', etc.
 );
 
 -- Quality rule execution results
@@ -429,6 +432,44 @@ CREATE TABLE metadata.review_queue (
     reviewed_by VARCHAR,
     review_notes TEXT
 );
+```
+
+### LLM Response Cache
+
+```sql
+-- Cache LLM responses to avoid redundant API calls
+CREATE TABLE metadata.llm_cache (
+    cache_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- Cache key (hash of inputs)
+    cache_key VARCHAR NOT NULL UNIQUE,
+    feature VARCHAR NOT NULL,  -- 'semantic_analysis', 'quality_rules', 'suggested_queries', 'context_summary'
+    
+    -- Request context
+    source_id UUID REFERENCES metadata.sources(source_id),
+    table_ids JSONB,           -- list of table IDs included
+    ontology VARCHAR,
+    
+    -- LLM details
+    provider VARCHAR NOT NULL,  -- 'anthropic', 'openai', 'local'
+    model VARCHAR NOT NULL,
+    prompt_hash VARCHAR,        -- hash of prompt template used
+    
+    -- Response
+    response_json JSONB NOT NULL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    
+    -- Timing
+    created_at TIMESTAMPTZ DEFAULT now(),
+    expires_at TIMESTAMPTZ,     -- based on cache_ttl_seconds config
+    
+    -- Invalidation
+    is_valid BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX idx_llm_cache_key ON metadata.llm_cache(cache_key);
+CREATE INDEX idx_llm_cache_feature ON metadata.llm_cache(feature, source_id) WHERE is_valid = TRUE;
 ```
 
 ## Indexes

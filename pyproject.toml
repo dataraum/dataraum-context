@@ -24,27 +24,26 @@ dependencies = [
     "duckdb>=1.0.0",
     "pyarrow>=15.0.0",
     "pint>=0.23",
-    
-    # Database (SQLAlchemy + backends)
+
+    # Database (SQLAlchemy + SQLite backend)
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.19.0",
-    "asyncpg>=0.29.0",
-    
+
     # API
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    
+
     # Dataflow orchestration
     "sf-hamilton>=1.82.0",
-    
+
     # MCP
     "mcp>=0.1.0",
-    
+
     # Configuration
     "pyyaml>=6.0.0",
-    
+
     # Utilities
     "structlog>=24.1.0",
     "python-dotenv>=1.0.0",
@@ -61,6 +60,26 @@ dev = [
     "ruff>=0.2.0",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
+]
+
+# LLM providers (install what you need)
+anthropic = ["anthropic>=0.40.0"]
+openai = ["openai>=1.50.0"]
+llm = [
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+]
+postgres = ["asyncpg>=0.29.0"]
+
+# Synthetic data generation for privacy (SDV)
+privacy = ["sdv>=1.17.0"]
+
+# All optional features
+all = [
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+    "sdv>=1.17.0",
+    "asyncpg>=0.29.0",
 ]
 
 [project.scripts]
@@ -113,7 +132,10 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = [
     "duckdb.*",
-    "dbos.*",
     "mcp.*",
+    "anthropic.*",
+    "openai.*",
+    "sdv.*",
+    "hamilton.*",
 ]
 ignore_missing_imports = true

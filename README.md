@@ -11,27 +11,41 @@ The core insight: AI agents don't need tools to discover metadata at runtime. Th
 ## Features
 
 - **Statistical Metadata**: Distributions, cardinality, null rates, patterns
-- **Semantic Metadata**: Column roles, entity types, business terms
+- **Semantic Metadata**: Column roles, entity types, business terms (LLM-powered or manual)
 - **Topological Metadata**: Relationships via TDA, join paths, hierarchies
 - **Temporal Metadata**: Granularity, gaps, seasonality, trends
 - **Quality Metadata**: Generated rules, scores, anomalies
 - **Ontological Context**: Domain-specific interpretation (financial, marketing, etc.)
+- **LLM Integration**: Configurable providers (Claude, OpenAI, local) with customizable prompts
+- **Privacy**: Synthetic data generation via SDV for sensitive columns
 
 ## Architecture
 
 ```
 Data Sources → Staging → Profiling → Enrichment → Quality → Context
                   ↓           ↓           ↓           ↓         ↓
-              DuckDB     PostgreSQL metadata storage      ContextDocument
-                                                              ↓
-                                                         AI (via MCP)
+              DuckDB      SQLAlchemy      LLM      Rules    ContextDocument
+                         (SQLite/PG)   Analysis   + LLM         + Summary
+                                                                    ↓
+                                                              AI (via MCP)
 ```
 
 ## Quick Start
 
 ```bash
-# Install
+# Install (core only)
 pip install dataraum-context
+
+# Install with LLM support
+pip install dataraum-context[anthropic]  # Claude
+pip install dataraum-context[openai]     # OpenAI  
+pip install dataraum-context[llm]        # Both
+
+# Install with privacy features (synthetic data)
+pip install dataraum-context[privacy]
+
+# Install everything
+pip install dataraum-context[all]
 
 # Run migrations (SQLite by default, no config needed)
 dataraum-context migrate up
@@ -43,6 +57,41 @@ dataraum-context serve
 export DATARAUM_DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/dataraum"
 dataraum-context migrate up
 dataraum-context serve
+```
+
+## LLM Configuration
+
+Semantic analysis and other features can be powered by LLM or configured manually. Configure in `config/llm.yaml`:
+
+```yaml
+# Choose provider
+active_provider: anthropic  # or: openai, local
+
+# Enable/disable features
+features:
+  semantic_analysis:
+    enabled: true       # Column roles, entities, relationships
+  quality_rule_generation:
+    enabled: true       # Domain-specific quality rules
+  suggested_queries:
+    enabled: true       # Useful starter SQL queries
+  context_summary:
+    enabled: true       # Natural language data overview
+```
+
+Set your API key:
+```bash
+export ANTHROPIC_API_KEY="sk-..."
+# or
+export OPENAI_API_KEY="sk-..."
+```
+
+Customize prompts in `config/prompts/` or disable LLM and use `config/semantic_overrides.yaml` for manual definitions.
+
+For sensitive data, enable synthetic sample generation (requires `[privacy]` extra):
+```yaml
+privacy:
+  use_synthetic_samples: true  # Use SDV to generate fake samples for LLM
 ```
 
 ## Usage
@@ -92,7 +141,7 @@ The context engine exposes 4 tools via MCP:
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) - System design and component details
-- [Data Model](docs/DATA_MODEL.md) - PostgreSQL metadata schema
+- [Data Model](docs/DATA_MODEL.md) - SQLAlchemy metadata schema
 - [Interfaces](docs/INTERFACES.md) - Module interfaces and data structures
 
 ## Technology Stack
@@ -104,7 +153,9 @@ The context engine exposes 4 tools via MCP:
 | Pattern Detection | PyArrow + Pint |
 | Relationship Detection | TDA |
 | Metadata Storage | SQLAlchemy (SQLite / PostgreSQL) |
+| Semantic Analysis | LLM (Claude / OpenAI / local) |
 | Dataflows | Apache Hamilton |
+| Privacy | SDV (synthetic data) |
 | API | FastAPI |
 | AI Interface | MCP SDK |
 

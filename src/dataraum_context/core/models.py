@@ -107,10 +107,13 @@ class QualitySeverity(str, Enum):
 
 class DecisionSource(str, Enum):
     """Source of a decision (type, annotation, etc)."""
-    AUTO = "auto"
-    MANUAL = "manual"
-    RULE = "rule"
-    ONTOLOGY = "ontology"
+    AUTO = "auto"        # Automatic heuristic
+    LLM = "llm"          # LLM-generated
+    MANUAL = "manual"    # Human-provided
+    OVERRIDE = "override"  # Manual override of LLM
+    RULE = "rule"        # Rule-based
+    ONTOLOGY = "ontology"  # From ontology config
+    DEFAULT = "default"  # From default config
 
 
 # === Identifiers ===
@@ -304,16 +307,17 @@ class TypeResolutionResult(BaseModel):
 # === Enrichment Models ===
 
 class SemanticAnnotation(BaseModel):
-    """Semantic annotation for a column."""
+    """Semantic annotation for a column (LLM-generated or manual)."""
     column_id: UUID
     column_ref: ColumnRef
     
     semantic_role: SemanticRole
     entity_type: str | None = None
     business_name: str | None = None
-    business_description: str | None = None
+    business_description: str | None = None  # LLM-generated description
     
     annotation_source: DecisionSource
+    annotated_by: str | None = None  # e.g., 'claude-sonnet-4-20250514' or 'user@example.com'
     confidence: float
 
 
@@ -323,12 +327,14 @@ class EntityDetection(BaseModel):
     table_name: str
     
     entity_type: str
+    description: str | None = None  # LLM-generated table description
     confidence: float
     evidence: dict[str, Any] = Field(default_factory=dict)
     
     grain_columns: list[str] = Field(default_factory=list)
     is_fact_table: bool = False
     is_dimension_table: bool = False
+    time_column: str | None = None  # Primary time column
 
 
 class Relationship(BaseModel):
@@ -519,10 +525,19 @@ class QualitySummary(BaseModel):
 
 
 class SuggestedQuery(BaseModel):
-    """A suggested SQL query for the context."""
+    """A suggested SQL query for the context (LLM-generated)."""
+    name: str
     description: str
+    category: str = "overview"  # 'overview', 'metrics', 'trends', 'segments', 'quality'
     sql: str
-    complexity: str = "simple"
+    complexity: str = "simple"  # 'simple', 'moderate', 'complex'
+
+
+class ContextSummary(BaseModel):
+    """Natural language summary of the data context (LLM-generated)."""
+    summary: str
+    key_facts: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ContextDocument(BaseModel):
@@ -531,6 +546,8 @@ class ContextDocument(BaseModel):
     This is the primary output of the context engine - a comprehensive
     document that gives AI everything it needs to understand and query
     the data effectively.
+    
+    Several fields are LLM-generated when enabled in config/llm.yaml.
     """
     generated_at: datetime
     
@@ -545,7 +562,10 @@ class ContextDocument(BaseModel):
     
     # Quality summary
     quality_summary: QualitySummary
-    warnings: list[str] = Field(default_factory=list)
     
-    # For AI
+    # LLM-generated content
     suggested_queries: list[SuggestedQuery] = Field(default_factory=list)
+    context_summary: ContextSummary | None = None
+    
+    # Metadata
+    llm_features_used: list[str] = Field(default_factory=list)  # which LLM features contributed
