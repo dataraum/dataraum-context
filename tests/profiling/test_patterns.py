@@ -1,7 +1,5 @@
 """Tests for pattern detection."""
 
-import pytest
-
 from dataraum_context.core.models import DataType
 from dataraum_context.profiling.patterns import load_pattern_config
 

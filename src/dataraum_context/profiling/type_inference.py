@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,6 +75,8 @@ async def infer_type_candidates(
                 continue
 
             candidates = candidates_result.value
+            if not candidates:
+                continue
 
             # Store in database
             for candidate in candidates:
@@ -125,6 +127,9 @@ async def _infer_column_types(
         table_name = table.duckdb_path
         col_name = column.column_name
 
+        if not table_name or not col_name:
+            return Result.fail("No table or column name found")
+
         # Sample values (exclude nulls)
         sample_size = settings.profile_sample_size or 100_000
         sample_query = f"""
@@ -152,6 +157,15 @@ async def _infer_column_types(
 
         # Check column name hints
         column_name_hints = pattern_config.match_column_name(col_name)
+
+        # Boost pattern matches that align with column name hints
+        for hint in column_name_hints:
+            if hint.likely_type:
+                # Find patterns that infer the same type as the column name suggests
+                for pattern_name, pattern in pattern_by_name.items():
+                    if pattern.inferred_type == hint.likely_type:
+                        # Boost match count by 20% when column name confirms the pattern
+                        pattern_matches[pattern_name] = int(pattern_matches[pattern_name] * 1.2)
 
         # Try Pint unit detection on the VARCHAR values
         # This detects units like "100 kg", "5.5 m", "$25.30" that patterns might miss
@@ -206,7 +220,7 @@ async def _infer_column_types(
             confidence = (match_rate + parse_result.success_rate) / 2.0
 
             candidate = TypeCandidateModel(
-                column_id=UUID(column.column_id),
+                column_id=column.column_id,
                 column_ref=ColumnRef(
                     table_name=table.table_name,
                     column_name=column.column_name,
@@ -222,13 +236,45 @@ async def _infer_column_types(
             )
             candidates.append(candidate)
 
-        # Strategy 2: If Pint detected units but no patterns matched
+        # Strategy 2: Column name hints when no value patterns matched
+        # This handles cases where the column name strongly suggests a type
+        # but our value patterns didn't detect it (e.g., unconventional formatting)
+        if not candidates and column_name_hints:
+            for hint in column_name_hints:
+                if hint.likely_type:
+                    # Test if values can actually be cast to the suggested type
+                    parse_result = await _test_type_cast(
+                        table_name=table_name,
+                        col_name=col_name,
+                        target_type=hint.likely_type,
+                        duckdb_conn=duckdb_conn,
+                    )
+
+                    # Only add as candidate if parse success rate is reasonable
+                    if parse_result.success_rate >= 0.8:
+                        candidate = TypeCandidateModel(
+                            column_id=column.column_id,
+                            column_ref=ColumnRef(
+                                table_name=table.table_name,
+                                column_name=column.column_name,
+                            ),
+                            data_type=hint.likely_type,
+                            confidence=parse_result.success_rate
+                            * 0.9,  # Slightly lower than pattern-based
+                            parse_success_rate=parse_result.success_rate,
+                            failed_examples=parse_result.failed_examples,
+                            detected_pattern=hint.pattern,
+                            pattern_match_rate=1.0,  # Column name matched 100%
+                        )
+                        candidates.append(candidate)
+
+        # Strategy 3: If Pint detected units but no patterns matched
         # This handles cases like "100 kg" where the unit detection worked
         # but our regex patterns didn't catch it
         if not candidates and pint_unit_result:
             # Infer numeric type since Pint successfully parsed it
             candidate = TypeCandidateModel(
-                column_id=UUID(column.column_id),
+                column_id=column.column_id,
                 column_ref=ColumnRef(
                     table_name=table.table_name,
                     column_name=column.column_name,
@@ -244,10 +290,10 @@ async def _infer_column_types(
             )
             candidates.append(candidate)
 
-        # Strategy 3: Fallback to VARCHAR if nothing else worked
+        # Strategy 4: Fallback to VARCHAR if nothing else worked
         if not candidates:
             candidate = TypeCandidateModel(
-                column_id=UUID(column.column_id),
+                column_id=column.column_id,
                 column_ref=ColumnRef(
                     table_name=table.table_name,
                     column_name=column.column_name,
@@ -300,7 +346,8 @@ async def _test_type_cast(
             FROM {table_name}
             WHERE "{col_name}" IS NOT NULL
         """
-        total_count = duckdb_conn.execute(total_query).fetchone()[0]
+        total_count_rows = duckdb_conn.execute(total_query).fetchone()
+        total_count = total_count_rows[0] if total_count_rows else 0
 
         if total_count == 0:
             return ParseResult(success_rate=0.0, failed_examples=[])
@@ -312,9 +359,10 @@ async def _test_type_cast(
             WHERE TRY_CAST("{col_name}" AS {target_type.value}) IS NOT NULL
             AND "{col_name}" IS NOT NULL
         """
-        success_count = duckdb_conn.execute(success_query).fetchone()[0]
+        success_count_rows = duckdb_conn.execute(success_query).fetchone()
+        success_count = success_count_rows[0] if success_count_rows else 0
 
-        success_rate = success_count / total_count
+        success_rate = success_count / total_count if total_count > 0 else 0
 
         # Get examples of failed casts
         failed_examples = []

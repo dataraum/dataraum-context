@@ -6,18 +6,15 @@ contract between modules. All inter-module communication uses these types.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generic, TypeVar
-from uuid import UUID
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-# Generic type for Result
-T = TypeVar("T")
 
-
-class Result(BaseModel, Generic[T]):
+class Result[T](BaseModel):
     """Result type for operations that can fail.
 
     Use this instead of exceptions for expected failures.
@@ -46,9 +43,9 @@ class Result(BaseModel, Generic[T]):
         assert self.value is not None
         return self.value
 
-    def map(self, fn: callable[[T], Any]) -> Result[Any]:
+    def map(self, fn: Callable[[T], Any]) -> Result[Any]:
         """Transform the value if successful."""
-        if self.success:
+        if self.success and self.value is not None:
             return Result.ok(fn(self.value), self.warnings)
         return self  # type: ignore
 
@@ -176,7 +173,7 @@ class SourceConfig(BaseModel):
 class StagedColumn(BaseModel):
     """A column in a staged table."""
 
-    column_id: UUID
+    column_id: str
     name: str
     position: int
     sample_values: list[str] = Field(default_factory=list)
@@ -185,7 +182,7 @@ class StagedColumn(BaseModel):
 class StagedTable(BaseModel):
     """A staged table."""
 
-    table_id: UUID
+    table_id: str
     table_name: str
     raw_table_name: str
     row_count: int
@@ -195,7 +192,7 @@ class StagedTable(BaseModel):
 class StagingResult(BaseModel):
     """Result of staging operation."""
 
-    source_id: UUID
+    source_id: str
     tables: list[StagedTable]
     total_rows: int
     duration_seconds: float
@@ -249,7 +246,7 @@ class DetectedPattern(BaseModel):
 class TypeCandidate(BaseModel):
     """A candidate type for a column."""
 
-    column_id: UUID
+    column_id: str
     column_ref: ColumnRef
 
     data_type: DataType
@@ -267,7 +264,7 @@ class TypeCandidate(BaseModel):
 class ColumnProfile(BaseModel):
     """Statistical profile of a column."""
 
-    column_id: UUID
+    column_id: str
     column_ref: ColumnRef
     profiled_at: datetime
 
@@ -300,7 +297,7 @@ class ProfileResult(BaseModel):
 class TypeDecision(BaseModel):
     """A type decision for a column."""
 
-    column_id: UUID
+    column_id: str
     decided_type: DataType
     decision_source: DecisionSource = DecisionSource.AUTO
     decision_reason: str | None = None
@@ -309,7 +306,7 @@ class TypeDecision(BaseModel):
 class ColumnCastResult(BaseModel):
     """Cast result for a single column."""
 
-    column_id: UUID
+    column_id: str
     column_ref: ColumnRef
     source_type: str
     target_type: DataType
@@ -338,7 +335,7 @@ class TypeResolutionResult(BaseModel):
 class SemanticAnnotation(BaseModel):
     """Semantic annotation for a column (LLM-generated or manual)."""
 
-    column_id: UUID
+    column_id: str
     column_ref: ColumnRef
 
     semantic_role: SemanticRole
@@ -354,7 +351,7 @@ class SemanticAnnotation(BaseModel):
 class EntityDetection(BaseModel):
     """Entity type detection for a table."""
 
-    table_id: UUID
+    table_id: str
     table_name: str
 
     entity_type: str
@@ -371,7 +368,7 @@ class EntityDetection(BaseModel):
 class Relationship(BaseModel):
     """A detected relationship between tables."""
 
-    relationship_id: UUID
+    relationship_id: str
 
     from_table: str
     from_column: str
@@ -417,7 +414,7 @@ class TemporalGap(BaseModel):
 class TemporalProfile(BaseModel):
     """Temporal profile for a time column."""
 
-    column_id: UUID
+    column_id: str
     column_ref: ColumnRef
 
     min_timestamp: datetime
@@ -444,7 +441,7 @@ class TemporalProfile(BaseModel):
 class QualityRule(BaseModel):
     """A quality rule."""
 
-    rule_id: UUID
+    rule_id: str
 
     table_name: str
     column_name: str | None = None
@@ -462,7 +459,7 @@ class QualityRule(BaseModel):
 class RuleResult(BaseModel):
     """Result of a single rule execution."""
 
-    rule_id: UUID
+    rule_id: str
     rule_name: str
 
     total_records: int
@@ -477,7 +474,7 @@ class QualityScore(BaseModel):
     """Aggregate quality score."""
 
     scope: str  # 'table' or 'column'
-    scope_id: UUID
+    scope_id: str
     scope_name: str
 
     completeness: float

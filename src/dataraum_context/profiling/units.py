@@ -4,7 +4,6 @@ This module detects units in VARCHAR string values (e.g., "100 kg", "$1,234.56")
 It extracts both the numeric magnitude and the unit, which helps with type inference.
 """
 
-import re
 from dataclasses import dataclass
 
 import pint
@@ -162,7 +161,7 @@ def detect_unit(values: list[str], sample_size: int = 100) -> UnitDetectionResul
         return None
 
     # Find most common unit
-    most_common_unit = max(detected_units, key=detected_units.get)
+    most_common_unit = max(detected_units)
 
     # Confidence is based on:
     # - How many values had this unit vs total values that had any unit

@@ -114,10 +114,13 @@ class CSVLoader(LoaderBase):
 
             # Get schema first
             schema_result = await self.get_schema(source_config)
-            if not schema_result.success:
+            if not schema_result.success and schema_result.error:
                 return Result.fail(schema_result.error)
 
             columns = schema_result.value
+
+            if not columns:
+                return Result.fail("Columns empty or zero length")
 
             # Sanitize table name
             table_name = self._sanitize_table_name(path.stem)
@@ -146,7 +149,10 @@ class CSVLoader(LoaderBase):
             duckdb_conn.execute(sql)
 
             # Get row count
-            row_count = duckdb_conn.execute(f"SELECT COUNT(*) FROM {raw_table_name}").fetchone()[0]
+            row_count_rows = duckdb_conn.execute(
+                f"SELECT COUNT(*) FROM {raw_table_name}"
+            ).fetchone()
+            row_count = row_count_rows[0] if row_count_rows else 0
 
             # Create Source record in metadata DB
             source_id = str(uuid4())

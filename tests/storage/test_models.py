@@ -2,7 +2,6 @@
 
 from datetime import datetime
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +64,7 @@ class TestCoreModels:
 
         assert saved.name == "test_csv"
         assert saved.source_type == "csv"
+        assert saved.connection_config
         assert saved.connection_config["path"] == "/data/test.csv"
         assert saved.source_id is not None
 
@@ -160,6 +160,7 @@ class TestStatisticalModels:
         assert saved.total_count == 1000
         assert saved.null_count == 50
         assert saved.cardinality_ratio == 0.8
+        assert saved.percentiles
         assert saved.percentiles["p50"] == 100.0
 
     async def test_create_type_candidate(self, session: AsyncSession):
@@ -473,6 +474,7 @@ class TestOntologyModels:
 
         assert saved.name == "financial_reporting"
         assert saved.is_builtin is True
+        assert saved.concepts
         assert len(saved.concepts) == 1
 
     async def test_create_ontology_application(self, session: AsyncSession):

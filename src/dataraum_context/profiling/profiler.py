@@ -1,7 +1,6 @@
 """Main profiling orchestrator."""
 
 import time
-from uuid import UUID
 
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +12,7 @@ from dataraum_context.storage.models import Table
 
 
 async def profile_table(
-    table_id: UUID,
+    table_id: str,
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: AsyncSession,
 ) -> Result[ProfileResult]:
@@ -76,9 +75,11 @@ async def profile_table(
         # Build result
         duration = time.time() - start_time
 
+        profiles = stats_result.value
+
         result = ProfileResult(
-            profiles=stats_result.value,
-            type_candidates=type_candidates,
+            profiles=profiles if profiles else [],
+            type_candidates=type_candidates if type_candidates else [],
             duration_seconds=duration,
         )
 
