@@ -3,7 +3,7 @@ name = "dataraum-context"
 version = "0.1.0"
 description = "Rich metadata context engine for AI-driven data analytics"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "DataRaum", email = "hello@dataraum.com" }
@@ -13,8 +13,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -24,26 +23,20 @@ dependencies = [
     "duckdb>=1.0.0",
     "pyarrow>=15.0.0",
     "pint>=0.23",
-
     # Database (SQLAlchemy + SQLite backend)
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.19.0",
-
     # API
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-
     # Dataflow orchestration
     "sf-hamilton>=1.82.0",
-
     # MCP
     "mcp>=0.1.0",
-
     # Configuration
     "pyyaml>=6.0.0",
-
     # Utilities
     "structlog>=24.1.0",
     "python-dotenv>=1.0.0",
@@ -71,10 +64,17 @@ llm = [
 ]
 postgres = ["asyncpg>=0.29.0"]
 
-# Synthetic data generation for privacy (SDV)
+# Synthetic data generation for privacy (SDV) - heavy dependency with PyTorch
 privacy = ["sdv>=1.17.0"]
 
-# All optional features
+# Common optional features (excluding heavy privacy/SDV dependencies)
+complete = [
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+    "asyncpg>=0.29.0",
+]
+
+# Everything including heavy ML dependencies
 all = [
     "anthropic>=0.40.0",
     "openai>=1.50.0",
@@ -90,6 +90,17 @@ Homepage = "https://github.com/dataraum/dataraum-context"
 Documentation = "https://docs.dataraum.com/context"
 Repository = "https://github.com/dataraum/dataraum-context"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "hypothesis>=6.98.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -103,7 +114,7 @@ testpaths = ["tests"]
 addopts = "-v --tb=short"
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py314"
 line-length = 100
 select = [
     "E",   # pycodestyle errors
@@ -122,7 +133,7 @@ ignore = [
 known-first-party = ["dataraum_context"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
