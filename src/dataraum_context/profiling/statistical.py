@@ -68,6 +68,9 @@ async def compute_statistical_profile(
 
             profile = profile_result.value
 
+            if not profile:
+                continue
+
             # Store in metadata database
             db_profile = DBColumnProfile(
                 profile_id=str(uuid4()),
@@ -138,9 +141,9 @@ async def _profile_column(
         """
 
         counts = duckdb_conn.execute(count_query).fetchone()
-        total_count = counts[0]
-        non_null_count = counts[1]
-        distinct_count = counts[2]
+        total_count = counts[0] if counts and len(counts) > 0 else 0
+        non_null_count = counts[1] if counts and len(counts) > 1 else 0
+        distinct_count = counts[2] if counts and len(counts) > 2 else 0
         null_count = total_count - non_null_count
 
         null_ratio = null_count / total_count if total_count > 0 else 0.0

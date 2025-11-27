@@ -107,7 +107,7 @@ class PatternConfig:
                         examples=pattern_dict.get("examples"),
                     )
                     self._patterns.append(pattern)
-                except KeyError as e:
+                except KeyError:
                     # Skip invalid patterns
                     continue
 

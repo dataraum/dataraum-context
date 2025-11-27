@@ -4,8 +4,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.profiling import profile_table
@@ -24,7 +23,7 @@ async def test_session():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
 
     async with async_session() as session:
         yield session
@@ -71,6 +70,7 @@ class TestProfilerIntegration:
         assert load_result.success, f"Load failed: {load_result.error}"
 
         staging_result = load_result.value
+        assert staging_result
         table = staging_result.tables[0]
 
         # Step 2: Profile the table
@@ -83,6 +83,7 @@ class TestProfilerIntegration:
         assert profile_result.success, f"Profiling failed: {profile_result.error}"
 
         result = profile_result.value
+        assert result
 
         # Verify we got profiles
         assert len(result.profiles) > 0
@@ -92,7 +93,7 @@ class TestProfilerIntegration:
         assert len(result.type_candidates) > 0
 
         # Check that each column has at least one type candidate
-        columns_with_candidates = set(tc.column_id for tc in result.type_candidates)
+        columns_with_candidates = {tc.column_id for tc in result.type_candidates}
         assert len(columns_with_candidates) > 0
 
         # Verify profile contents
@@ -160,6 +161,7 @@ class TestProfilerIntegration:
         assert load_result.success
 
         staging_result = load_result.value
+        assert staging_result
         table = staging_result.tables[0]
 
         # Profile

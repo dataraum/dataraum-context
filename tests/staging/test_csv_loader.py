@@ -4,8 +4,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.staging.loaders.csv import CSVLoader
@@ -25,7 +24,7 @@ async def test_session():
         await conn.run_sync(Base.metadata.create_all)
 
     # Create session
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
 
     async with async_session() as session:
         yield session
@@ -79,6 +78,7 @@ class TestCSVLoader:
         columns = result.value
 
         # Check we got columns
+        assert columns
         assert len(columns) > 0
 
         # Check column properties
@@ -101,6 +101,7 @@ class TestCSVLoader:
         result = await loader.get_schema(config)
 
         assert not result.success
+        assert result.error
         assert "not found" in result.error.lower()
 
     async def test_load_payment_method(
@@ -125,6 +126,7 @@ class TestCSVLoader:
         assert result.success, f"Load failed: {result.error}"
 
         staging_result = result.value
+        assert staging_result
         assert staging_result.source_id is not None
         assert len(staging_result.tables) == 1
 

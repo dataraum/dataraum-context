@@ -1,10 +1,9 @@
 """Tests for database schema initialization."""
 
-import pytest
 from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from dataraum_context.storage.models import DBSchemaVersion, Source
+from dataraum_context.storage.models import Source
 from dataraum_context.storage.schema import get_schema_version, init_database, reset_database
 
 
