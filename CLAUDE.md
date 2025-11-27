@@ -1,5 +1,101 @@
 # DataRaum Context Engine
 
+## Core Philosophy
+
+This project prioritizes **correctness over speed**. We would rather have working code slowly than broken code quickly.
+
+## Critical Rules - READ THESE FIRST
+
+### Never Claim "Done" or "Production Ready" Until:
+1. ALL tests pass (run the full test suite, not just the file you changed)
+2. You have verified the actual output matches expected behavior
+3. Type checking passes (if applicable)
+4. Linting passes (if applicable)
+
+If any of these fail, the task is NOT complete. Fix the issues before declaring success.
+
+### The "Three Strikes" Rule for Debugging
+If you've attempted the same fix 3 times without success:
+1. STOP making changes
+2. Explain what you've tried and what you observed
+3. Form a hypothesis about the ROOT CAUSE (not just symptoms)
+4. Ask for guidance or propose a fundamentally different approach
+
+Do not continue making random changes hoping something works.
+
+## Problem-Solving Standards
+
+### Before Writing Any Code
+- Understand the actual requirement, not what you assume it to be
+- If the requirement is ambiguous, ask for clarification
+- Consider edge cases upfront, not as an afterthought
+
+### When Something Doesn't Work
+1. **Read the actual error message** - quote it in your response
+2. **Form a hypothesis** about WHY this error occurred
+3. **Verify your hypothesis** before attempting a fix
+4. **Make ONE targeted change** to test your hypothesis
+5. **Observe the result** - did it confirm or refute your hypothesis?
+
+Do NOT:
+- Make multiple simultaneous changes
+- Modify tests to make them pass (unless the test itself is wrong)
+- Assume simple explanations for persistent problems
+- Skip the hypothesis step
+
+### Test Failures Are Information
+When a test fails:
+- The test is probably right and your code is wrong
+- Understand WHAT the test expects and WHY
+- Only modify the test if you can articulate why the test's expectation is incorrect
+
+## Testing Standards
+
+### Test Quality
+- Each test should test ONE thing
+- Test names should describe the expected behavior
+- Tests should be independent - order should not matter
+- Prefer many small, focused tests over few large tests
+
+### When Tests Become Bloated
+If you find yourself iterating heavily on tests:
+1. STOP
+2. Step back and understand what behavior you're actually testing
+3. Delete the bloated test
+4. Write a fresh, minimal test for that single behavior
+
+### Test-Driven Debugging
+When fixing a bug:
+1. First write a failing test that reproduces the bug
+2. Then fix the bug
+3. Verify the test now passes
+4. This proves you actually fixed the issue
+
+## Code Quality
+
+### Changes Should Be Minimal
+- Prefer small, targeted changes over broad rewrites
+- Each commit should do ONE thing
+- If you're changing many files, question whether you're taking the right approach
+
+### Avoid Premature Abstraction
+- Write concrete code first
+- Only abstract when you see actual duplication (rule of three)
+- Simple, readable code beats clever, abstract code
+
+## Definition of Done Checklist
+
+Before declaring any task complete, verify:
+
+- [ ] All existing tests still pass
+- [ ] New functionality has tests
+- [ ] Type checking passes
+- [ ] Linting passes
+- [ ] Code has been manually verified (if UI) or output checked (if logic)
+- [ ] No console.log or debug statements left in code
+- [ ] Error handling is in place
+- [ ] Edge cases are handled
+
 ## What Is This?
 
 A Python library for extracting rich metadata context from data sources to power 
@@ -221,7 +317,7 @@ These must come first - everything else depends on them.
 
 | Step | Module | Deliverables |
 |------|--------|--------------|
-| 1 | Storage | SQLAlchemy models, Alembic migrations, `llm_cache` table |
+| 1 | Storage | SQLAlchemy models, `llm_cache` table |
 | 2 | Core/Config | Settings, YAML loaders, connection managers |
 
 ### Phase 2A: LLM Infrastructure (parallel track)
