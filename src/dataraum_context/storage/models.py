@@ -4,7 +4,7 @@ Note: This module defines database models (SQLAlchemy ORM).
 For API/interface models (Pydantic), see core.models.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -38,7 +38,9 @@ class DBSchemaVersion(Base):
     __tablename__ = "schema_version"
 
     version: Mapped[str] = mapped_column(String, primary_key=True)
-    applied_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
 
 # ============================================================================
@@ -55,12 +57,20 @@ class Source(Base):
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     source_type: Mapped[str] = mapped_column(String, nullable=False)
     connection_config: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow()
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     # Relationships
@@ -83,7 +93,9 @@ class Table(Base):
     layer: Mapped[str] = mapped_column(String, nullable=False)
     duckdb_path: Mapped[str | None] = mapped_column(String)
     row_count: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
     last_profiled_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     # Relationships
@@ -168,7 +180,9 @@ class ColumnProfile(Base):
     column_id: Mapped[str] = mapped_column(
         ForeignKey("columns.column_id", ondelete="CASCADE"), nullable=False
     )
-    profiled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    profiled_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     # Counts
     total_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -207,11 +221,15 @@ class TypeCandidate(Base):
 
     __tablename__ = "type_candidates"
 
-    candidate_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    candidate_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid4())
+    )
     column_id: Mapped[str] = mapped_column(
         ForeignKey("columns.column_id", ondelete="CASCADE"), nullable=False
     )
-    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     data_type: Mapped[str] = mapped_column(String, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
@@ -246,7 +264,9 @@ class TypeDecision(Base):
 
     decided_type: Mapped[str] = mapped_column(String, nullable=False)
     decision_source: Mapped[str] = mapped_column(String, nullable=False)
-    decided_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
     decided_by: Mapped[str | None] = mapped_column(String)
 
     # Audit trail
@@ -268,7 +288,9 @@ class SemanticAnnotation(Base):
     __tablename__ = "semantic_annotations"
     __table_args__ = (UniqueConstraint("column_id", name="uq_column_semantic_annotation"),)
 
-    annotation_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    annotation_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid4())
+    )
     column_id: Mapped[str] = mapped_column(
         ForeignKey("columns.column_id", ondelete="CASCADE"), nullable=False
     )
@@ -289,7 +311,7 @@ class SemanticAnnotation(Base):
     # Provenance
     annotation_source: Mapped[str | None] = mapped_column(String)
     annotated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.utcnow()
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
     annotated_by: Mapped[str | None] = mapped_column(String)
     confidence: Mapped[float | None] = mapped_column(Float)
@@ -320,7 +342,9 @@ class TableEntity(Base):
 
     # Provenance
     detection_source: Mapped[str | None] = mapped_column(String)
-    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     # Relationships
     table: Mapped["Table"] = relationship(back_populates="entity_detections")
@@ -339,7 +363,9 @@ class Relationship(Base):
         UniqueConstraint("from_column_id", "to_column_id", name="uq_relationship_columns"),
     )
 
-    relationship_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    relationship_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid4())
+    )
 
     # Source side
     from_table_id: Mapped[str] = mapped_column(ForeignKey("tables.table_id"), nullable=False)
@@ -363,7 +389,9 @@ class Relationship(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
     confirmed_by: Mapped[str | None] = mapped_column(String)
 
-    detected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     # Relationships
     from_column: Mapped["Column"] = relationship(
@@ -395,7 +423,9 @@ class JoinPath(Base):
     path_length: Mapped[int] = mapped_column(Integer, nullable=False)
     total_confidence: Mapped[float | None] = mapped_column(Float)
 
-    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
 
 # ============================================================================
@@ -438,7 +468,9 @@ class TemporalProfile(Base):
     seasonality_period: Mapped[str | None] = mapped_column(String)
     trend_direction: Mapped[str | None] = mapped_column(String)
 
-    profiled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    profiled_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     # Relationships
     column: Mapped["Column"] = relationship(back_populates="temporal_profile")
@@ -473,7 +505,9 @@ class QualityRule(Base):
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
     created_by: Mapped[str | None] = mapped_column(String)
 
     # Relationships
@@ -498,7 +532,9 @@ class QualityResult(Base):
         ForeignKey("quality_rules.rule_id", ondelete="CASCADE"), nullable=False
     )
 
-    executed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    executed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     # Results
     total_records: Mapped[int | None] = mapped_column(Integer)
@@ -538,7 +574,9 @@ class QualityScore(Base):
     # Overall
     overall_score: Mapped[float | None] = mapped_column(Float)
 
-    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     # Relationships
     table: Mapped["Table | None"] = relationship(back_populates="quality_scores")
@@ -569,9 +607,14 @@ class Ontology(Base):
 
     # Metadata
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow()
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     # Relationships
@@ -585,7 +628,9 @@ class OntologyApplication(Base):
 
     __tablename__ = "ontology_applications"
 
-    application_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    application_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid4())
+    )
 
     table_id: Mapped[str] = mapped_column(ForeignKey("tables.table_id"), nullable=False)
     ontology_id: Mapped[str] = mapped_column(ForeignKey("ontologies.ontology_id"), nullable=False)
@@ -595,7 +640,9 @@ class OntologyApplication(Base):
     applicable_metrics: Mapped[dict | None] = mapped_column(JSON)
     applied_rules: Mapped[dict | None] = mapped_column(JSON)
 
-    applied_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     # Relationships
     table: Mapped["Table"] = relationship(back_populates="ontology_applications")
@@ -612,7 +659,9 @@ class Checkpoint(Base):
 
     __tablename__ = "checkpoints"
 
-    checkpoint_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    checkpoint_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid4())
+    )
 
     dataflow_name: Mapped[str] = mapped_column(String, nullable=False)
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.source_id"), nullable=False)
@@ -622,7 +671,9 @@ class Checkpoint(Base):
     checkpoint_type: Mapped[str] = mapped_column(String, nullable=False)
 
     # Timing
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
     resumed_at: Mapped[datetime | None] = mapped_column(DateTime)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
@@ -703,7 +754,9 @@ class LLMCache(Base):
     output_tokens: Mapped[int | None] = mapped_column(Integer)
 
     # Timing
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     # Invalidation
