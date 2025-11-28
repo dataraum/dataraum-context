@@ -308,8 +308,13 @@ def _aggregate_statistical_issues(
     if not stat_quality or not stat_quality.quality_issues:
         return []
 
+    # Handle both list and dict formats
+    issues_list = stat_quality.quality_issues
+    if isinstance(issues_list, dict):
+        issues_list = issues_list.get("issues", [])
+
     issues = []
-    for issue_dict in stat_quality.quality_issues:
+    for issue_dict in issues_list:
         # Map severity
         severity_map = {
             "critical": QualitySeverity.CRITICAL,
@@ -356,8 +361,13 @@ def _aggregate_temporal_issues(
     if not temp_quality or not temp_quality.quality_issues:
         return []
 
+    # Handle both list and dict formats
+    issues_list = temp_quality.quality_issues
+    if isinstance(issues_list, dict):
+        issues_list = issues_list.get("issues", [])
+
     issues = []
-    for issue_dict in temp_quality.quality_issues:
+    for issue_dict in issues_list:
         severity_map = {
             "critical": QualitySeverity.CRITICAL,
             "error": QualitySeverity.ERROR,
@@ -523,7 +533,7 @@ def _aggregate_correlation_issues(
                     recommendation="Investigate data integrity and normalization",
                     evidence={
                         "violation_count": fd.violation_count,
-                        "confidence": fd.fd_confidence,
+                        "confidence": fd.confidence,
                     },
                     source_pillar=1,  # Statistical
                     source_module="correlation",
@@ -539,12 +549,20 @@ def _aggregate_domain_quality_issues(
     column_id: str,
     column_name: str,
 ) -> list[QualitySynthesisIssue]:
-    """Extract quality issues from domain quality metrics."""
+    """Extract quality issues from domain quality metrics (table-level).
+
+    Note: Domain quality is table-level, so column_id/column_name may be None.
+    """
     if not domain_quality or not domain_quality.violations:
         return []
 
+    # Handle both list and dict formats
+    violations_list = domain_quality.violations
+    if isinstance(violations_list, dict):
+        violations_list = violations_list.get("violations", [])
+
     issues = []
-    for violation in domain_quality.violations.get("violations", [])[:5]:  # Top 5
+    for violation in violations_list[:5]:  # Top 5
         severity_map = {
             "critical": QualitySeverity.CRITICAL,
             "high": QualitySeverity.ERROR,
@@ -558,7 +576,7 @@ def _aggregate_domain_quality_issues(
             issue_type="domain_rule_violation",
             severity=severity,
             dimension=QualityDimension.ACCURACY,
-            table_id=domain_quality.table_id,
+            table_id=str(domain_quality.table_id),  # Convert UUID to string
             column_id=column_id,
             column_name=column_name,
             description=violation.get("description", "Domain rule violation"),
@@ -633,11 +651,18 @@ async def assess_column_quality(
         )
 
         # Count functional dependency violations for this column
+        # Note: FunctionalDependency uses determinant_column_ids (JSON list)
+        # For simplicity, we check if this column is the dependent
         stmt = select(FunctionalDependency).where(
-            (FunctionalDependency.determinant_column_id == column.column_id)
-            | (FunctionalDependency.dependent_column_id == column.column_id)
+            FunctionalDependency.dependent_column_id == column.column_id
         )
         fd_results = (await session.execute(stmt)).scalars().all()
+        # Also check if column is in determinant list
+        all_fds = (await session.execute(select(FunctionalDependency))).scalars().all()
+        fd_results_with_determinant = [
+            fd for fd in all_fds if column.column_id in fd.determinant_column_ids
+        ]
+        fd_results = list(fd_results) + fd_results_with_determinant
         fd_violations = sum(1 for fd in fd_results if fd.violation_count and fd.violation_count > 0)
 
         # Compute dimensional scores
@@ -715,20 +740,10 @@ async def assess_column_quality(
             )
         )
 
-        # Fetch domain quality metrics for this column
-        # Domain quality is typically table-level, but we'll check for column-specific metrics
-        stmt = (
-            select(DomainQualityMetrics)
-            .where(DomainQualityMetrics.column_id == column.column_id)
-            .order_by(DomainQualityMetrics.computed_at.desc())
-            .limit(1)
-        )
-        domain_quality = (await session.execute(stmt)).scalar_one_or_none()
-
-        # Accuracy
+        # Accuracy (domain quality is table-level, not column-level)
         benford_compliant = stat_quality.benford_compliant if stat_quality else None
-        domain_score = domain_quality.compliance_score if domain_quality else None
-        score, explanation = _compute_accuracy_score(benford_compliant, domain_score)
+        # Note: Domain compliance is aggregated at table level, not used here
+        score, explanation = _compute_accuracy_score(benford_compliant, None)
         dimension_scores.append(
             DimensionScore(
                 dimension=QualityDimension.ACCURACY,
@@ -762,10 +777,7 @@ async def assess_column_quality(
             )
         )
 
-        # Domain quality issues
-        issues.extend(
-            _aggregate_domain_quality_issues(domain_quality, column.column_id, column.column_name)
-        )
+        # Note: Domain quality is table-level, handled in table assessment
 
         # Update issue counts in dimension scores
         for dim_score in dimension_scores:
