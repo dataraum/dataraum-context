@@ -18,6 +18,7 @@ Replaces: storage/models.py (deprecated)
 from dataraum_context.storage.models_v2 import (
     core,
     correlation,
+    domain_quality,
     statistical_context,
     temporal_context,
     topological_context,
@@ -31,6 +32,17 @@ from dataraum_context.storage.models_v2.correlation import (
     ColumnCorrelation,
     DerivedColumn,
     FunctionalDependency,
+)
+
+# Domain quality (Pillar 5)
+from dataraum_context.storage.models_v2.domain_quality import (
+    DomainQualityMetrics,
+    DoubleEntryCheck,
+    FinancialQualityMetrics,
+    FiscalPeriodIntegrity,
+    IntercompanyTransaction,
+    SignConventionViolation,
+    TrialBalanceCheck,
 )
 
 # Statistical context (Pillar 1)
@@ -79,4 +91,12 @@ __all__ = [
     "ChangePoint",
     "DistributionShift",
     "UpdateFrequencyHistory",
+    # Pillar 5: Domain Quality
+    "DomainQualityMetrics",
+    "FinancialQualityMetrics",
+    "DoubleEntryCheck",
+    "TrialBalanceCheck",
+    "SignConventionViolation",
+    "IntercompanyTransaction",
+    "FiscalPeriodIntegrity",
 ]

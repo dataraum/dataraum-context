@@ -71,6 +71,14 @@ class Table(Base):
         back_populates="table", cascade="all, delete-orphan"
     )
 
+    # Quality context relationships
+    domain_quality_metrics: Mapped[list["DomainQualityMetrics"]] = relationship(
+        back_populates="table", cascade="all, delete-orphan"
+    )
+    financial_quality_metrics: Mapped[list["FinancialQualityMetrics"]] = relationship(
+        back_populates="table", cascade="all, delete-orphan"
+    )
+
 
 class Column(Base):
     """Columns in tables.

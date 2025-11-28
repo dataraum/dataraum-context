@@ -101,6 +101,22 @@ from dataraum_context.core.models.correlation import (
 from dataraum_context.core.models.correlation import (
     FunctionalDependency as FunctionalDependencyModel,
 )
+
+# Domain quality (Pillar 5) - new models
+from dataraum_context.core.models.domain_quality import (
+    DomainQualityResult,
+    DoubleEntryResult,
+    FinancialQualityConfig,
+    FinancialQualityIssue,
+    FinancialQualityResult,
+    FiscalPeriodIntegrityCheck,
+    IntercompanyTransactionMatch,
+    SignConventionConfig,
+    TrialBalanceResult,
+)
+from dataraum_context.core.models.domain_quality import (
+    SignConventionViolation as SignConventionViolationModel,
+)
 from dataraum_context.core.models.statistical import (
     BenfordTestResult,
     DistributionStabilityResult,
@@ -249,4 +265,15 @@ __all__ = [
     "TemporalQualityIssue",
     "TemporalQualityResult",
     "TemporalQualitySummary",
+    # Domain Quality (Pillar 5)
+    "DomainQualityResult",
+    "FinancialQualityResult",
+    "DoubleEntryResult",
+    "TrialBalanceResult",
+    "SignConventionViolationModel",
+    "IntercompanyTransactionMatch",
+    "FiscalPeriodIntegrityCheck",
+    "FinancialQualityIssue",
+    "FinancialQualityConfig",
+    "SignConventionConfig",
 ]
