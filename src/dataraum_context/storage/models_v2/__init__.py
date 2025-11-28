@@ -15,7 +15,12 @@ Replaces: storage/models.py (deprecated)
 """
 
 # Import all models to ensure relationships are resolved
-from dataraum_context.storage.models_v2 import core, correlation, statistical_context
+from dataraum_context.storage.models_v2 import (
+    core,
+    correlation,
+    statistical_context,
+    topological_context,
+)
 from dataraum_context.storage.models_v2.base import Base, metadata_obj
 from dataraum_context.storage.models_v2.core import Column, Source, Table
 
@@ -31,6 +36,13 @@ from dataraum_context.storage.models_v2.correlation import (
 from dataraum_context.storage.models_v2.statistical_context import (
     StatisticalProfile,
     StatisticalQualityMetrics,
+)
+
+# Topological context (Pillar 2)
+from dataraum_context.storage.models_v2.topological_context import (
+    PersistentCycle,
+    StructuralComplexityHistory,
+    TopologicalQualityMetrics,
 )
 
 __all__ = [
@@ -49,4 +61,8 @@ __all__ = [
     "CategoricalAssociation",
     "FunctionalDependency",
     "DerivedColumn",
+    # Pillar 2: Topological
+    "TopologicalQualityMetrics",
+    "PersistentCycle",
+    "StructuralComplexityHistory",
 ]

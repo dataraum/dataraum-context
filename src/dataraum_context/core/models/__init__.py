@@ -69,6 +69,14 @@ TypeDecision = _legacy_namespace["TypeDecision"]
 TypeResolutionResult = _legacy_namespace["TypeResolutionResult"]
 SourceConfig = _legacy_namespace["SourceConfig"]
 ColumnProfile = _legacy_namespace["ColumnProfile"]
+QualityRule = _legacy_namespace["QualityRule"]
+RuleResult = _legacy_namespace["RuleResult"]
+QualityScore = _legacy_namespace["QualityScore"]
+Anomaly = _legacy_namespace["Anomaly"]
+SuggestedQuery = _legacy_namespace["SuggestedQuery"]
+ContextSummary = _legacy_namespace["ContextSummary"]
+QualitySummary = _legacy_namespace["QualitySummary"]
+DomainConcept = _legacy_namespace["DomainConcept"]
 
 # Legacy models with naming conflicts (we'll use "Legacy" prefix)
 LegacyNumericStats = _legacy_namespace["NumericStats"]
@@ -112,6 +120,19 @@ from dataraum_context.core.models.statistical import (
     VIFResult,
 )
 
+# Topological context (Pillar 2) - new models
+from dataraum_context.core.models.topological import (
+    BettiNumbers,
+    HomologicalStability,
+    PersistenceDiagram,
+    PersistencePoint,
+    PersistentCycleResult,
+    StructuralComplexity,
+    TopologicalAnomaly,
+    TopologicalQualityResult,
+    TopologicalSummary,
+)
+
 __all__ = [
     # Legacy models (for backwards compatibility)
     "Cardinality",
@@ -148,6 +169,14 @@ __all__ = [
     "TypeDecision",
     "TypeResolutionResult",
     "SourceConfig",
+    "QualityRule",
+    "RuleResult",
+    "QualityScore",
+    "Anomaly",
+    "SuggestedQuery",
+    "ContextSummary",
+    "QualitySummary",
+    "DomainConcept",
     # Legacy with prefix
     "LegacyNumericStats",
     "LegacyStringStats",
@@ -179,4 +208,14 @@ __all__ = [
     "DerivedColumnModel",
     "CorrelationMatrix",
     "CorrelationAnalysisResult",
+    # Topological Quality (Pillar 2)
+    "BettiNumbers",
+    "PersistencePoint",
+    "PersistenceDiagram",
+    "PersistentCycleResult",
+    "HomologicalStability",
+    "StructuralComplexity",
+    "TopologicalAnomaly",
+    "TopologicalQualityResult",
+    "TopologicalSummary",
 ]

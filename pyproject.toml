@@ -41,6 +41,7 @@ dependencies = [
     # TDA (Topological Data Analysis)
     "scipy>=1.11.0",
     "ripser>=0.6.0",
+    "persim>=0.3.0",
     # Utilities
     "structlog>=24.1.0",
     "python-dotenv>=1.0.0",
@@ -160,6 +161,7 @@ module = [
     "sdv.*",
     "hamilton.*",
     "ripser.*",
+    "persim.*",
     "scipy.*",
     "sklearn.*",
 ]
