@@ -120,6 +120,23 @@ from dataraum_context.core.models.statistical import (
     VIFResult,
 )
 
+# Temporal context (Pillar 4) - new models
+from dataraum_context.core.models.temporal import (
+    ChangePointResult,
+    DistributionShiftResult,
+    DistributionStabilityAnalysis,
+    FiscalCalendarAnalysis,
+    SeasonalDecompositionResult,
+    SeasonalityAnalysis,
+    TemporalCompletenessAnalysis,
+    TemporalGapInfo,
+    TemporalQualityIssue,
+    TemporalQualityResult,
+    TemporalQualitySummary,
+    TrendAnalysis,
+    UpdateFrequencyAnalysis,
+)
+
 # Topological context (Pillar 2) - new models
 from dataraum_context.core.models.topological import (
     BettiNumbers,
@@ -218,4 +235,18 @@ __all__ = [
     "TopologicalAnomaly",
     "TopologicalQualityResult",
     "TopologicalSummary",
+    # Temporal Quality (Pillar 4)
+    "SeasonalityAnalysis",
+    "SeasonalDecompositionResult",
+    "TrendAnalysis",
+    "ChangePointResult",
+    "UpdateFrequencyAnalysis",
+    "FiscalCalendarAnalysis",
+    "DistributionShiftResult",
+    "DistributionStabilityAnalysis",
+    "TemporalGapInfo",
+    "TemporalCompletenessAnalysis",
+    "TemporalQualityIssue",
+    "TemporalQualityResult",
+    "TemporalQualitySummary",
 ]
