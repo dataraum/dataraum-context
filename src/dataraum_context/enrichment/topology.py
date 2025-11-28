@@ -196,7 +196,7 @@ async def _load_table_mappings(
     stmt = select(Table.table_name, Table.table_id).where(Table.table_id.in_(table_ids))
     result = await session.execute(stmt)
 
-    return {table_name: table_id for table_name, table_id in result.all()}
+    return dict(tuple(row) for row in result.all())
 
 
 async def _load_column_mappings(
