@@ -31,11 +31,12 @@ Usage:
     quality_context = await synthesis.synthesize_quality_context(source_id, conn, session)
 """
 
-from dataraum_context.quality import domains, statistical, temporal, topological
+from dataraum_context.quality import domains, statistical, synthesis, temporal, topological
 
 __all__ = [
     "domains",
     "statistical",
+    "synthesis",
     "temporal",
     "topological",
 ]

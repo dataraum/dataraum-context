@@ -2,7 +2,7 @@
 New 5-pillar context architecture models.
 
 This module contains the revised schema aligned with the 5-pillar context architecture:
-- Pillar 1: Statistical Context (statistical_context.py, correlation.py)
+- Pillar 1: Statistical Context (statistical_context.py, correlation_context.py)
 - Pillar 2: Topological Context (topological_context.py, relationship.py)
 - Pillar 3: Semantic Context (semantic_context.py)
 - Pillar 4: Temporal Context (temporal_context.py)
@@ -23,7 +23,7 @@ Replaces: storage/models.py (deprecated)
 # ruff: noqa: F401
 from dataraum_context.storage.models_v2 import (
     core,
-    correlation,
+    correlation_context,
     domain_quality,
     llm,
     ontology,
@@ -42,8 +42,8 @@ from dataraum_context.storage.models_v2.base import Base, metadata_obj
 # Core entities
 from dataraum_context.storage.models_v2.core import Column, Source, Table
 
-# Pillar 1: Correlation and dependencies
-from dataraum_context.storage.models_v2.correlation import (
+# Pillar 1: Correlation Context (relationships within data)
+from dataraum_context.storage.models_v2.correlation_context import (
     CategoricalAssociation,
     ColumnCorrelation,
     DerivedColumn,
