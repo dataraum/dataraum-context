@@ -19,6 +19,7 @@ from dataraum_context.storage.models_v2 import (
     core,
     correlation,
     statistical_context,
+    temporal_context,
     topological_context,
 )
 from dataraum_context.storage.models_v2.base import Base, metadata_obj
@@ -36,6 +37,13 @@ from dataraum_context.storage.models_v2.correlation import (
 from dataraum_context.storage.models_v2.statistical_context import (
     StatisticalProfile,
     StatisticalQualityMetrics,
+)
+from dataraum_context.storage.models_v2.temporal_context import (
+    ChangePoint,
+    DistributionShift,
+    SeasonalDecomposition,
+    TemporalQualityMetrics,
+    UpdateFrequencyHistory,
 )
 
 # Topological context (Pillar 2)
@@ -65,4 +73,10 @@ __all__ = [
     "TopologicalQualityMetrics",
     "PersistentCycle",
     "StructuralComplexityHistory",
+    # Pillar 4: Temporal
+    "TemporalQualityMetrics",
+    "SeasonalDecomposition",
+    "ChangePoint",
+    "DistributionShift",
+    "UpdateFrequencyHistory",
 ]
