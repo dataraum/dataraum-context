@@ -37,16 +37,16 @@ from dataraum_context.core.models.correlation import (
 )
 from dataraum_context.core.models.statistical import VIFResult
 from dataraum_context.storage.models_v2.core import Column, Table
-from dataraum_context.storage.models_v2.correlation import (
+from dataraum_context.storage.models_v2.correlation_context import (
     CategoricalAssociation as DBCategoricalAssociation,
 )
-from dataraum_context.storage.models_v2.correlation import (
+from dataraum_context.storage.models_v2.correlation_context import (
     ColumnCorrelation as DBColumnCorrelation,
 )
-from dataraum_context.storage.models_v2.correlation import (
+from dataraum_context.storage.models_v2.correlation_context import (
     DerivedColumn as DBDerivedColumn,
 )
-from dataraum_context.storage.models_v2.correlation import (
+from dataraum_context.storage.models_v2.correlation_context import (
     FunctionalDependency as DBFunctionalDependency,
 )
 

@@ -10,7 +10,6 @@ This module extracts enhanced quality metrics from temporal patterns including:
 Uses statsmodels for seasonal decomposition and ruptures for change point detection.
 """
 
-import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -801,8 +800,6 @@ async def analyze_temporal_quality(
     Returns:
         Result containing complete temporal quality assessment
     """
-    start_time = time.time()
-
     try:
         # Get column info
         stmt = select(Column, Table).join(Table).where(Column.column_id == column_id)
@@ -876,7 +873,10 @@ async def analyze_temporal_quality(
                 TemporalQualityIssue(
                     issue_type="low_completeness",
                     severity="high" if completeness.completeness_ratio < 0.5 else "medium",
-                    description=f"Only {completeness.completeness_ratio:.1%} of expected data points present",
+                    description=(
+                        f"Only {completeness.completeness_ratio:.1%} of expected "
+                        "data points present"
+                    ),
                     evidence={"completeness_ratio": completeness.completeness_ratio},
                 )
             )
@@ -916,7 +916,10 @@ async def analyze_temporal_quality(
                 TemporalQualityIssue(
                     issue_type="unstable_distribution",
                     severity="medium",
-                    description=f"Distribution stability score: {distribution_stability.stability_score:.2f}",
+                    description=(
+                        f"Distribution stability score: "
+                        f"{distribution_stability.stability_score:.2f}"
+                    ),
                     evidence={"stability_score": distribution_stability.stability_score},
                 )
             )
@@ -970,6 +973,7 @@ async def analyze_temporal_quality(
             update_interval_cv=update_frequency.interval_cv if update_frequency else None,
             last_update_timestamp=update_frequency.last_update if update_frequency else None,
             data_freshness_days=update_frequency.data_freshness_days if update_frequency else None,
+            is_stale=update_frequency.is_stale if update_frequency else None,
             fiscal_alignment_detected=fiscal_calendar.fiscal_alignment_detected
             if fiscal_calendar
             else None,

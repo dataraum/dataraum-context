@@ -79,6 +79,11 @@ class TemporalQualityMetrics(Base):
     gap_count: Mapped[int | None] = mapped_column(Integer)
     largest_gap_days: Mapped[float | None] = mapped_column(Float)
 
+    # Staleness indicator
+    is_stale: Mapped[bool | None] = mapped_column(
+        Boolean
+    )  # Derived from freshness vs expected interval
+
     # Overall temporal quality score
     temporal_quality_score: Mapped[float | None] = mapped_column(Float)  # 0-1
     quality_issues: Mapped[dict | None] = mapped_column(JSON)  # List of detected issues
