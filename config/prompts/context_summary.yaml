@@ -34,7 +34,7 @@ prompt: |
 
   Respond with valid JSON only:
 
-  {
+  {{
     "summary": "The full summary text...",
     "key_facts": [
       "Fact 1",
@@ -43,13 +43,13 @@ prompt: |
     "warnings": [
       "Any important caveats"
     ]
-  }
+  }}
 
 inputs:
   schema_json:
     description: Full schema with semantic annotations
     required: true
-    
+
   quality_summary:
     description: Quality scores and issues
     required: false

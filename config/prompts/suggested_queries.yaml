@@ -6,7 +6,7 @@ name: suggested_queries
 version: "1.0.0"
 description: Generate useful data exploration queries
 
-temperature: 0.2  # Slight creativity for variety
+temperature: 0.2 # Slight creativity for variety
 
 prompt: |
   You are a data analyst. Generate useful starting queries for exploring this dataset.
@@ -33,17 +33,17 @@ prompt: |
 
   Respond with valid JSON only:
 
-  {
+  {{
     "queries": [
-      {
+      {{
         "name": "Short descriptive name",
         "description": "What insight this query provides",
         "category": "overview|metrics|trends|segments|quality",
         "sql": "SELECT ... FROM ... WHERE ...",
         "complexity": "simple|moderate|complex"
-      }
+      }}
     ]
-  }
+  }}
 
   ## SQL Guidelines
 
@@ -56,11 +56,11 @@ inputs:
   schema_json:
     description: Schema with semantic annotations
     required: true
-    
+
   ontology_name:
     description: Active ontology
     required: true
-    
+
   ontology_metrics:
     description: Available metrics from ontology
     required: false

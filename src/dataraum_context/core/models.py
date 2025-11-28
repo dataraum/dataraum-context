@@ -435,6 +435,31 @@ class TemporalProfile(BaseModel):
     trend_direction: str | None = None
 
 
+# === Enrichment Result Models ===
+
+
+class SemanticEnrichmentResult(BaseModel):
+    """Result of semantic enrichment operation."""
+
+    annotations: list[SemanticAnnotation] = Field(default_factory=list)
+    entity_detections: list[EntityDetection] = Field(default_factory=list)
+    relationships: list[Relationship] = Field(default_factory=list)
+    source: str = "llm"  # 'llm', 'manual', 'override'
+
+
+class TopologyEnrichmentResult(BaseModel):
+    """Result of topology enrichment operation."""
+
+    relationships: list[Relationship] = Field(default_factory=list)
+    join_paths: list[JoinPath] = Field(default_factory=list)
+
+
+class TemporalEnrichmentResult(BaseModel):
+    """Result of temporal enrichment operation."""
+
+    profiles: list[TemporalProfile] = Field(default_factory=list)
+
+
 # === Quality Models ===
 
 

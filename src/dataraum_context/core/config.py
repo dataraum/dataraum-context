@@ -21,6 +21,7 @@ class Settings(BaseSettings):
         env_prefix="DATARAUM_",
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",  # Ignore extra env vars (like ANTHROPIC_API_KEY)
     )
 
     # Database (SQLAlchemy)

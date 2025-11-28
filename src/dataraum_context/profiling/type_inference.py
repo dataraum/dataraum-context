@@ -142,7 +142,7 @@ async def _infer_column_types(
         sample_values = [row[0] for row in duckdb_conn.execute(sample_query).fetchall()]
 
         if not sample_values:
-            return Result.ok([])  # No values to analyze
+            return Result.fail("No values to analyze")
 
         # Pattern matching
         pattern_matches = defaultdict(int)
