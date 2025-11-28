@@ -57,9 +57,9 @@ prompt: |
 
   Respond with valid JSON only, no markdown formatting:
 
-  {
+  {{
     "tables": [
-      {
+      {{
         "table_name": "...",
         "entity_type": "...",
         "description": "...",
@@ -67,19 +67,19 @@ prompt: |
         "grain": ["col1"],
         "time_column": "created_at",
         "columns": [
-          {
+          {{
             "column_name": "...",
             "semantic_role": "key|foreign_key|measure|dimension|timestamp|attribute",
             "entity_type": "...",
             "business_term": "...",
             "description": "...",
             "confidence": 0.95
-          }
+          }}
         ]
-      }
+      }}
     ],
     "relationships": [
-      {
+      {{
         "from_table": "...",
         "from_column": "...",
         "to_table": "...",
@@ -87,22 +87,22 @@ prompt: |
         "relationship_type": "foreign_key",
         "cardinality": "many_to_one",
         "confidence": 0.9
-      }
+      }}
     ],
     "summary": "Brief overview of the schema structure and domain"
-  }
+  }}
 
 # Input variable definitions
 inputs:
   tables_json:
     description: JSON array of tables with columns and statistics
     required: true
-    
+
   ontology_name:
     description: Name of the target ontology
     required: true
     default: "general"
-    
+
   ontology_concepts:
     description: List of concepts from the ontology
     required: false

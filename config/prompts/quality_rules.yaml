@@ -41,9 +41,9 @@ prompt: |
 
   Respond with valid JSON only:
 
-  {
+  {{
     "rules": [
-      {
+      {{
         "rule_name": "descriptive_name",
         "table_name": "...",
         "column_name": "..." or null for table-level,
@@ -52,28 +52,28 @@ prompt: |
         "expression": "SQL boolean expression",
         "description": "Human-readable description",
         "rationale": "Why this rule matters for this domain"
-      }
+      }}
     ]
-  }
+  }}
 
   ## Expression Syntax
 
-  Use DuckDB SQL syntax. Reference columns as {column_name}.
+  Use DuckDB SQL syntax. Reference columns as {{column_name}}.
   Examples:
-  - `{amount} >= 0`
-  - `{start_date} <= {end_date}`
-  - `{status} IN ('active', 'inactive', 'pending')`
-  - `{email} LIKE '%@%.%'`
+  - `{{amount}} >= 0`
+  - `{{start_date}} <= {{end_date}}`
+  - `{{status}} IN ('active', 'inactive', 'pending')`
+  - `{{email}} LIKE '%@%.%'`
 
 inputs:
   schema_json:
     description: Schema with semantic annotations from analysis
     required: true
-    
+
   ontology_name:
     description: Name of the ontology
     required: true
-    
+
   ontology_rules:
     description: Domain-specific rules from ontology
     required: false
