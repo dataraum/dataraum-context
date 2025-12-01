@@ -11,6 +11,7 @@ from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Stri
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataraum_context.storage.models_v2.base import Base
+from typing import Any
 
 
 class TopologicalQualityMetrics(Base):
@@ -41,7 +42,7 @@ class TopologicalQualityMetrics(Base):
     max_persistence_h1: Mapped[float | None] = mapped_column(Float)  # Longest-lived cycle
 
     # Persistence diagrams stored as JSON: [{"dimension": 0, "birth": 0.1, "death": 0.5}, ...]
-    persistence_diagrams: Mapped[dict | None] = mapped_column(JSON)
+    persistence_diagrams: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Stability metrics (comparison with previous period)
     bottleneck_distance: Mapped[float | None] = mapped_column(Float)  # Distance from previous
@@ -55,12 +56,12 @@ class TopologicalQualityMetrics(Base):
     complexity_within_bounds: Mapped[bool | None] = mapped_column(Boolean)  # Historical norms
 
     # Anomaly detection
-    anomalous_cycles: Mapped[dict | None] = mapped_column(JSON)  # Unexpected flow patterns
+    anomalous_cycles: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # Unexpected flow patterns
     orphaned_components: Mapped[int | None] = mapped_column(Integer)  # Disconnected subgraphs
 
     # Summary for LLM context
     topology_description: Mapped[str | None] = mapped_column(String)
-    quality_warnings: Mapped[dict | None] = mapped_column(JSON)  # List of warning strings
+    quality_warnings: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # List of warning strings
 
 
 class PersistentCycle(Base):
@@ -85,7 +86,7 @@ class PersistentCycle(Base):
     persistence: Mapped[float] = mapped_column(Float, nullable=False)  # death - birth
 
     # Involved entities (columns/tables)
-    involved_columns: Mapped[dict | None] = mapped_column(JSON)  # List of column IDs
+    involved_columns: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # List of column IDs
 
     # Domain interpretation
     cycle_type: Mapped[str | None] = mapped_column(

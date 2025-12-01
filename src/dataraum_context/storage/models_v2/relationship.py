@@ -7,7 +7,7 @@ Part of Pillar 2 (Topological Context).
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -64,7 +64,7 @@ class Relationship(Base):
     detection_method: Mapped[str | None] = mapped_column(
         String
     )  # 'tda', 'cardinality', 'semantic', 'manual'
-    evidence: Mapped[dict | None] = mapped_column(JSON)
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Verification (human-in-loop)
     is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -106,7 +106,7 @@ class JoinPath(Base):
     to_table_id: Mapped[str] = mapped_column(ForeignKey("tables.table_id"), nullable=False)
 
     # Path definition
-    path_steps: Mapped[dict] = mapped_column(
+    path_steps: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False
     )  # List of relationship IDs forming the path
     path_length: Mapped[int] = mapped_column(Integer, nullable=False)  # Number of hops

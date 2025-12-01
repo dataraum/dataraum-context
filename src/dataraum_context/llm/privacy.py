@@ -9,7 +9,7 @@ Simple placeholder implementation that:
 import re
 from typing import Any
 
-from dataraum_context.core.models import ColumnProfile
+from dataraum_context.core.models import ColumnProfile  # type: ignore[attr-defined]
 from dataraum_context.llm.config import LLMPrivacy
 
 

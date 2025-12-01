@@ -7,7 +7,7 @@ This supports the VARCHAR-first staging approach with type candidates.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String, UniqueConstraint
@@ -42,7 +42,7 @@ class TypeCandidate(Base):
     data_type: Mapped[str] = mapped_column(String, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     parse_success_rate: Mapped[float | None] = mapped_column(Float)
-    failed_examples: Mapped[dict | None] = mapped_column(JSON)
+    failed_examples: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Pattern info
     detected_pattern: Mapped[str | None] = mapped_column(String)

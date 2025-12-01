@@ -62,6 +62,7 @@ Phase 7 completes the context assembly layer by:
 | - Correlation converters | ❌ | Convert DB → Pydantic |
 | **Assembly Functions** | ❌ Missing | ContextDocument |
 | - `_assemble_correlation_analysis()` | ❌ | Pillar 1 |
+| - `_assemble_topological_analysis()` | ❌ | Pillar 2 |
 | - `_assemble_semantic()` | ❌ | Pillar 3 |
 | - `_assemble_temporal_summary()` | ❌ | Pillar 4 |
 | - `_assemble_quality()` | ❌ | Pillar 5 |
@@ -1187,6 +1188,7 @@ Phase 7 is complete when:
 2. **Task 2** - Assembly functions (2 days)
    - Correlation assembly
    - Semantic assembly
+   - Topological assembly
    - Temporal summary assembly
    - Quality assembly
    - Unit tests

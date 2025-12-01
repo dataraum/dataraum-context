@@ -9,7 +9,7 @@ SQLAlchemy models for rule-based quality framework:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
@@ -45,7 +45,7 @@ class QualityRule(Base):
     rule_expression: Mapped[str | None] = mapped_column(
         Text
     )  # SQL WHERE clause or other expression
-    rule_parameters: Mapped[dict | None] = mapped_column(JSON)
+    rule_parameters: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Metadata
     severity: Mapped[str] = mapped_column(
@@ -99,7 +99,7 @@ class QualityResult(Base):
     pass_rate: Mapped[float | None] = mapped_column(Float)
 
     # Failure details
-    failure_samples: Mapped[dict | None] = mapped_column(
+    failure_samples: Mapped[dict[str, Any] | None] = mapped_column(
         JSON
     )  # Sample of failing records for investigation
 

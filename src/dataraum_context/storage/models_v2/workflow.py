@@ -8,7 +8,7 @@ SQLAlchemy models for dataflow execution management:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
@@ -52,12 +52,12 @@ class Checkpoint(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     # State for resume (Hamilton inputs/outputs)
-    checkpoint_state: Mapped[dict | None] = mapped_column(
+    checkpoint_state: Mapped[dict[str, Any] | None] = mapped_column(
         JSON
     )  # Serialized Hamilton execution state
 
     # Results
-    result_summary: Mapped[dict | None] = mapped_column(JSON)
+    result_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)
 
     # Relationships
@@ -87,10 +87,10 @@ class ReviewQueue(Base):
     item_id: Mapped[str] = mapped_column(String, nullable=False)  # ID of the item being reviewed
 
     # Context
-    context_data: Mapped[dict | None] = mapped_column(
+    context_data: Mapped[dict[str, Any] | None] = mapped_column(
         JSON
     )  # Data for review (e.g., failed values, type candidates)
-    suggested_action: Mapped[dict | None] = mapped_column(JSON)  # AI-suggested action for reviewer
+    suggested_action: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # AI-suggested action for reviewer
 
     # Status
     status: Mapped[str] = mapped_column(

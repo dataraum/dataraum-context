@@ -1,11 +1,13 @@
 """LLM provider implementations and factory."""
 
+from typing import Any
+
 from dataraum_context.llm.providers.base import LLMProvider, LLMRequest, LLMResponse
 
 __all__ = ["LLMProvider", "LLMRequest", "LLMResponse", "create_provider"]
 
 
-def create_provider(provider_name: str, provider_config: dict) -> LLMProvider:
+def create_provider(provider_name: str, provider_config: dict[str, Any]) -> LLMProvider:
     """Create LLM provider based on configuration.
 
     Args:

@@ -114,6 +114,8 @@ dev = [
     "ruff>=0.2.0",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
+    "pandas-stubs>=2.3.2.250926",
+    "types-pyyaml>=6.0.12.20250915",
 ]
 
 [build-system]
@@ -151,9 +153,15 @@ known-first-party = ["dataraum_context"]
 python_version = "3.14"
 strict = true
 warn_return_any = true
-warn_unused_ignores = true
+warn_unused_ignores = false  # Allow unused ignores during migration
 disallow_untyped_defs = true
 plugins = ["pydantic.mypy"]
+
+# Ignore attr-defined errors for re-exported legacy types
+# These are false positives due to exec()-based re-export in core.models.__init__
+[[tool.mypy.overrides]]
+module = "dataraum_context.core.models"
+disable_error_code = ["attr-defined", "valid-type"]
 
 [[tool.mypy.overrides]]
 module = [

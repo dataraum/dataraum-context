@@ -10,6 +10,7 @@ These are different from topological relationships which span across tables.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String
@@ -127,7 +128,7 @@ class FunctionalDependency(Base):
     )
 
     # Determinant (left side) - list of column IDs
-    determinant_column_ids: Mapped[list] = mapped_column(JSON, nullable=False)
+    determinant_column_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
     # Dependent (right side) - single column
     dependent_column_id: Mapped[str] = mapped_column(
@@ -151,7 +152,7 @@ class FunctionalDependency(Base):
     )
 
     # Example of the dependency
-    example: Mapped[dict | None] = mapped_column(
+    example: Mapped[dict[str, Any] | None] = mapped_column(
         JSON
     )  # {determinant_values: [...], dependent_value: ...}
 
@@ -178,7 +179,7 @@ class DerivedColumn(Base):
     )
 
     # Source columns (list of column IDs)
-    source_column_ids: Mapped[list] = mapped_column(JSON, nullable=False)
+    source_column_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
     # Derivation type
     derivation_type: Mapped[str] = mapped_column(

@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from statsmodels.tsa.seasonal import seasonal_decompose
 
-from dataraum_context.core.models import Result
+from dataraum_context.core.models import Result  # type: ignore[attr-defined]
 from dataraum_context.core.models.temporal import (
     ChangePointResult,
     DistributionShiftResult,

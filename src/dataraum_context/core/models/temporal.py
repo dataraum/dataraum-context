@@ -11,6 +11,7 @@ These models represent enhanced temporal quality analysis including:
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+from typing import Any
 
 # ============================================================================
 # Seasonality Models
@@ -47,7 +48,7 @@ class SeasonalDecompositionResult(BaseModel):
     trend_strength: float | None = None  # 1 - Var(resid) / Var(deseasonalized)
 
     # Summary statistics
-    seasonal_pattern_summary: dict | None = None  # Peak/trough info
+    seasonal_pattern_summary: dict[str, Any] | None = None  # Peak/trough info
 
 
 # ============================================================================
@@ -163,7 +164,7 @@ class DistributionStabilityAnalysis(BaseModel):
 
     stability_score: float  # 0-1, higher = more stable
     shift_count: int
-    shifts: list[DistributionShiftResult] = Field(default_factory=list)
+    shifts: list[DistributionShiftResult] = Field(default_factory=lambda: [])
 
     # Overall statistics
     mean_ks_statistic: float | None = None
@@ -193,7 +194,7 @@ class TemporalCompletenessAnalysis(BaseModel):
     actual_periods: int
     gap_count: int
     largest_gap_days: float | None = None
-    gaps: list[TemporalGapInfo] = Field(default_factory=list)
+    gaps: list[TemporalGapInfo] = Field(default_factory=lambda: [])
 
 
 # ============================================================================
@@ -210,7 +211,7 @@ class TemporalQualityIssue(BaseModel):
     severity: str  # 'low', 'medium', 'high'
     description: str
     detected_at: datetime | None = None
-    evidence: dict = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=lambda: {})
 
 
 # ============================================================================
@@ -239,7 +240,7 @@ class TemporalQualityResult(BaseModel):
 
     # Trend
     trend: TrendAnalysis | None = None
-    change_points: list[ChangePointResult] = Field(default_factory=list)
+    change_points: list[ChangePointResult] = Field(default_factory=lambda: [])
 
     # Update frequency
     update_frequency: UpdateFrequencyAnalysis | None = None
@@ -255,7 +256,7 @@ class TemporalQualityResult(BaseModel):
 
     # Overall quality
     temporal_quality_score: float  # 0-1
-    quality_issues: list[TemporalQualityIssue] = Field(default_factory=list)
+    quality_issues: list[TemporalQualityIssue] = Field(default_factory=lambda: [])
     has_issues: bool = False
 
 

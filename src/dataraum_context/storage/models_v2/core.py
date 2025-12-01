@@ -7,7 +7,7 @@ They serve as anchor points for all context metadata.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
@@ -44,7 +44,7 @@ class Source(Base):
     source_type: Mapped[str] = mapped_column(
         String, nullable=False
     )  # 'csv', 'parquet', 'postgres', etc.
-    connection_config: Mapped[dict | None] = mapped_column(JSON)
+    connection_config: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)
     )

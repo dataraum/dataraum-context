@@ -13,7 +13,7 @@ Design notes:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
@@ -94,10 +94,10 @@ class TableEntity(Base):
     )  # 'customer', 'order', 'product', etc.
     description: Mapped[str | None] = mapped_column(Text)
     confidence: Mapped[float | None] = mapped_column(Float)
-    evidence: Mapped[dict | None] = mapped_column(JSON)
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Grain analysis
-    grain_columns: Mapped[dict | None] = mapped_column(JSON)  # List of column IDs that define grain
+    grain_columns: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # List of column IDs that define grain
     is_fact_table: Mapped[bool | None] = mapped_column(Boolean)
     is_dimension_table: Mapped[bool | None] = mapped_column(Boolean)
 

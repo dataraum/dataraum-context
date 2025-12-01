@@ -1,5 +1,7 @@
 """Enrichment coordinator - orchestrates all enrichment steps."""
 
+from typing import Any
+
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +40,7 @@ class EnrichmentCoordinator:
         ontology: str = "general",
         include_topology: bool = True,
         include_temporal: bool = True,
-    ) -> Result[dict]:
+    ) -> Result[dict[str, Any]]:
         """Run all enrichment steps.
 
         Args:
