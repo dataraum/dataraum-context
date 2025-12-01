@@ -105,7 +105,7 @@ class CSVLoader(LoaderBase):
             return Result.fail(f"CSV file not found: {path}")
 
         start_time = time.time()
-        warnings = []
+        warnings: list[str] = []
 
         try:
             # Load null value configuration

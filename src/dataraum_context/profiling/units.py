@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pint
 
 # Initialize Pint with currency support
-ureg = pint.UnitRegistry(
+ureg: pint.UnitRegistry = pint.UnitRegistry(
     preprocessors=[
         lambda s: s.replace("$", "USD "),
         lambda s: s.replace("€", "EUR "),
@@ -129,7 +129,7 @@ def detect_unit(values: list[str], sample_size: int = 100) -> UnitDetectionResul
     if not values:
         return None
 
-    detected_units = {}
+    detected_units: dict[str, int] = {}
     successfully_parsed = 0
 
     # Sample values to avoid processing too many

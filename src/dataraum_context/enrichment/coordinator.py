@@ -53,8 +53,8 @@ class EnrichmentCoordinator:
         Returns:
             Result containing enrichment summary with counts
         """
-        results = {}
-        warnings = []
+        results: dict[str, Any] = {}
+        warnings: list[str] = []
 
         # 1. Semantic enrichment (required - provides foundation for others)
         try:

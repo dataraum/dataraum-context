@@ -5,11 +5,11 @@ Defines data structures for semantic, topological, and temporal enrichment."""
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from dataraum_context.core import RelationshipType
 from dataraum_context.core.models.base import (
     ColumnRef,
     DecisionSource,
@@ -48,15 +48,6 @@ class EntityDetection(BaseModel):
     is_fact_table: bool = False
     is_dimension_table: bool = False
     time_column: str | None = None  # Primary time column
-
-
-class RelationshipType(str, Enum):
-    """Type of relationship between tables."""
-
-    FOREIGN_KEY = "foreign_key"
-    HIERARCHY = "hierarchy"
-    CORRELATION = "correlation"
-    SEMANTIC = "semantic"
 
 
 class Relationship(BaseModel):

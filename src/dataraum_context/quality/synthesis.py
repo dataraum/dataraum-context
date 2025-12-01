@@ -338,6 +338,7 @@ def _aggregate_statistical_issues(
             issue_type=issue_type,
             severity=severity,
             dimension=dimension,
+            table_id=None,
             column_id=column_id,
             column_name=column_name,
             description=issue_dict.get("description", "Statistical quality issue"),
@@ -392,6 +393,7 @@ def _aggregate_temporal_issues(
             issue_type=issue_type,
             severity=severity,
             dimension=dimension,
+            table_id=None,
             column_id=column_id,
             column_name=column_name,
             description=issue_dict.get("description", "Temporal quality issue"),
@@ -619,30 +621,30 @@ async def assess_column_quality(
         )
         stat_profile = (await session.execute(stmt)).scalar_one_or_none()
 
-        stmt = (
+        stat_quality_stmt = (
             select(StatisticalQualityMetrics)
             .where(StatisticalQualityMetrics.column_id == column.column_id)
             .order_by(StatisticalQualityMetrics.computed_at.desc())
             .limit(1)
         )
-        stat_quality = (await session.execute(stmt)).scalar_one_or_none()
+        stat_quality = (await session.execute(stat_quality_stmt)).scalar_one_or_none()
 
         # Fetch temporal quality
-        stmt = (
+        temp_quality_stmt = (
             select(TemporalQualityMetrics)
             .where(TemporalQualityMetrics.column_id == column.column_id)
             .order_by(TemporalQualityMetrics.computed_at.desc())
             .limit(1)
         )
-        temp_quality = (await session.execute(stmt)).scalar_one_or_none()
+        temp_quality = (await session.execute(temp_quality_stmt)).scalar_one_or_none()
 
         # Fetch correlation metrics for this column
         # Count high correlations (>0.9)
-        stmt = select(ColumnCorrelation).where(
+        corr_stmt = select(ColumnCorrelation).where(
             (ColumnCorrelation.column1_id == column.column_id)
             | (ColumnCorrelation.column2_id == column.column_id)
         )
-        correlations = (await session.execute(stmt)).scalars().all()
+        correlations = (await session.execute(corr_stmt)).scalars().all()
         high_correlations_count = sum(
             1
             for corr in correlations
@@ -653,10 +655,10 @@ async def assess_column_quality(
         # Count functional dependency violations for this column
         # Note: FunctionalDependency uses determinant_column_ids (JSON list)
         # For simplicity, we check if this column is the dependent
-        stmt = select(FunctionalDependency).where(
+        fd_stmt = select(FunctionalDependency).where(
             FunctionalDependency.dependent_column_id == column.column_id
         )
-        fd_results = (await session.execute(stmt)).scalars().all()
+        fd_results = (await session.execute(fd_stmt)).scalars().all()
         # Also check if column is in determinant list
         all_fds = (await session.execute(select(FunctionalDependency))).scalars().all()
         fd_results_with_determinant = [
@@ -677,6 +679,8 @@ async def assess_column_quality(
                 dimension=QualityDimension.COMPLETENESS,
                 score=score,
                 completeness_ratio=temporal_completeness,
+                parse_success_rate=None,  # TODO: Calculate this
+                validation_pass_rate=None,  # TODO: Calculate this
                 null_ratio=null_ratio,
                 explanation=explanation,
             )
@@ -684,19 +688,31 @@ async def assess_column_quality(
 
         # Validity
         parse_rate = None  # TODO: Get from type inference
-        outlier_ratio = stat_quality.iqr_outlier_ratio if stat_quality else None
+        # Get outlier ratio from outlier detection metrics
+        outlier_ratio = None
+        if stat_quality:
+            # Use IQR outlier ratio if available, else isolation forest
+            outlier_ratio = (
+                stat_quality.iqr_outlier_ratio or stat_quality.isolation_forest_anomaly_ratio
+            )
         score, explanation = _compute_validity_score(parse_rate, outlier_ratio)
         dimension_scores.append(
             DimensionScore(
                 dimension=QualityDimension.VALIDITY,
                 score=score,
+                completeness_ratio=None,  # TODO: Calculate this
+                null_ratio=None,  # TODO: Calculate this
+                validation_pass_rate=None,  # TODO: Calculate this
                 parse_success_rate=parse_rate,
                 explanation=explanation,
             )
         )
 
         # Consistency
-        vif_score = stat_quality.vif_score if stat_quality else None
+        # Get VIF score from statistical quality metrics
+        vif_score = None
+        if stat_quality:
+            vif_score = stat_quality.vif_score
         # Note: Topological metrics are table-level, handled in table assessment
         score, explanation = _compute_consistency_score(
             vif_score,
@@ -710,6 +726,10 @@ async def assess_column_quality(
                 dimension=QualityDimension.CONSISTENCY,
                 score=score,
                 explanation=explanation,
+                completeness_ratio=None,  # TODO: Calculate this
+                null_ratio=None,  # TODO: Calculate this
+                validation_pass_rate=None,  # TODO: Calculate this
+                parse_success_rate=None,
             )
         )
 
@@ -725,23 +745,37 @@ async def assess_column_quality(
                 dimension=QualityDimension.UNIQUENESS,
                 score=score,
                 explanation=explanation,
+                completeness_ratio=None,  # TODO: Calculate this
+                null_ratio=None,  # TODO: Calculate this
+                validation_pass_rate=None,  # TODO: Calculate this
+                parse_success_rate=None,
             )
         )
 
         # Timeliness
-        is_stale = temp_quality.is_stale if temp_quality else None
-        freshness_days = temp_quality.data_freshness_days if temp_quality else None
+        # Get timeliness metrics from temporal quality
+        is_stale = getattr(temp_quality, "is_stale", None) if temp_quality else None
+        freshness_days = (
+            getattr(temp_quality, "data_freshness_days", None) if temp_quality else None
+        )
         score, explanation = _compute_timeliness_score(is_stale, freshness_days)
         dimension_scores.append(
             DimensionScore(
                 dimension=QualityDimension.TIMELINESS,
                 score=score,
                 explanation=explanation,
+                completeness_ratio=None,  # TODO: Calculate this
+                null_ratio=None,  # TODO: Calculate this
+                validation_pass_rate=None,  # TODO: Calculate this
+                parse_success_rate=None,
             )
         )
 
         # Accuracy (domain quality is table-level, not column-level)
-        benford_compliant = stat_quality.benford_compliant if stat_quality else None
+        # Get Benford compliance from statistical quality metrics
+        benford_compliant = None
+        if stat_quality:
+            benford_compliant = stat_quality.benford_compliant
         # Note: Domain compliance is aggregated at table level, not used here
         score, explanation = _compute_accuracy_score(benford_compliant, None)
         dimension_scores.append(
@@ -749,6 +783,10 @@ async def assess_column_quality(
                 dimension=QualityDimension.ACCURACY,
                 score=score,
                 explanation=explanation,
+                completeness_ratio=None,  # TODO: Calculate this
+                null_ratio=None,  # TODO: Calculate this
+                validation_pass_rate=None,  # TODO: Calculate this
+                parse_success_rate=None,
             )
         )
 
@@ -843,7 +881,7 @@ async def assess_table_quality(
         for column in columns:
             result = await assess_column_quality(column, session)
             if result.success:
-                column_assessments.append(result.value)
+                column_assessments.append(result.unwrap())
 
         # Aggregate column scores for table-level scores
         if column_assessments:
@@ -862,6 +900,10 @@ async def assess_table_quality(
                     dimension=dim,
                     score=avg_scores_by_dimension.get(dim, 1.0),
                     explanation=f"Average {dim.value} across {len(column_assessments)} columns",
+                    completeness_ratio=None,  # TODO: Calculate this
+                    null_ratio=None,  # TODO: Calculate this
+                    validation_pass_rate=None,  # TODO: Calculate this
+                    parse_success_rate=None,
                 )
                 for dim in QualityDimension
             ]
@@ -874,21 +916,21 @@ async def assess_table_quality(
             table_overall_score = 1.0
 
         # Get table-level quality metrics
-        stmt = (
+        topo_stmt = (
             select(TopologicalQualityMetrics)
             .where(TopologicalQualityMetrics.table_id == table_id)
             .order_by(TopologicalQualityMetrics.computed_at.desc())
             .limit(1)
         )
-        topo_quality = (await session.execute(stmt)).scalar_one_or_none()
+        topo_quality = (await session.execute(topo_stmt)).scalar_one_or_none()
 
-        stmt = (
+        financial_stmt = (
             select(FinancialQualityMetrics)
             .where(FinancialQualityMetrics.table_id == table_id)
             .order_by(FinancialQualityMetrics.computed_at.desc())
             .limit(1)
         )
-        financial_quality = (await session.execute(stmt)).scalar_one_or_none()
+        financial_quality = (await session.execute(financial_stmt)).scalar_one_or_none()
 
         # Add table-level topological issues
         table_level_issues = []
@@ -957,13 +999,13 @@ async def assess_table_quality(
         warnings = len([i for i in all_issues if i.severity == QualitySeverity.WARNING])
 
         # Issues by dimension
-        issues_by_dimension = {}
+        issues_by_dimension: dict[str, int] = {}
         for issue in all_issues:
             dim_name = issue.dimension.value
             issues_by_dimension[dim_name] = issues_by_dimension.get(dim_name, 0) + 1
 
         # Issues by pillar
-        issues_by_pillar = {}
+        issues_by_pillar: dict[int, int] = {}
         for issue in all_issues:
             pillar = issue.source_pillar
             issues_by_pillar[pillar] = issues_by_pillar.get(pillar, 0) + 1

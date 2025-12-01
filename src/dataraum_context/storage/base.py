@@ -1,5 +1,7 @@
 """SQLAlchemy base configuration and session management."""
 
+from typing import Any
+
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -47,7 +49,7 @@ def get_engine(database_url: str | None = None) -> AsyncEngine:
         if database_url.startswith("sqlite"):
 
             @event.listens_for(_engine.sync_engine, "connect")
-            def set_sqlite_pragma(dbapi_conn, connection_record):
+            def set_sqlite_pragma(dbapi_conn: Any, connection_record: Any) -> None:
                 cursor = dbapi_conn.cursor()
                 cursor.execute("PRAGMA foreign_keys=ON")
                 cursor.close()

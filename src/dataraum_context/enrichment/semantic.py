@@ -56,7 +56,7 @@ async def enrich_semantic(
     if not llm_result.success:
         return llm_result
 
-    enrichment = llm_result.value
+    enrichment = llm_result.unwrap()
 
     # Load column ID mappings
     column_map = await _load_column_mappings(session, table_ids)
@@ -119,7 +119,7 @@ async def enrich_semantic(
             to_table_id=to_table_id,
             to_column_id=to_col_id,
             relationship_type=rel.relationship_type.value,
-            cardinality=rel.cardinality.value if rel.cardinality else None,
+            cardinality=rel.cardinality,
             confidence=rel.confidence,
             detection_method=rel.detection_method,
             evidence=rel.evidence,
@@ -154,4 +154,4 @@ async def _load_table_mappings(
     stmt = select(Table.table_name, Table.table_id).where(Table.table_id.in_(table_ids))
     result = await session.execute(stmt)
 
-    return {table_name: table_id for table_name, table_id in result.all()}
+    return dict(result.tuples().all())

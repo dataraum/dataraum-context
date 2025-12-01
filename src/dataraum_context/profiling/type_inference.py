@@ -7,14 +7,14 @@ from uuid import uuid4
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.core.config import get_settings
+from dataraum_context.core.config import Settings, get_settings
 from dataraum_context.core.models.base import (
     ColumnRef,
     DataType,
     Result,
 )
 from dataraum_context.profiling.models import TypeCandidate as TypeCandidateModel
-from dataraum_context.profiling.patterns import load_pattern_config
+from dataraum_context.profiling.patterns import PatternConfig, load_pattern_config
 from dataraum_context.profiling.units import detect_unit
 from dataraum_context.storage.models_v2 import Column, Table
 from dataraum_context.storage.models_v2 import TypeCandidate as DBTypeCandidate
@@ -106,8 +106,8 @@ async def _infer_column_types(
     table: Table,
     column: Column,
     duckdb_conn: duckdb.DuckDBPyConnection,
-    pattern_config,
-    settings,
+    pattern_config: PatternConfig,
+    settings: Settings,
 ) -> Result[list[TypeCandidateModel]]:
     """Infer type candidates for a single column.
 
@@ -143,7 +143,7 @@ async def _infer_column_types(
             return Result.fail("No values to analyze")
 
         # Pattern matching
-        pattern_matches = defaultdict(int)
+        pattern_matches: dict[str, int] = defaultdict(int)
         pattern_by_name = {}
 
         for value in sample_values:

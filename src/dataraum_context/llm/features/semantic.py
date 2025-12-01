@@ -133,7 +133,7 @@ class SemanticAnalysisFeature(LLMFeature):
                 ValueCount,
             )
             from dataraum_context.storage.models_v2 import (
-                ColumnProfile as ColumnProfileModel,
+                StatisticalProfile as ColumnProfileModel,
             )
 
             subq = (
@@ -197,7 +197,8 @@ class SemanticAnalysisFeature(LLMFeature):
                         )
 
                 # Convert detected patterns
-                detected_patterns = []
+                # TODO: this should be implemented
+                _detected_patterns: list[str] = []
                 # Note: patterns are stored in type_candidates table in Phase 2B
                 # For now, leave empty - will be populated when profiling is integrated
 
@@ -213,7 +214,7 @@ class SemanticAnalysisFeature(LLMFeature):
                     numeric_stats=numeric_stats,
                     string_stats=string_stats,
                     top_values=top_values,
-                    detected_patterns=detected_patterns,
+                    detected_patterns=[],
                 )
                 profiles.append(profile)
 

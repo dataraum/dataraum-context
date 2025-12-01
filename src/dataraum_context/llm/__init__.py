@@ -24,6 +24,8 @@ Example usage:
             print(f"{annotation.column_ref}: {annotation.semantic_role}")
 """
 
+from typing import Any
+
 from dataraum_context.llm.cache import LLMCache
 from dataraum_context.llm.config import LLMConfig, load_llm_config
 from dataraum_context.llm.features.quality import QualityRulesFeature
@@ -110,18 +112,18 @@ class LLMService:
 
     # Convenience methods that delegate to features
 
-    async def analyze_semantics(self, *args, **kwargs):
+    async def analyze_semantics(self, *args: Any, **kwargs: Any) -> Any:
         """Run semantic analysis. See SemanticAnalysisFeature.analyze()."""
         return await self.semantic.analyze(*args, **kwargs)
 
-    async def generate_quality_rules(self, *args, **kwargs):
+    async def generate_quality_rules(self, *args: Any, **kwargs: Any) -> Any:
         """Generate quality rules. See QualityRulesFeature.generate_rules()."""
         return await self.quality.generate_rules(*args, **kwargs)
 
-    async def generate_suggested_queries(self, *args, **kwargs):
+    async def generate_suggested_queries(self, *args: Any, **kwargs: Any) -> Any:
         """Generate suggested queries. See SuggestedQueriesFeature.generate_queries()."""
         return await self.queries.generate_queries(*args, **kwargs)
 
-    async def generate_context_summary(self, *args, **kwargs):
+    async def generate_context_summary(self, *args: Any, **kwargs: Any) -> Any:
         """Generate context summary. See ContextSummaryFeature.generate_summary()."""
         return await self.summary.generate_summary(*args, **kwargs)

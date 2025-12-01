@@ -21,10 +21,10 @@ from pydantic import BaseModel, Field
 class NumericStats(BaseModel):
     """Statistics for numeric columns."""
 
-    min_value: float
-    max_value: float
-    mean: float
-    stddev: float
+    min_value: float | None = None
+    max_value: float | None = None
+    mean: float | None = None
+    stddev: float | None = None
     skewness: float | None = None
     kurtosis: float | None = None
     cv: float | None = None  # Coefficient of variation
@@ -35,8 +35,8 @@ class StringStats(BaseModel):
     """Statistics for string columns."""
 
     min_length: int
-    max_length: int
-    avg_length: float
+    max_length: int | None = None
+    avg_length: float | None = None
 
 
 class HistogramBucket(BaseModel):
@@ -128,8 +128,8 @@ class BenfordTestResult(BaseModel):
     """Results of Benford's Law test."""
 
     chi_square: float
-    p_value: float
-    compliant: bool  # p_value > 0.05
+    p_value: float | None = None
+    compliant: bool | None = None  # p_value > 0.05
     interpretation: str
     digit_distribution: dict[int, float]  # {1: 0.301, 2: 0.176, ...}
 
@@ -138,8 +138,8 @@ class DistributionStabilityResult(BaseModel):
     """Results of distribution stability test (KS test)."""
 
     ks_statistic: float
-    p_value: float
-    stable: bool  # p_value > 0.01
+    p_value: float | None = None
+    stable: bool | None = None  # p_value > 0.01
     comparison_period_start: datetime
     comparison_period_end: datetime
 

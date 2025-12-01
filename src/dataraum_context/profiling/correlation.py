@@ -13,6 +13,7 @@ are handled by the topological enrichment module.
 
 import time
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import duckdb
@@ -131,7 +132,7 @@ async def compute_numeric_correlations(
                 else:
                     strength = "none"
 
-                is_significant = min(pearson_p, spearman_p) < 0.05
+                is_significant = bool(min(pearson_p, spearman_p) < 0.05)
 
                 computed_at = datetime.now(UTC)
 
@@ -219,9 +220,9 @@ async def compute_categorical_associations(
         for col in all_columns:
             # Get distinct count
             query = f'SELECT COUNT(DISTINCT "{col.column_name}") FROM {table_name}'
-            distinct_count = duckdb_conn.execute(query).fetchone()[0]
+            distinct_count_rows = duckdb_conn.execute(query).fetchone()
 
-            if 2 <= distinct_count <= max_distinct_values:
+            if distinct_count_rows and 2 <= distinct_count_rows[0] <= max_distinct_values:
                 categorical_columns.append(col)
 
         if len(categorical_columns) < 2:
@@ -265,7 +266,7 @@ async def compute_categorical_associations(
                 val1_idx = {v: i for i, v in enumerate(unique_val1)}
                 val2_idx = {v: i for i, v in enumerate(unique_val2)}
 
-                for v1, v2, count in zip(val1_list, val2_list, count_list):
+                for v1, v2, count in zip(val1_list, val2_list, count_list, strict=False):
                     contingency[val1_idx[v1], val2_idx[v2]] = count
 
                 # Chi-square test
@@ -305,7 +306,7 @@ async def compute_categorical_associations(
                     sample_size=int(n),
                     computed_at=computed_at,
                     association_strength=strength,
-                    is_significant=p_value < 0.05,
+                    is_significant=bool(p_value < 0.05),
                 )
 
                 associations.append(association)
@@ -400,6 +401,8 @@ async def detect_functional_dependencies(
                 """
 
                 fd_result = duckdb_conn.execute(query).fetchone()
+                if not fd_result:
+                    continue
                 valid_mappings, violations, total_unique_a = fd_result
 
                 if total_unique_a == 0:
@@ -545,6 +548,8 @@ async def detect_derived_columns(
                         """
 
                         deriv_result = duckdb_conn.execute(query).fetchone()
+                        if not deriv_result:
+                            continue
                         matches, total = deriv_result
 
                         if total == 0:
@@ -643,14 +648,16 @@ async def compute_vif_for_table(
             FROM {table_name}
         """
 
-        data = duckdb_conn.execute(query).fetchnumpy()
+        data: Any = duckdb_conn.execute(query).fetchnumpy()
 
         # Build matrix (remove rows with any NULL)
         # fetchnumpy() returns a dict of column_name -> array
         if isinstance(data, dict):
             X = np.column_stack([data[col] for col in column_names])
+        elif hasattr(data, "dtype") and data.dtype.names is not None:
+            X = np.column_stack([data[col] for col in data.dtype.names])  # type: ignore[index]
         else:
-            X = np.column_stack([data[col] for col in data.dtype.names])
+            return Result.fail("Unexpected data format from fetchnumpy()")
         X = X[~np.isnan(X).any(axis=1)]
 
         if len(X) < 10 or X.shape[1] < 2:
@@ -746,20 +753,20 @@ async def analyze_correlations(
 
         # Run all analyses
         numeric_corr_result = await compute_numeric_correlations(table, duckdb_conn, session)
-        numeric_correlations = numeric_corr_result.value if numeric_corr_result.success else []
+        numeric_correlations = numeric_corr_result.unwrap() if numeric_corr_result.success else []
 
         categorical_assoc_result = await compute_categorical_associations(
             table, duckdb_conn, session
         )
         categorical_associations = (
-            categorical_assoc_result.value if categorical_assoc_result.success else []
+            categorical_assoc_result.unwrap() if categorical_assoc_result.success else []
         )
 
         fd_result = await detect_functional_dependencies(table, duckdb_conn, session)
-        functional_dependencies = fd_result.value if fd_result.success else []
+        functional_dependencies = fd_result.unwrap() if fd_result.success else []
 
         derived_result = await detect_derived_columns(table, duckdb_conn, session)
-        derived_columns = derived_result.value if derived_result.success else []
+        derived_columns = derived_result.unwrap() if derived_result.success else []
 
         # Summary stats
         stmt = select(Column).where(Column.table_id == table_id)

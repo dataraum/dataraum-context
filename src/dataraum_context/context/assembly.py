@@ -79,47 +79,39 @@ async def assemble_context_document(
         return Result.fail(f"No typed tables found for source: {source_id}")
 
     # Assemble each pillar
-    statistical_profiling = await _assemble_statistical_profiling(typed_tables, session)
-    statistical_quality = await _assemble_statistical_quality(typed_tables, session)
-    correlation_analysis = await _assemble_correlation_analysis(typed_tables, session)
-    topology = None  # TODO: Implement topology assembly
-    topological_summary = await _assemble_topological_summary(typed_tables, session)
-    semantic = None  # TODO: Implement semantic assembly
-    temporal_summary = None  # TODO: Implement temporal assembly
-    quality = None  # TODO: Implement quality synthesis assembly
+    _statistical_profiling = await _assemble_statistical_profiling(typed_tables, session)
+    _statistical_quality = await _assemble_statistical_quality(typed_tables, session)
+    _correlation_analysis = await _assemble_correlation_analysis(typed_tables, session)
+    _topology = None  # TODO: Implement topology assembly
+    _topological_summary = await _assemble_topological_summary(typed_tables, session)
+    _semantic = None  # TODO: Implement semantic assembly
+    _temporal_summary = None  # TODO: Implement temporal assembly
+    _quality = None  # TODO: Implement quality synthesis assembly
 
     # Compute duration
-    duration = (datetime.now() - start_time).total_seconds()
+    _duration = (datetime.now() - start_time).total_seconds()
 
     # Assemble final document
+    # TODO: Build TableContext from statistical_profiling and other pillars
+    # For now, create minimal structure
+    from dataraum_context.context.models import QualitySummary
+
     document = ContextDocument(
-        source_id=source_id,
-        source_name=source.name,
-        generated_at=datetime.now(),
+        tables=[],  # TODO: Build from typed_tables and profiles
+        relationships=[],  # TODO: Extract from topology/semantic analysis
         ontology=ontology,
-        # Pillar 1: Statistical
-        statistical_profiling=statistical_profiling,
-        statistical_quality=statistical_quality,
-        correlation_analysis=correlation_analysis,
-        # Pillar 2: Topological
-        topology=topology,
-        topological_summary=topological_summary,
-        # Pillar 3: Semantic
-        semantic=semantic,
-        # Pillar 4: Temporal
-        temporal_summary=temporal_summary,
-        # Pillar 5: Quality
-        quality=quality,
-        # Ontology content (TODO)
-        relevant_metrics=[],
-        domain_concepts=[],
-        # LLM content (TODO)
-        suggested_queries=[],
-        ai_summary=None,
-        key_facts=[],
-        warnings=[],
+        relevant_metrics=[],  # TODO: Load from ontology config
+        domain_concepts=[],  # TODO: Load from ontology config
+        quality_summary=QualitySummary(
+            overall_score=0.0,  # TODO: Compute from quality pillar
+            tables_assessed=0,
+            rules_executed=0,
+            issues_found=0,
+            critical_issues=[],
+        ),
+        suggested_queries=[],  # TODO: LLM-generated
+        context_summary=None,  # TODO: LLM-generated
         llm_features_used=[],
-        assembly_duration_seconds=duration,
     )
 
     return Result.ok(document)
@@ -280,18 +272,42 @@ async def _assemble_topological_summary(
     # Aggregate into summary
     total_components = sum(r.betti_numbers.betti_0 for r in topological_results)
     total_cycles = sum(r.betti_numbers.betti_1 for r in topological_results)
-    total_voids = sum(r.betti_numbers.betti_2 for r in topological_results)
+    total_voids = sum(r.betti_numbers.betti_2 or 0 for r in topological_results)
 
-    has_anomalies = any(r.anomalous_cycles for r in topological_results)
-    total_orphaned = sum(r.orphaned_components for r in topological_results)
+    # Count anomalies from anomalies list, not anomalous_cycles
+    total_anomalies = sum(len(r.anomalies) for r in topological_results)
+    _total_orphaned = sum(r.orphaned_components for r in topological_results)
+
+    # Calculate complexity metrics
+    complexities = [r.complexity.total_complexity for r in topological_results]
+    avg_complexity = sum(complexities) / len(complexities) if complexities else 0.0
+    complexity_range = (min(complexities), max(complexities)) if complexities else (0, 0)
+
+    # Determine stability status
+    if not topological_results:
+        stability_status = "unknown"
+    else:
+        unstable_count = sum(
+            1 for r in topological_results if r.stability and not r.stability.is_stable
+        )
+        if unstable_count == 0:
+            stability_status = "all_stable"
+        elif unstable_count < len(topological_results) * 0.3:
+            stability_status = "some_unstable"
+        else:
+            stability_status = "many_unstable"
 
     return TopologicalSummary(
+        num_tables=len(topological_results),
         total_components=total_components,
         total_cycles=total_cycles,
         total_voids=total_voids,
-        has_structural_anomalies=has_anomalies,
-        orphaned_components=total_orphaned,
-        tables_analyzed=len(topological_results),
+        avg_complexity=avg_complexity,
+        complexity_range=complexity_range,
+        stability_status=stability_status,
+        num_anomalies=total_anomalies,
+        key_findings=[],  # TODO: Generate from results
+        recommendations=[],  # TODO: Generate from anomalies
     )
 
 

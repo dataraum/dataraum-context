@@ -175,16 +175,17 @@ async def _analyze_time_column(
             """
             ).fetchall()
 
-            for gap_start, gap_end, gap_seconds in gap_result:
-                if gap_start and gap_end:
-                    missing_periods = int(gap_seconds / median_gap) - 1 if median_gap > 0 else 0
-                    gaps.append(
-                        TemporalGap(
-                            start=gap_start,
-                            end=gap_end,
-                            missing_periods=missing_periods,
+            if gap_result:
+                for gap_start, gap_end, gap_seconds in gap_result:
+                    if gap_start and gap_end:
+                        missing_periods = int(gap_seconds / median_gap) - 1 if median_gap > 0 else 0
+                        gaps.append(
+                            TemporalGap(
+                                start=gap_start,
+                                end=gap_end,
+                                missing_periods=missing_periods,
+                            )
                         )
-                    )
 
         # Build temporal profile
         profile = TemporalProfile(
@@ -284,9 +285,9 @@ async def _store_temporal_profile(
 ) -> None:
     """Store temporal profile in database."""
     # Convert gaps to JSON format
-    gaps_json = None
+    _gaps_json = None
     if profile.gaps:
-        gaps_json = {
+        _gaps_json = {
             "gaps": [
                 {
                     "start": gap.start.isoformat(),

@@ -128,7 +128,7 @@ async def analyze_seasonality(
         # Auto-detect period if not provided
         if period is None:
             # Infer from time series frequency
-            freq = pd.infer_freq(time_series.index)
+            freq = pd.infer_freq(time_series)
             if freq:
                 if "D" in freq:
                     period = 7  # Weekly seasonality for daily data
@@ -156,13 +156,19 @@ async def analyze_seasonality(
         # Perform seasonal decomposition
         try:
             decomposition = seasonal_decompose(
-                time_series, model="additive", period=period, extrapolate_trend="freq"
+                time_series,
+                model="additive",
+                period=period,
+                extrapolate_trend="freq",  # type: ignore[arg-type]
             )
         except Exception:
             # Try multiplicative if additive fails
             try:
                 decomposition = seasonal_decompose(
-                    time_series, model="multiplicative", period=period, extrapolate_trend="freq"
+                    time_series,
+                    model="multiplicative",
+                    period=period,
+                    extrapolate_trend="freq",  # type: ignore[arg-type]
                 )
             except Exception:
                 return Result.ok(
@@ -255,7 +261,7 @@ async def analyze_trend(
 
         # Calculate trend using linear regression
         x = np.arange(len(time_series))
-        y = time_series.values
+        y = np.asarray(time_series.values, dtype=float)
 
         # Remove NaN values
         mask = ~np.isnan(y)
@@ -272,21 +278,21 @@ async def analyze_trend(
             )
 
         # Linear regression
-        slope, intercept, r_value, p_value, std_err = stats.linregress(x_clean, y_clean)
+        slope, _, rvalue, _, stderr, _ = stats.linregress(x_clean, y_clean)
 
         # Trend strength is R²
-        trend_strength = r_value**2
+        trend_strength = rvalue**2
 
         # Determine direction
-        if abs(slope) < std_err * 2:  # Not significant
+        if abs(slope) < stderr * 2:  # Not significant
             direction = "stable"
             has_trend = False
         elif slope > 0:
             direction = "increasing"
-            has_trend = trend_strength > 0.3
+            has_trend = bool(trend_strength > 0.3)
         else:
             direction = "decreasing"
-            has_trend = trend_strength > 0.3
+            has_trend = bool(trend_strength > 0.3)
 
         # Calculate autocorrelation at lag 1
         if len(time_series) > 2:
@@ -337,7 +343,7 @@ async def detect_change_points(
             return Result.ok([])
 
         # Prepare data
-        signal = time_series.values
+        signal = np.asarray(time_series.values, dtype=float)
         mask = ~np.isnan(signal)
         signal_clean = signal[mask]
 
@@ -358,15 +364,15 @@ async def detect_change_points(
 
         # Convert to results
         changes = []
-        timestamps = time_series.index[mask]
+        timestamps: pd.Index[pd.Timestamp] = time_series.index[mask]
 
         prev_idx = 0
         for cp_idx in change_points_idx[:-1]:  # Last point is end of series
             if cp_idx >= len(timestamps):
                 continue
 
-            # Get change point timestamp
-            cp_timestamp = timestamps[cp_idx]
+            # Get change point timestamp (convert to datetime)
+            cp_timestamp = timestamps[cp_idx].to_pydatetime()
 
             # Calculate before/after statistics
             before_segment = signal_clean[prev_idx:cp_idx]
@@ -399,7 +405,7 @@ async def detect_change_points(
 
             change = ChangePointResult(
                 change_point_id=str(uuid4()),
-                detected_at=cp_timestamp.to_pydatetime(),
+                detected_at=cp_timestamp,
                 index_position=int(cp_idx),
                 change_type=change_type,
                 magnitude=magnitude,
@@ -464,7 +470,6 @@ async def analyze_update_frequency(
         last_update = timestamps[-1].to_pydatetime()
         # Make timezone-aware if needed
         if last_update.tzinfo is None:
-
             last_update = last_update.replace(tzinfo=UTC)
         now = datetime.now(UTC)
         freshness_days = (now - last_update).total_seconds() / 86400
@@ -620,7 +625,7 @@ async def analyze_distribution_stability(
             # Kolmogorov-Smirnov test
             ks_stat, p_value = stats.ks_2samp(period1.values, period2.values)
 
-            is_significant = p_value < 0.05
+            is_significant = bool(p_value < 0.05)
 
             if is_significant:
                 # Determine shift direction
@@ -729,7 +734,8 @@ async def analyze_completeness(
         )
 
         # Detect gaps
-        intervals = time_series.index.to_series().diff()
+        # Convert index to series and compute differences (timedeltas)
+        intervals: pd.Series = time_series.index.to_series().diff()
         median_interval = intervals.median()
 
         # Gaps are intervals > 2x median
@@ -737,7 +743,7 @@ async def analyze_completeness(
         large_gaps = intervals[intervals > gap_threshold].dropna()
 
         gaps = []
-        for gap_end, gap_length in large_gaps.items():
+        for gap_end, gap_length in zip(large_gaps.index, large_gaps.values, strict=False):
             gap_start = gap_end - gap_length
             gap_days = gap_length.total_seconds() / 86400
             missing_periods = int(gap_length.total_seconds() / seconds_per_period) - 1
@@ -822,9 +828,9 @@ async def analyze_temporal_quality(
         )
 
         if not ts_result.success:
-            return Result.fail(ts_result.error)
+            return Result.fail(ts_result.error if ts_result.error else "Unknown Error")
 
-        time_series = ts_result.value
+        time_series = ts_result.unwrap()
 
         # Basic temporal info
         min_timestamp = time_series.index.min().to_pydatetime()
@@ -832,8 +838,18 @@ async def analyze_temporal_quality(
         span_days = (max_timestamp - min_timestamp).total_seconds() / 86400
 
         # Infer granularity (simple approach)
-        median_interval = time_series.index.to_series().diff().median()
-        granularity, confidence = _infer_granularity(median_interval.total_seconds())
+        interval: pd.Series = time_series.index.to_series().diff()
+        median_interval = interval.median()
+
+        # Handle case where median_interval might be a float (NaT case)
+        if isinstance(median_interval, (int, float)):
+            # If it's already a number, use it directly
+            interval_seconds = float(median_interval)
+        else:
+            # Otherwise assume it's a Timedelta
+            interval_seconds = median_interval.total_seconds()
+
+        granularity, confidence = _infer_granularity(interval_seconds)
 
         # Analyze seasonality
         seasonality_result = await analyze_seasonality(time_series)
@@ -846,7 +862,7 @@ async def analyze_temporal_quality(
         # Detect change points
         metric_id = str(uuid4())
         changes_result = await detect_change_points(time_series, metric_id)
-        change_points = changes_result.value if changes_result.success else []
+        change_points = changes_result.unwrap() if changes_result.success else []
 
         # Analyze update frequency
         frequency_result = await analyze_update_frequency(time_series)
@@ -938,7 +954,7 @@ async def analyze_temporal_quality(
         # Penalty for issues
         issue_penalty = len(issues) * 0.1
 
-        temporal_quality_score = max(0.0, np.mean(scores) - issue_penalty) if scores else 0.5
+        temporal_quality_score = float(max(0.0, np.mean(scores) - issue_penalty)) if scores else 0.5
 
         computed_at = datetime.now(UTC)
 
