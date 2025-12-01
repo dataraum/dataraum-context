@@ -6,7 +6,7 @@ from uuid import uuid4
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.core.config import get_settings
+from dataraum_context.core.config import Settings, get_settings
 from dataraum_context.core.models.base import ColumnRef, Result
 from dataraum_context.profiling.models import (
     ColumnProfile,
@@ -111,7 +111,7 @@ async def _profile_column(
     column: Column,
     duckdb_conn: duckdb.DuckDBPyConnection,
     profiled_at: datetime,
-    settings,
+    settings: Settings,
 ) -> Result[ColumnProfile]:
     """Profile a single column.
 

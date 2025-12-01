@@ -457,7 +457,7 @@ async def test_pydantic_financial_quality_result():
     )
 
     double_entry = DoubleEntryResult(
-        check_id=uuid4(),
+        check_id=str(uuid4()),
         total_debits=1000.0,
         total_credits=1000.0,
         net_difference=0.0,
@@ -467,8 +467,8 @@ async def test_pydantic_financial_quality_result():
     )
 
     result = FinancialQualityResult(
-        metric_id=uuid4(),
-        table_id=uuid4(),
+        metric_id=str(uuid4()),
+        table_id=str(uuid4()),
         computed_at=datetime.now(),
         double_entry_balanced=True,
         balance_difference=0.0,

@@ -1,0 +1,4 @@
+- Evaluate all todos --> phase 7
+- Rethink relationships as something less strict
+- Check if models and calulations fit the original ideas and have the right attributes --> make a report
+- Evaluate summarisations --> phase 7

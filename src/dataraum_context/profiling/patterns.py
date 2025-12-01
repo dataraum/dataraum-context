@@ -25,7 +25,7 @@ class Pattern:
     locale: str | None = None
     examples: list[str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Compile regex pattern."""
         flags = 0 if self.case_sensitive else re.IGNORECASE
         self._regex = re.compile(self.pattern, flags)
@@ -53,7 +53,7 @@ class ColumnNamePattern:
     likely_type: DataType | None = None
     semantic_type: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Compile regex pattern."""
         self._regex = re.compile(self.pattern, re.IGNORECASE)
 
@@ -78,7 +78,7 @@ class PatternConfig:
         self._column_name_patterns: list[ColumnNamePattern] = []
         self._load_patterns()
 
-    def _load_patterns(self):
+    def _load_patterns(self) -> None:
         """Load all patterns from configuration."""
         # Load value patterns
         for category in [

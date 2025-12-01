@@ -92,7 +92,7 @@ class HomologicalStability(BaseModel):
     """Stability comparison between two periods."""
 
     bottleneck_distance: float  # Wassertein distance between diagrams
-    is_stable: bool  # Within acceptable threshold
+    is_stable: bool | None = None  # Within acceptable threshold
     threshold: float  # Configured threshold
 
     # Change summary

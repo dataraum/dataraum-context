@@ -1,6 +1,7 @@
 """Main profiling orchestrator."""
 
 import time
+from typing import Any
 
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +55,7 @@ async def profile_table(
             return Result.fail(f"Statistical profiling failed: {stats_result.error}")
 
         # Step 2: Type inference (only for 'raw' layer tables)
-        type_candidates = []
+        type_candidates: list[Any] = []
         if table.layer == "raw":
             type_result = await infer_type_candidates(
                 table=table,
@@ -65,7 +66,7 @@ async def profile_table(
             if not type_result.success:
                 return Result.fail(f"Type inference failed: {type_result.error}")
 
-            type_candidates = type_result.value
+            type_candidates = type_result.unwrap()
 
         # Update table's last_profiled_at
         from datetime import UTC, datetime

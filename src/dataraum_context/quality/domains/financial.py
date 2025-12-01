@@ -141,10 +141,10 @@ async def check_double_entry_balance(
         net_difference = abs(total_debits - total_credits)
         is_balanced = net_difference <= config.double_entry_tolerance
 
-        check_id = uuid4()
+        check_id = str(uuid4())
 
         # Store in database
-        db_check = DBDoubleEntryCheck(
+        _db_check = DBDoubleEntryCheck(
             check_id=check_id,
             metric_id=None,  # Will be set when creating FinancialQualityMetrics
             computed_at=datetime.now(UTC),
@@ -252,10 +252,10 @@ async def check_trial_balance(
         equation_difference = abs(assets - (liabilities + equity))
         equation_holds = equation_difference <= config.trial_balance_tolerance
 
-        check_id = uuid4()
+        check_id = str(uuid4())
 
         # Store in database
-        db_check = DBTrialBalanceCheck(
+        _db_check = DBTrialBalanceCheck(
             check_id=check_id,
             metric_id=None,  # Will be set later
             computed_at=datetime.now(UTC),
@@ -369,7 +369,8 @@ async def check_sign_conventions(
 
         # Get total transaction count
         total_query = f"SELECT COUNT(*) as total FROM {table_name}"
-        total_count = duckdb_conn.execute(total_query).fetchone()[0]
+        total_count_row = duckdb_conn.execute(total_query).fetchone()
+        total_count = total_count_row[0] if total_count_row else 0
 
         violations = []
         total_violations = 0
@@ -387,7 +388,7 @@ async def check_sign_conventions(
             else:
                 severity = "minor"
 
-            violation_id = uuid4()
+            violation_id = str(uuid4())
 
             violation = SignConventionViolation(
                 violation_id=violation_id,
@@ -459,7 +460,7 @@ async def check_fiscal_period_integrity(
             f"SELECT MIN({date_col}) as min_date, MAX({date_col}) as max_date FROM {table_name}"
         )
         range_df = duckdb_conn.execute(range_query).df()
-        min_date = pd.to_datetime(range_df.iloc[0]["min_date"])
+        _min_date = pd.to_datetime(range_df.iloc[0]["min_date"])
         max_date = pd.to_datetime(range_df.iloc[0]["max_date"])
 
         # For simplicity, check the most recent fiscal period
@@ -489,7 +490,8 @@ async def check_fiscal_period_integrity(
             FROM {table_name}
             WHERE {date_col} BETWEEN '{fiscal_year_start.isoformat()}' AND '{fiscal_year_end.isoformat()}'
         """
-        actual_days = duckdb_conn.execute(days_query).fetchone()[0]
+        actual_days_row = duckdb_conn.execute(days_query).fetchone()
+        actual_days = actual_days_row[0] if actual_days_row else 0
 
         missing_days = expected_days - actual_days
         is_complete = missing_days <= 5  # Allow 5 days tolerance
@@ -501,7 +503,8 @@ async def check_fiscal_period_integrity(
             FROM {table_name}
             WHERE {date_col} > '{fiscal_year_end.isoformat()}'
         """
-        late_transactions = duckdb_conn.execute(late_query).fetchone()[0]
+        late_transactions_row = duckdb_conn.execute(late_query).fetchone()
+        late_transactions = late_transactions_row[0] if late_transactions_row else 0
 
         # Early transactions: before period start
         early_query = f"""
@@ -509,7 +512,8 @@ async def check_fiscal_period_integrity(
             FROM {table_name}
             WHERE {date_col} < '{fiscal_year_start.isoformat()}'
         """
-        early_transactions = duckdb_conn.execute(early_query).fetchone()[0]
+        early_transactions_row = duckdb_conn.execute(early_query).fetchone()
+        early_transactions = early_transactions_row[0] if early_transactions_row else 0
 
         cutoff_clean = (late_transactions == 0) and (early_transactions == 0)
 
@@ -525,7 +529,7 @@ async def check_fiscal_period_integrity(
         transaction_count = int(stats_df.iloc[0]["transaction_count"] or 0)
         total_amount = float(stats_df.iloc[0]["total_amount"] or 0)
 
-        check_id = uuid4()
+        check_id = str(uuid4())
 
         check = FiscalPeriodIntegrityCheck(
             check_id=check_id,
@@ -574,14 +578,14 @@ async def analyze_financial_quality(
     if config is None:
         config = FinancialQualityConfig()
 
-    metric_id = uuid4()
+    metric_id = str(uuid4())
     computed_at = datetime.now(UTC)
     quality_issues = []
 
     # 1. Double-entry balance check
     double_entry_result = await check_double_entry_balance(table_id, duckdb_conn, session, config)
     if double_entry_result.success:
-        double_entry = double_entry_result.value
+        double_entry = double_entry_result.unwrap()
         double_entry_balanced = double_entry.is_balanced
         balance_difference = double_entry.net_difference
 
@@ -609,7 +613,7 @@ async def analyze_financial_quality(
     # 2. Trial balance check
     trial_balance_result = await check_trial_balance(table_id, duckdb_conn, session, config)
     if trial_balance_result.success:
-        trial_balance = trial_balance_result.value
+        trial_balance = trial_balance_result.unwrap()
         trial_balance_check = trial_balance.equation_holds
         accounting_equation_holds = trial_balance.equation_holds
         assets_total = trial_balance.assets
@@ -636,7 +640,7 @@ async def analyze_financial_quality(
     # 3. Sign convention check
     sign_result = await check_sign_conventions(table_id, duckdb_conn, session, config)
     if sign_result.success:
-        sign_compliance, sign_violations = sign_result.value
+        sign_compliance, sign_violations = sign_result.unwrap()
 
         if sign_compliance < 0.95:
             quality_issues.append(
@@ -654,8 +658,9 @@ async def analyze_financial_quality(
 
     # 4. Fiscal period integrity
     period_result = await check_fiscal_period_integrity(table_id, duckdb_conn, session, config)
+    period_checks: list[FiscalPeriodIntegrityCheck]  # Type annotation for mypy
     if period_result.success:
-        period_checks = period_result.value
+        period_checks = period_result.unwrap()
         fiscal_period_complete = all(c.is_complete for c in period_checks)
         period_end_cutoff_clean = all(c.cutoff_clean for c in period_checks)
 

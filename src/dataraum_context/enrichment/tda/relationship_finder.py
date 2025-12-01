@@ -12,7 +12,7 @@ class TableRelationshipFinder:
     Find relationships between tables using topology
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.extractor = TableTopologyExtractor()
 
     def find_relationships(self, tables: dict[str, pd.DataFrame]) -> dict[str, Any]:
@@ -43,7 +43,15 @@ class TableRelationshipFinder:
             "suggested_joins": self.suggest_joins(relationships, tables),
         }
 
-    def compare_topologies(self, name1, df1, topo1, name2, df2, topo2):
+    def compare_topologies(
+        self,
+        name1: str,
+        df1: pd.DataFrame,
+        topo1: dict[str, Any],
+        name2: str,
+        df2: pd.DataFrame,
+        topo2: dict[str, Any],
+    ) -> dict[str, Any]:
         """
         Compare two table topologies to find relationships
         """
@@ -76,7 +84,9 @@ class TableRelationshipFinder:
 
         return relationship
 
-    def compare_persistence_diagrams(self, persistence1, persistence2):
+    def compare_persistence_diagrams(
+        self, persistence1: dict[str, Any], persistence2: dict[str, Any]
+    ) -> float:
         """
         Compare two persistence diagrams using Wasserstein distance
         """
@@ -112,9 +122,9 @@ class TableRelationshipFinder:
                         similarity = 1 / (1 + distance)
                         similarities.append(similarity)
 
-        return np.mean(similarities) if similarities else 0
+        return float(np.mean(similarities)) if similarities else 0.0
 
-    def find_join_columns(self, df1, df2):
+    def find_join_columns(self, df1: pd.DataFrame, df2: pd.DataFrame) -> list[dict[str, Any]]:
         """
         Find potential join columns between two tables
         """
@@ -134,20 +144,24 @@ class TableRelationshipFinder:
                         }
                     )
 
-        # Sort by confidence
-        join_candidates.sort(key=lambda x: x["confidence"], reverse=True)
+        # Sort by confidence (highest first)
+        def _get_confidence(candidate: dict[str, Any]) -> float:
+            conf = candidate.get("confidence", 0.0)
+            return float(conf) if isinstance(conf, (int, float)) else 0.0
+
+        join_candidates.sort(key=_get_confidence, reverse=True)
 
         return join_candidates[:5]  # Return top 5
 
-    def compute_join_score(self, col1, col2):
+    def compute_join_score(self, col1: pd.Series, col2: pd.Series) -> float:
         """
         Compute likelihood that two columns can be joined
         """
         # Type compatibility
         if not self.are_types_compatible(col1, col2):
-            return 0
+            return 0.0
 
-        score = 0
+        score = 0.0
 
         # For string/categorical columns
         if pd.api.types.is_string_dtype(col1) and pd.api.types.is_string_dtype(col2):
@@ -158,10 +172,10 @@ class TableRelationshipFinder:
                 # Jaccard similarity
                 intersection = len(set1.intersection(set2))
                 union = len(set1.union(set2))
-                jaccard = intersection / union if union > 0 else 0
+                jaccard = intersection / union if union > 0 else 0.0
 
                 # Containment (one is subset of other - strong FK indicator)
-                containment = 0
+                containment = 0.0
                 if set1.issubset(set2):
                     containment = 0.9
                 elif set2.issubset(set1):
@@ -182,7 +196,7 @@ class TableRelationshipFinder:
 
         return min(score, 1.0)
 
-    def are_types_compatible(self, col1, col2):
+    def are_types_compatible(self, col1: pd.Series, col2: pd.Series) -> bool:
         """Check if column types are compatible for joining"""
         # Both numeric
         if pd.api.types.is_numeric_dtype(col1) and pd.api.types.is_numeric_dtype(col2):
@@ -200,14 +214,14 @@ class TableRelationshipFinder:
 
         return False
 
-    def compute_range_overlap(self, range1, range2):
+    def compute_range_overlap(self, range1: tuple[Any, Any], range2: tuple[Any, Any]) -> float:
         """Compute overlap between two numeric ranges"""
         min1, max1 = range1
         min2, max2 = range2
 
         # No overlap
         if max1 < min2 or max2 < min1:
-            return 0
+            return 0.0
 
         # Compute overlap
         overlap_min = max(min1, min2)
@@ -216,9 +230,9 @@ class TableRelationshipFinder:
         overlap_size = overlap_max - overlap_min
         total_size = max(max1, max2) - min(min1, min2)
 
-        return overlap_size / total_size if total_size > 0 else 0
+        return float(overlap_size / total_size) if total_size > 0 else 0.0
 
-    def determine_join_type(self, col1, col2):
+    def determine_join_type(self, col1: pd.Series, col2: pd.Series) -> str:
         """Determine the type of join relationship"""
         card1 = col1.nunique()
         card2 = col2.nunique()
@@ -234,7 +248,9 @@ class TableRelationshipFinder:
         else:
             return "many-to-many"
 
-    def determine_relationship_type(self, df1, df2, join_candidates):
+    def determine_relationship_type(
+        self, df1: pd.DataFrame, df2: pd.DataFrame, join_candidates: list[dict[str, Any]]
+    ) -> str:
         """Determine overall relationship type between tables"""
         if not join_candidates:
             return "unrelated"
@@ -256,11 +272,11 @@ class TableRelationshipFinder:
         elif len(df2) < 100 and len(df1) > 1000:
             return "fact-lookup"
 
-        return best_join["join_type"]
+        return str(best_join["join_type"])
 
-    def build_join_graph(self, relationships):
+    def build_join_graph(self, relationships: list[dict[str, Any]]) -> dict[str, Any]:
         """Build a graph of table relationships"""
-        import networkx as nx
+        import networkx as nx  # type: ignore[import-untyped]
 
         G = nx.Graph()
 
@@ -291,7 +307,9 @@ class TableRelationshipFinder:
             else {"nodes": [], "edges": [], "is_connected": False, "components": []}
         )
 
-    def suggest_joins(self, relationships, tables):
+    def suggest_joins(
+        self, relationships: list[dict[str, Any]], tables: dict[str, pd.DataFrame]
+    ) -> list[dict[str, Any]]:
         """Suggest optimal join paths"""
         suggestions = []
 
@@ -307,7 +325,9 @@ class TableRelationshipFinder:
 
         return suggestions
 
-    def generate_join_sql(self, relationship, tables):
+    def generate_join_sql(
+        self, relationship: dict[str, Any], tables: dict[str, pd.DataFrame]
+    ) -> str | None:
         """Generate SQL for the suggested join"""
         if not relationship["join_columns"]:
             return None

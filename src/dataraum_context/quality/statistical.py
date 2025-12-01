@@ -99,7 +99,7 @@ async def check_benford_law(
         chi2, p_value = stats.chisquare(observed_counts, expected_freq * len(first_digits))
 
         # Interpretation
-        compliant = p_value > 0.05
+        compliant = bool(p_value > 0.05)
         if compliant:
             interpretation = "Follows Benford's Law (no anomalies detected)"
         elif p_value > 0.01:
@@ -321,11 +321,15 @@ async def detect_outliers_isolation_forest(
             # Not enough data for meaningful outlier detection
             return Result.ok(None)
 
+        # Ensure we have a numpy array (not Categorical)
+        if not isinstance(values, np.ndarray):
+            values = np.asarray(values)
+
         # Reshape for sklearn (needs 2D array)
         X = values.reshape(-1, 1)
 
         # Fit Isolation Forest
-        iso_forest = IsolationForest(contamination=contamination, random_state=42)
+        iso_forest = IsolationForest(contamination=contamination, random_state=42)  # type: ignore[arg-type]
         predictions = iso_forest.fit_predict(X)
         scores = iso_forest.score_samples(X)
 
@@ -479,7 +483,9 @@ async def assess_statistical_quality(
                 quality_issues.append(
                     QualityIssue(
                         issue_type="benford_violation",
-                        severity="warning" if benford_test.p_value > 0.01 else "critical",
+                        severity="warning"
+                        if benford_test.p_value and benford_test.p_value > 0.01
+                        else "critical",
                         description=benford_test.interpretation,
                         evidence={
                             "chi_square": benford_test.chi_square,

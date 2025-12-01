@@ -6,7 +6,6 @@ focusing on financial domain validation.
 
 from datetime import datetime
 from typing import Any
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +13,7 @@ from pydantic import BaseModel, Field
 class DoubleEntryResult(BaseModel):
     """Double-entry balance check result."""
 
-    check_id: UUID
+    check_id: str
     total_debits: float
     total_credits: float
     net_difference: float
@@ -29,7 +28,7 @@ class DoubleEntryResult(BaseModel):
 class TrialBalanceResult(BaseModel):
     """Trial balance validation result."""
 
-    check_id: UUID
+    check_id: str
     assets: float
     liabilities: float
     equity: float
@@ -43,7 +42,7 @@ class TrialBalanceResult(BaseModel):
 class SignConventionViolation(BaseModel):
     """Sign convention violation details."""
 
-    violation_id: UUID
+    violation_id: str
     account_identifier: str
     account_type: str
     expected_sign: str  # 'debit' or 'credit'
@@ -57,13 +56,13 @@ class SignConventionViolation(BaseModel):
 class IntercompanyTransactionMatch(BaseModel):
     """Intercompany transaction matching status."""
 
-    transaction_id: UUID
+    transaction_id: str
     source_entity: str
     target_entity: str
     amount: float
     transaction_date: datetime
     is_matched: bool
-    matching_transaction_id: UUID | None = None
+    matching_transaction_id: str | None = None
     elimination_status: str  # 'eliminated', 'pending', 'orphaned'
     description: str | None = None
 
@@ -71,7 +70,7 @@ class IntercompanyTransactionMatch(BaseModel):
 class FiscalPeriodIntegrityCheck(BaseModel):
     """Fiscal period integrity validation."""
 
-    check_id: UUID
+    check_id: str
     fiscal_period: str
     period_start: datetime
     period_end: datetime
@@ -87,8 +86,8 @@ class FiscalPeriodIntegrityCheck(BaseModel):
 class FinancialQualityResult(BaseModel):
     """Complete financial quality assessment."""
 
-    metric_id: UUID
-    table_id: UUID
+    metric_id: str
+    table_id: str
     computed_at: datetime
 
     # Double-entry
@@ -140,8 +139,8 @@ class FinancialQualityIssue(BaseModel):
 class DomainQualityResult(BaseModel):
     """Generic domain quality result."""
 
-    metric_id: UUID
-    table_id: UUID
+    metric_id: str
+    table_id: str
     domain: str
     computed_at: datetime
 

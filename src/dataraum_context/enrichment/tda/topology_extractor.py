@@ -13,9 +13,9 @@ class TableTopologyExtractor:
     Extract topological features from tabular data
     """
 
-    def __init__(self, max_dimension=2):
+    def __init__(self, max_dimension: int = 2) -> None:
         self.max_dimension = max_dimension
-        self.feature_cache = {}
+        self.feature_cache: dict[str, Any] = {}
 
     def extract_topology(self, df: pd.DataFrame) -> dict[str, Any]:
         """
@@ -183,7 +183,7 @@ class TableTopologyExtractor:
 
         return column_relationships
 
-    def analyze_column_relationship(self, col1: pd.Series, col2: pd.Series) -> dict[str, float]:
+    def analyze_column_relationship(self, col1: pd.Series, col2: pd.Series) -> dict[str, Any]:
         """
         Analyze topological relationship between two columns
         """
@@ -244,21 +244,21 @@ class TableTopologyExtractor:
             for _, row in sample_df[numeric_cols].iterrows():
                 row_features.append(row.values)
 
-            row_features = np.array(row_features)
+            row_features_array = np.array(row_features)
 
             # Compute persistence on row space
-            if len(row_features) > 2:
-                row_persistence = ripser(row_features, maxdim=1)
+            if len(row_features_array) > 2:
+                row_persistence = ripser(row_features_array, maxdim=1)
 
                 return {
                     "row_clusters": self.identify_clusters(row_persistence),
-                    "outlier_score": self.compute_outlier_scores(row_features),
+                    "outlier_score": self.compute_outlier_scores(row_features_array),
                     "row_persistence": row_persistence["dgms"],
                 }
 
         return {"message": "No numeric columns for row topology"}
 
-    def identify_clusters(self, persistence_result):
+    def identify_clusters(self, persistence_result: dict[str, Any]) -> dict[str, Any]:
         """
         Identify clusters from persistence diagram
         """
@@ -275,7 +275,7 @@ class TableTopologyExtractor:
                 if len(sorted_deaths) > 1:
                     gaps = np.diff(sorted_deaths)
                     if len(gaps) > 0:
-                        n_clusters = np.argmax(gaps) + 2
+                        n_clusters = int(np.argmax(gaps)) + 2
                     else:
                         n_clusters = 1
                 else:
@@ -288,7 +288,7 @@ class TableTopologyExtractor:
 
         return {"n_clusters": 1, "cluster_separation": 0}
 
-    def compute_outlier_scores(self, features):
+    def compute_outlier_scores(self, features: np.ndarray) -> list[float]:
         """
         Use topological methods to find outliers
         """
@@ -299,25 +299,27 @@ class TableTopologyExtractor:
         k = min(5, len(features) - 1)
         distances = squareform(pdist(features))
 
-        outlier_scores = []
+        outlier_scores: list[float] = []
         for i in range(len(features)):
             # Sort distances and take k-nearest
             sorted_distances = np.sort(distances[i])[1 : k + 1]  # Exclude self
-            outlier_scores.append(np.mean(sorted_distances))
+            outlier_scores.append(float(np.mean(sorted_distances)))
 
         # Normalize scores
-        if np.std(outlier_scores) > 0:
-            outlier_scores = (outlier_scores - np.mean(outlier_scores)) / np.std(outlier_scores)
+        if len(outlier_scores) > 0 and np.std(outlier_scores) > 0:
+            scores_array = np.array(outlier_scores)
+            normalized_scores = (scores_array - np.mean(scores_array)) / np.std(scores_array)
+            return [float(x) for x in normalized_scores]
 
         return outlier_scores
 
-    def extract_metadata(self, df):
+    def extract_metadata(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         Extract basic metadata
         """
         return {
             "n_rows": len(df),
             "n_columns": len(df.columns),
-            "column_types": df.dtypes.value_counts().to_dict(),
-            "memory_usage": df.memory_usage(deep=True).sum(),
+            "column_types": {str(k): int(v) for k, v in df.dtypes.value_counts().to_dict().items()},
+            "memory_usage": int(df.memory_usage(deep=True).sum()),
         }

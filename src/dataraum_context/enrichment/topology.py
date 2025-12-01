@@ -180,7 +180,7 @@ async def _store_relationships(
             to_table_id=to_table_id,
             to_column_id=to_col_id,
             relationship_type=rel.relationship_type.value,
-            cardinality=rel.cardinality.value if rel.cardinality else None,
+            cardinality=rel.cardinality,
             confidence=rel.confidence,
             detection_method=rel.detection_method,
             evidence=rel.evidence,

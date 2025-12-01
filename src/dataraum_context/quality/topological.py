@@ -143,7 +143,7 @@ async def process_persistence_diagrams(
 
             # Filter out infinite persistence for statistics
             finite_mask = dgm[:, 1] < np.inf
-            finite_dgm = dgm[finite_mask]
+            _finite_dgm = dgm[finite_mask]
 
             # Create persistence points
             points = []
@@ -367,7 +367,7 @@ async def assess_homological_stability(
             prev_finite = prev_dgm[prev_dgm[:, 1] < np.inf]
 
             if len(curr_finite) > 0 and len(prev_finite) > 0:
-                distance = bottleneck(curr_finite, prev_finite)
+                distance, _ = bottleneck(curr_finite, prev_finite)
                 bottleneck_distances[f"H{dim}"] = float(distance)
                 max_distance = max(max_distance, distance)
 
@@ -396,8 +396,9 @@ async def assess_homological_stability(
         if not prev_betti_result.success:
             return Result.ok(None)
 
-        curr_b = curr_betti.value
-        prev_b = prev_betti_result.value
+        # Use unwrap() to get non-None values after success check
+        curr_b = curr_betti.unwrap()
+        prev_b = prev_betti_result.unwrap()
 
         components_added = max(0, curr_b.betti_0 - prev_b.betti_0)
         components_removed = max(0, prev_b.betti_0 - curr_b.betti_0)
@@ -566,14 +567,14 @@ async def analyze_topological_quality(
         # Extract Betti numbers
         betti_result = await extract_betti_numbers(diagrams)
         if not betti_result.success:
-            return Result.fail(betti_result.error)
-        betti_numbers = betti_result.value
+            return Result.fail(betti_result.error if betti_result.error else "Unknown error")
+        betti_numbers = betti_result.unwrap()
 
         # Process persistence diagrams
         diagram_result = await process_persistence_diagrams(diagrams)
         if not diagram_result.success:
-            return Result.fail(diagram_result.error)
-        persistence_diagrams = diagram_result.value
+            return Result.fail(diagram_result.error if diagram_result.error else "Unknown error")
+        persistence_diagrams = diagram_result.unwrap()
 
         # Compute persistent entropy
         persistent_entropy = compute_persistent_entropy(diagrams)
@@ -583,24 +584,28 @@ async def analyze_topological_quality(
             diagrams, table_id, session, stability_threshold=0.2
         )
         if not stability_result.success:
-            return Result.fail(stability_result.error)
-        stability = stability_result.value
+            return Result.fail(
+                stability_result.error if stability_result.error else "Unknown error"
+            )
+        stability = stability_result.unwrap()
 
         # Detect cycles
         cycle_result = await detect_persistent_cycles(
             diagrams, metric_id="temp", min_persistence=min_persistence
         )
         if not cycle_result.success:
-            return Result.fail(cycle_result.error)
-        cycles = cycle_result.value
+            return Result.fail(cycle_result.error if cycle_result.error else "Unknown error")
+        cycles = cycle_result.unwrap()
 
         # Assess complexity
         complexity_result = await assess_structural_complexity(
             betti_numbers, persistent_entropy, table_id, session
         )
         if not complexity_result.success:
-            return Result.fail(complexity_result.error)
-        complexity = complexity_result.value
+            return Result.fail(
+                complexity_result.error if complexity_result.error else "Unknown error"
+            )
+        complexity = complexity_result.unwrap()
 
         # Detect anomalies
         anomalies = []
@@ -690,7 +695,9 @@ async def analyze_topological_quality(
             structural_complexity=complexity.total_complexity,
             complexity_trend=complexity.complexity_trend,
             complexity_within_bounds=complexity.within_bounds,
-            anomalous_cycles={"cycles": [c.cycle_id for c in cycles if c.is_anomalous]},
+            anomalous_cycles={
+                "cycles": [c.cycle_id for c in cycles if c.is_anomalous] if cycles else []
+            },
             orphaned_components=orphaned_components,
             topology_description=topology_description,
             quality_warnings={"warnings": quality_warnings},
@@ -713,22 +720,23 @@ async def analyze_topological_quality(
         session.add(db_history)
 
         # Store persistent cycles
-        for cycle in cycles:
-            db_cycle = DBPersistentCycle(
-                cycle_id=cycle.cycle_id,
-                metric_id=metric_id,
-                dimension=cycle.dimension,
-                birth=cycle.birth,
-                death=cycle.death,
-                persistence=cycle.persistence,
-                involved_columns={"column_ids": cycle.involved_columns},
-                cycle_type=cycle.cycle_type,
-                is_anomalous=cycle.is_anomalous,
-                anomaly_reason=cycle.anomaly_reason,
-                first_detected=cycle.first_detected,
-                last_seen=cycle.last_seen,
-            )
-            session.add(db_cycle)
+        if cycles:
+            for cycle in cycles:
+                db_cycle = DBPersistentCycle(
+                    cycle_id=cycle.cycle_id,
+                    metric_id=metric_id,
+                    dimension=cycle.dimension,
+                    birth=cycle.birth,
+                    death=cycle.death,
+                    persistence=cycle.persistence,
+                    involved_columns={"column_ids": cycle.involved_columns},
+                    cycle_type=cycle.cycle_type,
+                    is_anomalous=cycle.is_anomalous,
+                    anomaly_reason=cycle.anomaly_reason,
+                    first_detected=cycle.first_detected,
+                    last_seen=cycle.last_seen,
+                )
+                session.add(db_cycle)
 
         await session.commit()
 
