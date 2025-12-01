@@ -8,6 +8,8 @@ These models are used for:
 Note: These are separate from SQLAlchemy models (storage/models_v2/topological_context.py)
 """
 
+from typing import Any
+
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -70,7 +72,7 @@ class PersistentCycleResult(BaseModel):
     persistence: float
 
     # Involved entities
-    involved_columns: list[str] = Field(default_factory=list)  # Column IDs
+    involved_columns: list[str] = Field(default_factory=lambda: [])  # Column IDs
 
     # Domain interpretation
     cycle_type: str | None = None  # 'money_flow', 'order_fulfillment', etc.
@@ -137,11 +139,11 @@ class TopologicalAnomaly(BaseModel):
     anomaly_type: str  # 'unexpected_cycle', 'orphaned_component', 'complexity_spike', etc.
     severity: str  # 'low', 'medium', 'high'
     description: str  # Human-readable description
-    evidence: dict = Field(default_factory=dict)  # Supporting data
+    evidence: dict[str, Any] = Field(default_factory=lambda: {})  # Supporting data
 
     # Affected entities
-    affected_tables: list[str] = Field(default_factory=list)
-    affected_columns: list[str] = Field(default_factory=list)
+    affected_tables: list[str] = Field(default_factory=lambda: [])
+    affected_columns: list[str] = Field(default_factory=lambda: [])
 
 
 # ============================================================================
@@ -169,15 +171,15 @@ class TopologicalQualityResult(BaseModel):
     complexity: StructuralComplexity
 
     # Detected cycles
-    persistent_cycles: list[PersistentCycleResult] = Field(default_factory=list)
+    persistent_cycles: list[PersistentCycleResult] = Field(default_factory=lambda: [])
 
     # Anomalies
-    anomalies: list[TopologicalAnomaly] = Field(default_factory=list)
+    anomalies: list[TopologicalAnomaly] = Field(default_factory=lambda: [])
     orphaned_components: int = 0
 
     # Summary for LLM
     topology_description: str  # "3 connected components, 12 significant cycles"
-    quality_warnings: list[str] = Field(default_factory=list)
+    quality_warnings: list[str] = Field(default_factory=lambda: [])
 
     # Overall assessment
     quality_score: float  # 0-1, based on stability + complexity bounds
@@ -199,5 +201,5 @@ class TopologicalSummary(BaseModel):
     num_anomalies: int
 
     # Key findings
-    key_findings: list[str] = Field(default_factory=list)
-    recommendations: list[str] = Field(default_factory=list)
+    key_findings: list[str] = Field(default_factory=lambda: [])
+    recommendations: list[str] = Field(default_factory=lambda: [])

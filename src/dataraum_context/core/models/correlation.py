@@ -11,6 +11,7 @@ Note: These are separate from SQLAlchemy models (storage/models_v2/correlation.p
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+from typing import Any
 
 # ============================================================================
 # Numeric Correlation Models
@@ -107,7 +108,7 @@ class FunctionalDependency(BaseModel):
     violation_count: int
 
     # Example
-    example: dict | None = None  # {determinant_values: [...], dependent_value: ...}
+    example: dict[str, Any] | None = None  # {determinant_values: [...], dependent_value: ...}
 
     # Metadata
     computed_at: datetime
@@ -142,7 +143,7 @@ class DerivedColumn(BaseModel):
     matching_rows: int
 
     # Evidence
-    mismatch_examples: list[dict] | None = None
+    mismatch_examples: list[dict[str, Any]] | None = None
 
     # Metadata
     computed_at: datetime

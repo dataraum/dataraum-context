@@ -12,7 +12,7 @@ Design notes:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String
@@ -71,7 +71,7 @@ class StatisticalProfile(Base):
     cv: Mapped[float | None] = mapped_column(Float)  # Coefficient of variation (stddev/mean)
 
     # Percentiles: {p25, p50, p75, p95, p99}
-    percentiles: Mapped[dict | None] = mapped_column(JSON)
+    percentiles: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # ========================================================================
     # String Statistics (NULL if column is not string)
@@ -84,10 +84,10 @@ class StatisticalProfile(Base):
     # Distribution Data
     # ========================================================================
     # Histogram: [{bucket_min, bucket_max, count}, ...]
-    histogram: Mapped[list | None] = mapped_column(JSON)
+    histogram: Mapped[list[Any] | None] = mapped_column(JSON)
 
     # Top K values: [{value, count, percentage}, ...]
-    top_values: Mapped[list | None] = mapped_column(JSON)
+    top_values: Mapped[list[Any] | None] = mapped_column(JSON)
 
     # ========================================================================
     # Entropy (Information Content)
@@ -144,7 +144,7 @@ class StatisticalQualityMetrics(Base):
     benford_interpretation: Mapped[str | None] = mapped_column(String)
 
     # First digit distribution: {1: 0.301, 2: 0.176, ...}
-    benford_digit_distribution: Mapped[dict | None] = mapped_column(JSON)
+    benford_digit_distribution: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # ========================================================================
     # Distribution Stability (KS test across time periods)
@@ -172,13 +172,13 @@ class StatisticalQualityMetrics(Base):
     isolation_forest_anomaly_ratio: Mapped[float | None] = mapped_column(Float)
 
     # Sample outliers for review: [{value, method, score}, ...]
-    outlier_samples: Mapped[list | None] = mapped_column(JSON)
+    outlier_samples: Mapped[list[Any] | None] = mapped_column(JSON)
 
     # ========================================================================
     # Multicollinearity (VIF - Variance Inflation Factor)
     # ========================================================================
     vif_score: Mapped[float | None] = mapped_column(Float)  # VIF > 10 indicates multicollinearity
-    vif_correlated_columns: Mapped[list | None] = mapped_column(
+    vif_correlated_columns: Mapped[list[Any] | None] = mapped_column(
         JSON
     )  # Column IDs with high correlation
 
@@ -186,7 +186,7 @@ class StatisticalQualityMetrics(Base):
     # Overall Quality Assessment
     # ========================================================================
     quality_score: Mapped[float | None] = mapped_column(Float)  # 0-1 aggregate quality score
-    quality_issues: Mapped[list | None] = mapped_column(
+    quality_issues: Mapped[list[Any] | None] = mapped_column(
         JSON
     )  # [{issue_type, severity, description}, ...]
 

@@ -11,6 +11,7 @@ Note: These are separate from SQLAlchemy models (storage/models_v2/statistical_c
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+from typing import Any
 
 # ============================================================================
 # Statistical Profile Models
@@ -27,7 +28,7 @@ class NumericStats(BaseModel):
     skewness: float | None = None
     kurtosis: float | None = None
     cv: float | None = None  # Coefficient of variation
-    percentiles: dict[str, float] = Field(default_factory=dict)
+    percentiles: dict[str, float] = Field(default_factory=lambda: {})
 
 
 class StringStats(BaseModel):
@@ -158,7 +159,7 @@ class OutlierDetectionResult(BaseModel):
     average_anomaly_score: float | None = None
 
     # Sample outliers
-    outlier_samples: list[dict] | None = None  # [{value, score}, ...]
+    outlier_samples: list[dict[str, Any]] | None = None  # [{value, score}, ...]
 
 
 class VIFResult(BaseModel):
@@ -167,7 +168,7 @@ class VIFResult(BaseModel):
     column_id: str
     vif_score: float
     has_multicollinearity: bool  # VIF > 10
-    correlated_columns: list[str] = Field(default_factory=list)  # Column IDs
+    correlated_columns: list[str] = Field(default_factory=lambda: [])  # Column IDs
 
 
 class QualityIssue(BaseModel):
@@ -176,7 +177,7 @@ class QualityIssue(BaseModel):
     issue_type: str  # 'benford_violation', 'distribution_shift', 'outliers', 'multicollinearity'
     severity: str  # 'critical', 'warning', 'info'
     description: str
-    evidence: dict = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=lambda: {})
 
 
 class StatisticalQualityMetrics(BaseModel):
@@ -198,7 +199,7 @@ class StatisticalQualityMetrics(BaseModel):
 
     # Overall assessment
     quality_score: float | None = None  # 0-1
-    quality_issues: list[QualityIssue] = Field(default_factory=list)
+    quality_issues: list[QualityIssue] = Field(default_factory=lambda: [])
 
 
 # ============================================================================

@@ -17,21 +17,114 @@ For new code, import pillar-specific models:
     from dataraum_context.core.models.statistical import BenfordTestResult
 """
 
-# The simplest solution: manually import and re-export from the legacy models.py
-# This avoids complex importlib magic and circular import issues
-
-# We'll import the parent models.py by using a relative import trick
-# Since we're in core/models/__init__.py, we can access ../models.py
-
+# Standard library imports at top
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-# Load the legacy models.py file directly
+# Pillar-specific model imports (before legacy namespace loading)
+# Correlation analysis (Part of Pillar 1) - new models
+from dataraum_context.core.models.correlation import (
+    CategoricalAssociation as CategoricalAssociationModel,
+)
+from dataraum_context.core.models.correlation import (
+    CorrelationAnalysisResult,
+    CorrelationMatrix,
+    NumericCorrelation,
+)
+from dataraum_context.core.models.correlation import DerivedColumn as DerivedColumnModel
+from dataraum_context.core.models.correlation import (
+    FunctionalDependency as FunctionalDependencyModel,
+)
+
+# Domain quality (Pillar 5) - new models
+from dataraum_context.core.models.domain_quality import (
+    DomainQualityResult,
+    DoubleEntryResult,
+    FinancialQualityConfig,
+    FinancialQualityIssue,
+    FinancialQualityResult,
+    FiscalPeriodIntegrityCheck,
+    IntercompanyTransactionMatch,
+    SignConventionConfig,
+    TrialBalanceResult,
+)
+from dataraum_context.core.models.domain_quality import (
+    SignConventionViolation as SignConventionViolationModel,
+)
+
+# Quality Synthesis (Pillar 5) - new models
+from dataraum_context.core.models.quality_synthesis import (
+    ColumnQualityAssessment,
+    DatasetQualityOverview,
+    DimensionScore,
+    QualityDimension,
+    QualitySynthesisResult,
+    TableQualityAssessment,
+)
+from dataraum_context.core.models.quality_synthesis import (
+    QualityIssue as QualitySynthesisIssue,
+)
+from dataraum_context.core.models.quality_synthesis import (
+    QualitySeverity as QualitySynthesisSeverity,
+)
+
+# Statistical context (Pillar 1) - new models
+from dataraum_context.core.models.statistical import (
+    BenfordTestResult,
+    DistributionStabilityResult,
+    EntropyStats,
+    HistogramBucket,
+    NumericStats,
+    OrderStats,
+    OutlierDetectionResult,
+    QualityIssue,
+    StatisticalProfile,
+    StatisticalProfilingResult,
+    StatisticalQualityMetrics,
+    StatisticalQualityResult,
+    StringStats,
+    UniquenessStats,
+    ValueCount,
+    VIFResult,
+)
+
+# Temporal context (Pillar 4) - new models
+from dataraum_context.core.models.temporal import (
+    ChangePointResult,
+    DistributionShiftResult,
+    DistributionStabilityAnalysis,
+    FiscalCalendarAnalysis,
+    SeasonalDecompositionResult,
+    SeasonalityAnalysis,
+    TemporalCompletenessAnalysis,
+    TemporalGapInfo,
+    TemporalQualityIssue,
+    TemporalQualityResult,
+    TemporalQualitySummary,
+    TrendAnalysis,
+    UpdateFrequencyAnalysis,
+)
+
+# Topological context (Pillar 2) - new models
+from dataraum_context.core.models.topological import (
+    BettiNumbers,
+    HomologicalStability,
+    PersistenceDiagram,
+    PersistencePoint,
+    PersistentCycleResult,
+    StructuralComplexity,
+    TopologicalAnomaly,
+    TopologicalQualityResult,
+    TopologicalSummary,
+)
+
+# Load the legacy models.py file directly for backwards compatibility
 _models_py_path = Path(__file__).parent.parent / "models.py"
 
 # Read and execute it in a clean namespace
 _legacy_namespace = {"__name__": "dataraum_context.core.models_legacy"}
 with open(_models_py_path) as f:
-    exec(f.read(), _legacy_namespace)
+    exec(f.read(), _legacy_namespace)  # type: ignore[misc]
 
 # Export the models we need from the legacy file
 Cardinality = _legacy_namespace["Cardinality"]
@@ -83,103 +176,6 @@ LegacyStringStats = _legacy_namespace["StringStats"]
 LegacyHistogramBucket = _legacy_namespace["HistogramBucket"]
 LegacyValueCount = _legacy_namespace["ValueCount"]
 LegacyQualityIssue = _legacy_namespace.get("QualityIssue")  # May not exist
-
-# Statistical context (Pillar 1) - new models
-# Correlation analysis (Part of Pillar 1) - new models
-from dataraum_context.core.models.correlation import (
-    CategoricalAssociation as CategoricalAssociationModel,
-)
-from dataraum_context.core.models.correlation import (
-    CorrelationAnalysisResult,
-    CorrelationMatrix,
-    NumericCorrelation,
-)
-from dataraum_context.core.models.correlation import (
-    DerivedColumn as DerivedColumnModel,
-)
-from dataraum_context.core.models.correlation import (
-    FunctionalDependency as FunctionalDependencyModel,
-)
-
-# Domain quality (Pillar 5) - new models
-from dataraum_context.core.models.domain_quality import (
-    DomainQualityResult,
-    DoubleEntryResult,
-    FinancialQualityConfig,
-    FinancialQualityIssue,
-    FinancialQualityResult,
-    FiscalPeriodIntegrityCheck,
-    IntercompanyTransactionMatch,
-    SignConventionConfig,
-    TrialBalanceResult,
-)
-from dataraum_context.core.models.domain_quality import (
-    SignConventionViolation as SignConventionViolationModel,
-)
-
-# Quality Synthesis (Pillar 5) - new models
-from dataraum_context.core.models.quality_synthesis import (
-    ColumnQualityAssessment,
-    DatasetQualityOverview,
-    DimensionScore,
-    QualityDimension,
-    QualitySynthesisResult,
-    TableQualityAssessment,
-)
-from dataraum_context.core.models.quality_synthesis import (
-    QualityIssue as QualitySynthesisIssue,
-)
-from dataraum_context.core.models.quality_synthesis import (
-    QualitySeverity as QualitySynthesisSeverity,
-)
-from dataraum_context.core.models.statistical import (
-    BenfordTestResult,
-    DistributionStabilityResult,
-    EntropyStats,
-    HistogramBucket,
-    NumericStats,
-    OrderStats,
-    OutlierDetectionResult,
-    QualityIssue,
-    StatisticalProfile,
-    StatisticalProfilingResult,
-    StatisticalQualityMetrics,
-    StatisticalQualityResult,
-    StringStats,
-    UniquenessStats,
-    ValueCount,
-    VIFResult,
-)
-
-# Temporal context (Pillar 4) - new models
-from dataraum_context.core.models.temporal import (
-    ChangePointResult,
-    DistributionShiftResult,
-    DistributionStabilityAnalysis,
-    FiscalCalendarAnalysis,
-    SeasonalDecompositionResult,
-    SeasonalityAnalysis,
-    TemporalCompletenessAnalysis,
-    TemporalGapInfo,
-    TemporalQualityIssue,
-    TemporalQualityResult,
-    TemporalQualitySummary,
-    TrendAnalysis,
-    UpdateFrequencyAnalysis,
-)
-
-# Topological context (Pillar 2) - new models
-from dataraum_context.core.models.topological import (
-    BettiNumbers,
-    HomologicalStability,
-    PersistenceDiagram,
-    PersistencePoint,
-    PersistentCycleResult,
-    StructuralComplexity,
-    TopologicalAnomaly,
-    TopologicalQualityResult,
-    TopologicalSummary,
-)
 
 __all__ = [
     # Legacy models (for backwards compatibility)

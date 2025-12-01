@@ -16,7 +16,7 @@ import duckdb
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.core.models import Result
+from dataraum_context.core.models import Result  # type: ignore[attr-defined]
 from dataraum_context.core.models.domain_quality import (
     DoubleEntryResult,
     FinancialQualityConfig,

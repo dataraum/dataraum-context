@@ -6,7 +6,7 @@ SQLAlchemy models for LLM response caching.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String
@@ -37,7 +37,7 @@ class LLMCache(Base):
 
     # Request context
     source_id: Mapped[str | None] = mapped_column(ForeignKey("sources.source_id"))
-    table_ids: Mapped[dict | None] = mapped_column(JSON)  # List of table IDs
+    table_ids: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # List of table IDs
     ontology: Mapped[str | None] = mapped_column(String)
 
     # LLM details
@@ -46,7 +46,7 @@ class LLMCache(Base):
     prompt_hash: Mapped[str | None] = mapped_column(String)
 
     # Response
-    response_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    response_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
 

@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 
-from dataraum_context.core.models import Result
+from dataraum_context.core.models import Result  # type: ignore[attr-defined]
 
 
 class LLMRequest(BaseModel):

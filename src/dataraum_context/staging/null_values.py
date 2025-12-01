@@ -1,6 +1,7 @@
 """Null value configuration loader."""
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -10,7 +11,7 @@ from dataraum_context.core.config import get_settings
 class NullValueConfig:
     """Null value configuration for staging."""
 
-    def __init__(self, config_dict: dict):
+    def __init__(self, config_dict: dict[str, Any]):
         self._config = config_dict
 
     def get_null_strings(self, include_placeholders: bool = True) -> list[str]:
