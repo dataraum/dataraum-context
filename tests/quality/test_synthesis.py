@@ -220,7 +220,6 @@ class TestConsistencyScore:
     def test_perfect_consistency(self):
         """Test perfect consistency."""
         score, explanation = _compute_consistency_score(
-            vif_score=1.0,
             functional_dep_violations=0,
             orphaned_components=0,
             anomalous_cycles_count=0,
@@ -229,24 +228,9 @@ class TestConsistencyScore:
         assert score == 1.0
         assert "No consistency metrics available" in explanation
 
-    def test_high_vif(self):
-        """Test with high VIF (multicollinearity)."""
-        score, explanation = _compute_consistency_score(
-            vif_score=20.0,  # VIF of 20
-            functional_dep_violations=None,
-            orphaned_components=None,
-            anomalous_cycles_count=None,
-            high_correlations_count=None,
-        )
-        # Penalty = min((20 - 10) / 20, 0.5) = 0.5
-        # Score = 1.0 * (1 - 0.5) = 0.5
-        assert score == 0.5
-        assert "VIF=20.0" in explanation
-
     def test_fd_violations(self):
         """Test with functional dependency violations."""
         score, explanation = _compute_consistency_score(
-            vif_score=None,
             functional_dep_violations=3,
             orphaned_components=None,
             anomalous_cycles_count=None,
@@ -260,7 +244,6 @@ class TestConsistencyScore:
     def test_orphaned_components(self):
         """Test with orphaned structural components."""
         score, explanation = _compute_consistency_score(
-            vif_score=None,
             functional_dep_violations=None,
             orphaned_components=2,
             anomalous_cycles_count=None,
@@ -274,7 +257,6 @@ class TestConsistencyScore:
     def test_anomalous_cycles(self):
         """Test with anomalous cycles."""
         score, explanation = _compute_consistency_score(
-            vif_score=None,
             functional_dep_violations=None,
             orphaned_components=None,
             anomalous_cycles_count=2,
@@ -288,7 +270,6 @@ class TestConsistencyScore:
     def test_high_correlations(self):
         """Test with high correlations."""
         score, explanation = _compute_consistency_score(
-            vif_score=None,
             functional_dep_violations=None,
             orphaned_components=None,
             anomalous_cycles_count=None,
@@ -302,17 +283,16 @@ class TestConsistencyScore:
     def test_combined_consistency_issues(self):
         """Test multiple consistency issues."""
         score, explanation = _compute_consistency_score(
-            vif_score=15.0,  # Penalty = 0.25
             functional_dep_violations=1,  # Penalty = 0.1
             orphaned_components=1,  # Penalty = 0.15
             anomalous_cycles_count=1,  # Penalty = 0.1
             high_correlations_count=2,  # Penalty = 0.1
         )
         # Total penalties applied multiplicatively:
-        # 1.0 * (1-0.25) * (1-0.1) * (1-0.15) * (1-0.1) * (1-0.1)
-        # = 0.75 * 0.9 * 0.85 * 0.9 * 0.9 = 0.4385...
-        assert score < 0.5
-        assert "VIF=" in explanation
+        # 1.0 * (1-0.1) * (1-0.15) * (1-0.1) * (1-0.1)
+        # = 0.9 * 0.85 * 0.9 * 0.9 = 0.619...
+        assert score < 0.7
+        assert score > 0.6
         assert "FD violations" in explanation
 
 

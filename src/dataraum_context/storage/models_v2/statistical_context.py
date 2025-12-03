@@ -75,9 +75,9 @@ class StatisticalQualityMetrics(Base):
 
     Advanced quality metrics that may be expensive to compute:
     - Benford's Law compliance (fraud detection for financial amounts)
-    - Distribution stability (KS test across time periods)
-    - Outlier detection (Isolation Forest, IQR method)
-    - Multicollinearity (VIF - requires correlation with other columns)
+    - Outlier detection (Isolation Forest + IQR method)
+
+    Note: Distribution stability (KS test) is handled by temporal quality module.
     """
 
     __tablename__ = "statistical_quality_metrics"
@@ -102,7 +102,7 @@ class StatisticalQualityMetrics(Base):
     isolation_forest_anomaly_ratio: Mapped[float | None] = mapped_column(Float)
 
     # JSONB: Full quality analysis results
-    # Stores: Benford analysis, KS test, outlier details, VIF, quality issues
+    # Stores: Benford analysis, outlier details, quality issues
     quality_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
     # Relationships
