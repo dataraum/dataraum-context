@@ -157,7 +157,8 @@ def test_condition_index_computation():
     ci_analysis = _compute_condition_index(X)
 
     assert ci_analysis is not None
-    assert ci_analysis.condition_index > 30  # Should detect multicollinearity
+    # High correlation should produce CI > 10 (at least moderate)
+    assert ci_analysis.condition_index >= 10
     assert ci_analysis.has_multicollinearity
     assert ci_analysis.severity in ["moderate", "severe"]
     assert len(ci_analysis.eigenvalues) == 3
@@ -181,7 +182,8 @@ def test_condition_index_independent_data():
     ci_analysis = _compute_condition_index(X)
 
     assert ci_analysis is not None
-    assert ci_analysis.condition_index < 30  # Should not detect multicollinearity
+    # Independent data should have CI < 10 (no multicollinearity)
+    assert ci_analysis.condition_index < 10
     assert not ci_analysis.has_multicollinearity
     assert ci_analysis.severity == "none"
     assert ci_analysis.problematic_dimensions == 0
@@ -460,3 +462,215 @@ async def test_multicollinearity_correlated_with_list(
             db_result = await async_session.execute(stmt)
             correlated_cols = db_result.scalars().all()
             assert len(correlated_cols) > 0
+
+
+@pytest.mark.asyncio
+async def test_vdp_dependency_group_detection(engine, duckdb_conn, async_session, sample_table):
+    """Test VDP identifies dependency groups correctly."""
+    # Create data: z = x + y (perfect linear combination)
+    duckdb_conn.execute(f"""
+        CREATE TABLE {sample_table.duckdb_path} AS
+        SELECT
+            x,
+            y,
+            (x + y)::DOUBLE as z,
+            random()::DOUBLE as w
+        FROM (
+            SELECT
+                random() as x,
+                random() as y
+            FROM range(100)
+        )
+    """)
+
+    # Create column metadata
+    for idx, col_name in enumerate(["x", "y", "z", "w"]):
+        column = create_column(
+            f"{sample_table.table_id}-{col_name}",
+            sample_table.table_id,
+            col_name,
+            idx,
+            "DOUBLE",
+        )
+        async_session.add(column)
+    await async_session.commit()
+
+    # Compute multicollinearity
+    result = await compute_multicollinearity_for_table(sample_table, duckdb_conn, async_session)
+
+    assert result.success
+    analysis = result.value
+
+    # Should have detected dependency groups
+    assert analysis.condition_index is not None
+    assert len(analysis.condition_index.dependency_groups) > 0
+
+    # Find the group containing x, y, z
+    xyz_group = None
+    for group in analysis.condition_index.dependency_groups:
+        # Get column names from IDs
+        stmt = select(Column).where(Column.column_id.in_(group.involved_column_ids))
+        db_result = await async_session.execute(stmt)
+        group_cols = {col.column_name for col in db_result.scalars().all()}
+
+        if {"x", "y", "z"}.issubset(group_cols):
+            xyz_group = group
+            break
+
+    assert xyz_group is not None, "Should detect dependency group for z = x + y"
+    assert xyz_group.severity == "severe"
+    assert xyz_group.condition_index > 30  # Should be very high
+    assert len(xyz_group.involved_column_ids) >= 2  # At least 2 columns
+
+
+@pytest.mark.asyncio
+async def test_vdp_multiple_dependency_groups(engine, duckdb_conn, async_session, sample_table):
+    """Test VDP can identify multiple independent dependency groups."""
+    # Create two separate dependency groups:
+    # Group 1: total = a + b
+    # Group 2: ratio = c / d
+    duckdb_conn.execute(f"""
+        CREATE TABLE {sample_table.duckdb_path} AS
+        SELECT
+            a,
+            b,
+            (a + b)::DOUBLE as total,
+            c,
+            d,
+            (c / NULLIF(d, 0))::DOUBLE as ratio
+        FROM (
+            SELECT
+                random() * 100 as a,
+                random() * 100 as b,
+                random() * 100 as c,
+                random() * 100 + 1 as d
+            FROM range(100)
+        )
+    """)
+
+    # Create column metadata
+    for idx, col_name in enumerate(["a", "b", "total", "c", "d", "ratio"]):
+        column = create_column(
+            f"{sample_table.table_id}-{col_name}",
+            sample_table.table_id,
+            col_name,
+            idx,
+            "DOUBLE",
+        )
+        async_session.add(column)
+    await async_session.commit()
+
+    # Compute multicollinearity
+    result = await compute_multicollinearity_for_table(sample_table, duckdb_conn, async_session)
+
+    assert result.success
+    analysis = result.value
+
+    # Should have dependency groups
+    assert analysis.condition_index is not None
+    assert len(analysis.condition_index.dependency_groups) >= 1
+
+    # Verify each group has interpretation
+    for group in analysis.condition_index.dependency_groups:
+        assert group.interpretation is not None
+        assert len(group.interpretation) > 0
+
+
+@pytest.mark.asyncio
+async def test_vdp_threshold_sensitivity(engine, duckdb_conn, async_session, sample_table):
+    """Test VDP only includes columns above threshold."""
+    # Create data where only 2 of 4 columns are highly involved
+    duckdb_conn.execute(f"""
+        CREATE TABLE {sample_table.duckdb_path} AS
+        SELECT
+            x,
+            (0.99 * x + 0.01 * random())::DOUBLE as y,
+            (0.3 * x + 0.7 * random())::DOUBLE as z,
+            random()::DOUBLE as w
+        FROM (SELECT unnest(range(1, 101)) as x)
+    """)
+
+    # Create column metadata
+    for idx, col_name in enumerate(["x", "y", "z", "w"]):
+        column = create_column(
+            f"{sample_table.table_id}-{col_name}",
+            sample_table.table_id,
+            col_name,
+            idx,
+            "DOUBLE",
+        )
+        async_session.add(column)
+    await async_session.commit()
+
+    # Compute multicollinearity
+    result = await compute_multicollinearity_for_table(sample_table, duckdb_conn, async_session)
+
+    assert result.success
+    analysis = result.value
+
+    # If dependency groups exist, they should be selective
+    if analysis.condition_index and analysis.condition_index.dependency_groups:
+        for group in analysis.condition_index.dependency_groups:
+            # Each VDP should be > 0.5 (Belsley threshold)
+            for vdp in group.variance_proportions:
+                assert vdp > 0.5, f"VDP {vdp} should be above Belsley threshold"
+
+
+@pytest.mark.asyncio
+async def test_vdp_formatting_in_context(engine, duckdb_conn, async_session, sample_table):
+    """Test dependency groups are properly formatted for LLM context."""
+    # Create simple dependency: z = x + y
+    duckdb_conn.execute(f"""
+        CREATE TABLE {sample_table.duckdb_path} AS
+        SELECT
+            x,
+            y,
+            (x + y)::DOUBLE as z
+        FROM (
+            SELECT
+                random() as x,
+                random() as y
+            FROM range(100)
+        )
+    """)
+
+    # Create column metadata
+    for idx, col_name in enumerate(["x", "y", "z"]):
+        column = create_column(
+            f"{sample_table.table_id}-{col_name}",
+            sample_table.table_id,
+            col_name,
+            idx,
+            "DOUBLE",
+        )
+        async_session.add(column)
+    await async_session.commit()
+
+    # Compute multicollinearity
+    result = await compute_multicollinearity_for_table(sample_table, duckdb_conn, async_session)
+    assert result.success
+    analysis = result.value
+
+    # Format for LLM
+    from dataraum_context.enrichment.context_formatting import format_multicollinearity_for_llm
+
+    formatted = format_multicollinearity_for_llm(analysis)
+
+    # Check dependency groups are in output if they exist
+    if analysis.condition_index and analysis.condition_index.dependency_groups:
+        assert "table_level" in formatted["multicollinearity_assessment"]
+        table_level = formatted["multicollinearity_assessment"]["table_level"]
+
+        if "dependency_groups" in table_level:
+            dep_groups = table_level["dependency_groups"]
+            assert isinstance(dep_groups, list)
+            assert len(dep_groups) > 0
+
+            # Verify structure of each group
+            for group in dep_groups:
+                assert "group_id" in group
+                assert "severity" in group
+                assert "columns" in group
+                assert "interpretation" in group
+                assert "recommendation" in group
+                assert isinstance(group["columns"], list)

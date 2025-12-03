@@ -39,6 +39,7 @@ from dataraum_context.core.models.correlation import (
 from dataraum_context.profiling.models import (
     ColumnVIF,
     ConditionIndexAnalysis,
+    DependencyGroup,
     MulticollinearityAnalysis,
 )
 from dataraum_context.storage.models_v2.core import Column, Table
@@ -621,14 +622,110 @@ async def detect_derived_columns(
 # ============================================================================
 
 
-def _compute_condition_index(X: np.ndarray) -> ConditionIndexAnalysis | None:
+def _compute_variance_decomposition(
+    eigenvalues: np.ndarray,
+    eigenvectors: np.ndarray,
+    column_ids: list[str],
+    vdp_threshold: float = 0.5,
+) -> list[DependencyGroup]:
+    """Compute Variance Decomposition Proportions per Belsley, Kuh, Welsch (1980).
+
+    Correct implementation of Belsley diagnostics for detecting multicollinearity
+    involving any number of variables (2, 3, 4+).
+
+    Methodology:
+    1. Compute phi_kj = V_kj² / D_j² for all variables k and dimensions j
+    2. For each variable k: VDP_kj = phi_kj / Σ_j(phi_kj) [normalize across dimensions]
+    3. For dimensions with high CI (>30): variables with VDP > threshold form a group
+
+    This differs from naive eigenvector normalization - VDPs sum to 1 ACROSS dimensions
+    for each variable, not across variables for a single dimension.
+
+    Args:
+        eigenvalues: Eigenvalues sorted descending (D² from SVD)
+        eigenvectors: Corresponding eigenvectors (V from SVD)
+        column_ids: Column IDs corresponding to data matrix columns
+        vdp_threshold: VDP threshold (Belsley recommends 0.5-0.8)
+
+    Returns:
+        List of DependencyGroup objects
+
+    Reference:
+        Belsley, D.A., Kuh, E., Welsch, R.E. (1980). Regression Diagnostics:
+        Identifying Influential Data and Sources of Collinearity. Wiley.
+    """
+    n_vars = len(column_ids)
+    n_dims = len(eigenvalues)
+
+    # Step 1: Compute phi matrix (n_vars x n_dims)
+    # phi_kj = V_kj² / eigenvalue_j
+    # Use abs(eigenvalue) to handle near-zero negative values
+    phi_matrix = np.zeros((n_vars, n_dims))
+    for j in range(n_dims):
+        eigenvalue_abs = abs(eigenvalues[j]) if abs(eigenvalues[j]) > 1e-10 else 1e-10
+        for k in range(n_vars):
+            phi_matrix[k, j] = eigenvectors[k, j] ** 2 / eigenvalue_abs
+
+    # Step 2: Compute VDP matrix by normalizing phi across dimensions (row-wise)
+    # VDP_kj = phi_kj / Σ_j(phi_kj)
+    phi_sums = phi_matrix.sum(axis=1, keepdims=True)  # Sum across dimensions for each var
+    phi_sums = np.where(phi_sums < 1e-10, 1.0, phi_sums)  # Avoid division by zero
+    vdp_matrix = phi_matrix / phi_sums
+
+    # Step 3: For each high-CI dimension, find variables with high VDP
+    dependency_groups = []
+    max_eigenvalue = eigenvalues[0]
+
+    for j, eigenvalue in enumerate(eigenvalues):
+        # Skip if eigenvalue is not near-zero
+        if abs(eigenvalue) >= 0.01:
+            continue
+
+        # Compute condition index for this dimension
+        condition_index = float(np.sqrt(max_eigenvalue / abs(eigenvalue)))
+
+        # Belsley recommends CI > 30 for severe multicollinearity
+        if condition_index < 10:
+            continue
+
+        # Find variables with VDP > threshold on this dimension
+        high_vdp_indices = np.where(vdp_matrix[:, j] > vdp_threshold)[0]
+
+        # Need at least 2 variables for a dependency group
+        if len(high_vdp_indices) < 2:
+            continue
+
+        # Determine severity
+        severity = "severe" if condition_index > 30 else "moderate"
+
+        dependency_groups.append(
+            DependencyGroup(
+                dimension=j,
+                eigenvalue=float(eigenvalue),
+                condition_index=condition_index,
+                severity=severity,
+                involved_column_ids=[column_ids[idx] for idx in high_vdp_indices],
+                variance_proportions=vdp_matrix[high_vdp_indices, j].tolist(),
+            )
+        )
+
+    return dependency_groups
+
+
+def _compute_condition_index(
+    X: np.ndarray, column_ids: list[str] | None = None
+) -> ConditionIndexAnalysis | None:
     """Compute Condition Index via eigenvalue analysis.
 
     The condition index is the square root of the ratio of the largest
     to smallest eigenvalue of the correlation matrix.
 
+    If column_ids are provided, also computes Variance Decomposition Proportions
+    (VDP) to identify which columns are involved in each linear dependency.
+
     Args:
         X: Data matrix (n_samples, n_features)
+        column_ids: Optional list of column IDs for VDP analysis
 
     Returns:
         ConditionIndexAnalysis or None if computation fails
@@ -637,9 +734,13 @@ def _compute_condition_index(X: np.ndarray) -> ConditionIndexAnalysis | None:
         # Compute correlation matrix
         corr_matrix = np.corrcoef(X, rowvar=False)
 
-        # Compute eigenvalues
-        eigenvalues = np.linalg.eigvalsh(corr_matrix)
-        eigenvalues = np.sort(eigenvalues)[::-1]  # Sort descending
+        # Compute eigenvalues AND eigenvectors (need eigenvectors for VDP)
+        eigenvalues, eigenvectors = np.linalg.eigh(corr_matrix)
+
+        # Sort descending (eigh returns ascending)
+        idx = eigenvalues.argsort()[::-1]
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:, idx]
 
         # Condition Index = sqrt(max_eigenvalue / min_eigenvalue)
         if eigenvalues[-1] < 1e-10:  # Near-zero eigenvalue
@@ -650,16 +751,26 @@ def _compute_condition_index(X: np.ndarray) -> ConditionIndexAnalysis | None:
         # Count near-zero eigenvalues (< 0.01)
         problematic_dimensions = int(np.sum(eigenvalues < 0.01))
 
-        # Determine severity
-        if condition_index < 30:
+        # Determine severity (Belsley, Kuh, Welsch, 1980)
+        # CI < 10: Weak or no multicollinearity
+        # CI 10-30: Moderate multicollinearity
+        # CI > 30: Severe multicollinearity
+        if condition_index < 10:
             severity = "none"
             has_multicollinearity = False
-        elif condition_index < 100:
+        elif condition_index < 30:
             severity = "moderate"
             has_multicollinearity = True
         else:
             severity = "severe"
             has_multicollinearity = True
+
+        # Compute VDP to identify dependency groups (if column_ids provided and CI >= 10)
+        dependency_groups = []
+        if column_ids is not None and condition_index >= 10:
+            dependency_groups = _compute_variance_decomposition(
+                eigenvalues, eigenvectors, column_ids
+            )
 
         return ConditionIndexAnalysis(
             condition_index=condition_index,
@@ -667,6 +778,7 @@ def _compute_condition_index(X: np.ndarray) -> ConditionIndexAnalysis | None:
             has_multicollinearity=has_multicollinearity,
             severity=severity,
             problematic_dimensions=problematic_dimensions,
+            dependency_groups=dependency_groups,
         )
 
     except Exception:
@@ -800,16 +912,17 @@ async def compute_multicollinearity_for_table(
             except Exception:
                 continue  # Skip this column if regression fails
 
-        # Compute Condition Index (eigenvalue-based)
-        condition_index_analysis = _compute_condition_index(X)
+        # Compute Condition Index with VDP analysis (eigenvalue-based)
+        column_ids = [col.column_id for col in numeric_columns]
+        condition_index_analysis = _compute_condition_index(X, column_ids)
 
         # Aggregate findings
         num_problematic = sum(1 for vif in column_vifs if vif.has_multicollinearity)
 
         # Determine overall severity
-        if condition_index_analysis and condition_index_analysis.condition_index > 100:
+        if condition_index_analysis and condition_index_analysis.condition_index > 30:
             overall_severity = "severe"
-        elif condition_index_analysis and condition_index_analysis.condition_index > 30:
+        elif condition_index_analysis and condition_index_analysis.condition_index >= 10:
             overall_severity = "moderate"
         elif num_problematic > 0:
             overall_severity = "moderate"
@@ -840,7 +953,7 @@ async def compute_multicollinearity_for_table(
                 {
                     "issue_type": "table_multicollinearity",
                     "severity": "critical"
-                    if condition_index_analysis.condition_index > 100
+                    if condition_index_analysis.condition_index > 30
                     else "warning",
                     "description": condition_index_analysis.interpretation,
                     "evidence": {
