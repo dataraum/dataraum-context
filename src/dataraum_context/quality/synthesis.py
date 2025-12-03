@@ -4,10 +4,10 @@ Aggregates quality metrics from all 4 pillars into dimensional quality scores
 and unified quality assessment.
 
 Architecture:
-- Pillar 1 (Statistical): Benford, outliers, VIF, distribution stability
+- Pillar 1 (Statistical): Benford, outliers (IQR + Isolation Forest)
 - Pillar 2 (Topological): Betti numbers, persistence, structural complexity
 - Pillar 3 (Semantic): Used for labeling/context, not quality assessment
-- Pillar 4 (Temporal): Seasonality, trends, completeness, freshness
+- Pillar 4 (Temporal): Seasonality, trends, completeness, freshness, distribution stability
 - Pillar 5 (Quality Synthesis): Aggregates 1, 2, 4 + domain quality
 
 Quality Dimensions:
@@ -152,16 +152,14 @@ def _compute_validity_score(
 
 
 def _compute_consistency_score(
-    vif_score: float | None,
     functional_dep_violations: int | None,
     orphaned_components: int | None,
     anomalous_cycles_count: int | None,
     high_correlations_count: int | None,
 ) -> tuple[float, str]:
-    """Compute consistency score from multicollinearity, FD violations, and topology.
+    """Compute consistency score from FD violations and topology.
 
     Args:
-        vif_score: VIF score (1-10+, higher = worse)
         functional_dep_violations: Number of FD violations
         orphaned_components: Number of disconnected subgraphs (structural issues)
         anomalous_cycles_count: Number of unexpected cycles
@@ -172,13 +170,6 @@ def _compute_consistency_score(
     """
     score = 1.0
     factors = []
-
-    if vif_score is not None:
-        # VIF > 10 is problematic
-        if vif_score > 10:
-            penalty = min((vif_score - 10) / 20, 0.5)  # Max 50% penalty
-            score *= 1.0 - penalty
-            factors.append(f"VIF={vif_score:.1f}")
 
     if functional_dep_violations is not None and functional_dep_violations > 0:
         # Penalize FD violations
@@ -829,13 +820,8 @@ async def assess_column_quality(
         )
 
         # Consistency
-        # Get VIF score from statistical quality metrics JSONB
-        vif_score = None  # TODO VIF score is not calculated yet
-        if stat_quality and stat_quality.quality_data:
-            vif_score = stat_quality.quality_data.get("vif_score")
         # Note: Topological metrics are table-level, handled in table assessment
         score, explanation = _compute_consistency_score(
-            vif_score,
             fd_violations if fd_violations > 0 else None,
             None,  # orphaned_components - table-level
             None,  # anomalous_cycles_count - table-level

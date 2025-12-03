@@ -1,14 +1,16 @@
 """Statistical quality assessment for columns.
 
-This module implements advanced statistical quality metrics:
+This module implements focused statistical quality metrics:
 - Benford's Law compliance (fraud detection)
-- Distribution stability (KS test across time periods)
 - Outlier detection (IQR and Isolation Forest)
-- Multicollinearity detection (VIF)
 
-These metrics are optional and may require additional dependencies:
+Note: Distribution stability (KS test) is in quality.temporal module.
+Isolation Forest is particularly valuable for financial data with non-normal
+distributions and seasonal patterns.
+
+These metrics may require additional dependencies:
 - scipy (already in core dependencies)
-- scikit-learn (optional: pip install dataraum-context[statistical-quality])
+- scikit-learn (optional for Isolation Forest: pip install dataraum-context[statistical-quality])
 """
 
 from datetime import UTC, datetime
@@ -336,7 +338,7 @@ async def assess_statistical_quality(
     """Assess statistical quality for all numeric columns in a table.
 
     This function:
-    1. Runs quality tests (Benford, outliers, stability, VIF)
+    1. Runs quality tests (Benford, outliers via IQR and Isolation Forest)
     2. Generates quality issues
     3. Computes overall quality score
     4. Builds StatisticalQualityResult (Pydantic source of truth)
