@@ -207,6 +207,43 @@ class DerivedColumn(Base):
     )  # Sample of rows where formula doesn't hold
 
 
+class MulticollinearityMetrics(Base):
+    """Multicollinearity analysis results (hybrid storage).
+
+    HYBRID STORAGE APPROACH:
+    - Structured fields: Queryable quality indicators (flags, scores, key metrics)
+    - JSONB field: Full MulticollinearityAnalysis Pydantic model for flexibility
+
+    Multicollinearity measures redundancy between columns:
+    - VIF (Variance Inflation Factor): Column-level metric
+    - Tolerance (1/VIF): Simpler interpretation
+    - Condition Index: Table-level severity via eigenvalue analysis
+
+    This is a structural property of the data (computed during profiling),
+    not a quality issue per se, though it informs quality assessment.
+    """
+
+    __tablename__ = "multicollinearity_metrics"
+
+    metric_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    table_id: Mapped[str] = mapped_column(
+        ForeignKey("tables.table_id", ondelete="CASCADE"), nullable=False
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    # STRUCTURED: Queryable flags for filtering/sorting
+    has_severe_multicollinearity: Mapped[bool | None] = mapped_column(Integer)
+    num_problematic_columns: Mapped[int | None] = mapped_column(Integer)
+    condition_index: Mapped[float | None] = mapped_column(Float)
+    max_vif: Mapped[float | None] = mapped_column(Float)
+
+    # JSONB: Full MulticollinearityAnalysis Pydantic model
+    # Stores: column_vifs (list[ColumnVIF]), condition_index details, quality_issues
+    analysis_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+
 # Indexes for efficient queries
 Index("idx_correlations_table", ColumnCorrelation.table_id)
 Index("idx_correlations_col1", ColumnCorrelation.column1_id)
@@ -218,3 +255,13 @@ Index("idx_dependencies_table", FunctionalDependency.table_id)
 Index("idx_dependencies_dependent", FunctionalDependency.dependent_column_id)
 Index("idx_derived_table", DerivedColumn.table_id)
 Index("idx_derived_column", DerivedColumn.derived_column_id)
+Index(
+    "idx_multicollinearity_severity",
+    MulticollinearityMetrics.has_severe_multicollinearity,
+    MulticollinearityMetrics.num_problematic_columns,
+)
+Index(
+    "idx_multicollinearity_table",
+    MulticollinearityMetrics.table_id,
+    MulticollinearityMetrics.computed_at.desc(),
+)

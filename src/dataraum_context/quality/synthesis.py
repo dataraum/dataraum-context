@@ -4,7 +4,7 @@ Aggregates quality metrics from all 4 pillars into dimensional quality scores
 and unified quality assessment.
 
 Architecture:
-- Pillar 1 (Statistical): Benford, outliers (IQR + Isolation Forest)
+- Pillar 1 (Statistical): Benford, outliers (IQR + Isolation Forest), multicollinearity (VIF, Tolerance, Condition Index)
 - Pillar 2 (Topological): Betti numbers, persistence, structural complexity
 - Pillar 3 (Semantic): Used for labeling/context, not quality assessment
 - Pillar 4 (Temporal): Seasonality, trends, completeness, freshness, distribution stability
@@ -13,7 +13,7 @@ Architecture:
 Quality Dimensions:
 - Completeness: Null ratios, temporal gaps, missing periods
 - Validity: Type inference confidence, parse rates, outliers
-- Consistency: Correlation violations, functional dependency breaks
+- Consistency: Multicollinearity (VIF, Condition Index), correlation violations, functional dependency breaks
 - Uniqueness: Cardinality analysis, duplicate detection
 - Timeliness: Temporal freshness, update frequency
 - Accuracy: Benford compliance, domain rule violations
@@ -42,6 +42,7 @@ from dataraum_context.storage.models_v2.core import Column, Table
 from dataraum_context.storage.models_v2.correlation_context import (
     ColumnCorrelation,
     FunctionalDependency,
+    MulticollinearityMetrics,
 )
 from dataraum_context.storage.models_v2.domain_quality import (
     DomainQualityMetrics,
@@ -152,14 +153,20 @@ def _compute_validity_score(
 
 
 def _compute_consistency_score(
+    multicollinearity_severity: str | None,  # "none", "moderate", "severe"
+    max_vif: float | None,
+    condition_index: float | None,
     functional_dep_violations: int | None,
     orphaned_components: int | None,
     anomalous_cycles_count: int | None,
     high_correlations_count: int | None,
 ) -> tuple[float, str]:
-    """Compute consistency score from FD violations and topology.
+    """Compute consistency score from multicollinearity, FD violations, and topology.
 
     Args:
+        multicollinearity_severity: Overall severity ("none", "moderate", "severe")
+        max_vif: Maximum VIF value across columns
+        condition_index: Table-level Condition Index
         functional_dep_violations: Number of FD violations
         orphaned_components: Number of disconnected subgraphs (structural issues)
         anomalous_cycles_count: Number of unexpected cycles
@@ -170,6 +177,21 @@ def _compute_consistency_score(
     """
     score = 1.0
     factors = []
+
+    # Multicollinearity penalty (table-level severity)
+    if multicollinearity_severity == "severe":
+        score *= 0.5  # 50% penalty
+        factors.append("Severe multicollinearity")
+        if condition_index:
+            factors.append(f"CI={condition_index:.1f}")
+    elif multicollinearity_severity == "moderate":
+        score *= 0.75  # 25% penalty
+        factors.append("Moderate multicollinearity")
+
+    # Column-level VIF (for context)
+    if max_vif and max_vif > 10:
+        if "multicollinearity" not in " ".join(factors).lower():
+            factors.append(f"Max VIF={max_vif:.1f}")
 
     if functional_dep_violations is not None and functional_dep_violations > 0:
         # Penalize FD violations
@@ -820,8 +842,30 @@ async def assess_column_quality(
         )
 
         # Consistency
+        # Get multicollinearity analysis for table
+        multicollinearity_stmt = (
+            select(MulticollinearityMetrics)
+            .where(MulticollinearityMetrics.table_id == column.table_id)
+            .order_by(MulticollinearityMetrics.computed_at.desc())
+        )
+        multicollinearity_result = await session.execute(multicollinearity_stmt)
+        multicollinearity = multicollinearity_result.scalar_one_or_none()
+
+        # Extract severity and metrics
+        if multicollinearity and multicollinearity.analysis_data:
+            multicollinearity_severity = multicollinearity.analysis_data.get("overall_severity")
+            condition_index_val = multicollinearity.condition_index
+            max_vif_val = multicollinearity.max_vif
+        else:
+            multicollinearity_severity = None
+            condition_index_val = None
+            max_vif_val = None
+
         # Note: Topological metrics are table-level, handled in table assessment
         score, explanation = _compute_consistency_score(
+            multicollinearity_severity,
+            max_vif_val,
+            condition_index_val,
             fd_violations if fd_violations > 0 else None,
             None,  # orphaned_components - table-level
             None,  # anomalous_cycles_count - table-level
