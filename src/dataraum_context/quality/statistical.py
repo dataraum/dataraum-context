@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dataraum_context.core.models.base import ColumnRef, Result
 from dataraum_context.profiling.models import (
     BenfordAnalysis,
-    DistributionStability,
     OutlierDetection,
     StatisticalQualityResult,
 )
@@ -125,44 +124,6 @@ async def check_benford_law(
 
     except Exception as e:
         return Result.fail(f"Benford's Law test failed: {e}")
-
-
-# ============================================================================
-# Distribution Stability Testing (KS Test)
-# ============================================================================
-
-
-async def check_distribution_stability(
-    table: Table,
-    column: Column,
-    duckdb_conn: duckdb.DuckDBPyConnection,
-    comparison_days: int = 30,
-) -> Result[DistributionStability | None]:
-    """Test if column's distribution is stable across time periods.
-
-    Uses Kolmogorov-Smirnov (KS) test to compare distributions between
-    recent period and previous period. Significant change may indicate
-    data quality issues or business process changes.
-
-    Requires a timestamp column in the table for temporal comparison.
-
-    Args:
-        table: Table containing the column
-        column: Column to test
-        duckdb_conn: DuckDB connection
-        comparison_days: Number of days to use for each period
-
-    Returns:
-        Result containing DistributionStability or None if not applicable
-    """
-    try:
-        # TODO: This requires temporal column detection
-        # For now, return None (not applicable)
-        # Will implement after temporal enrichment is integrated
-        return Result.ok(None)
-
-    except Exception as e:
-        return Result.fail(f"Distribution stability test failed: {e}")
 
 
 # ============================================================================
@@ -443,10 +404,6 @@ async def _assess_column_quality(
         benford_result = await check_benford_law(table, column, duckdb_conn)
         benford_analysis = benford_result.value if benford_result.success else None
 
-        # Run distribution stability test
-        stability_result = await check_distribution_stability(table, column, duckdb_conn)
-        dist_stability = stability_result.value if stability_result.success else None
-
         # Run IQR outlier detection
         iqr_result = await detect_outliers_iqr(table, column, duckdb_conn)
         outlier_detection = iqr_result.value if iqr_result.success else None
@@ -467,7 +424,6 @@ async def _assess_column_quality(
         quality_issues = _generate_statistical_quality_issues(
             benford_analysis=benford_analysis,
             outlier_detection=outlier_detection,
-            dist_stability=dist_stability,
         )
 
         # Compute comprehensive quality score
@@ -486,7 +442,6 @@ async def _assess_column_quality(
             ),
             benford_analysis=benford_analysis,
             outlier_detection=outlier_detection,
-            distribution_stability=dist_stability,
             quality_score=quality_score,
             quality_issues=quality_issues,
         )
@@ -499,7 +454,6 @@ async def _assess_column_quality(
             # STRUCTURED: Queryable quality indicators
             quality_score=quality_score,
             benford_compliant=benford_analysis.is_compliant if benford_analysis else None,
-            distribution_stable=dist_stability.is_stable if dist_stability else None,
             has_outliers=(outlier_detection.iqr_outlier_ratio > 0.05)
             if outlier_detection
             else None,
@@ -522,7 +476,6 @@ async def _assess_column_quality(
 def _generate_statistical_quality_issues(
     benford_analysis: BenfordAnalysis | None,
     outlier_detection: OutlierDetection | None,
-    dist_stability: DistributionStability | None,
 ) -> list[dict[str, Any]]:
     """Generate quality issues from statistical analysis results."""
     issues = []
@@ -574,20 +527,6 @@ def _generate_statistical_quality_issues(
                 "evidence": {
                     "anomaly_count": outlier_detection.isolation_forest_anomaly_count,
                     "anomaly_ratio": outlier_detection.isolation_forest_anomaly_ratio,
-                },
-            }
-        )
-
-    # Distribution instability
-    if dist_stability and not dist_stability.is_stable:
-        issues.append(
-            {
-                "issue_type": "distribution_shift",
-                "severity": "warning",
-                "description": "Distribution has shifted significantly over time",
-                "evidence": {
-                    "ks_statistic": dist_stability.ks_statistic,
-                    "p_value": dist_stability.ks_p_value,
                 },
             }
         )

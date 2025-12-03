@@ -178,16 +178,6 @@ class OutlierDetection(BaseModel):
     outlier_samples: list[dict[str, Any]] = Field(default_factory=list)  # [{value, method, score}]
 
 
-class DistributionStability(BaseModel):
-    """Distribution stability analysis (KS test)."""
-
-    ks_statistic: float
-    ks_p_value: float
-    is_stable: bool  # p_value > 0.01
-    comparison_period_start: datetime | None = None
-    comparison_period_end: datetime | None = None
-
-
 class StatisticalQualityResult(BaseModel):
     """Comprehensive statistical quality assessment.
 
@@ -203,9 +193,6 @@ class StatisticalQualityResult(BaseModel):
 
     # Outlier detection
     outlier_detection: OutlierDetection | None = None
-
-    # Distribution stability
-    distribution_stability: DistributionStability | None = None
 
     # Overall quality assessment
     quality_score: float  # 0-1 aggregate
