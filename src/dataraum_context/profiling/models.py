@@ -212,6 +212,45 @@ class StatisticalProfilingResult(BaseModel):
 # === Multicollinearity Models ===
 
 
+class DependencyGroup(BaseModel):
+    """A group of columns involved in a linear dependency.
+
+    Identified via Variance Decomposition Proportions (VDP) analysis per
+    Belsley, Kuh, Welsch (1980). Columns with high VDP (>0.5 or >0.8) on the
+    same high-CI dimension are interdependent.
+
+    VDP Calculation (Belsley method):
+    - For each variable k: phi_kj = V_kj² / D_j²  (across all dimensions j)
+    - VDP_kj = phi_kj / Σ_j(phi_kj)  (normalize across dimensions)
+    - VDPs for a variable sum to 1 across ALL dimensions
+
+    This correctly identifies groups with 2, 3, or more variables. Classical
+    threshold is 0.5-0.8 per Belsley et al.
+    """
+
+    dimension: int  # Eigenvector dimension index
+    eigenvalue: float  # Eigenvalue for this dimension
+    condition_index: float  # CI for this specific dimension
+    severity: Literal["moderate", "severe"]  # CI: 10-30, >30
+    involved_column_ids: list[str]  # Column IDs with VDP > threshold
+    variance_proportions: list[float]  # VDP values for each involved column
+
+    @property
+    def interpretation(self) -> str:
+        """Human-readable interpretation of dependency group."""
+        num_cols = len(self.involved_column_ids)
+        if self.severity == "severe":
+            return (
+                f"{num_cols} columns share >90% variance in a near-singular dimension "
+                f"(CI={self.condition_index:.1f}). Likely linear combination or derived columns."
+            )
+        else:
+            return (
+                f"{num_cols} columns have elevated shared variance "
+                f"(CI={self.condition_index:.1f}). May indicate related metrics."
+            )
+
+
 class ColumnVIF(BaseModel):
     """Column-level multicollinearity assessment.
 
@@ -243,20 +282,30 @@ class ConditionIndexAnalysis(BaseModel):
 
     The Condition Index is the square root of the ratio of max to min eigenvalues
     of the correlation matrix. It provides overall multicollinearity severity.
+
+    Variance Decomposition Proportions (VDP) identify which specific columns
+    are involved in each linear dependency, enabling targeted recommendations.
     """
 
     condition_index: float  # sqrt(max(eigenvalue) / min(eigenvalue))
     eigenvalues: list[float]  # All eigenvalues from correlation matrix
-    has_multicollinearity: bool  # Condition Index > 30
-    severity: Literal["none", "moderate", "severe"]  # CI: <30, 30-100, >100
+    has_multicollinearity: bool  # Condition Index >= 10
+    severity: Literal["none", "moderate", "severe"]  # CI: <10, 10-30, >30
     problematic_dimensions: int  # Count of near-zero eigenvalues
+    dependency_groups: list[DependencyGroup] = Field(default_factory=list)  # VDP-identified groups
 
     @property
     def interpretation(self) -> str:
-        """Human-readable interpretation of Condition Index."""
-        if self.condition_index < 30:
+        """Human-readable interpretation of Condition Index.
+
+        Thresholds (Belsley, Kuh, Welsch, 1980):
+        - CI < 10: Weak or no multicollinearity
+        - CI 10-30: Moderate multicollinearity
+        - CI > 30: Severe multicollinearity
+        """
+        if self.condition_index < 10:
             return "No significant table-level multicollinearity"
-        elif self.condition_index < 100:
+        elif self.condition_index < 30:
             return f"Moderate table-level multicollinearity (CI={self.condition_index:.1f})"
         else:
             return f"Severe table-level multicollinearity (CI={self.condition_index:.1f})"
