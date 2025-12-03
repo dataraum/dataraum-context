@@ -95,7 +95,6 @@ class StatisticalQualityMetrics(Base):
 
     # Flags for filtering (fast queries)
     benford_compliant: Mapped[bool | None] = mapped_column(Integer)
-    distribution_stable: Mapped[bool | None] = mapped_column(Integer)
     has_outliers: Mapped[bool | None] = mapped_column(Integer)
 
     # Key metrics for sorting/filtering
