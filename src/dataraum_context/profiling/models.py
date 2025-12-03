@@ -5,7 +5,7 @@ Defines data structures for statistical profiling and type inference."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -207,3 +207,82 @@ class StatisticalProfilingResult(BaseModel):
     profiles: list[ColumnProfile] = Field(default_factory=list)
     statistical_quality: list[StatisticalQualityResult] = Field(default_factory=list)
     duration_seconds: float
+
+
+# === Multicollinearity Models ===
+
+
+class ColumnVIF(BaseModel):
+    """Column-level multicollinearity assessment.
+
+    VIF (Variance Inflation Factor) measures how much a column's variance
+    is inflated due to correlation with other columns.
+    """
+
+    column_id: str
+    column_ref: ColumnRef
+    vif: float  # Variance Inflation Factor
+    tolerance: float  # 1/VIF
+    has_multicollinearity: bool  # VIF > 10 or Tolerance < 0.1
+    severity: Literal["none", "moderate", "severe"]  # VIF: <5, 5-10, >10
+    correlated_with: list[str] = Field(default_factory=list)  # Related column IDs
+
+    @property
+    def interpretation(self) -> str:
+        """Human-readable interpretation of VIF score."""
+        if self.vif < 5:
+            return f"Low multicollinearity (VIF={self.vif:.1f})"
+        elif self.vif < 10:
+            return f"Moderate multicollinearity (VIF={self.vif:.1f})"
+        else:
+            return f"Severe multicollinearity (VIF={self.vif:.1f})"
+
+
+class ConditionIndexAnalysis(BaseModel):
+    """Table-level multicollinearity assessment via eigenvalue analysis.
+
+    The Condition Index is the square root of the ratio of max to min eigenvalues
+    of the correlation matrix. It provides overall multicollinearity severity.
+    """
+
+    condition_index: float  # sqrt(max(eigenvalue) / min(eigenvalue))
+    eigenvalues: list[float]  # All eigenvalues from correlation matrix
+    has_multicollinearity: bool  # Condition Index > 30
+    severity: Literal["none", "moderate", "severe"]  # CI: <30, 30-100, >100
+    problematic_dimensions: int  # Count of near-zero eigenvalues
+
+    @property
+    def interpretation(self) -> str:
+        """Human-readable interpretation of Condition Index."""
+        if self.condition_index < 30:
+            return "No significant table-level multicollinearity"
+        elif self.condition_index < 100:
+            return f"Moderate table-level multicollinearity (CI={self.condition_index:.1f})"
+        else:
+            return f"Severe table-level multicollinearity (CI={self.condition_index:.1f})"
+
+
+class MulticollinearityAnalysis(BaseModel):
+    """Complete multicollinearity analysis for a table.
+
+    Combines column-level VIF/Tolerance with table-level Condition Index
+    to provide comprehensive multicollinearity assessment.
+    """
+
+    table_id: str
+    table_name: str
+    computed_at: datetime
+
+    # Column-level analysis
+    column_vifs: list[ColumnVIF] = Field(default_factory=list)
+    num_problematic_columns: int = 0  # VIF > 10
+
+    # Table-level analysis
+    condition_index: ConditionIndexAnalysis | None = None
+
+    # Summary flags
+    has_severe_multicollinearity: bool = False
+    overall_severity: Literal["none", "moderate", "severe"] = "none"
+
+    # Quality issues detected
+    quality_issues: list[dict[str, Any]] = Field(default_factory=list)
