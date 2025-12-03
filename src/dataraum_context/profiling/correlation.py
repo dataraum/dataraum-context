@@ -12,7 +12,6 @@ are handled by the topological enrichment module.
 
 import time
 from datetime import UTC, datetime
-from typing import Any
 from uuid import uuid4
 
 import duckdb
