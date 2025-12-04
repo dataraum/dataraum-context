@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataraum_context.storage.models_v2.base import Base
@@ -244,6 +244,43 @@ class MulticollinearityMetrics(Base):
     analysis_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
 
+class CrossTableMulticollinearityMetrics(Base):
+    """Cross-table multicollinearity analysis results (hybrid storage).
+
+    HYBRID STORAGE APPROACH:
+    - Structured fields: Queryable dimensions for filtering/sorting
+    - JSONB field: Full CrossTableMulticollinearityAnalysis Pydantic model
+
+    Extends single-table multicollinearity to detect dependencies across
+    related tables using a unified correlation matrix spanning all involved
+    columns from semantic + topology enrichment.
+
+    Per-dataset storage: One record represents analysis across multiple tables.
+    """
+
+    __tablename__ = "cross_table_multicollinearity_metrics"
+
+    metric_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    # Scope (multiple tables) - stored as JSON array
+    table_ids: Mapped[dict] = mapped_column(JSON, nullable=False)  # {"table_ids": [...]}
+
+    # STRUCTURED: Queryable dimensions for filtering
+    overall_condition_index: Mapped[float | None] = mapped_column(Float)
+    num_cross_table_groups: Mapped[int | None] = mapped_column(Integer)
+    num_total_groups: Mapped[int | None] = mapped_column(Integer)
+    has_severe_cross_table_dependencies: Mapped[bool | None] = mapped_column(Boolean)
+    total_columns_analyzed: Mapped[int | None] = mapped_column(Integer)
+    total_relationships_used: Mapped[int | None] = mapped_column(Integer)
+
+    # JSONB: Full CrossTableMulticollinearityAnalysis Pydantic model
+    # Stores: dependency_groups, cross_table_groups, join_paths, quality_issues
+    analysis_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+
 # Indexes for efficient queries
 Index("idx_correlations_table", ColumnCorrelation.table_id)
 Index("idx_correlations_col1", ColumnCorrelation.column1_id)
@@ -264,4 +301,9 @@ Index(
     "idx_multicollinearity_table",
     MulticollinearityMetrics.table_id,
     MulticollinearityMetrics.computed_at.desc(),
+)
+Index(
+    "idx_cross_multicollinearity_severity",
+    CrossTableMulticollinearityMetrics.has_severe_cross_table_dependencies,
+    CrossTableMulticollinearityMetrics.num_cross_table_groups,
 )

@@ -16,6 +16,12 @@ steps with proper:
 - Error handling and retries
 - Observability and metrics
 
+ENRICHMENT PIPELINE ORDER:
+1. Semantic enrichment (LLM) - Provides column roles, entities, initial relationships
+2. Topology enrichment (TDA) - Detects FK relationships via TDA
+3. Temporal enrichment - Analyzes time columns
+4. Cross-table multicollinearity - Requires relationships from steps 1-3
+
 For now, this serves as architectural documentation of how enrichment steps
 should be orchestrated once workflow tooling is added.
 """
@@ -144,3 +150,135 @@ class EnrichmentCoordinator:
                 results["temporal"] = {"error": str(e)}
 
         return Result.ok(results, warnings=warnings)
+
+    # ============================================================================
+    # FUTURE: Cross-Table Multicollinearity Integration Example
+    # ============================================================================
+    #
+    # When workflow engine is added, cross-table multicollinearity analysis should
+    # be integrated as a FINAL enrichment step that depends on all prior steps.
+    #
+    # Example integration method (currently commented out):
+    #
+    # async def enrich_all_with_multicollinearity(
+    #     self,
+    #     session: AsyncSession,
+    #     table_ids: list[str],
+    #     ontology: str = "general",
+    #     include_topology: bool = True,
+    #     include_temporal: bool = True,
+    #     include_cross_table_multicollinearity: bool = True,
+    # ) -> Result[dict[str, Any]]:
+    #     """Run all enrichment steps including cross-table multicollinearity.
+    #
+    #     DEPENDENCY GRAPH:
+    #     semantic → topology → cross_table_multicollinearity
+    #                ↓              ↑
+    #             temporal ─────────┘
+    #
+    #     Cross-table multicollinearity MUST run AFTER:
+    #     - Semantic enrichment (for semantic relationships)
+    #     - Topology enrichment (for FK relationships)
+    #     - Temporal enrichment (for temporal relationships)
+    #
+    #     This is because it builds a unified correlation matrix using
+    #     ALL relationships discovered by prior enrichment steps.
+    #     """
+    #     # Run base enrichment steps
+    #     base_result = await self.enrich_all(
+    #         session=session,
+    #         table_ids=table_ids,
+    #         ontology=ontology,
+    #         include_topology=include_topology,
+    #         include_temporal=include_temporal,
+    #     )
+    #
+    #     if not base_result.success:
+    #         return base_result
+    #
+    #     results = base_result.value
+    #     warnings = base_result.warnings
+    #
+    #     # Run cross-table multicollinearity (requires relationships from above)
+    #     if include_cross_table_multicollinearity and len(table_ids) >= 2:
+    #         try:
+    #             from dataraum_context.enrichment.cross_table_multicollinearity import (
+    #                 compute_cross_table_multicollinearity,
+    #             )
+    #
+    #             multicollinearity_result = await compute_cross_table_multicollinearity(
+    #                 table_ids=table_ids,
+    #                 duckdb_conn=self.duckdb_conn,
+    #                 session=session,
+    #             )
+    #
+    #             if multicollinearity_result.success and multicollinearity_result.value:
+    #                 analysis = multicollinearity_result.value
+    #                 results["cross_table_multicollinearity"] = {
+    #                     "total_columns_analyzed": analysis.total_columns_analyzed,
+    #                     "total_relationships_used": analysis.total_relationships_used,
+    #                     "overall_condition_index": analysis.overall_condition_index,
+    #                     "overall_severity": analysis.overall_severity,
+    #                     "dependency_groups": len(analysis.dependency_groups),
+    #                     "cross_table_groups": len(analysis.cross_table_groups),
+    #                     "quality_issues": len(analysis.quality_issues),
+    #                 }
+    #
+    #                 # Add warnings from multicollinearity analysis
+    #                 if multicollinearity_result.warnings:
+    #                     warnings.extend(multicollinearity_result.warnings)
+    #
+    #             else:
+    #                 warnings.append(
+    #                     f"Cross-table multicollinearity failed: {multicollinearity_result.error}"
+    #                 )
+    #                 results["cross_table_multicollinearity"] = {
+    #                     "error": multicollinearity_result.error
+    #                 }
+    #
+    #         except Exception as e:
+    #             warnings.append(f"Cross-table multicollinearity exception: {e}")
+    #             results["cross_table_multicollinearity"] = {"error": str(e)}
+    #
+    #     return Result.ok(results, warnings=warnings)
+    #
+    # ============================================================================
+    # WORKFLOW ENGINE INTEGRATION NOTES
+    # ============================================================================
+    #
+    # When using a workflow engine (e.g., Hamilton, Prefect, Temporal), the
+    # enrichment pipeline should be modeled as a DAG with these characteristics:
+    #
+    # PARALLEL EXECUTION:
+    # - Semantic enrichment can run in parallel for different tables
+    # - Topology + Temporal can run in parallel AFTER semantic completes
+    # - Cross-table multicollinearity runs AFTER topology + temporal complete
+    #
+    # CHECKPOINTING:
+    # - Each enrichment step should commit results to database
+    # - Pipeline can resume from last successful checkpoint
+    # - Failed steps can be retried without re-running successful steps
+    #
+    # ERROR HANDLING:
+    # - Non-critical failures (topology, temporal, multicollinearity) should warn but not fail pipeline
+    # - Critical failures (semantic) should fail pipeline
+    # - Each step should have configurable retry logic
+    #
+    # EXAMPLE HAMILTON DATAFLOW:
+    #
+    # @config.when(include_cross_table_multicollinearity=True)
+    # def cross_table_multicollinearity(
+    #     semantic_result: SemanticEnrichmentResult,
+    #     topology_result: TopologyEnrichmentResult,
+    #     temporal_result: TemporalEnrichmentResult,
+    #     table_ids: list[str],
+    #     duckdb_conn: duckdb.DuckDBPyConnection,
+    #     session: AsyncSession,
+    # ) -> CrossTableMulticollinearityAnalysis:
+    #     """Cross-table multicollinearity node - depends on prior enrichment."""
+    #     return compute_cross_table_multicollinearity(
+    #         table_ids=table_ids,
+    #         duckdb_conn=duckdb_conn,
+    #         session=session,
+    #     )
+    #

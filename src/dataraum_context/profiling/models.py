@@ -10,9 +10,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from dataraum_context.core.models.base import (
+    Cardinality,
     ColumnRef,
     DataType,
     DecisionSource,
+    RelationshipType,
 )
 
 
@@ -335,3 +337,94 @@ class MulticollinearityAnalysis(BaseModel):
 
     # Quality issues detected
     quality_issues: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# === Cross-Table Multicollinearity Models (Phase 2) ===
+
+
+class JoinPath(BaseModel):
+    """Describes how two columns are connected through relationships."""
+
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+    relationship_id: str
+    relationship_type: RelationshipType
+    cardinality: Cardinality | None
+    confidence: float
+    detection_method: str  # 'tda', 'semantic', 'manual'
+
+
+class CrossTableDependencyGroup(BaseModel):
+    """A dependency group spanning multiple tables.
+
+    Identified via Belsley VDP on unified correlation matrix.
+    """
+
+    dimension: int  # Eigenvector dimension
+    eigenvalue: float
+    condition_index: float  # CI for this dimension
+    severity: Literal["moderate", "severe"]  # CI: 10-30, >30
+
+    # Involved columns (may span multiple tables)
+    involved_columns: list[tuple[str, str]]  # [(table_name, column_name), ...]
+    column_ids: list[str]  # For storage reference
+    variance_proportions: list[float]  # VDP values for each column
+
+    # Relationship context
+    join_paths: list[JoinPath]  # How columns are connected
+    relationship_types: list[RelationshipType]  # FK, CORRELATION, SEMANTIC, etc.
+
+    @property
+    def num_tables(self) -> int:
+        """Number of distinct tables involved."""
+        return len({table for table, _ in self.involved_columns})
+
+    @property
+    def interpretation(self) -> str:
+        """Human-readable interpretation."""
+        if self.num_tables == 1:
+            return f"Single-table dependency: {len(self.involved_columns)} columns in same table"
+        else:
+            avg_vdp = (
+                sum(self.variance_proportions) / len(self.variance_proportions)
+                if self.variance_proportions
+                else 0
+            )
+            return (
+                f"{len(self.involved_columns)} columns across {self.num_tables} tables "
+                f"share {avg_vdp * 100:.0f}% "
+                f"variance in near-singular dimension (CI={self.condition_index:.1f})"
+            )
+
+
+class CrossTableMulticollinearityAnalysis(BaseModel):
+    """Complete cross-table multicollinearity analysis."""
+
+    # Scope
+    table_ids: list[str]  # Tables included in analysis
+    table_names: list[str]
+    computed_at: datetime
+
+    # Unified matrix info
+    total_columns_analyzed: int
+    total_relationships_used: int
+
+    # Overall condition index for unified matrix
+    overall_condition_index: float
+    overall_severity: Literal["none", "moderate", "severe"]
+
+    # Dependency groups (may include single-table and cross-table)
+    dependency_groups: list[CrossTableDependencyGroup] = Field(default_factory=list)
+    cross_table_groups: list[CrossTableDependencyGroup] = Field(
+        default_factory=list
+    )  # Filtered: num_tables > 1
+
+    # Quality issues
+    quality_issues: list[dict[str, Any]] = Field(default_factory=list)
+
+    @property
+    def num_cross_table_dependencies(self) -> int:
+        """Count of dependency groups spanning multiple tables."""
+        return len(self.cross_table_groups)
