@@ -16,24 +16,19 @@ if ! ruff check . --quiet 2>/dev/null; then
     exit 2
 fi
 
-# Run type checking (if mypy or pyright is available)
-# TEMPORARILY DISABLED: Need to fix type errors in synthesis.py, staging/loaders/csv.py, etc.
-# if command -v mypy &> /dev/null && [ -f "pyproject.toml" ]; then
-#     echo "Checking: mypy..."
-#     if ! mypy src/ --ignore-missing-imports --no-error-summary 2>/dev/null; then
-#         echo "❌ Type checking failed. Fix type errors before continuing." >&2
-#         exit 2
-#     fi
-# fi
+if command -v mypy &> /dev/null && [ -f "pyproject.toml" ]; then
+    echo "Checking: mypy..."
+    if ! mypy src/ --ignore-missing-imports --no-error-summary 2>/dev/null; then
+        echo "❌ Type checking failed. Fix type errors before continuing." >&2
+        exit 2
+    fi
+fi
 
-# Run tests
-# TEMPORARILY DISABLED: Currently have 19 failing tests + 3 collection errors (documented in CURRENT_STATE.md)
-# Re-enable when we're ready to enforce all tests passing
-# echo "Checking: pytest..."
-# if ! pytest --tb=short -q 2>&1; then
-#     echo "❌ Tests failed. ALL tests must pass before declaring done." >&2
-#     exit 2
-# fi
+echo "Checking: pytest..."
+if ! pytest --tb=short -q 2>&1; then
+    echo "❌ Tests failed. ALL tests must pass before declaring done." >&2
+    exit 2
+fi
 
 echo "✅ All quality checks passed."
 exit 0

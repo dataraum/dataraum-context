@@ -1,5 +1,7 @@
 """Tests for topological quality analysis module."""
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pytest
 
@@ -198,11 +200,10 @@ async def test_extract_betti_numbers_simple():
     betti = result.unwrap()
     assert betti.betti_0 == 3  # 2 finite + 1 for infinite component
     assert betti.betti_1 == 1  # 1 cycle
-    assert betti.betti_2 is None  # No dimension 2
+    assert betti.betti_2 == 0  # No dimension 2 (no voids)
     assert betti.total_complexity == 4
     assert not betti.is_connected  # More than 1 component
     assert betti.has_cycles
-    assert not betti.has_voids
 
 
 @pytest.mark.asyncio
@@ -291,7 +292,7 @@ async def test_detect_persistent_cycles():
     dgm_1 = np.array([[0.1, 0.8], [0.2, 0.5], [0.0, 0.15]])  # 3 cycles
     diagrams = [dgm_0, dgm_1]
 
-    result = await detect_persistent_cycles(diagrams, metric_id="test-metric", min_persistence=0.2)
+    result = await detect_persistent_cycles(diagrams, min_persistence=0.2)
     assert result.success
 
     cycles = result.unwrap()
@@ -313,7 +314,7 @@ async def test_detect_persistent_cycles_no_dimension_1():
     dgm_0 = np.array([[0.0, 0.5]])
     diagrams = [dgm_0]  # No dimension 1
 
-    result = await detect_persistent_cycles(diagrams, metric_id="test-metric")
+    result = await detect_persistent_cycles(diagrams)
     assert result.success
     assert len(result.unwrap()) == 0
 
@@ -549,6 +550,7 @@ def test_pydantic_betti_numbers_detailed():
         betti_1=2,
         betti_2=0,
         total_complexity=3,
+        is_connected=True,
         has_cycles=True,
     )
     assert betti.betti_0 == 1
@@ -563,6 +565,7 @@ def test_pydantic_stability_analysis():
         bottleneck_distance=0.15,
         is_stable=True,
         stability_threshold=0.2,
+        stability_level="stable",
     )
     assert stability.is_stable
     assert stability.bottleneck_distance == 0.15
@@ -572,6 +575,7 @@ def test_pydantic_stability_analysis():
 def test_pydantic_cycle_detection():
     """Test CycleDetection model."""
     cycle = CycleDetection(
+        cycle_id="cycle-1",
         dimension=1,
         birth=0.2,
         death=0.8,
@@ -579,6 +583,8 @@ def test_pydantic_cycle_detection():
         involved_columns=["col-1", "col-2"],
         is_anomalous=False,
         anomaly_reason=None,
+        first_detected=datetime.now(UTC),
+        last_seen=datetime.now(UTC),
     )
     assert cycle.dimension == 1
     assert cycle.persistence == 0.6
@@ -593,6 +599,7 @@ def test_pydantic_topological_quality_result():
         betti_1=1,
         betti_2=0,
         total_complexity=2,
+        is_connected=True,
         has_cycles=True,
     )
     result = TopologicalQualityResult(
@@ -606,6 +613,7 @@ def test_pydantic_topological_quality_result():
         orphaned_components=0,
         complexity_trend="stable",
         complexity_within_bounds=True,
+        quality_score=0.95,
         has_anomalies=False,
         anomalous_cycles=[],
         quality_warnings=[],

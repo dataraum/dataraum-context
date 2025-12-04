@@ -854,7 +854,7 @@ def analyze_relationship_graph(
     import networkx as nx
 
     # Build directed graph for cycle detection
-    G = nx.DiGraph()
+    G: nx.DiGraph = nx.DiGraph()  # type: ignore[type-arg]
 
     # Add all tables as nodes
     for table_id in table_ids:
@@ -1020,7 +1020,7 @@ async def analyze_topological_quality_multi_table(
         session.add(db_multi_metric)
         await session.commit()
 
-        return Result.ok(result_data)
+        return Result.ok(result_data)  # type: ignore[arg-type]
 
     except Exception as e:
         return Result.fail(

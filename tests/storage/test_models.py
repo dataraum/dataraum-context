@@ -149,7 +149,7 @@ class TestStatisticalModels:
             distinct_count=800,
             cardinality_ratio=0.8,
             null_ratio=0.05,
-            percentiles={"p50": 100.0, "p95": 500.0},
+            profile_data={"percentiles": {"p50": 100.0, "p95": 500.0}},
         )
         session.add(profile)
         await session.commit()
@@ -160,8 +160,8 @@ class TestStatisticalModels:
         assert saved.total_count == 1000
         assert saved.null_count == 50
         assert saved.cardinality_ratio == 0.8
-        assert saved.percentiles
-        assert saved.percentiles["p50"] == 100.0
+        assert saved.profile_data["percentiles"]
+        assert saved.profile_data["percentiles"]["p50"] == 100.0
 
     async def test_create_type_candidate(self, session: AsyncSession):
         source = Source(name="test_source", source_type="csv")
@@ -347,14 +347,16 @@ class TestTemporalModels:
             computed_at=datetime.now(),
             min_timestamp=datetime(2024, 1, 1),
             max_timestamp=datetime(2024, 12, 31),
-            span_days=364.0,
             detected_granularity="day",
-            granularity_confidence=0.98,
             completeness_ratio=0.96,
-            gap_count=5,
             has_seasonality=True,
-            seasonality_period="quarterly",
-            trend_direction="increasing",
+            temporal_data={
+                "span_days": 364.0,
+                "granularity_confidence": 0.98,
+                "gap_count": 5,
+                "seasonality_period": "quarterly",
+                "trend_direction": "increasing",
+            },
         )
         session.add(temporal)
         await session.commit()

@@ -145,8 +145,9 @@ async def gather_relationships(
         from_table = await session.get(Table, db_rel.from_table_id)
         to_table = await session.get(Table, db_rel.to_table_id)
 
-        if not all([from_col, to_col, from_table, to_table]):
-            continue  # Skip if any metadata is missing
+        # Skip if any metadata is missing
+        if from_col is None or to_col is None or from_table is None or to_table is None:
+            continue
 
         enriched.append(
             EnrichedRelationship(
@@ -448,6 +449,8 @@ async def compute_cross_table_multicollinearity(
         return Result.fail(matrix_result.error if matrix_result.error else "Matrix build failed")
 
     matrix_data = matrix_result.value
+    if matrix_data is None:
+        return Result.fail("Matrix build succeeded but returned None value")
 
     # Step 3: Apply Belsley VDP (reuse existing function!)
     from dataraum_context.profiling.correlation import _compute_variance_decomposition

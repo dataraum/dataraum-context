@@ -266,7 +266,7 @@ class CrossTableMulticollinearityMetrics(Base):
     )
 
     # Scope (multiple tables) - stored as JSON array
-    table_ids: Mapped[dict] = mapped_column(JSON, nullable=False)  # {"table_ids": [...]}
+    table_ids: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)  # {"table_ids": [...]}
 
     # STRUCTURED: Queryable dimensions for filtering
     overall_condition_index: Mapped[float | None] = mapped_column(Float)
