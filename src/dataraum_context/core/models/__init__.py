@@ -70,19 +70,17 @@ from dataraum_context.core.models.domain_quality import (
 )
 
 # Quality Synthesis (aggregation across pillars)
-from dataraum_context.core.models.quality_synthesis import (
+# Moved to quality/models.py - re-export for backward compatibility
+from dataraum_context.quality.models import (
     ColumnQualityAssessment,
     DatasetQualityOverview,
+    DatasetQualitySynthesisResult,
     DimensionScore,
     QualityDimension,
+    QualitySynthesisIssue,
     QualitySynthesisResult,
+    QualitySynthesisSeverity,
     TableQualityAssessment,
-)
-from dataraum_context.core.models.quality_synthesis import (
-    QualityIssue as QualitySynthesisIssue,
-)
-from dataraum_context.core.models.quality_synthesis import (
-    QualitySeverity as QualitySynthesisSeverity,
 )
 
 # =============================================================================
@@ -127,4 +125,5 @@ __all__ = [
     "QualitySynthesisIssue",
     "QualitySynthesisSeverity",
     "DatasetQualityOverview",
+    "DatasetQualitySynthesisResult",
 ]

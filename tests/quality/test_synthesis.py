@@ -14,9 +14,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from dataraum_context.core.models.quality_synthesis import (
+from dataraum_context.quality.models import (
     QualityDimension,
-    QualitySeverity,
+    QualitySynthesisSeverity,
 )
 from dataraum_context.quality.synthesis import (
     _aggregate_correlation_issues,
@@ -455,7 +455,7 @@ class TestStatisticalIssueAggregation:
         assert len(issues) == 1
         assert issues[0].issue_type == "benford_violation"
         assert issues[0].dimension == QualityDimension.ACCURACY
-        assert issues[0].severity == QualitySeverity.WARNING
+        assert issues[0].severity == QualitySynthesisSeverity.WARNING
         assert issues[0].source_pillar == 1
 
 
@@ -549,7 +549,7 @@ class TestCorrelationIssueAggregation:
         issues = _aggregate_correlation_issues("col1", "test_col", [], [fd])
         assert len(issues) == 1
         assert issues[0].issue_type == "fd_violation"
-        assert issues[0].severity == QualitySeverity.WARNING
+        assert issues[0].severity == QualitySynthesisSeverity.WARNING
 
 
 class TestDomainQualityIssueAggregation:
@@ -578,7 +578,7 @@ class TestDomainQualityIssueAggregation:
         assert len(issues) == 1
         assert issues[0].issue_type == "domain_rule_violation"
         assert issues[0].dimension == QualityDimension.ACCURACY
-        assert issues[0].severity == QualitySeverity.ERROR
+        assert issues[0].severity == QualitySynthesisSeverity.ERROR
         assert issues[0].source_pillar == 5
 
 

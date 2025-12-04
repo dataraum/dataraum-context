@@ -23,20 +23,20 @@ import time
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import duckdb
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models.base import Result
-from dataraum_context.core.models.quality_synthesis import (
+from dataraum_context.quality.models import (
     ColumnQualityAssessment,
+    DatasetQualitySynthesisResult,
     DimensionScore,
     QualityDimension,
-    QualitySeverity,
+    QualitySynthesisIssue,
     QualitySynthesisResult,
+    QualitySynthesisSeverity,
     TableQualityAssessment,
-)
-from dataraum_context.core.models.quality_synthesis import (
-    QualityIssue as QualitySynthesisIssue,
 )
 from dataraum_context.storage.models_v2.core import Column, Table
 from dataraum_context.storage.models_v2.correlation_context import (
@@ -373,12 +373,12 @@ def _aggregate_statistical_issues(
 
         # Map severity
         severity_map = {
-            "critical": QualitySeverity.CRITICAL,
-            "error": QualitySeverity.ERROR,
-            "warning": QualitySeverity.WARNING,
-            "info": QualitySeverity.INFO,
+            "critical": QualitySynthesisSeverity.CRITICAL,
+            "error": QualitySynthesisSeverity.ERROR,
+            "warning": QualitySynthesisSeverity.WARNING,
+            "info": QualitySynthesisSeverity.INFO,
         }
-        severity = severity_map.get(severity_str, QualitySeverity.WARNING)
+        severity = severity_map.get(severity_str, QualitySynthesisSeverity.WARNING)
 
         # Map to dimension
         dimension_map = {
@@ -450,12 +450,12 @@ def _aggregate_temporal_issues(
             evidence = quality_issue.get("evidence", {})
 
         severity_map = {
-            "critical": QualitySeverity.CRITICAL,
-            "error": QualitySeverity.ERROR,
-            "warning": QualitySeverity.WARNING,
-            "info": QualitySeverity.INFO,
+            "critical": QualitySynthesisSeverity.CRITICAL,
+            "error": QualitySynthesisSeverity.ERROR,
+            "warning": QualitySynthesisSeverity.WARNING,
+            "info": QualitySynthesisSeverity.INFO,
         }
-        severity = severity_map.get(severity_str, QualitySeverity.WARNING)
+        severity = severity_map.get(severity_str, QualitySynthesisSeverity.WARNING)
 
         # Map to dimension
         dimension_map = {
@@ -504,7 +504,7 @@ def _aggregate_topological_issues(
             QualitySynthesisIssue(
                 issue_id=str(uuid4()),
                 issue_type="orphaned_components",
-                severity=QualitySeverity.WARNING,
+                severity=QualitySynthesisSeverity.WARNING,
                 dimension=QualityDimension.CONSISTENCY,
                 table_id=table_id,
                 column_id=None,
@@ -538,7 +538,7 @@ def _aggregate_topological_issues(
                 QualitySynthesisIssue(
                     issue_id=str(uuid4()),
                     issue_type="anomalous_cycles",
-                    severity=QualitySeverity.WARNING,
+                    severity=QualitySynthesisSeverity.WARNING,
                     dimension=QualityDimension.CONSISTENCY,
                     table_id=table_id,
                     column_id=None,
@@ -558,7 +558,7 @@ def _aggregate_topological_issues(
             QualitySynthesisIssue(
                 issue_id=str(uuid4()),
                 issue_type="structural_instability",
-                severity=QualitySeverity.INFO,
+                severity=QualitySynthesisSeverity.INFO,
                 dimension=QualityDimension.CONSISTENCY,
                 table_id=table_id,
                 column_id=None,
@@ -593,7 +593,7 @@ def _aggregate_correlation_issues(
                 QualitySynthesisIssue(
                     issue_id=str(uuid4()),
                     issue_type="high_correlation",
-                    severity=QualitySeverity.INFO,
+                    severity=QualitySynthesisSeverity.INFO,
                     dimension=QualityDimension.CONSISTENCY,
                     table_id=corr.table_id,
                     column_id=column_id,
@@ -614,7 +614,7 @@ def _aggregate_correlation_issues(
                 QualitySynthesisIssue(
                     issue_id=str(uuid4()),
                     issue_type="fd_violation",
-                    severity=QualitySeverity.WARNING,
+                    severity=QualitySynthesisSeverity.WARNING,
                     dimension=QualityDimension.CONSISTENCY,
                     table_id=fd.table_id,
                     column_id=column_id,
@@ -654,12 +654,14 @@ def _aggregate_domain_quality_issues(
     issues = []
     for violation in violations_list[:5]:  # Top 5
         severity_map = {
-            "critical": QualitySeverity.CRITICAL,
-            "high": QualitySeverity.ERROR,
-            "medium": QualitySeverity.WARNING,
-            "low": QualitySeverity.INFO,
+            "critical": QualitySynthesisSeverity.CRITICAL,
+            "high": QualitySynthesisSeverity.ERROR,
+            "medium": QualitySynthesisSeverity.WARNING,
+            "low": QualitySynthesisSeverity.INFO,
         }
-        severity = severity_map.get(violation.get("severity", "medium"), QualitySeverity.WARNING)
+        severity = severity_map.get(
+            violation.get("severity", "medium"), QualitySynthesisSeverity.WARNING
+        )
 
         issue = QualitySynthesisIssue(
             issue_id=str(uuid4()),
@@ -988,7 +990,7 @@ async def assess_column_quality(
             dim_issues = [i for i in issues if i.dimension == dim_score.dimension]
             dim_score.issue_count = len(dim_issues)
             dim_score.critical_issues = len(
-                [i for i in dim_issues if i.severity == QualitySeverity.CRITICAL]
+                [i for i in dim_issues if i.severity == QualitySynthesisSeverity.CRITICAL]
             )
 
         # Compute overall score (weighted average)
@@ -1161,8 +1163,10 @@ async def assess_table_quality(
 
         # Count issues
         total_issues = len(all_issues)
-        critical_issues = len([i for i in all_issues if i.severity == QualitySeverity.CRITICAL])
-        warnings = len([i for i in all_issues if i.severity == QualitySeverity.WARNING])
+        critical_issues = len(
+            [i for i in all_issues if i.severity == QualitySynthesisSeverity.CRITICAL]
+        )
+        warnings = len([i for i in all_issues if i.severity == QualitySynthesisSeverity.WARNING])
 
         # Issues by dimension
         issues_by_dimension: dict[str, int] = {}
@@ -1198,3 +1202,213 @@ async def assess_table_quality(
 
     except Exception as e:
         return Result.fail(f"Table quality synthesis failed: {e}")
+
+
+# ============================================================================
+# Dataset Quality Assessment (Cross-Table Integration)
+# ============================================================================
+
+
+async def assess_dataset_quality(
+    table_ids: list[str],
+    duckdb_conn: duckdb.DuckDBPyConnection,
+    session: AsyncSession,
+) -> Result[DatasetQualitySynthesisResult]:
+    """Assess quality across multiple related tables.
+
+    Extends table-level assessment with cross-table metrics:
+    - Cross-table multicollinearity (via unified correlation matrix)
+    - Cross-table consistency violations
+    - Dataset-level quality aggregation
+
+    Args:
+        table_ids: List of table IDs to assess
+        duckdb_conn: DuckDB connection for cross-table analysis
+        session: Database session
+
+    Returns:
+        Result containing DatasetQualitySynthesisResult
+    """
+    from dataraum_context.enrichment.cross_table_multicollinearity import (
+        compute_cross_table_multicollinearity,
+    )
+
+    start_time = time.time()
+
+    try:
+        # 1. Get individual table assessments
+        table_assessments = []
+        for table_id in table_ids:
+            result = await assess_table_quality(table_id, session)
+            if result.success and result.value:
+                table_assessments.append(result.value)
+
+        if not table_assessments:
+            return Result.fail("No tables could be assessed")
+
+        # 2. Run cross-table multicollinearity analysis (if multiple tables)
+        cross_table_issues: list[QualitySynthesisIssue] = []
+        has_cross_table_analysis = False
+        cross_table_dependencies = 0
+        cross_table_severity = "none"
+
+        if len(table_ids) >= 2:
+            multicollinearity_result = await compute_cross_table_multicollinearity(
+                table_ids=table_ids,
+                duckdb_conn=duckdb_conn,
+                session=session,
+            )
+
+            if multicollinearity_result.success and multicollinearity_result.value:
+                has_cross_table_analysis = True
+                analysis = multicollinearity_result.value
+                cross_table_dependencies = analysis.num_cross_table_dependencies
+                cross_table_severity = analysis.overall_severity
+
+                # Convert cross-table multicollinearity groups to quality issues
+                for group in analysis.cross_table_groups:
+                    # Determine severity based on condition index
+                    if group.severity == "severe":
+                        severity = QualitySynthesisSeverity.ERROR
+                    else:
+                        severity = QualitySynthesisSeverity.WARNING
+
+                    issue = QualitySynthesisIssue(
+                        issue_id=str(uuid4()),
+                        issue_type="cross_table_multicollinearity",
+                        severity=severity,
+                        dimension=QualityDimension.CONSISTENCY,
+                        table_id=None,  # Spans multiple tables
+                        column_id=None,
+                        column_name=None,
+                        description=(
+                            f"{len(group.involved_columns)} columns across "
+                            f"{group.num_tables} tables share high variance "
+                            f"(CI={group.condition_index:.1f})"
+                        ),
+                        recommendation=(
+                            "Review for redundant columns, denormalization, or "
+                            "derived columns across tables"
+                        ),
+                        evidence={
+                            "condition_index": group.condition_index,
+                            "involved_columns": [
+                                f"{table}.{col}" for table, col in group.involved_columns
+                            ],
+                            "variance_proportions": group.variance_proportions,
+                            "num_tables": group.num_tables,
+                        },
+                        source_pillar=1,  # Statistical (correlation-based)
+                        source_module="cross_table_multicollinearity",
+                        detected_at=datetime.now(UTC),
+                    )
+                    cross_table_issues.append(issue)
+
+                # 3. Adjust consistency scores based on cross-table issues
+                if cross_table_dependencies > 0:
+                    for table_assessment in table_assessments:
+                        # Find consistency dimension score
+                        for dim_score in table_assessment.table_assessment.dimension_scores:
+                            if dim_score.dimension == QualityDimension.CONSISTENCY:
+                                # Calculate penalty based on severity
+                                if cross_table_severity == "severe":
+                                    penalty = 0.3  # 30% penalty
+                                elif cross_table_severity == "moderate":
+                                    penalty = 0.15  # 15% penalty
+                                else:
+                                    penalty = 0.0
+
+                                if penalty > 0:
+                                    original_score = dim_score.score
+                                    dim_score.score = max(0.0, original_score * (1.0 - penalty))
+                                    dim_score.explanation += (
+                                        f" (adjusted for {cross_table_dependencies} cross-table "
+                                        f"dependencies, {cross_table_severity} severity)"
+                                    )
+                                break
+
+                        # Recalculate table overall score
+                        table_dim_scores = table_assessment.table_assessment.dimension_scores
+                        if table_dim_scores:
+                            table_assessment.table_assessment.overall_score = sum(
+                                ds.score for ds in table_dim_scores
+                            ) / len(table_dim_scores)
+
+        # 4. Aggregate metrics across tables
+        total_tables = len(table_assessments)
+        total_columns = sum(a.total_columns for a in table_assessments)
+        columns_assessed = sum(a.columns_assessed for a in table_assessments)
+
+        # Average quality scores
+        table_scores = [a.table_assessment.overall_score for a in table_assessments]
+        average_table_quality = sum(table_scores) / len(table_scores) if table_scores else 0.0
+
+        # Get all column scores
+        all_column_scores = []
+        for table_assessment in table_assessments:
+            for col_assessment in table_assessment.table_assessment.column_assessments:
+                all_column_scores.append(col_assessment.overall_score)
+
+        average_column_quality = (
+            sum(all_column_scores) / len(all_column_scores) if all_column_scores else 0.0
+        )
+
+        # 5. Aggregate issues
+        all_table_issues = []
+        for table_assessment in table_assessments:
+            all_table_issues.extend(table_assessment.table_assessment.issues)
+            for col_assessment in table_assessment.table_assessment.column_assessments:
+                all_table_issues.extend(col_assessment.issues)
+
+        all_issues = all_table_issues + cross_table_issues
+
+        total_issues = len(all_issues)
+        critical_issues = len(
+            [i for i in all_issues if i.severity == QualitySynthesisSeverity.CRITICAL]
+        )
+        warnings = len([i for i in all_issues if i.severity == QualitySynthesisSeverity.WARNING])
+
+        # Issues by dimension
+        issues_by_dimension: dict[str, int] = {}
+        for issue in all_issues:
+            dim_name = issue.dimension.value
+            issues_by_dimension[dim_name] = issues_by_dimension.get(dim_name, 0) + 1
+
+        # Issues by pillar
+        issues_by_pillar: dict[int, int] = {}
+        for issue in all_issues:
+            pillar = issue.source_pillar
+            issues_by_pillar[pillar] = issues_by_pillar.get(pillar, 0) + 1
+
+        # 6. Get table names
+        table_names = [a.table_name for a in table_assessments]
+
+        # 7. Create dataset synthesis result
+        dataset_result = DatasetQualitySynthesisResult(
+            table_ids=table_ids,
+            table_names=table_names,
+            table_assessments=table_assessments,
+            total_tables=total_tables,
+            total_columns=total_columns,
+            columns_assessed=columns_assessed,
+            average_table_quality=average_table_quality,
+            average_column_quality=average_column_quality,
+            total_issues=total_issues,
+            critical_issues=critical_issues,
+            warnings=warnings,
+            issues_by_dimension=issues_by_dimension,
+            issues_by_pillar=issues_by_pillar,
+            has_cross_table_analysis=has_cross_table_analysis,
+            cross_table_dependencies=cross_table_dependencies,
+            cross_table_multicollinearity_severity=cross_table_severity,
+            cross_table_issues=cross_table_issues,
+            dataset_summary=None,  # TODO: LLM-generated summary in Phase 4
+            top_recommendations=[],  # TODO: Prioritize recommendations in Phase 4
+            synthesis_duration_seconds=time.time() - start_time,
+            synthesized_at=datetime.now(UTC),
+        )
+
+        return Result.ok(dataset_result)
+
+    except Exception as e:
+        return Result.fail(f"Dataset quality synthesis failed: {e}")
