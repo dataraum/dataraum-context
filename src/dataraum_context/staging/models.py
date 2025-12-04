@@ -4,26 +4,21 @@ Defines data structures for the VARCHAR-first staging process."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
-
-class StagedColumn(BaseModel):
-    """A column in a staged table."""
-
-    column_id: str
-    name: str
-    position: int
-    sample_values: list[str] = Field(default_factory=list)
+from pydantic import BaseModel
 
 
 class StagedTable(BaseModel):
-    """A staged table."""
+    """A staged table.
+
+    This is a lightweight DTO for returning staging results.
+    Full metadata is stored in the Table/Column SQLAlchemy models.
+    """
 
     table_id: str
     table_name: str
     raw_table_name: str
     row_count: int
-    columns: list[StagedColumn]
+    column_count: int
 
 
 class StagingResult(BaseModel):

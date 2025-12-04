@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models import Result, SourceConfig
 from dataraum_context.staging.base import ColumnInfo, LoaderBase, TypeSystemStrength
-from dataraum_context.staging.models import StagedColumn, StagedTable, StagingResult
-from dataraum_context.staging.null_values import load_null_value_config
+from dataraum_context.staging.models import StagedTable, StagingResult
+from dataraum_context.staging.null_values import NullValueConfig, load_null_value_config
 from dataraum_context.storage.models_v2 import Column, Source, Table
 
 
@@ -100,56 +100,9 @@ class CSVLoader(LoaderBase):
             return Result.fail(f"CSV file not found: {path}")
 
         start_time = time.time()
-        warnings: list[str] = []
 
         try:
-            # Load null value configuration
-            null_config = load_null_value_config()
-            null_strings = null_config.get_null_strings(include_placeholders=True)
-
-            # Get schema first
-            schema_result = await self.get_schema(source_config)
-            if not schema_result.success and schema_result.error:
-                return Result.fail(schema_result.error)
-
-            columns = schema_result.value
-
-            if not columns:
-                return Result.fail("Columns empty or zero length")
-
-            # Sanitize table name
-            table_name = self._sanitize_table_name(path.stem)
-            raw_table_name = f"raw_{table_name}"
-
-            # Build column type specification (all VARCHAR)
-            column_spec = {col.name: "VARCHAR" for col in columns}
-
-            # Build DuckDB read_csv parameters
-            # Format null strings for DuckDB
-            null_str_param = ", ".join(f"'{s}'" for s in null_strings)
-
-            # Create the raw table with all VARCHAR columns
-            sql = f"""
-                CREATE TABLE {raw_table_name} AS
-                SELECT * FROM read_csv(
-                    '{path}',
-                    columns = {column_spec},
-                    header = true,
-                    nullstr = [{null_str_param}],
-                    ignore_errors = false,
-                    auto_detect = false
-                )
-            """
-
-            duckdb_conn.execute(sql)
-
-            # Get row count
-            row_count_rows = duckdb_conn.execute(
-                f"SELECT COUNT(*) FROM {raw_table_name}"
-            ).fetchone()
-            row_count = row_count_rows[0] if row_count_rows else 0
-
-            # Create Source record in metadata DB
+            # Create Source record
             source_id = str(uuid4())
             source = Source(
                 source_id=source_id,
@@ -159,20 +112,209 @@ class CSVLoader(LoaderBase):
             )
             session.add(source)
 
+            # Load the file
+            null_config = load_null_value_config()
+            file_result = await self._load_single_file(
+                file_path=path,
+                source_id=source_id,
+                duckdb_conn=duckdb_conn,
+                session=session,
+                null_config=null_config,
+            )
+
+            if not file_result.success:
+                return Result.fail(file_result.error or "Failed to load CSV")
+
+            staged_table = file_result.unwrap()
+            await session.commit()
+
+            return Result.ok(
+                StagingResult(
+                    source_id=source_id,
+                    tables=[staged_table],
+                    total_rows=staged_table.row_count,
+                    duration_seconds=time.time() - start_time,
+                )
+            )
+
+        except Exception as e:
+            return Result.fail(f"Failed to load CSV: {e}")
+
+    async def load_directory(
+        self,
+        directory_path: str,
+        source_name: str,
+        duckdb_conn: duckdb.DuckDBPyConnection,
+        session: AsyncSession,
+        file_pattern: str = "*.csv",
+    ) -> Result[StagingResult]:
+        """Load all CSV files from a directory into DuckDB.
+
+        Creates a single Source with multiple Table records (one per CSV file).
+
+        Args:
+            directory_path: Path to the directory containing CSV files
+            source_name: Name for the source (dataset name)
+            duckdb_conn: DuckDB connection
+            session: SQLAlchemy session for metadata
+            file_pattern: Glob pattern for CSV files (default: "*.csv")
+
+        Returns:
+            Result containing StagingResult with multiple tables
+        """
+        directory = Path(directory_path)
+        if not directory.exists():
+            return Result.fail(f"Directory not found: {directory}")
+        if not directory.is_dir():
+            return Result.fail(f"Path is not a directory: {directory}")
+
+        # Find all CSV files
+        csv_files = sorted(directory.glob(file_pattern))
+        if not csv_files:
+            return Result.fail(f"No CSV files found matching '{file_pattern}' in {directory}")
+
+        start_time = time.time()
+        warnings: list[str] = []
+
+        try:
+            # Load null value configuration once
+            null_config = load_null_value_config()
+
+            # Create single Source for the directory
+            source_id = str(uuid4())
+            source = Source(
+                source_id=source_id,
+                name=source_name,
+                source_type="csv_directory",
+                connection_config={
+                    "directory": str(directory),
+                    "file_pattern": file_pattern,
+                    "file_count": len(csv_files),
+                },
+            )
+            session.add(source)
+
+            # Load each CSV file
+            staged_tables: list[StagedTable] = []
+            total_rows = 0
+
+            for csv_file in csv_files:
+                file_result = await self._load_single_file(
+                    file_path=csv_file,
+                    source_id=source_id,
+                    duckdb_conn=duckdb_conn,
+                    session=session,
+                    null_config=null_config,
+                )
+
+                if not file_result.success:
+                    warnings.append(f"Failed to load {csv_file.name}: {file_result.error}")
+                    continue
+
+                staged_table = file_result.unwrap()
+                staged_tables.append(staged_table)
+                total_rows += staged_table.row_count
+
+            if not staged_tables:
+                return Result.fail("No CSV files were successfully loaded")
+
+            await session.commit()
+
+            duration = time.time() - start_time
+
+            result = StagingResult(
+                source_id=source_id,
+                tables=staged_tables,
+                total_rows=total_rows,
+                duration_seconds=duration,
+            )
+
+            return Result.ok(result, warnings=warnings)
+
+        except Exception as e:
+            return Result.fail(f"Failed to load CSV directory: {e}")
+
+    async def _load_single_file(
+        self,
+        file_path: Path,
+        source_id: str,
+        duckdb_conn: duckdb.DuckDBPyConnection,
+        session: AsyncSession,
+        null_config: NullValueConfig,
+    ) -> Result[StagedTable]:
+        """Load a single CSV file into an existing source.
+
+        Internal helper used by both load() and load_directory().
+
+        Args:
+            file_path: Path to the CSV file
+            source_id: ID of the parent source
+            duckdb_conn: DuckDB connection
+            session: SQLAlchemy session
+            null_config: Null value configuration
+
+        Returns:
+            Result containing StagedTable
+        """
+        try:
+            # Get schema
+            temp_config = SourceConfig(
+                name=file_path.stem,
+                source_type="csv",
+                path=str(file_path),
+            )
+            schema_result = await self.get_schema(temp_config)
+            if not schema_result.success:
+                return Result.fail(schema_result.error or "Failed to get schema")
+
+            columns = schema_result.value
+            if not columns:
+                return Result.fail("No columns found in CSV")
+
+            # Sanitize table name
+            table_name = self._sanitize_table_name(file_path.stem)
+            raw_table_name = f"raw_{table_name}"
+
+            # Build column type specification (all VARCHAR)
+            column_spec = {col.name: "VARCHAR" for col in columns}
+
+            # Format null strings for DuckDB
+            null_strings = null_config.get_null_strings(include_placeholders=True)
+            null_str_param = ", ".join(f"'{s}'" for s in null_strings)
+
+            # Create the raw table with all VARCHAR columns
+            sql = f"""
+                CREATE TABLE {raw_table_name} AS
+                SELECT * FROM read_csv(
+                    '{file_path}',
+                    columns = {column_spec},
+                    header = true,
+                    nullstr = [{null_str_param}],
+                    ignore_errors = false,
+                    auto_detect = false
+                )
+            """
+            duckdb_conn.execute(sql)
+
+            # Get row count
+            row_count_result = duckdb_conn.execute(
+                f"SELECT COUNT(*) FROM {raw_table_name}"
+            ).fetchone()
+            row_count = row_count_result[0] if row_count_result else 0
+
             # Create Table record
             table_id = str(uuid4())
             table = Table(
                 table_id=table_id,
                 source_id=source_id,
                 table_name=table_name,
-                layer="raw",  # Untyped sources start at raw layer
+                layer="raw",
                 duckdb_path=raw_table_name,
                 row_count=row_count,
             )
             session.add(table)
 
             # Create Column records
-            staged_columns = []
             for col_info in columns:
                 column_id = str(uuid4())
                 column = Column(
@@ -181,40 +323,19 @@ class CSVLoader(LoaderBase):
                     column_name=col_info.name,
                     column_position=col_info.position,
                     raw_type="VARCHAR",
-                    resolved_type=None,  # Will be determined by profiling
+                    resolved_type=None,
                 )
                 session.add(column)
 
-                staged_columns.append(
-                    StagedColumn(
-                        column_id=column_id,
-                        name=col_info.name,
-                        position=col_info.position,
-                        sample_values=col_info.sample_values,
-                    )
+            return Result.ok(
+                StagedTable(
+                    table_id=table_id,
+                    table_name=table_name,
+                    raw_table_name=raw_table_name,
+                    row_count=row_count,
+                    column_count=len(columns),
                 )
-
-            await session.commit()
-
-            # Build result
-            staged_table = StagedTable(
-                table_id=table_id,
-                table_name=table_name,
-                raw_table_name=raw_table_name,
-                row_count=row_count,
-                columns=staged_columns,
             )
-
-            duration = time.time() - start_time
-
-            result = StagingResult(
-                source_id=source_id,
-                tables=[staged_table],
-                total_rows=row_count,
-                duration_seconds=duration,
-            )
-
-            return Result.ok(result, warnings=warnings)
 
         except Exception as e:
-            return Result.fail(f"Failed to load CSV: {e}")
+            return Result.fail(f"Failed to load {file_path.name}: {e}")

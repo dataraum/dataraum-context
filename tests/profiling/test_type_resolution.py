@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.profiling.profiler import profile_and_resolve_types
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.staging.pipeline import StagingPipelineResult, stage_csv
+from dataraum_context.staging.pipeline import MultiTablePipelineResult, stage_csv
 from dataraum_context.storage.schema import init_database
 
 
@@ -117,8 +117,9 @@ class TestTypeResolution:
 
         assert result.success
         pipeline_result = result.unwrap()
-        assert isinstance(pipeline_result, StagingPipelineResult)
-        assert pipeline_result.raw_table_name == "raw_simple"
+        assert isinstance(pipeline_result, MultiTablePipelineResult)
+        assert pipeline_result.table is not None
+        assert pipeline_result.table.raw_table_name == "raw_simple"
         assert pipeline_result.total_rows == 5
 
     async def test_stage_without_type_resolution(self, simple_csv, test_duckdb, test_session):
@@ -133,8 +134,9 @@ class TestTypeResolution:
 
         assert result.success
         pipeline_result = result.unwrap()
-        assert pipeline_result.raw_table_name == "raw_simple"
-        assert pipeline_result.type_resolution_result is None
+        assert pipeline_result.table is not None
+        assert pipeline_result.table.raw_table_name == "raw_simple"
+        assert pipeline_result.table.type_resolution_result is None
 
         # Typed table should NOT exist
         tables = test_duckdb.execute("SHOW TABLES").fetchall()
@@ -157,9 +159,10 @@ class TestQuarantineHandling:
 
         assert result.success
         pipeline_result = result.unwrap()
+        assert pipeline_result.table is not None
 
-        if pipeline_result.type_resolution_result:
-            resolution = pipeline_result.type_resolution_result
+        if pipeline_result.table.type_resolution_result:
+            resolution = pipeline_result.table.type_resolution_result
 
             # Verify quarantine table exists
             tables = test_duckdb.execute("SHOW TABLES").fetchall()
@@ -188,9 +191,10 @@ class TestColumnCastResults:
 
         assert result.success
         pipeline_result = result.unwrap()
+        assert pipeline_result.table is not None
 
-        if pipeline_result.type_resolution_result:
-            for col_result in pipeline_result.type_resolution_result.column_results:
+        if pipeline_result.table.type_resolution_result:
+            for col_result in pipeline_result.table.type_resolution_result.column_results:
                 assert col_result.source_type == "VARCHAR"
                 assert col_result.target_type is not None
                 assert col_result.success_count >= 0
