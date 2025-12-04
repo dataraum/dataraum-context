@@ -141,7 +141,7 @@ class TestCSVLoader:
         assert table.table_name == "payment_method"
         assert table.raw_table_name == "raw_payment_method"
         assert table.row_count > 0
-        assert len(table.columns) > 0
+        assert table.column_count > 0
 
         # Verify table exists in DuckDB
         tables = test_duckdb.execute("""
