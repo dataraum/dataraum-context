@@ -1,11 +1,12 @@
 """Semantic enrichment using LLM analysis."""
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models.base import Result
 from dataraum_context.enrichment.models import SemanticEnrichmentResult
 from dataraum_context.enrichment.utils import load_column_mappings, load_table_mappings
-from dataraum_context.llm import LLMService
 from dataraum_context.storage.models_v2 import (
     Relationship as RelationshipModel,
 )
@@ -15,6 +16,12 @@ from dataraum_context.storage.models_v2 import (
 from dataraum_context.storage.models_v2 import (
     TableEntity as EntityModel,
 )
+
+# Lazy import to avoid circular dependency:
+# llm/__init__.py → features/quality.py → enrichment/models.py → enrichment/__init__.py
+# → enrichment/coordinator.py → enrichment/semantic.py → llm/__init__.py (CYCLE!)
+if TYPE_CHECKING:
+    from dataraum_context.llm import LLMService
 
 
 async def enrich_semantic(
