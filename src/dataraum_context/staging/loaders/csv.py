@@ -7,14 +7,9 @@ from uuid import uuid4
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.core.models import (
-    Result,
-    SourceConfig,
-    StagedColumn,
-    StagedTable,
-    StagingResult,
-)
+from dataraum_context.core.models import Result, SourceConfig
 from dataraum_context.staging.base import ColumnInfo, LoaderBase, TypeSystemStrength
+from dataraum_context.staging.models import StagedColumn, StagedTable, StagingResult
 from dataraum_context.staging.null_values import load_null_value_config
 from dataraum_context.storage.models_v2 import Column, Source, Table
 
