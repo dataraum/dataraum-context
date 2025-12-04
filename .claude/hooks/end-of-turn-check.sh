@@ -11,21 +11,21 @@ echo "Running quality checks..."
 
 # Run ruff linter
 echo "Checking: ruff..."
-if ! ruff check . --quiet 2>/dev/null; then
+if ! uv run ruff check . --quiet 2>/dev/null; then
     echo "❌ Linting failed. Fix lint errors before continuing." >&2
     exit 2
 fi
 
-if command -v mypy &> /dev/null && [ -f "pyproject.toml" ]; then
+if [ -f "pyproject.toml" ]; then
     echo "Checking: mypy..."
-    if ! mypy src/ --ignore-missing-imports --no-error-summary 2>/dev/null; then
+    if ! uv run mypy src/ --no-error-summary 2>/dev/null; then
         echo "❌ Type checking failed. Fix type errors before continuing." >&2
         exit 2
     fi
 fi
 
 echo "Checking: pytest..."
-if ! pytest --tb=short -q 2>&1; then
+if ! uv run pytest --tb=short -q 2>&1; then
     echo "❌ Tests failed. ALL tests must pass before declaring done." >&2
     exit 2
 fi
