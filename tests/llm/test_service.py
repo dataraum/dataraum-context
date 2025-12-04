@@ -22,8 +22,9 @@ def test_llm_service_initialization(mock_anthropic_key):
     assert service.renderer is not None
     assert service.semantic is not None
     assert service.quality is not None
-    assert service.queries is not None
-    assert service.summary is not None
+    # queries and summary are currently disabled (depend on unfinished context module)
+    assert service.queries is None
+    assert service.summary is None
 
 
 def test_llm_service_with_invalid_provider(mock_anthropic_key):

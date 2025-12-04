@@ -26,7 +26,7 @@ For now, this serves as architectural documentation of how enrichment steps
 should be orchestrated once workflow tooling is added.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +35,12 @@ from dataraum_context.core.models.base import Result
 from dataraum_context.enrichment.semantic import enrich_semantic
 from dataraum_context.enrichment.temporal import enrich_temporal
 from dataraum_context.enrichment.topology import enrich_topology
-from dataraum_context.llm import LLMService
+
+# Lazy import to avoid circular dependency:
+# llm/__init__.py → features/quality.py → enrichment/models.py → enrichment/__init__.py
+# → enrichment/coordinator.py → llm/__init__.py (CYCLE!)
+if TYPE_CHECKING:
+    from dataraum_context.llm import LLMService
 
 
 class EnrichmentCoordinator:

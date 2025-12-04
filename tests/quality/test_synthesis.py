@@ -220,6 +220,9 @@ class TestConsistencyScore:
     def test_perfect_consistency(self):
         """Test perfect consistency."""
         score, explanation = _compute_consistency_score(
+            multicollinearity_severity=None,
+            max_vif=None,
+            condition_index=None,
             functional_dep_violations=0,
             orphaned_components=0,
             anomalous_cycles_count=0,
@@ -231,6 +234,9 @@ class TestConsistencyScore:
     def test_fd_violations(self):
         """Test with functional dependency violations."""
         score, explanation = _compute_consistency_score(
+            multicollinearity_severity=None,
+            max_vif=None,
+            condition_index=None,
             functional_dep_violations=3,
             orphaned_components=None,
             anomalous_cycles_count=None,
@@ -244,6 +250,9 @@ class TestConsistencyScore:
     def test_orphaned_components(self):
         """Test with orphaned structural components."""
         score, explanation = _compute_consistency_score(
+            multicollinearity_severity=None,
+            max_vif=None,
+            condition_index=None,
             functional_dep_violations=None,
             orphaned_components=2,
             anomalous_cycles_count=None,
@@ -257,6 +266,9 @@ class TestConsistencyScore:
     def test_anomalous_cycles(self):
         """Test with anomalous cycles."""
         score, explanation = _compute_consistency_score(
+            multicollinearity_severity=None,
+            max_vif=None,
+            condition_index=None,
             functional_dep_violations=None,
             orphaned_components=None,
             anomalous_cycles_count=2,
@@ -270,6 +282,9 @@ class TestConsistencyScore:
     def test_high_correlations(self):
         """Test with high correlations."""
         score, explanation = _compute_consistency_score(
+            multicollinearity_severity=None,
+            max_vif=None,
+            condition_index=None,
             functional_dep_violations=None,
             orphaned_components=None,
             anomalous_cycles_count=None,
@@ -283,6 +298,9 @@ class TestConsistencyScore:
     def test_combined_consistency_issues(self):
         """Test multiple consistency issues."""
         score, explanation = _compute_consistency_score(
+            multicollinearity_severity=None,
+            max_vif=None,
+            condition_index=None,
             functional_dep_violations=1,  # Penalty = 0.1
             orphaned_components=1,  # Penalty = 0.15
             anomalous_cycles_count=1,  # Penalty = 0.1
@@ -427,7 +445,7 @@ class TestStatisticalIssueAggregation:
             metric_id=str(uuid4()),
             column_id=str(uuid4()),
             computed_at=datetime.now(UTC),
-            quality_issues=None,
+            quality_data={"quality_issues": []},
         )
 
         issues = _aggregate_statistical_issues(stat_quality, "col1", "test_col")
@@ -439,8 +457,8 @@ class TestStatisticalIssueAggregation:
             metric_id=str(uuid4()),
             column_id=str(uuid4()),
             computed_at=datetime.now(UTC),
-            quality_issues={
-                "issues": [
+            quality_data={
+                "quality_issues": [
                     {
                         "issue_type": "benford_violation",
                         "severity": "warning",

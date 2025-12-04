@@ -181,3 +181,12 @@ module = [
     "statsmodels.*",
     "ruptures.*",
 ]
+ignore_missing_imports = true
+
+# Unfinished features that depend on not-yet-implemented context module
+[[tool.mypy.overrides]]
+module = [
+    "dataraum_context.llm.features.queries",
+    "dataraum_context.llm.features.summary",
+]
+ignore_errors = true
