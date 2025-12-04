@@ -488,18 +488,29 @@ class TestTemporalIssueAggregation:
             computed_at=datetime.now(UTC),
             min_timestamp=datetime.now(UTC),
             max_timestamp=datetime.now(UTC),
-            span_days=30,
             detected_granularity="day",
-            granularity_confidence=0.9,
-            quality_issues={
-                "issues": [
+            completeness_ratio=0.6,
+            temporal_data={
+                "metric_id": str(uuid4()),
+                "column_id": str(uuid4()),
+                "column_ref": {"table_name": "test_table", "column_name": "test_col"},
+                "column_name": "test_col",
+                "table_name": "test_table",
+                "computed_at": datetime.now(UTC).isoformat(),
+                "min_timestamp": datetime.now(UTC).isoformat(),
+                "max_timestamp": datetime.now(UTC).isoformat(),
+                "span_days": 30,
+                "detected_granularity": "day",
+                "granularity_confidence": 0.9,
+                "temporal_quality_score": 0.6,
+                "quality_issues": [
                     {
                         "issue_type": "low_completeness",
                         "severity": "medium",
                         "description": "Only 60% of expected data points present",
                         "evidence": {"completeness_ratio": 0.6},
                     }
-                ]
+                ],
             },
         )
 
@@ -633,7 +644,7 @@ async def test_assess_column_quality_with_statistical_metrics(
         null_ratio=0.1,
         distinct_count=80,
         cardinality_ratio=0.8,
-        duplicate_count=20,
+        profile_data={"duplicate_count": 20},
     )
     async_session.add(stat_profile)
 
@@ -644,6 +655,7 @@ async def test_assess_column_quality_with_statistical_metrics(
         computed_at=datetime.now(UTC),
         benford_compliant=True,
         iqr_outlier_ratio=0.02,
+        quality_data={},
     )
     async_session.add(stat_quality)
     await async_session.commit()
@@ -678,12 +690,14 @@ async def test_assess_column_quality_with_temporal_metrics(
         computed_at=datetime.now(UTC),
         min_timestamp=datetime.now(UTC),
         max_timestamp=datetime.now(UTC),
-        span_days=30,
         detected_granularity="day",
-        granularity_confidence=0.9,
         completeness_ratio=0.95,
         is_stale=False,
-        data_freshness_days=2.0,
+        temporal_data={
+            "span_days": 30,
+            "granularity_confidence": 0.9,
+            "data_freshness_days": 2.0,
+        },
     )
     async_session.add(temp_quality)
     await async_session.commit()
@@ -730,7 +744,7 @@ async def test_assess_table_quality_with_topological_metrics(
         computed_at=datetime.now(UTC),
         betti_0=1,
         orphaned_components=2,
-        anomalous_cycles={"cycles": [{"id": "c1"}, {"id": "c2"}]},
+        topology_data={"anomalous_cycles": {"cycles": [{"id": "c1"}, {"id": "c2"}]}},
     )
     async_session.add(topo_quality)
     await async_session.commit()
@@ -772,6 +786,7 @@ async def test_assess_table_quality_integration(async_session: AsyncSession, sam
         null_ratio=0.05,
         distinct_count=95,
         cardinality_ratio=0.95,
+        profile_data={},
     )
     async_session.add(stat_profile)
 

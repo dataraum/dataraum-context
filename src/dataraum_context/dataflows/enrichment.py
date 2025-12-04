@@ -181,11 +181,12 @@ async def cross_table_multicollinearity(
         )
 
     # Run analysis
-    return await compute_cross_table_multicollinearity(
+    result = await compute_cross_table_multicollinearity(
         table_ids=table_ids,
         duckdb_conn=duckdb_conn,
         session=session,
     )
+    return result  # type: ignore[return-value]
 
 
 # ============================================================================

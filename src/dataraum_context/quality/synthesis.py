@@ -21,6 +21,7 @@ Quality Dimensions:
 
 import time
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import duckdb
@@ -436,18 +437,21 @@ def _aggregate_temporal_issues(
     issues = []
     for quality_issue in issues_list:
         # Handle both QualityIssue object and dict
-        if hasattr(quality_issue, "issue_type"):
+        from dataraum_context.quality.models import QualityIssue as QualityIssueModel
+
+        if isinstance(quality_issue, QualityIssueModel):
             # It's a Pydantic QualityIssue
             issue_type = quality_issue.issue_type
             severity_str = quality_issue.severity
             description = quality_issue.description
             evidence = quality_issue.evidence
         else:
-            # It's a dict
-            issue_type = quality_issue.get("issue_type", "unknown")
-            severity_str = quality_issue.get("severity", "warning")
-            description = quality_issue.get("description", "Temporal quality issue")
-            evidence = quality_issue.get("evidence", {})
+            # It's a dict - cast to dict for type safety
+            issue_dict: dict[str, Any] = quality_issue  # type: ignore[assignment]
+            issue_type = issue_dict.get("issue_type", "unknown")
+            severity_str = issue_dict.get("severity", "warning")
+            description = issue_dict.get("description", "Temporal quality issue")
+            evidence = issue_dict.get("evidence", {})
 
         severity_map = {
             "critical": QualitySynthesisSeverity.CRITICAL,
@@ -554,6 +558,9 @@ def _aggregate_topological_issues(
 
     # Check for homological instability
     if topo_quality.homologically_stable is False:
+        # Extract bottleneck_distance from JSONB topology_data
+        bottleneck_distance = topo_quality.topology_data.get("bottleneck_distance")
+
         issues.append(
             QualitySynthesisIssue(
                 issue_id=str(uuid4()),
@@ -565,7 +572,7 @@ def _aggregate_topological_issues(
                 column_name=None,
                 description="Structural topology has changed significantly from baseline",
                 recommendation="Review for data schema changes or relationship drift",
-                evidence={"bottleneck_distance": topo_quality.bottleneck_distance},
+                evidence={"bottleneck_distance": bottleneck_distance},
                 source_pillar=2,  # Topological
                 source_module="topological_quality",
                 detected_at=topo_quality.computed_at,
@@ -891,7 +898,7 @@ async def assess_column_quality(
 
         # Calculate duplicate_count from cardinality
         duplicate_count = None
-        if stat_profile and stat_profile.distinct_count is not None:
+        if stat_profile and stat_profile.distinct_count is not None and total_count is not None:
             non_null_count = total_count - stat_profile.null_count
             duplicate_count = (
                 non_null_count - stat_profile.distinct_count if non_null_count > 0 else 0
@@ -1114,9 +1121,11 @@ async def assess_table_quality(
                 if dim_score.dimension == QualityDimension.CONSISTENCY:
                     # Apply topological penalties
                     orphaned = topo_quality.orphaned_components or 0
+                    # Extract anomalous_cycles from JSONB topology_data
+                    anomalous_cycles_data = topo_quality.topology_data.get("anomalous_cycles", {})
                     anomalous = (
-                        len(topo_quality.anomalous_cycles.get("cycles", []))
-                        if topo_quality.anomalous_cycles
+                        len(anomalous_cycles_data.get("cycles", []))
+                        if isinstance(anomalous_cycles_data, dict)
                         else 0
                     )
 

@@ -126,7 +126,7 @@ def format_multicollinearity_for_llm(
     interpretation = _get_multicollinearity_interpretation(analysis)
 
     # Format table-level assessment
-    table_level = None
+    table_level: dict[str, Any] | None = None
     if analysis.condition_index:
         table_level = {
             "condition_index": analysis.condition_index.condition_index,
