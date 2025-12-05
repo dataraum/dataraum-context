@@ -178,6 +178,7 @@ class CSVLoader(LoaderBase):
 
         try:
             # Load null value configuration once
+            # TODO this could be used to report on null values
             null_config = load_null_value_config()
 
             # Create single Source for the directory

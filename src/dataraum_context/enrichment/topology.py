@@ -154,6 +154,9 @@ async def _load_tables_data(
 
         try:
             # Limit to 10000 rows for performance
+            # TODO use DuckDB SAMPLE for more relevance
+            # TODO this can be statistically tricky if we compare sampling across tables
+            # as not all tables will contain overlapping samples to compare
             df = duckdb_conn.execute(f"SELECT * FROM {actual_table} LIMIT 10000").df()
             tables_data[table_name] = df
         except Exception as e:

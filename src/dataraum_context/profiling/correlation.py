@@ -288,6 +288,11 @@ async def compute_categorical_associations(
                 # Cramér's V
                 n = contingency.sum()
                 min_dim = min(len(unique_val1), len(unique_val2)) - 1
+
+                # Skip if min_dim is 0 (no variation to correlate)
+                if min_dim == 0:
+                    continue
+
                 cramers_v = np.sqrt(chi2 / (n * min_dim))
 
                 if cramers_v < min_cramers_v:
