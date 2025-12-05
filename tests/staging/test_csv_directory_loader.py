@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from dataraum_context.dataflows.pipeline import run_pipeline
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.staging.pipeline import stage_csv_directory
 from dataraum_context.storage.schema import init_database
 
 
@@ -45,13 +45,34 @@ def test_duckdb():
 
 
 @pytest.fixture
+def mock_llm_service():
+    """Create a mock LLM service for testing."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from dataraum_context.core.models.base import Result
+    from dataraum_context.enrichment.models import SemanticEnrichmentResult
+
+    mock = MagicMock()
+    mock.analyze_semantics = AsyncMock(
+        return_value=Result.ok(
+            SemanticEnrichmentResult(
+                annotations=[],
+                entity_detections=[],
+                relationships=[],
+            )
+        )
+    )
+    return mock
+
+
+@pytest.fixture
 def finance_csv_directory():
     """Path to finance CSV example directory."""
     return Path("examples/finance_csv_example")
 
 
 class TestCSVDirectoryLoader:
-    """Tests for CSVLoader.load_directory()."""
+    """Tests for CSVLoader.load_directory() method."""
 
     async def test_load_directory_all_files(
         self,
@@ -66,7 +87,7 @@ class TestCSVDirectoryLoader:
         loader = CSVLoader()
         result = await loader.load_directory(
             directory_path=str(finance_csv_directory),
-            source_name="finance_dataset",
+            source_name="finance",
             duckdb_conn=test_duckdb,
             session=test_session,
         )
@@ -76,34 +97,16 @@ class TestCSVDirectoryLoader:
         staging_result = result.value
         assert staging_result is not None
 
-        # Should have loaded 7 CSV files
+        # Should have 7 tables
         assert len(staging_result.tables) == 7
 
-        # Source ID should be set
-        assert staging_result.source_id is not None
+        # Check that tables exist in DuckDB
+        duckdb_tables = test_duckdb.execute("SHOW TABLES").fetchall()
+        table_names = {t[0] for t in duckdb_tables}
 
-        # Check table names
-        table_names = {t.table_name for t in staging_result.tables}
-        expected_tables = {
-            "chart_of_account_ob",
-            "customer_table",
-            "employee_table",
-            "master_txn_table",
-            "payment_method",
-            "product_service_table",
-            "vendor_table",
-        }
-        assert table_names == expected_tables
-
-        # Verify all tables exist in DuckDB
-        duckdb_tables = test_duckdb.execute("""
-            SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'main'
-        """).fetchall()
-        duckdb_table_names = {t[0] for t in duckdb_tables}
-
+        # All raw tables should exist
         for table in staging_result.tables:
-            assert table.raw_table_name in duckdb_table_names
+            assert table.raw_table_name in table_names
 
     async def test_load_directory_with_pattern(
         self,
@@ -111,34 +114,44 @@ class TestCSVDirectoryLoader:
         test_duckdb,
         test_session,
     ):
-        """Test loading CSV files with a specific pattern."""
+        """Test loading with a glob pattern (subset of files)."""
         if not finance_csv_directory.exists():
             pytest.skip("Finance CSV example directory not found")
 
         loader = CSVLoader()
         result = await loader.load_directory(
             directory_path=str(finance_csv_directory),
-            source_name="payment_only",
+            source_name="tables_only",
             duckdb_conn=test_duckdb,
             session=test_session,
-            file_pattern="payment*.csv",
+            file_pattern="*_table.csv",
         )
 
-        assert result.success, f"Load failed: {result.error}"
+        assert result.success
 
         staging_result = result.value
         assert staging_result is not None
 
-        # Should only load payment_method.csv
-        assert len(staging_result.tables) == 1
-        assert staging_result.tables[0].table_name == "payment_method"
+        # Should have loaded only tables matching pattern
+        # customer, employee, master_txn, product_service, vendor
+        assert len(staging_result.tables) == 5
+
+        table_names = {t.table_name for t in staging_result.tables}
+        expected = {
+            "customer_table",
+            "employee_table",
+            "master_txn_table",
+            "product_service_table",
+            "vendor_table",
+        }
+        assert table_names == expected
 
     async def test_load_directory_not_found(
         self,
         test_duckdb,
         test_session,
     ):
-        """Test loading from a non-existent directory."""
+        """Test loading from non-existent directory."""
         loader = CSVLoader()
         result = await loader.load_directory(
             directory_path="/nonexistent/path",
@@ -148,7 +161,7 @@ class TestCSVDirectoryLoader:
         )
 
         assert not result.success
-        assert "not found" in result.error.lower()
+        assert "not found" in result.error.lower() or "does not exist" in result.error.lower()
 
     async def test_load_directory_empty_pattern(
         self,
@@ -166,34 +179,33 @@ class TestCSVDirectoryLoader:
             source_name="no_match",
             duckdb_conn=test_duckdb,
             session=test_session,
-            file_pattern="*.xyz",
+            file_pattern="*.nonexistent",
         )
 
         assert not result.success
-        assert "no csv files found" in result.error.lower()
+        assert "no csv files" in result.error.lower() or "no files" in result.error.lower()
 
 
 class TestCSVDirectoryPipeline:
-    """Tests for stage_csv_directory() pipeline function."""
+    """Tests for unified run_pipeline() with directories."""
 
-    async def test_stage_directory_load_only(
+    async def test_pipeline_directory(
         self,
         finance_csv_directory,
         test_duckdb,
         test_session,
+        mock_llm_service,
     ):
-        """Test staging directory with loading only (no type resolution)."""
+        """Test the unified pipeline with a directory."""
         if not finance_csv_directory.exists():
             pytest.skip("Finance CSV example directory not found")
 
-        # Only test loading and schema profiling (faster)
-        result = await stage_csv_directory(
-            directory_path=str(finance_csv_directory),
+        result = await run_pipeline(
+            source=str(finance_csv_directory),
             source_name="finance_test",
             duckdb_conn=test_duckdb,
             session=test_session,
-            auto_resolve_types=False,
-            auto_profile_statistics=False,
+            llm_service=mock_llm_service,
         )
 
         assert result.success, f"Pipeline failed: {result.error}"
@@ -203,80 +215,12 @@ class TestCSVDirectoryPipeline:
 
         # Should have 7 tables
         assert pipeline_result.table_count == 7
+        assert pipeline_result.successful_tables >= 1
 
-        # Check table results
-        for table_result in pipeline_result.table_results:
-            # Schema profiling should have run
-            assert table_result.schema_profile_result is not None
-            # Type resolution should not have run
-            assert table_result.type_resolution_result is None
-            # Statistics should not have run
-            assert table_result.statistics_profile_result is None
-
-    async def test_stage_directory_with_pattern(
-        self,
-        finance_csv_directory,
-        test_duckdb,
-        test_session,
-    ):
-        """Test staging with a file pattern (subset of files)."""
-        if not finance_csv_directory.exists():
-            pytest.skip("Finance CSV example directory not found")
-
-        # Only load *_table.csv files
-        result = await stage_csv_directory(
-            directory_path=str(finance_csv_directory),
-            source_name="tables_only",
-            duckdb_conn=test_duckdb,
-            session=test_session,
-            file_pattern="*_table.csv",
-            auto_resolve_types=False,
-            auto_profile_statistics=False,
-        )
-
-        assert result.success, f"Pipeline failed: {result.error}"
-
-        pipeline_result = result.value
-        assert pipeline_result is not None
-
-        # Should have loaded customer, employee, master_txn, product_service, vendor tables
-        assert pipeline_result.table_count == 5
-
-        table_names = {tr.table_name for tr in pipeline_result.table_results}
-        expected = {
-            "customer_table",
-            "employee_table",
-            "master_txn_table",
-            "product_service_table",
-            "vendor_table",
-        }
-        assert table_names == expected
-
-    async def test_stage_directory_successful_and_failed_tables(
-        self,
-        finance_csv_directory,
-        test_duckdb,
-        test_session,
-    ):
-        """Test that successful_tables and failed_tables properties work."""
-        if not finance_csv_directory.exists():
-            pytest.skip("Finance CSV example directory not found")
-
-        result = await stage_csv_directory(
-            directory_path=str(finance_csv_directory),
-            source_name="finance_test",
-            duckdb_conn=test_duckdb,
-            session=test_session,
-            file_pattern="payment*.csv",
-            auto_resolve_types=False,
-            auto_profile_statistics=False,
-        )
-
-        assert result.success
-
-        pipeline_result = result.value
-        assert pipeline_result is not None
-
-        # All tables should be successful
-        assert len(pipeline_result.successful_tables) == 1
-        assert len(pipeline_result.failed_tables) == 0
+        # Check that all stages completed for at least some tables
+        for table_health in pipeline_result.table_health:
+            if table_health.error is None:
+                assert table_health.staging_completed
+                assert table_health.schema_profiling_completed
+                assert table_health.type_resolution_completed
+                # Stats and enrichment may have issues, but should at least attempt

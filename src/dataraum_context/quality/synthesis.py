@@ -1262,11 +1262,25 @@ async def assess_dataset_quality(
         cross_table_severity = "none"
 
         if len(table_ids) >= 2:
-            multicollinearity_result = await compute_cross_table_multicollinearity(
+            # Try to query stored results first (avoid expensive recomputation)
+            from dataraum_context.enrichment.cross_table_multicollinearity import (
+                get_stored_cross_table_analysis,
+            )
+
+            stored_result = await get_stored_cross_table_analysis(
                 table_ids=table_ids,
-                duckdb_conn=duckdb_conn,
                 session=session,
             )
+
+            # Use stored results if available, otherwise compute fresh
+            if stored_result.success and stored_result.value is not None:
+                multicollinearity_result = Result.ok(stored_result.value)
+            else:
+                multicollinearity_result = await compute_cross_table_multicollinearity(
+                    table_ids=table_ids,
+                    duckdb_conn=duckdb_conn,
+                    session=session,
+                )
 
             if multicollinearity_result.success and multicollinearity_result.value:
                 has_cross_table_analysis = True

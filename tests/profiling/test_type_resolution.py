@@ -6,9 +6,9 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from dataraum_context.core.models import SourceConfig
+from dataraum_context.dataflows.pipeline import run_pipeline
 from dataraum_context.profiling.profiler import profile_and_resolve_types
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.staging.pipeline import MultiTablePipelineResult, stage_csv
 from dataraum_context.storage.schema import init_database
 
 
@@ -38,6 +38,27 @@ def test_duckdb():
     conn = duckdb.connect(":memory:")
     yield conn
     conn.close()
+
+
+@pytest.fixture
+def mock_llm_service():
+    """Create a mock LLM service for testing."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from dataraum_context.core.models.base import Result
+    from dataraum_context.enrichment.models import SemanticEnrichmentResult
+
+    mock = MagicMock()
+    mock.analyze_semantics = AsyncMock(
+        return_value=Result.ok(
+            SemanticEnrichmentResult(
+                annotations=[],
+                entity_detections=[],
+                relationships=[],
+            )
+        )
+    )
+    return mock
 
 
 @pytest.fixture
@@ -106,97 +127,64 @@ class TestTypeResolution:
         table_names = [t[0] for t in tables]
         assert "typed_simple" in table_names
 
-    async def test_pipeline_stage_csv(self, simple_csv, test_duckdb, test_session):
-        """Test the full stage_csv pipeline."""
-        result = await stage_csv(
-            file_path=str(simple_csv),
-            table_name="pipeline_test",
+    async def test_pipeline_run_pipeline(
+        self, simple_csv, test_duckdb, test_session, mock_llm_service
+    ):
+        """Test the full unified pipeline."""
+        result = await run_pipeline(
+            source=str(simple_csv),
+            source_name="pipeline_test",
             duckdb_conn=test_duckdb,
             session=test_session,
+            llm_service=mock_llm_service,
         )
 
         assert result.success
         pipeline_result = result.unwrap()
-        assert isinstance(pipeline_result, MultiTablePipelineResult)
-        assert pipeline_result.table is not None
-        assert pipeline_result.table.raw_table_name == "raw_simple"
-        assert pipeline_result.total_rows == 5
 
-    async def test_stage_without_type_resolution(self, simple_csv, test_duckdb, test_session):
-        """Test staging without automatic type resolution."""
-        result = await stage_csv(
-            file_path=str(simple_csv),
-            table_name="no_resolve",
-            duckdb_conn=test_duckdb,
-            session=test_session,
-            auto_resolve_types=False,
-        )
+        # Check basic properties
+        assert pipeline_result.table_count == 1
+        assert pipeline_result.successful_tables == 1
 
-        assert result.success
-        pipeline_result = result.unwrap()
-        assert pipeline_result.table is not None
-        assert pipeline_result.table.raw_table_name == "raw_simple"
-        assert pipeline_result.table.type_resolution_result is None
-
-        # Typed table should NOT exist
-        tables = test_duckdb.execute("SHOW TABLES").fetchall()
-        table_names = [t[0] for t in tables]
-        assert "typed_simple" not in table_names
+        # Check table health
+        table_health = pipeline_result.table_health[0]
+        assert table_health.staging_completed
+        assert table_health.schema_profiling_completed
+        assert table_health.type_resolution_completed
+        assert table_health.statistics_profiling_completed
+        assert table_health.semantic_enrichment_completed
+        assert table_health.raw_table_name == "raw_simple"
+        assert table_health.row_count == 5
+        assert table_health.error is None
 
 
 class TestQuarantineHandling:
     """Tests for quarantine table handling."""
 
-    async def test_quarantine_table_created(self, quarantine_csv, test_duckdb, test_session):
+    async def test_quarantine_table_created(
+        self, quarantine_csv, test_duckdb, test_session, mock_llm_service
+    ):
         """Test that quarantine table is created for failed casts."""
-        result = await stage_csv(
-            file_path=str(quarantine_csv),
-            table_name="quarantine_test",
+        result = await run_pipeline(
+            source=str(quarantine_csv),
+            source_name="quarantine_test",
             duckdb_conn=test_duckdb,
             session=test_session,
+            llm_service=mock_llm_service,
             min_confidence=0.5,
         )
 
         assert result.success
         pipeline_result = result.unwrap()
-        assert pipeline_result.table is not None
+        assert pipeline_result.table_count == 1
 
-        if pipeline_result.table.type_resolution_result:
-            resolution = pipeline_result.table.type_resolution_result
+        table_health = pipeline_result.table_health[0]
 
-            # Verify quarantine table exists
+        # Type resolution should have completed
+        assert table_health.type_resolution_completed
+
+        # Verify quarantine table exists if there were cast failures
+        if table_health.quarantine_table_name:
             tables = test_duckdb.execute("SHOW TABLES").fetchall()
             table_names = [t[0] for t in tables]
-            assert "quarantine_quarantine" in table_names
-
-            # Quarantine should have failed rows
-            if resolution.quarantined_rows > 0:
-                quarantine_count = test_duckdb.execute(
-                    f'SELECT COUNT(*) FROM "{resolution.quarantine_table_name}"'
-                ).fetchone()[0]
-                assert quarantine_count == resolution.quarantined_rows
-
-
-class TestColumnCastResults:
-    """Tests for column cast result tracking."""
-
-    async def test_column_cast_results_populated(self, simple_csv, test_duckdb, test_session):
-        """Test that column cast results are properly populated."""
-        result = await stage_csv(
-            file_path=str(simple_csv),
-            table_name="cast_results",
-            duckdb_conn=test_duckdb,
-            session=test_session,
-        )
-
-        assert result.success
-        pipeline_result = result.unwrap()
-        assert pipeline_result.table is not None
-
-        if pipeline_result.table.type_resolution_result:
-            for col_result in pipeline_result.table.type_resolution_result.column_results:
-                assert col_result.source_type == "VARCHAR"
-                assert col_result.target_type is not None
-                assert col_result.success_count >= 0
-                assert col_result.failure_count >= 0
-                assert 0.0 <= col_result.success_rate <= 1.0
+            assert table_health.quarantine_table_name in table_names

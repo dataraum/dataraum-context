@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import duckdb
 import numpy as np
@@ -135,9 +136,12 @@ async def gather_relationships(
         if db_rel.confidence < threshold:
             continue  # Below threshold for this type
 
-        pair = (db_rel.from_column_id, db_rel.to_column_id)
-        if pair in seen_pairs:
-            continue  # Skip duplicate (keep highest confidence)
+        # Check BOTH directions for duplicates (semantic may store A→B, topology B→A)
+        pair_forward = (db_rel.from_column_id, db_rel.to_column_id)
+        pair_reverse = (db_rel.to_column_id, db_rel.from_column_id)
+
+        if pair_forward in seen_pairs or pair_reverse in seen_pairs:
+            continue  # Skip duplicate in either direction (keep highest confidence)
 
         # Load column metadata for join construction
         from_col = await session.get(Column, db_rel.from_column_id)
@@ -168,7 +172,9 @@ async def gather_relationships(
             )
         )
 
-        seen_pairs.add(pair)
+        # Mark BOTH directions as seen to prevent reverse duplicates
+        seen_pairs.add(pair_forward)
+        seen_pairs.add(pair_reverse)
 
     return enriched
 
@@ -557,17 +563,118 @@ async def compute_cross_table_multicollinearity(
         if t:
             table_names.append(t.table_name)
 
-    return Result.ok(
-        CrossTableMulticollinearityAnalysis(
-            table_ids=table_ids,
-            table_names=table_names,
-            computed_at=datetime.now(UTC),
-            total_columns_analyzed=matrix_data.num_columns,
-            total_relationships_used=len(relationships),
-            overall_condition_index=condition_index,
-            overall_severity=overall_severity,
-            dependency_groups=enriched_groups,
-            cross_table_groups=cross_table_groups,
-            quality_issues=quality_issues,
-        )
+    analysis = CrossTableMulticollinearityAnalysis(
+        table_ids=table_ids,
+        table_names=table_names,
+        computed_at=datetime.now(UTC),
+        total_columns_analyzed=matrix_data.num_columns,
+        total_relationships_used=len(relationships),
+        overall_condition_index=condition_index,
+        overall_severity=overall_severity,
+        dependency_groups=enriched_groups,
+        cross_table_groups=cross_table_groups,
+        quality_issues=quality_issues,
     )
+
+    # Store to database using hybrid storage approach
+    storage_result = await store_cross_table_analysis(analysis, session)
+    if not storage_result.success:
+        # Log warning but don't fail the analysis
+        return Result.ok(analysis, warnings=[f"Failed to store results: {storage_result.error}"])
+
+    return Result.ok(analysis)
+
+
+async def get_stored_cross_table_analysis(
+    table_ids: list[str],
+    session: AsyncSession,
+) -> Result[CrossTableMulticollinearityAnalysis | None]:
+    """Query most recent stored cross-table multicollinearity analysis for given tables.
+
+    Returns the latest analysis (by computed_at) that matches the table set.
+
+    Args:
+        table_ids: List of table IDs to find analysis for
+        session: Database session
+
+    Returns:
+        Result containing most recent analysis if found, None if not found
+    """
+    from dataraum_context.storage.models_v2.correlation_context import (
+        CrossTableMulticollinearityMetrics,
+    )
+
+    try:
+        # Sort table_ids for consistent comparison
+        sorted_table_ids = sorted(table_ids)
+
+        # Query for matching analysis (most recent first)
+        stmt = select(CrossTableMulticollinearityMetrics).order_by(
+            CrossTableMulticollinearityMetrics.computed_at.desc()
+        )
+
+        result = await session.execute(stmt)
+        metrics = result.scalars().all()
+
+        # Find matching table set (returns first match = most recent)
+        for metric in metrics:
+            stored_ids = sorted(metric.table_ids.get("table_ids", []))
+            if stored_ids == sorted_table_ids:
+                # Deserialize JSONB to Pydantic model
+                analysis = CrossTableMulticollinearityAnalysis.model_validate(metric.analysis_data)
+                return Result.ok(analysis)
+
+        # No matching analysis found
+        return Result.ok(None)
+
+    except Exception as e:
+        return Result.fail(f"Failed to query stored analysis: {e}")
+
+
+async def store_cross_table_analysis(
+    analysis: CrossTableMulticollinearityAnalysis,
+    session: AsyncSession,
+) -> Result[str]:
+    """Store cross-table multicollinearity analysis to database.
+
+    Uses hybrid storage approach:
+    - Structured fields: Queryable dimensions for filtering/sorting
+    - JSONB field: Full CrossTableMulticollinearityAnalysis Pydantic model
+
+    Args:
+        analysis: Analysis result to store
+        session: Database session
+
+    Returns:
+        Result containing metric_id
+    """
+    from dataraum_context.storage.models_v2.correlation_context import (
+        CrossTableMulticollinearityMetrics,
+    )
+
+    try:
+        # Create database record with hybrid storage
+        metric = CrossTableMulticollinearityMetrics(
+            metric_id=str(uuid4()),
+            computed_at=analysis.computed_at,
+            # Store table IDs as JSON array
+            table_ids={"table_ids": analysis.table_ids},
+            # Structured fields for querying
+            overall_condition_index=analysis.overall_condition_index,
+            num_cross_table_groups=len(analysis.cross_table_groups),
+            num_total_groups=len(analysis.dependency_groups),
+            has_severe_cross_table_dependencies=(analysis.overall_severity == "severe"),
+            total_columns_analyzed=analysis.total_columns_analyzed,
+            total_relationships_used=analysis.total_relationships_used,
+            # Full Pydantic model as JSONB for flexibility
+            analysis_data=analysis.model_dump(mode="json"),
+        )
+
+        session.add(metric)
+        await session.commit()
+
+        return Result.ok(metric.metric_id)
+
+    except Exception as e:
+        await session.rollback()
+        return Result.fail(f"Failed to store cross-table analysis: {e}")
