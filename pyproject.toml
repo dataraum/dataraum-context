@@ -192,3 +192,9 @@ module = [
     "dataraum_context.llm.features.summary",
 ]
 ignore_errors = true
+
+# Test files don't need strict type checking
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+ignore_missing_imports = true
