@@ -51,6 +51,7 @@ from dataraum_context.staging.loaders.csv import CSVLoader
 from dataraum_context.storage.models_v2.core import Column, Table
 from dataraum_context.storage.models_v2.relationship import Relationship
 from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation
+from dataraum_context.storage.models_v2.temporal_context import TemporalQualityMetrics
 
 # =============================================================================
 # Result Models (Simplified - Health Info Only)
@@ -540,9 +541,37 @@ async def run_pipeline(
             temporal_analyzed = 0
             for column in temporal_columns:
                 temp_result = await analyze_temporal_quality(column.column_id, duckdb_conn, session)
-                # ✅ Updates existing TemporalQualityMetrics in database
 
                 if temp_result.success:
+                    # Persist advanced temporal metrics by updating existing record
+                    from sqlalchemy import update
+
+                    temp_quality = temp_result.unwrap()
+
+                    # Update existing TemporalQualityMetrics record with advanced metrics
+                    update_stmt = (
+                        update(TemporalQualityMetrics)
+                        .where(TemporalQualityMetrics.column_id == column.column_id)
+                        .values(
+                            has_seasonality=(
+                                temp_quality.seasonality.has_seasonality
+                                if temp_quality.seasonality
+                                else None
+                            ),
+                            has_trend=(
+                                temp_quality.trend is not None and temp_quality.trend.slope != 0.0
+                            ),
+                            is_stale=(
+                                temp_quality.update_frequency.is_stale
+                                if temp_quality.update_frequency
+                                else None
+                            ),
+                            temporal_quality_score=temp_quality.temporal_quality_score,
+                        )
+                    )
+                    await session.execute(update_stmt)
+                    await session.commit()
+
                     temporal_analyzed += 1
 
             if temporal_analyzed > 0:

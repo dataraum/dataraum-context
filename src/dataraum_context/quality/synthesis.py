@@ -796,7 +796,6 @@ async def assess_column_quality(
                 score=score,
                 completeness_ratio=temporal_completeness,
                 parse_success_rate=None,  # TODO: Calculate this
-                validation_pass_rate=None,  # TODO: Calculate this
                 null_ratio=null_ratio,
                 explanation=explanation,
             )
@@ -844,7 +843,6 @@ async def assess_column_quality(
                 score=score,
                 completeness_ratio=None,  # TODO: Calculate this
                 null_ratio=None,  # TODO: Calculate this
-                validation_pass_rate=None,  # TODO: Calculate this
                 parse_success_rate=parse_rate,
                 explanation=explanation,
             )
@@ -887,7 +885,6 @@ async def assess_column_quality(
                 explanation=explanation,
                 completeness_ratio=None,  # TODO: Calculate this
                 null_ratio=None,  # TODO: Calculate this
-                validation_pass_rate=None,  # TODO: Calculate this
                 parse_success_rate=None,
             )
         )
@@ -913,7 +910,6 @@ async def assess_column_quality(
                 explanation=explanation,
                 completeness_ratio=None,  # TODO: Calculate this
                 null_ratio=None,  # TODO: Calculate this
-                validation_pass_rate=None,  # TODO: Calculate this
                 parse_success_rate=None,
             )
         )
@@ -933,7 +929,6 @@ async def assess_column_quality(
                 explanation=explanation,
                 completeness_ratio=None,  # TODO: Calculate this
                 null_ratio=None,  # TODO: Calculate this
-                validation_pass_rate=None,  # TODO: Calculate this
                 parse_success_rate=None,
             )
         )
@@ -952,7 +947,6 @@ async def assess_column_quality(
                 explanation=explanation,
                 completeness_ratio=None,  # TODO: Calculate this
                 null_ratio=None,  # TODO: Calculate this
-                validation_pass_rate=None,  # TODO: Calculate this
                 parse_success_rate=None,
             )
         )
@@ -1077,7 +1071,6 @@ async def assess_table_quality(
                     explanation=f"Average {dim.value} across {len(column_assessments)} columns",
                     completeness_ratio=None,  # TODO: Calculate this
                     null_ratio=None,  # TODO: Calculate this
-                    validation_pass_rate=None,  # TODO: Calculate this
                     parse_success_rate=None,
                 )
                 for dim in QualityDimension
