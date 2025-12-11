@@ -12,6 +12,8 @@ Key Design:
 - Users have control via priority-based rules
 """
 
+from dataraum_context.quality.filtering.executor import execute_filtering
+from dataraum_context.quality.filtering.llm_filter_agent import analyze_quality_for_filtering
 from dataraum_context.quality.filtering.models import (
     FilterAction,
     FilteringRecommendations,
@@ -26,6 +28,7 @@ from dataraum_context.quality.filtering.rules_loader import (
     load_default_filtering_rules,
     load_filtering_rules,
 )
+from dataraum_context.quality.filtering.rules_merger import merge_filtering_rules
 
 __all__ = [
     # Models
@@ -36,8 +39,14 @@ __all__ = [
     "RuleAppliesTo",
     "RulePriority",
     "FilterAction",
-    # Loader
+    # Phase 1: Loader
     "load_filtering_rules",
     "load_default_filtering_rules",
     "FilteringRulesLoadError",
+    # Phase 8: LLM Agent
+    "analyze_quality_for_filtering",
+    # Phase 9: Rules Merger
+    "merge_filtering_rules",
+    # Phase 10: Executor
+    "execute_filtering",
 ]
