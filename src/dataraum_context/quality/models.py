@@ -488,16 +488,19 @@ class QualitySynthesisIssue(BaseModel):
 
 
 class DimensionScore(BaseModel):
-    """Quality score for a single dimension."""
+    """Quality score for a single dimension.
+
+    Note: This is for quality MEASUREMENT (System 2), not validation/filtering.
+    Rules-based validation happens in System 1 (filtering), not here.
+    """
 
     dimension: QualityDimension
     score: float = Field(ge=0.0, le=1.0, description="Score from 0 (poor) to 1 (excellent)")
 
-    # Contributing factors
+    # Contributing factors (from quality metrics only)
     completeness_ratio: float | None = Field(None, ge=0.0, le=1.0)
     null_ratio: float | None = Field(None, ge=0.0, le=1.0)
     parse_success_rate: float | None = Field(None, ge=0.0, le=1.0)
-    validation_pass_rate: float | None = Field(None, ge=0.0, le=1.0)
 
     # Issues affecting this dimension
     issue_count: int = Field(default=0, description="Number of issues in this dimension")
