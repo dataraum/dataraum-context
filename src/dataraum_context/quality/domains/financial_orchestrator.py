@@ -22,8 +22,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models.base import Result
-from dataraum_context.enrichment.cross_table_multicollinearity import (
+from dataraum_context.enrichment.relationships import (
     EnrichedRelationship,
+    analyze_relationship_graph,
     gather_relationships,
 )
 from dataraum_context.llm import LLMService
@@ -34,10 +35,7 @@ from dataraum_context.quality.domains.financial_llm import (
     interpret_financial_quality_with_llm,
 )
 from dataraum_context.quality.models import TopologicalAnomaly
-from dataraum_context.quality.topological import (
-    analyze_relationship_graph,
-    analyze_topological_quality,
-)
+from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.storage.models_v2.core import Column, Table
 from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation
 

@@ -24,6 +24,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models.base import Result
+
+# Re-export from relationships package for backward compatibility
+# TODO: Remove this re-export and update all imports to use
+#       dataraum_context.enrichment.relationships directly
+from dataraum_context.enrichment.relationships.graph_analysis import (
+    analyze_relationship_graph,
+)
 from dataraum_context.quality.models import (
     BettiNumbers,
     CycleDetection,
@@ -786,60 +793,9 @@ async def load_table_relationships(
     return list(relationships)
 
 
-def analyze_relationship_graph(
-    table_ids: list[str],
-    relationships: list[RelationshipModel],
-) -> dict[str, list[list[str]] | int]:
-    """Analyze the graph of table relationships to detect cycles.
-
-    Uses NetworkX to find cycles in the directed graph of tables.
-    These cycles represent business process flows (e.g., AR cycle, AP cycle).
-
-    Args:
-        table_ids: List of table IDs
-        relationships: List of relationship dicts
-
-    Returns:
-        Dict containing:
-        - cycles: List of cycles (each cycle is a list of table_ids)
-        - betti_0: Number of connected components in undirected graph
-        - cycle_count: Total number of cycles detected
-    """
-    import networkx as nx
-
-    # Build directed graph for cycle detection
-    G: nx.DiGraph = nx.DiGraph()  # type: ignore[type-arg]
-
-    # Add all tables as nodes
-    for table_id in table_ids:
-        G.add_node(table_id)
-
-    # Add relationships as edges
-    # TODO: Consider column-level relationships for finer analysis
-    for rel in relationships:
-        G.add_edge(
-            rel.from_table_id,
-            rel.to_table_id,
-            confidence=rel.confidence,
-            relationship_type=rel.relationship_type,
-            cardinality=rel.cardinality,
-        )
-
-    # Find all simple cycles (paths that return to starting node)
-    try:
-        cycles = list(nx.simple_cycles(G))
-    except Exception:
-        cycles = []  # Graph might have issues
-
-    # Compute Betti-0 (connected components) using undirected version
-    G_undirected = G.to_undirected()
-    betti_0 = nx.number_connected_components(G_undirected)
-
-    return {
-        "cycles": cycles,
-        "betti_0": betti_0,
-        "cycle_count": len(cycles),
-    }
+# NOTE: analyze_relationship_graph is now imported from
+# dataraum_context.enrichment.relationships.graph_analysis
+# and re-exported above for backward compatibility
 
 
 async def analyze_topological_quality_multi_table(
