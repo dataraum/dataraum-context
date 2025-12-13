@@ -1,6 +1,6 @@
 # Multi-Table Business Cycle Analysis Plan
 
-**Status**: Implemented (Phases 1-5 complete, Phase 6 optional cleanup)
+**Status**: Complete (All 6 phases implemented)
 **Created**: 2025-12-13
 **Last Updated**: 2025-12-13
 
@@ -586,6 +586,10 @@ Extract and consolidate:
    - Cross-table cycles added to dataset issues
    - Business process interpretation added to dataset summary
    - All 146 quality tests pass
-8. [ ] **Phase 6**: Relationship package extraction (future cleanup)
-   - Optional: Extract relationship utilities to dedicated package for reuse
-   - Candidates: `gather_relationships()`, `analyze_relationship_graph()`, `load_table_relationships()`
+8. [x] **Phase 6**: Relationship package extraction (2025-12-13)
+   - Created `enrichment/relationships/` package with:
+     - `models.py`: EnrichedRelationship, GraphAnalysisResult
+     - `gathering.py`: gather_relationships(), CONFIDENCE_THRESHOLDS
+     - `graph_analysis.py`: analyze_relationship_graph(), build_relationship_graph()
+   - Added backward compatibility re-exports from original locations
+   - TODO: Remove backward compat re-exports in future version (see deprecation comments)
