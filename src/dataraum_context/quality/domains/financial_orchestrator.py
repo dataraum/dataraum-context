@@ -1,19 +1,23 @@
-"""Financial Quality Orchestrator - Correct Architecture.
+"""Financial Quality Orchestrator - Complete Financial Domain Analysis.
 
 This is the main entry point for financial quality analysis.
 
-Flow:
-1. Compute ALL numbers (financial.py + topological.py)
-2. LLM interprets with config context (financial_llm.py)
-3. Return comprehensive result
+Architecture:
+    Layer 1:   Compute metrics (financial.py + topological.py)
+    Layer 1.5: Domain rules (fiscal stability, anomalies, quality score)
+    Layer 2:   LLM classification (cycle interpretation)
+    Layer 3:   LLM interpretation (holistic assessment)
 
-NO pattern matching - LLM does all interpretation.
+The domain rules in Layer 1.5 provide deterministic, auditable outputs
+that complement the LLM's interpretive capabilities.
 """
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import duckdb
+import yaml
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,11 +28,414 @@ from dataraum_context.quality.domains.financial_llm import (
     classify_financial_cycle_with_llm,
     interpret_financial_quality_with_llm,
 )
+from dataraum_context.quality.models import TopologicalAnomaly
 from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.storage.models_v2.core import Column, Table
 from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Configuration Loading
+# =============================================================================
+
+_FINANCIAL_CONFIG_CACHE: dict[str, Any] | None = None
+
+
+def _load_financial_config() -> dict[str, Any]:
+    """Load financial domain configuration from YAML."""
+    global _FINANCIAL_CONFIG_CACHE
+    if _FINANCIAL_CONFIG_CACHE is not None:
+        return _FINANCIAL_CONFIG_CACHE
+
+    config_paths = [
+        Path("config/domains/financial.yaml"),
+        Path(__file__).parent.parent.parent.parent.parent / "config/domains/financial.yaml",
+    ]
+
+    for path in config_paths:
+        if path.exists():
+            with open(path) as f:
+                _FINANCIAL_CONFIG_CACHE = yaml.safe_load(f)
+                return _FINANCIAL_CONFIG_CACHE
+
+    logger.warning("Financial config not found, using empty config")
+    return {}
+
+
+# =============================================================================
+# Layer 1.5: Domain Rules (Deterministic, Auditable)
+# =============================================================================
+
+
+def assess_fiscal_stability(
+    stability: Any,  # StabilityAnalysis from topological analysis
+    temporal_context: dict[str, Any],
+) -> dict[str, Any]:
+    """Enhance stability analysis with fiscal period awareness.
+
+    Distinguishes between:
+    - Fiscal period effects (expected, recurring changes)
+    - Structural changes (unexpected, permanent topology shifts)
+
+    Args:
+        stability: StabilityAnalysis object from topological analysis
+        temporal_context: Dict with fiscal calendar information
+
+    Returns:
+        Dict with enhanced stability assessment including fiscal context
+    """
+    if stability is None:
+        return {
+            "stability_level": "unknown",
+            "fiscal_context": None,
+            "is_fiscal_period_effect": False,
+            "pattern_type": "unknown",
+        }
+
+    # Extract fiscal calendar info
+    current_period = temporal_context.get("current_fiscal_period")
+    is_period_end = temporal_context.get("is_period_end", False)
+    is_quarter_end = temporal_context.get("is_quarter_end", False)
+    is_year_end = temporal_context.get("is_year_end", False)
+
+    # Determine if changes are fiscal period effects
+    fiscal_context = None
+    is_fiscal_period_effect = False
+    pattern_type = "structural_change"  # Default assumption
+
+    stability_level = getattr(stability, "stability_level", "unknown")
+
+    if is_year_end and stability_level in ["significant_changes", "unstable"]:
+        fiscal_context = "fiscal_year_end_close"
+        is_fiscal_period_effect = True
+        pattern_type = "recurring_spike"
+
+    elif is_quarter_end and stability_level in ["minor_changes", "significant_changes"]:
+        fiscal_context = "quarter_end_close"
+        is_fiscal_period_effect = True
+        pattern_type = "recurring_spike"
+
+    elif is_period_end and stability_level == "minor_changes":
+        fiscal_context = "month_end_close"
+        is_fiscal_period_effect = True
+        pattern_type = "recurring_spike"
+
+    elif stability_level in ["significant_changes", "unstable"]:
+        fiscal_context = "mid_period"
+        is_fiscal_period_effect = False
+        pattern_type = "structural_change"
+
+    # Generate interpretation
+    interpretation = _interpret_fiscal_stability(
+        stability_level, is_fiscal_period_effect, fiscal_context
+    )
+
+    return {
+        "original_stability_level": stability_level,
+        "fiscal_context": fiscal_context,
+        "is_fiscal_period_effect": is_fiscal_period_effect,
+        "pattern_type": pattern_type,
+        "affected_periods": [current_period] if current_period else [],
+        "components_added": getattr(stability, "components_added", 0),
+        "components_removed": getattr(stability, "components_removed", 0),
+        "cycles_added": getattr(stability, "cycles_added", 0),
+        "cycles_removed": getattr(stability, "cycles_removed", 0),
+        "interpretation": interpretation,
+    }
+
+
+def _interpret_fiscal_stability(
+    stability_level: str, is_fiscal_effect: bool, fiscal_context: str | None
+) -> str:
+    """Generate human-readable interpretation of stability assessment."""
+    if is_fiscal_effect:
+        if fiscal_context == "fiscal_year_end_close":
+            return (
+                "Expected topology changes due to fiscal year-end close. "
+                "Increased activity and relationship complexity is normal."
+            )
+        elif fiscal_context == "quarter_end_close":
+            return (
+                "Recurring topology changes due to quarter-end close. "
+                "Period-end spikes are expected."
+            )
+        elif fiscal_context == "month_end_close":
+            return "Minor topology changes due to month-end close. Normal recurring pattern."
+        else:
+            return "Changes appear related to fiscal period effects."
+    else:
+        if stability_level == "unstable":
+            return (
+                "ALERT: Significant structural changes detected outside normal fiscal periods. "
+                "Investigate data quality or business process changes."
+            )
+        elif stability_level == "significant_changes":
+            return (
+                "WARNING: Notable structural changes detected mid-period. "
+                "May indicate data quality issues or business changes."
+            )
+        else:
+            return "Topology is stable with minor expected variations."
+
+
+def detect_financial_anomalies(
+    topological_result: Any,  # TopologicalQualityResult
+    classified_cycles: list[dict[str, Any]],
+) -> list[TopologicalAnomaly]:
+    """Detect financial-specific topological anomalies.
+
+    Anomaly types:
+    - excessive_financial_cycles: Too many cycles for financial data
+    - unclassified_financial_cycles: Cycles couldn't be classified
+    - financial_data_fragmentation: Disconnected components
+    - missing_financial_cycles: Expected cycles not found
+    - cost_center_isolation: Orphaned components
+
+    Args:
+        topological_result: TopologicalQualityResult from analysis
+        classified_cycles: List of LLM-classified cycle dicts
+
+    Returns:
+        List of TopologicalAnomaly objects with financial context
+    """
+    anomalies: list[TopologicalAnomaly] = []
+
+    if topological_result is None:
+        return anomalies
+
+    # Get table name for affected_tables
+    table_name = getattr(topological_result, "table_name", "unknown")
+
+    # Anomaly 1: Unusual cycle complexity
+    cycle_count = len(classified_cycles)
+    unclassified = [c for c in classified_cycles if c.get("cycle_type") in [None, "UNKNOWN"]]
+
+    if cycle_count > 15:
+        anomalies.append(
+            TopologicalAnomaly(
+                anomaly_type="excessive_financial_cycles",
+                severity="high",
+                description=f"Unusually high number of cycles ({cycle_count}) for financial data",
+                evidence={"cycle_count": cycle_count, "expected_max": 10},
+                affected_tables=[table_name],
+                affected_columns=[],
+            )
+        )
+
+    if len(unclassified) > 5:
+        anomalies.append(
+            TopologicalAnomaly(
+                anomaly_type="unclassified_financial_cycles",
+                severity="medium",
+                description=f"{len(unclassified)} cycles could not be classified",
+                evidence={"unclassified_count": len(unclassified), "total_count": cycle_count},
+                affected_tables=[table_name],
+                affected_columns=[],
+            )
+        )
+
+    # Anomaly 2: Disconnected components
+    if hasattr(topological_result, "betti_numbers"):
+        betti_0 = topological_result.betti_numbers.betti_0
+        if betti_0 > 3:
+            anomalies.append(
+                TopologicalAnomaly(
+                    anomaly_type="financial_data_fragmentation",
+                    severity="high",
+                    description=f"Financial data has {betti_0} disconnected components. Expected: 1-2",
+                    evidence={
+                        "component_count": betti_0,
+                        "expected_max": 2,
+                        "interpretation": "Accounts or entities are not properly linked",
+                    },
+                    affected_tables=[table_name],
+                    affected_columns=[],
+                )
+            )
+
+    # Anomaly 3: Missing expected financial cycles
+    cycle_types = {c.get("cycle_type") for c in classified_cycles if c.get("cycle_type")}
+    expected_cycles = {"accounts_receivable_cycle", "expense_cycle", "revenue_cycle"}
+    missing_cycles = expected_cycles - cycle_types
+
+    if missing_cycles and cycle_count > 0:
+        anomalies.append(
+            TopologicalAnomaly(
+                anomaly_type="missing_financial_cycles",
+                severity="medium",
+                description=f"Expected financial cycles not detected: {', '.join(missing_cycles)}",
+                evidence={
+                    "missing_cycles": list(missing_cycles),
+                    "detected_cycles": list(cycle_types),
+                },
+                affected_tables=[table_name],
+                affected_columns=[],
+            )
+        )
+
+    # Anomaly 4: Cost center isolation
+    orphaned = getattr(topological_result, "orphaned_components", 0)
+    if orphaned > 0:
+        anomalies.append(
+            TopologicalAnomaly(
+                anomaly_type="cost_center_isolation",
+                severity="medium",
+                description=f"{orphaned} isolated components detected",
+                evidence={"orphaned_count": orphaned},
+                affected_tables=[table_name],
+                affected_columns=[],
+            )
+        )
+
+    return anomalies
+
+
+def compute_financial_quality_score(
+    topological_result: Any,
+    financial_anomalies: list[TopologicalAnomaly],
+    classified_cycles: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compute domain-weighted quality score for financial data.
+
+    Uses configuration-driven thresholds for penalties and bonuses.
+
+    Args:
+        topological_result: TopologicalQualityResult from analysis
+        financial_anomalies: List of detected anomalies
+        classified_cycles: List of LLM-classified cycles
+
+    Returns:
+        Dict with score and breakdown
+    """
+    config = _load_financial_config()
+    thresholds = config.get("quality_thresholds", {})
+
+    quality_score = 1.0
+    penalties: list[dict[str, Any]] = []
+    bonuses: list[dict[str, Any]] = []
+
+    # Critical penalties (structural integrity)
+    if topological_result and hasattr(topological_result, "betti_numbers"):
+        betti_0 = topological_result.betti_numbers.betti_0
+        critical_threshold = (
+            thresholds.get("critical", {}).get("disconnected_components", {}).get("threshold", 3)
+        )
+        critical_penalty = (
+            thresholds.get("critical", {}).get("disconnected_components", {}).get("penalty", 0.5)
+        )
+        moderate_penalty = (
+            thresholds.get("critical", {}).get("moderate_disconnection", {}).get("penalty", 0.2)
+        )
+
+        if betti_0 > critical_threshold:
+            quality_score -= critical_penalty
+            penalties.append(
+                {
+                    "type": "critical_fragmentation",
+                    "penalty": critical_penalty,
+                    "reason": f"Data fragmentation ({betti_0} components)",
+                }
+            )
+        elif betti_0 > 1:
+            quality_score -= moderate_penalty
+            penalties.append(
+                {
+                    "type": "moderate_fragmentation",
+                    "penalty": moderate_penalty,
+                    "reason": f"Multiple components ({betti_0})",
+                }
+            )
+
+    # Medium penalties (anomalies)
+    medium_thresholds = thresholds.get("medium", {})
+    anomaly_penalties = {
+        "excessive_financial_cycles": medium_thresholds.get("excessive_cycles", {}).get(
+            "penalty", 0.3
+        ),
+        "missing_financial_cycles": medium_thresholds.get("missing_expected_cycles", {}).get(
+            "penalty", 0.2
+        ),
+        "unclassified_financial_cycles": medium_thresholds.get("unclassified_cycles", {}).get(
+            "penalty", 0.15
+        ),
+        "cost_center_isolation": medium_thresholds.get("cost_center_isolation", {}).get(
+            "penalty", 0.2
+        ),
+        "financial_data_fragmentation": medium_thresholds.get("data_fragmentation", {}).get(
+            "penalty", 0.3
+        ),
+    }
+
+    for anomaly in financial_anomalies:
+        penalty = anomaly_penalties.get(anomaly.anomaly_type, 0.1)
+        quality_score -= penalty
+        penalties.append(
+            {
+                "type": anomaly.anomaly_type,
+                "penalty": penalty,
+                "reason": anomaly.description,
+            }
+        )
+
+    # Minor penalties (complexity)
+    cycle_count = len(classified_cycles)
+    minor_thresholds = thresholds.get("minor", {})
+    very_high_threshold = minor_thresholds.get("very_high_complexity", {}).get("threshold", 20)
+    high_threshold = minor_thresholds.get("high_complexity", {}).get("threshold", 15)
+
+    if cycle_count > very_high_threshold:
+        penalty = minor_thresholds.get("very_high_complexity", {}).get("penalty", 0.1)
+        quality_score -= penalty
+        penalties.append(
+            {
+                "type": "very_high_complexity",
+                "penalty": penalty,
+                "reason": f"Very high cycle count ({cycle_count})",
+            }
+        )
+    elif cycle_count > high_threshold:
+        penalty = minor_thresholds.get("high_complexity", {}).get("penalty", 0.05)
+        quality_score -= penalty
+        penalties.append(
+            {
+                "type": "high_complexity",
+                "penalty": penalty,
+                "reason": f"High cycle count ({cycle_count})",
+            }
+        )
+
+    # Bonus: Well-classified cycles
+    if cycle_count > 0:
+        classified_count = sum(
+            1 for c in classified_cycles if c.get("cycle_type") not in [None, "UNKNOWN"]
+        )
+        classification_rate = classified_count / cycle_count
+
+        bonus_config = thresholds.get("bonuses", {}).get("well_classified_cycles", {})
+        bonus_threshold = bonus_config.get("threshold", 0.8)
+        bonus_amount = bonus_config.get("bonus", 0.05)
+
+        if classification_rate > bonus_threshold:
+            quality_score += bonus_amount
+            bonuses.append(
+                {
+                    "type": "well_classified",
+                    "bonus": bonus_amount,
+                    "reason": f"{classification_rate:.0%} cycles classified",
+                }
+            )
+
+    # Clamp to valid range
+    quality_score = max(0.0, min(1.0, quality_score))
+
+    return {
+        "score": quality_score,
+        "penalties": penalties,
+        "bonuses": bonuses,
+        "cycle_count": cycle_count,
+        "anomaly_count": len(financial_anomalies),
+    }
 
 
 async def analyze_complete_financial_quality(
@@ -165,15 +572,41 @@ async def analyze_complete_financial_quality(
                 "cycles": topological_quality.persistent_cycles,
             }
 
-        # If no LLM, return computed metrics only
+        # If no LLM, still run domain rules and return
         if llm_service is None:
-            logger.info("No LLM service - returning computed metrics only")
+            logger.info("No LLM service - running domain rules only")
+
+            # Run Layer 1.5 without LLM
+            stability = (
+                getattr(topological_quality, "stability", None) if topological_quality else None
+            )
+            fiscal_stability = assess_fiscal_stability(stability, {})
+            financial_anomalies = detect_financial_anomalies(topological_quality, [])
+            domain_quality_score = compute_financial_quality_score(
+                topological_quality, financial_anomalies, []
+            )
+
+            domain_analysis = {
+                "fiscal_stability": fiscal_stability,
+                "anomalies": [
+                    {
+                        "type": a.anomaly_type,
+                        "severity": a.severity,
+                        "description": a.description,
+                        "evidence": a.evidence,
+                    }
+                    for a in financial_anomalies
+                ],
+                "quality_score": domain_quality_score,
+            }
+
             return Result.ok(
                 {
                     "financial_metrics": financial_metrics,
                     "topological_metrics": topological_metrics,
                     "classified_cycles": [],
-                    "interpretation": None,
+                    "domain_analysis": domain_analysis,
+                    "llm_interpretation": None,
                     "llm_available": False,
                 }
             )
@@ -243,6 +676,40 @@ async def analyze_complete_financial_quality(
                     )
 
         # ============================================================================
+        # LAYER 1.5: DOMAIN RULES (Deterministic, Auditable)
+        # ============================================================================
+
+        logger.info("Applying domain rules for anomaly detection and scoring")
+
+        # Assess fiscal stability (if stability info available)
+        stability = getattr(topological_quality, "stability", None) if topological_quality else None
+        temporal_context: dict[str, Any] = {}  # Could be passed as parameter in future
+        fiscal_stability = assess_fiscal_stability(stability, temporal_context)
+
+        # Detect financial-specific anomalies
+        financial_anomalies = detect_financial_anomalies(topological_quality, classified_cycles)
+
+        # Compute domain-weighted quality score
+        domain_quality_score = compute_financial_quality_score(
+            topological_quality, financial_anomalies, classified_cycles
+        )
+
+        # Build domain analysis summary
+        domain_analysis = {
+            "fiscal_stability": fiscal_stability,
+            "anomalies": [
+                {
+                    "type": a.anomaly_type,
+                    "severity": a.severity,
+                    "description": a.description,
+                    "evidence": a.evidence,
+                }
+                for a in financial_anomalies
+            ],
+            "quality_score": domain_quality_score,
+        }
+
+        # ============================================================================
         # LAYER 3: LLM INTERPRETATION (Holistic assessment)
         # ============================================================================
 
@@ -253,23 +720,25 @@ async def analyze_complete_financial_quality(
             topological_metrics=topological_metrics,
             classified_cycles=classified_cycles,
             llm_service=llm_service,
+            domain_analysis=domain_analysis,  # Pass domain analysis as context
         )
 
         if not interpretation_result.success:
             logger.error(f"LLM interpretation failed: {interpretation_result.error}")
-            # Return without interpretation
+            # Return with domain analysis even if LLM fails
             return Result.ok(
                 {
                     "financial_metrics": financial_metrics,
                     "topological_metrics": topological_metrics,
                     "classified_cycles": classified_cycles,
-                    "interpretation": None,
+                    "domain_analysis": domain_analysis,
+                    "llm_interpretation": None,
                     "interpretation_error": interpretation_result.error,
                     "llm_available": True,
                 }
             )
 
-        interpretation = interpretation_result.unwrap()
+        llm_interpretation = interpretation_result.unwrap()
 
         # ============================================================================
         # RETURN COMPLETE RESULT
@@ -280,7 +749,8 @@ async def analyze_complete_financial_quality(
                 "financial_metrics": financial_metrics,
                 "topological_metrics": topological_metrics,
                 "classified_cycles": classified_cycles,
-                "interpretation": interpretation,
+                "domain_analysis": domain_analysis,
+                "llm_interpretation": llm_interpretation,
                 "llm_available": True,
             }
         )
