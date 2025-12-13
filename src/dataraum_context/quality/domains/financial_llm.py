@@ -183,6 +183,7 @@ async def interpret_financial_quality_with_llm(
     topological_metrics: dict[str, Any],
     classified_cycles: list[dict[str, Any]],
     llm_service: LLMService,
+    domain_analysis: dict[str, Any] | None = None,
 ) -> Result[dict[str, Any]]:
     """Interpret complete financial quality using LLM.
 
@@ -193,6 +194,7 @@ async def interpret_financial_quality_with_llm(
         topological_metrics: Results from topological.py (Betti numbers, cycles)
         classified_cycles: Cycles classified by classify_financial_cycle_with_llm()
         llm_service: LLM service
+        domain_analysis: Optional domain rule results (anomalies, quality score, fiscal stability)
 
     Returns:
         Result containing interpretation dict with:
@@ -259,6 +261,40 @@ Detected Cycles: {len(classified_cycles)}
             metrics_context += f"  Business Value: {cycle_class.get('business_value', 'unknown')}\n"
             metrics_context += f"  Expected: {cycle_class.get('is_expected', False)}\n"
             metrics_context += f"  Explanation: {cycle_class.get('explanation', 'N/A')}\n"
+
+        # Add domain analysis if provided
+        if domain_analysis:
+            metrics_context += """
+
+=== DOMAIN RULE ANALYSIS (Deterministic) ===
+"""
+            # Fiscal stability
+            fiscal = domain_analysis.get("fiscal_stability", {})
+            metrics_context += f"""
+Fiscal Stability:
+- Original Level: {fiscal.get("original_stability_level", "unknown")}
+- Fiscal Context: {fiscal.get("fiscal_context", "none")}
+- Is Fiscal Period Effect: {fiscal.get("is_fiscal_period_effect", False)}
+- Pattern Type: {fiscal.get("pattern_type", "unknown")}
+- Interpretation: {fiscal.get("interpretation", "N/A")}
+"""
+
+            # Anomalies
+            anomalies = domain_analysis.get("anomalies", [])
+            if anomalies:
+                metrics_context += f"\nDetected Anomalies ({len(anomalies)}):\n"
+                for anomaly in anomalies:
+                    metrics_context += f"  - [{anomaly.get('severity', 'unknown').upper()}] {anomaly.get('type', 'unknown')}: {anomaly.get('description', '')}\n"
+            else:
+                metrics_context += "\nDetected Anomalies: None\n"
+
+            # Quality score
+            quality_score = domain_analysis.get("quality_score", {})
+            metrics_context += f"""
+Domain Quality Score: {quality_score.get("score", 0):.2f}
+- Penalties Applied: {len(quality_score.get("penalties", []))}
+- Bonuses Applied: {len(quality_score.get("bonuses", []))}
+"""
 
         metrics_context += f"""
 

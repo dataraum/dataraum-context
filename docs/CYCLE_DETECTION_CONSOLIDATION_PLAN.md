@@ -140,8 +140,11 @@ If issues arise:
 - [x] Phase 5: Update topological.py integration
 - [x] Phase 6: Update/add tests (removed obsolete test file)
 - [x] Phase 7: Final cleanup and documentation
+- [x] Phase 8: Remove FinancialDomainAnalyzer class, merge functions into orchestrator
 
 ## Completion Notes (2025-12-13)
+
+### Phase 1-7: Initial Consolidation
 
 **Files Modified:**
 - `quality/domains/financial.py` - Removed `detect_financial_cycles()`, `_score_cycle_match()`, `_get_fallback_cycle_patterns()`, and pattern-matching from `analyze_cross_table_cycles()`
@@ -158,3 +161,45 @@ If issues arise:
 - `quality/domains/financial_orchestrator.py` - Main entry point for LLM-enhanced analysis
 
 **All 290 tests pass** (1 skipped due to missing optional dependency)
+
+---
+
+### Phase 8: Final Cleanup - Remove FinancialDomainAnalyzer (2025-12-13)
+
+**Problem:** The `FinancialDomainAnalyzer` class in `financial.py` was only used by test scripts and was redundant with the orchestrator. Its helper functions (`assess_fiscal_stability`, `detect_financial_anomalies`, `compute_financial_quality_score`) provided valuable deterministic domain rules.
+
+**Solution:** Move domain rule functions to orchestrator as "Layer 1.5" and remove the class.
+
+**Architecture After Phase 8:**
+```
+topological.py (raw TDA metrics)
+       │
+       ▼
+financial_orchestrator.py
+       │
+       ├── Layer 1: Accounting checks (financial.py)
+       │       └── Double-entry balance, trial balance, sign conventions, fiscal periods
+       │
+       ├── Layer 1.5: Domain rules (deterministic, auditable)
+       │       ├── assess_fiscal_stability()
+       │       ├── detect_financial_anomalies()
+       │       └── compute_financial_quality_score()
+       │
+       ├── Layer 2: LLM classification (financial_llm.py)
+       │       └── classify_financial_cycle_with_llm()
+       │
+       └── Layer 3: LLM interpretation (financial_llm.py)
+               └── interpret_financial_quality_with_llm()
+```
+
+**Files Modified:**
+- `quality/domains/financial.py` - Removed `FinancialDomainAnalyzer` class, `assess_fiscal_stability()`, `detect_financial_anomalies()`, `compute_financial_quality_score()`, added note pointing to orchestrator
+- `quality/domains/financial_orchestrator.py` - Added Layer 1.5 functions, integrated into `analyze_complete_financial_quality()`
+- `quality/domains/financial_llm.py` - Added `domain_analysis` parameter to `interpret_financial_quality_with_llm()`
+- `quality/domains/__init__.py` - Updated exports with lazy imports to avoid circular dependency
+- `quality/topological.py` - Removed `domain_analyzer` and `temporal_context` parameters from analysis functions
+
+**Files Deleted:**
+- `scripts/test_financial_domain.py` - Obsolete test script for removed FinancialDomainAnalyzer
+
+**All 291 tests pass** (3 failed due to missing optional `anthropic` dependency, not related to changes)

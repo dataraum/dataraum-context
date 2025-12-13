@@ -496,16 +496,13 @@ async def analyze_topological_quality(
     session: AsyncSession,
     max_dimension: int = 2,
     min_persistence: float = 0.1,
-    domain_analyzer: object
-    | None = None,  # Optional domain-specific analyzer (e.g., FinancialDomainAnalyzer)
-    temporal_context: dict[str, object]
-    | None = None,  # Optional temporal context for domain analysis
 ) -> Result[TopologicalQualityResult]:
     """Analyze topological quality for a table.
 
-    This is the main entry point for topological quality analysis.
+    This is the main entry point for raw topological quality analysis.
 
-    For LLM-enhanced cycle classification, use the financial_orchestrator instead:
+    For LLM-enhanced cycle classification and domain-specific analysis,
+    use the financial_orchestrator instead:
         from dataraum_context.quality.domains.financial_orchestrator import (
             analyze_complete_financial_quality,
         )
@@ -516,7 +513,7 @@ async def analyze_topological_quality(
     The orchestrator will:
     1. Call this function for raw topological analysis
     2. Classify cycles using LLM with domain context
-    3. Run financial domain analysis with classified cycles
+    3. Run domain rules (fiscal stability, anomaly detection, quality scoring)
     4. Generate holistic LLM interpretation
 
     Args:
@@ -525,28 +522,15 @@ async def analyze_topological_quality(
         session: Database session
         max_dimension: Maximum homology dimension to compute
         min_persistence: Minimum persistence for significant features
-        domain_analyzer: Optional domain-specific analyzer for enhanced interpretation.
-            If provided without LLM, cycles are passed through unclassified.
-            For LLM classification, use the orchestrator instead.
-        temporal_context: Optional temporal context (fiscal periods, etc.) for domain analysis
 
     Returns:
         Result containing complete topological quality assessment
 
     Example:
-        # Generic analysis (no cycle classification)
+        # Raw topological analysis (no cycle classification)
         result = await analyze_topological_quality(table_id, conn, session)
 
-        # With domain analyzer (basic analysis, no LLM)
-        from dataraum_context.quality.domains.financial import FinancialDomainAnalyzer
-        analyzer = FinancialDomainAnalyzer()
-        result = await analyze_topological_quality(
-            table_id, conn, session,
-            domain_analyzer=analyzer,
-            temporal_context={"is_period_end": True, "is_quarter_end": True}
-        )
-
-        # For LLM-enhanced analysis, use the orchestrator (recommended)
+        # For LLM-enhanced analysis with domain rules (recommended)
         from dataraum_context.quality.domains.financial_orchestrator import (
             analyze_complete_financial_quality,
         )
@@ -722,66 +706,12 @@ async def analyze_topological_quality(
         # Build TopologicalQualityResult (Pydantic source of truth)
         computed_at = datetime.now(UTC)
 
-        # Apply domain-specific analysis if provided
-        domain_enhanced_cycles = cycles  # Default to generic cycles
-        domain_enhanced_anomalies = anomalies  # Default to generic anomalies
-        domain_quality_score = quality_score  # Default to generic score
-        domain_analysis_result = None
-
-        if domain_analyzer is not None:
-            # Build temporary result for domain analysis
-            temp_result = TopologicalQualityResult(
-                table_id=table_id,
-                table_name=table.table_name,
-                betti_numbers=betti_numbers,
-                persistence_diagrams=persistence_diagrams,
-                persistent_cycles=cycles,
-                stability=stability,
-                structural_complexity=structural_complexity,
-                persistent_entropy=persistent_entropy,
-                orphaned_components=orphaned_components,
-                complexity_trend=complexity_trend,
-                complexity_within_bounds=complexity_within_bounds,
-                complexity_mean=complexity_mean,
-                complexity_std=complexity_std,
-                complexity_z_score=complexity_z_score,
-                quality_score=quality_score,
-                has_anomalies=has_anomalies,
-                anomalies=anomalies,
-                anomalous_cycles=anomalous_cycles,
-                quality_warnings=quality_warnings,
-                topology_description=topology_description,
-            )
-
-            # Call domain analyzer
-            # Type: ignore because we're using duck typing for domain analyzers
-            domain_analysis_result = domain_analyzer.analyze(  # type: ignore[attr-defined]
-                topological_result=temp_result, temporal_context=temporal_context or {}
-            )
-
-            # Extract domain-enhanced results
-            domain_enhanced_cycles = domain_analysis_result.get("classified_cycles", cycles)
-            domain_enhanced_anomalies = (
-                domain_analysis_result.get("financial_anomalies", []) + anomalies
-            )  # Combine
-            domain_quality_score = domain_analysis_result.get(
-                "financial_quality_score", quality_score
-            )
-
-            # Update warnings with domain insights
-            if domain_analysis_result.get("stability_assessment"):
-                stability_assessment = domain_analysis_result["stability_assessment"]
-                if stability_assessment.get("interpretation"):
-                    quality_warnings.append(
-                        f"Domain analysis: {stability_assessment['interpretation']}"
-                    )
-
         quality_result = TopologicalQualityResult(
             table_id=table_id,
             table_name=table.table_name,
             betti_numbers=betti_numbers,
             persistence_diagrams=persistence_diagrams,
-            persistent_cycles=domain_enhanced_cycles,  # Use domain-enhanced if available
+            persistent_cycles=cycles,
             stability=stability,
             structural_complexity=structural_complexity,
             persistent_entropy=persistent_entropy,
@@ -791,9 +721,9 @@ async def analyze_topological_quality(
             complexity_mean=complexity_mean,
             complexity_std=complexity_std,
             complexity_z_score=complexity_z_score,
-            quality_score=domain_quality_score,  # Use domain-enhanced score if available
-            has_anomalies=len(domain_enhanced_anomalies) > 0,
-            anomalies=domain_enhanced_anomalies,  # Use domain-enhanced anomalies
+            quality_score=quality_score,
+            has_anomalies=has_anomalies,
+            anomalies=anomalies,
             anomalous_cycles=anomalous_cycles,
             quality_warnings=quality_warnings,
             topology_description=topology_description,
@@ -918,14 +848,15 @@ async def analyze_topological_quality_multi_table(
     session: AsyncSession,
     max_dimension: int = 2,
     min_persistence: float = 0.1,
-    domain_analyzer: object | None = None,
-    temporal_context: dict[str, object] | None = None,
 ) -> Result[dict[str, TopologicalQualityResult | dict[str, object]]]:
     """Analyze topological quality across multiple tables.
 
     This function performs BOTH:
     1. Single-table TDA for each table (existing functionality)
-    2. Cross-table relationship graph analysis (NEW)
+    2. Cross-table relationship graph analysis
+
+    For LLM-enhanced cycle classification and domain-specific analysis,
+    use the financial_orchestrator instead.
 
     Args:
         table_ids: List of tables to analyze
@@ -933,21 +864,18 @@ async def analyze_topological_quality_multi_table(
         session: Database session
         max_dimension: Maximum homology dimension to compute
         min_persistence: Minimum persistence for significant features
-        domain_analyzer: Optional domain-specific analyzer
-        temporal_context: Optional temporal context for domain analysis
 
     Returns:
         Result containing dict with:
         - per_table: Dict[table_id, TopologicalQualityResult] for each table
         - cross_table: Dict with graph analysis results (cycles, betti_0, etc.)
-        - domain_analysis: Optional domain-specific insights
+        - relationship_count: Number of relationships between tables
 
     Example:
         result = await analyze_topological_quality_multi_table(
             ["transactions", "customers", "vendors"],
             conn,
             session,
-            domain_analyzer=FinancialDomainAnalyzer()
         )
 
         if result.success:
@@ -966,8 +894,6 @@ async def analyze_topological_quality_multi_table(
                 session=session,
                 max_dimension=max_dimension,
                 min_persistence=min_persistence,
-                domain_analyzer=None,  # Don't run domain analyzer yet
-                temporal_context=temporal_context,
             )
 
             if single_result.success:
@@ -979,46 +905,9 @@ async def analyze_topological_quality_multi_table(
         # 3. Analyze relationship graph for cross-table cycles
         graph_analysis = analyze_relationship_graph(table_ids, relationships)
 
-        # 4. Apply domain analyzer with BOTH single-table and cross-table cycles
-        domain_analysis_result = None
-
-        if domain_analyzer is not None:
-            # Merge all single-table cycles
-            all_single_table_cycles = []
-            for result in per_table_results.values():
-                all_single_table_cycles.extend(result.persistent_cycles)
-
-            # Build table name map for cross-table cycle classification
-            from dataraum_context.storage.models_v2 import Table as TableModel
-
-            table_name_map = {}
-            for table_id in table_ids:
-                table = await session.get(TableModel, table_id)
-                if table:
-                    table_name_map[table_id] = table.table_name
-
-            # Call domain analyzer's cross-table cycle classification
-            # Check if domain_analyzer has the analyze_cross_table_cycles method
-            cross_table_analysis = None
-            if hasattr(domain_analyzer, "analyze_cross_table_cycles"):
-                # TODO analyse this with an LLM to classify cycles into business processes
-                cross_table_analysis = domain_analyzer.analyze_cross_table_cycles(
-                    cross_table_cycles=graph_analysis["cycles"], table_names_map=table_name_map
-                )
-
-            # Build comprehensive domain analysis result
-            domain_analysis_result = {
-                "single_table_cycles": all_single_table_cycles,
-                "cross_table_cycles": graph_analysis["cycles"],
-                "relationship_count": len(relationships),
-                "graph_betti_0": graph_analysis["betti_0"],
-                "cross_table_classification": cross_table_analysis,  # NEW: Include classification
-            }
-
         result_data = {
             "per_table": per_table_results,
             "cross_table": graph_analysis,
-            "domain_analysis": domain_analysis_result,
             "relationship_count": len(relationships),
         }
 
