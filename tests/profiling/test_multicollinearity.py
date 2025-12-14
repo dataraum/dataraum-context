@@ -652,7 +652,7 @@ async def test_vdp_formatting_in_context(engine, duckdb_conn, async_session, sam
     analysis = result.value
 
     # Format for LLM
-    from dataraum_context.enrichment.context_formatting import format_multicollinearity_for_llm
+    from dataraum_context.quality.formatting import format_multicollinearity_for_llm
 
     formatted = format_multicollinearity_for_llm(analysis)
 

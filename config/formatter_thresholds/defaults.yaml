@@ -1,0 +1,222 @@
+# Default Formatter Thresholds
+# ============================
+#
+# Base thresholds for all metric groups. Domain-specific configs
+# (e.g., financial.yaml) can override these values.
+#
+# Structure:
+#   groups:
+#     <group_name>:
+#       metrics:
+#         <metric_name>:
+#           thresholds: {severity: value, ...}
+#           default_severity: <severity>
+#           ascending: true/false
+#       column_patterns:
+#         "<pattern>":
+#           <metric_name>:
+#             thresholds: {...}
+
+domain: defaults
+
+groups:
+  # ============================================================================
+  # Completeness Group
+  # Metrics: null_ratio, completeness_ratio
+  # ============================================================================
+  completeness:
+    metrics:
+      null_ratio:
+        thresholds:
+          none: 0.01      # <1% nulls is acceptable
+          low: 0.05       # 1-5% is low concern
+          moderate: 0.2   # 5-20% needs attention
+          high: 0.5       # 20-50% is problematic
+        default_severity: severe  # >50% is severe
+
+      completeness_ratio:
+        thresholds:
+          none: 0.99      # >99% complete is good
+          low: 0.95       # 95-99% is low concern
+          moderate: 0.8   # 80-95% needs attention
+          high: 0.5       # 50-80% is problematic
+        default_severity: severe
+        ascending: false  # Lower values = more severe
+
+    column_patterns:
+      "*_id":
+        null_ratio:
+          thresholds:
+            none: 0.0     # IDs should never be null
+          default_severity: critical
+
+      "*_optional":
+        null_ratio:
+          thresholds:
+            none: 0.5     # Optional fields can be sparse
+            low: 0.7
+            moderate: 0.9
+          default_severity: high
+
+  # ============================================================================
+  # Outliers Group
+  # Metrics: iqr_outlier_ratio, isolation_forest_ratio
+  # ============================================================================
+  outliers:
+    metrics:
+      iqr_outlier_ratio:
+        thresholds:
+          none: 0.01      # <1% outliers is normal
+          low: 0.05       # 1-5% is low concern
+          moderate: 0.1   # 5-10% needs attention
+          high: 0.2       # 10-20% is problematic
+        default_severity: severe
+
+      isolation_forest_ratio:
+        thresholds:
+          none: 0.01
+          low: 0.05
+          moderate: 0.1
+          high: 0.2
+        default_severity: severe
+
+  # ============================================================================
+  # Benford Group
+  # Metrics: p_value (from Benford's Law test)
+  # ============================================================================
+  benford:
+    metrics:
+      p_value:
+        thresholds:
+          none: 0.1       # p > 0.1 = conforms to Benford's Law
+          low: 0.05       # 0.05-0.1 = borderline
+          moderate: 0.01  # 0.01-0.05 = likely violation
+          high: 0.001     # 0.001-0.01 = significant violation
+        default_severity: severe  # p < 0.001 = severe violation
+        ascending: false  # Lower p-value = more severe
+
+  # ============================================================================
+  # Temporal Group
+  # Metrics: staleness_days, gap_count, temporal_completeness
+  # ============================================================================
+  temporal:
+    metrics:
+      staleness_days:
+        thresholds:
+          none: 7         # <1 week is fresh
+          low: 30         # 1 week - 1 month is acceptable
+          moderate: 90    # 1-3 months needs attention
+          high: 180       # 3-6 months is problematic
+        default_severity: severe  # >6 months is severe
+
+      gap_count:
+        thresholds:
+          none: 0         # No gaps is ideal
+          low: 2          # 1-2 gaps is low concern
+          moderate: 5     # 3-5 gaps needs attention
+          high: 10        # 6-10 gaps is problematic
+        default_severity: severe
+
+      temporal_completeness:
+        thresholds:
+          none: 0.99      # >99% coverage is good
+          low: 0.95       # 95-99% is acceptable
+          moderate: 0.8   # 80-95% needs attention
+          high: 0.5       # 50-80% is problematic
+        default_severity: severe
+        ascending: false
+
+      largest_gap_days:
+        thresholds:
+          none: 1         # <1 day gaps are fine
+          low: 7          # 1-7 day gap is low concern
+          moderate: 30    # 1 week - 1 month gap needs attention
+          high: 90        # 1-3 month gap is problematic
+        default_severity: severe
+
+  # ============================================================================
+  # Multicollinearity Group
+  # Metrics: vif, condition_index
+  # ============================================================================
+  multicollinearity:
+    metrics:
+      vif:
+        thresholds:
+          none: 1.0       # VIF = 1 means no multicollinearity
+          low: 2.5        # 1-2.5 is low
+          moderate: 5.0   # 2.5-5 is moderate
+          high: 10.0      # 5-10 is high
+        default_severity: severe  # >10 is severe
+
+      condition_index:
+        thresholds:
+          none: 10.0      # CI < 10 is acceptable
+          moderate: 30.0  # 10-30 is moderate
+        default_severity: severe  # CI > 30 is severe
+
+  # ============================================================================
+  # Correlation Group
+  # Metrics: correlation_coefficient (absolute value)
+  # ============================================================================
+  correlation:
+    metrics:
+      correlation_coefficient:
+        thresholds:
+          none: 0.3       # <0.3 is weak/none
+          low: 0.5        # 0.3-0.5 is low
+          moderate: 0.7   # 0.5-0.7 is moderate
+          high: 0.9       # 0.7-0.9 is high
+        default_severity: severe  # >0.9 is very high (potential redundancy)
+
+  # ============================================================================
+  # Topology Group
+  # Metrics: orphaned_components, anomalous_cycles
+  # ============================================================================
+  topology:
+    metrics:
+      orphaned_components:
+        thresholds:
+          none: 0         # No orphans is ideal
+          low: 1          # 1 orphan is low concern
+          moderate: 3     # 2-3 orphans needs attention
+          high: 5         # 4-5 orphans is problematic
+        default_severity: severe
+
+      anomalous_cycles:
+        thresholds:
+          none: 0         # No cycles is ideal
+          low: 1          # 1 cycle is low concern
+          moderate: 2     # 2 cycles needs attention
+          high: 3         # 3 cycles is problematic
+        default_severity: severe
+
+      betti_0:
+        thresholds:
+          none: 1         # Single component is ideal
+          low: 2          # 2 components is acceptable
+          moderate: 4     # 3-4 components needs attention
+          high: 8         # 5-8 components is problematic
+        default_severity: severe
+
+  # ============================================================================
+  # Domain Quality Group
+  # Metrics: domain rule compliance
+  # ============================================================================
+  domain:
+    metrics:
+      compliance_score:
+        thresholds:
+          none: 0.99      # >99% compliance is good
+          low: 0.95       # 95-99% is acceptable
+          moderate: 0.8   # 80-95% needs attention
+          high: 0.5       # 50-80% is problematic
+        default_severity: severe
+        ascending: false
+
+      violation_count:
+        thresholds:
+          none: 0         # No violations is ideal
+          low: 2          # 1-2 violations is low
+          moderate: 5     # 3-5 violations needs attention
+          high: 10        # 6-10 violations is problematic
+        default_severity: severe

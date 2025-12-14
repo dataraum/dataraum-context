@@ -1,20 +1,20 @@
-"""Tests for LLM context formatting."""
+"""Tests for multicollinearity LLM formatting."""
 
 from datetime import UTC, datetime
 
 from dataraum_context.core.models.base import ColumnRef
-from dataraum_context.enrichment.context_formatting import (
+from dataraum_context.profiling.models import (
+    ColumnVIF,
+    ConditionIndexAnalysis,
+    MulticollinearityAnalysis,
+)
+from dataraum_context.quality.formatting.multicollinearity import (
     _generate_multicollinearity_recommendations,
     _get_multicollinearity_interpretation,
     _get_vif_impact,
     _get_vif_interpretation,
     _get_vif_severity_label,
     format_multicollinearity_for_llm,
-)
-from dataraum_context.profiling.models import (
-    ColumnVIF,
-    ConditionIndexAnalysis,
-    MulticollinearityAnalysis,
 )
 
 

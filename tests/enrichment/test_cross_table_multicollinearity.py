@@ -8,13 +8,6 @@ from dataraum_context.core.models.base import (
     Cardinality,
     RelationshipType,
 )
-from dataraum_context.enrichment.context_formatting import (
-    _format_cross_table_dependency_groups,
-    _generate_cross_table_recommendations,
-    _get_cross_table_group_recommendation,
-    _get_cross_table_interpretation,
-    format_cross_table_multicollinearity_for_llm,
-)
 from dataraum_context.enrichment.cross_table_multicollinearity import (
     gather_relationships,
 )
@@ -22,6 +15,13 @@ from dataraum_context.profiling.models import (
     CrossTableDependencyGroup,
     CrossTableMulticollinearityAnalysis,
     SingleRelationshipJoin,
+)
+from dataraum_context.quality.formatting.multicollinearity import (
+    _format_cross_table_dependency_groups,
+    _generate_cross_table_recommendations,
+    _get_cross_table_group_recommendation,
+    _get_cross_table_interpretation,
+    format_cross_table_multicollinearity_for_llm,
 )
 from dataraum_context.storage.models_v2 import (
     Column,
