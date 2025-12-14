@@ -252,3 +252,20 @@ groups:
           moderate: 5     # 3-5 violations needs attention
           high: 10        # 6-10 violations is problematic
         default_severity: severe
+
+      balance_difference:
+        thresholds:
+          none: 0.01      # <$0.01 is balanced (rounding)
+          low: 1.0        # $0.01-$1 is minor
+          moderate: 100.0 # $1-$100 needs attention
+          high: 1000.0    # $100-$1000 is problematic
+        default_severity: critical  # >$1000 is critical
+
+      sign_compliance:
+        thresholds:
+          none: 0.999     # >99.9% correct signs
+          low: 0.99       # 99-99.9% is acceptable
+          moderate: 0.95  # 95-99% needs attention
+          high: 0.9       # 90-95% is problematic
+        default_severity: critical
+        ascending: false  # Lower compliance = more severe

@@ -2,6 +2,9 @@
 
 Provides reusable utilities for formatting quality metrics and issues
 into structured, interpretable context for LLM consumption.
+
+Note: Calculation graphs and schema mapping have moved to
+      dataraum_context.calculations
 """
 
 from dataraum_context.quality.formatting.base import (

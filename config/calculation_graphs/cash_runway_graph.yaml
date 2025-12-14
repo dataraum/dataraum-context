@@ -1,0 +1,685 @@
+# =============================================================================
+# Cash Runway Calculation Graph
+# =============================================================================
+# 
+# Purpose: Calculate months of runway at current burn rate with scenario support
+# 
+# Formula: (Current Cash + Adjustments) / Monthly Burn Rate
+# 
+# Where Monthly Burn Rate = Average Monthly Operating Expenses - Average Monthly Revenue
+# 
+# This graph supports scenario analysis by allowing adjustments to:
+# - Revenue (via multiplier)
+# - Expenses (via multiplier)  
+# - One-time cash events (injections/withdrawals)
+# =============================================================================
+
+graph_id: "cash_runway"
+version: "1.0"
+category: "liquidity"
+complexity: "medium"  # Requires 3-month lookback and multiple data sources
+
+metadata:
+  created_by: "Dataraum Finance KB"
+  last_updated: "2025-01-15"
+  tested_with: ["datev_skr03", "datev_skr04", "standard_coa"]
+  typical_execution_time_ms: 150
+
+# =============================================================================
+# Core Calculation Definition
+# =============================================================================
+
+output:
+  metric_id: "cash_runway_months"
+  description: "Number of months company can operate at current burn rate"
+  unit: "months"
+  data_type: "float"
+  decimal_places: 1
+
+formula:
+  human_readable: "(Current Cash + Cash Adjustments) / Monthly Burn Rate"
+  mathematical: "(C + A) / B where B = E - R"
+  components:
+    - "C = Current Cash Balance"
+    - "A = Cash Adjustments (scenario parameter)"
+    - "B = Monthly Burn Rate"
+    - "E = Average Monthly Operating Expenses (last 3 months)"
+    - "R = Average Monthly Revenue (last 3 months)"
+
+# =============================================================================
+# Dependency Graph
+# =============================================================================
+
+dependencies:
+  
+  # Level 1: Base Data Inputs
+  # -------------------------
+  
+  current_cash:
+    dependency_id: "current_cash"
+    level: 1
+    type: "direct"
+    description: "Current cash and cash equivalents balance"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "cash_and_equivalents"
+      aggregation: "end_of_period"
+
+    validation:
+      - check: "current_cash IS NOT NULL"
+        severity: "error"
+        message: "Cash balance is required for runway calculation"
+      - check: "current_cash >= 0"
+        severity: "warning"
+        message: "Negative cash balance detected - may indicate overdraft"
+        
+    required: true
+    nullable: false
+    
+  historical_revenue:
+    dependency_id: "historical_revenue"
+    level: 1
+    type: "direct"
+    description: "Revenue for lookback period (last 3 months)"
+    
+    source:
+      statement: "income_statement"
+      standard_field: "revenue"
+      aggregation: "monthly_values"
+      lookback_periods: 3
+
+    validation:
+      - check: "COUNT(*) = 3"
+        severity: "warning"
+        message: "Expected 3 months of revenue data, found fewer periods"
+      - check: "revenue >= 0"
+        severity: "error"
+        message: "Negative revenue detected in historical data"
+        
+    required: true
+    nullable: false
+    
+  historical_operating_expenses:
+    dependency_id: "historical_operating_expenses"
+    level: 1
+    type: "direct"
+    description: "Operating expenses for lookback period (last 3 months)"
+    
+    source:
+      statement: "income_statement"
+      standard_field: "operating_expenses"
+      aggregation: "monthly_values"
+      lookback_periods: 3
+      
+    calculation_note: |
+      Operating expenses is calculated as the sum of all expense categories
+      including personnel, rent, marketing, admin, depreciation, etc.
+
+      The schema_matcher maps company-specific accounts to standard expense
+      categories, and the DATEV transaction processor automatically aggregates
+      these into the 'operating_expenses' field.
+
+    validation:
+      - check: "COUNT(*) = 3"
+        severity: "warning"
+        message: "Expected 3 months of expense data, found fewer periods"
+      - check: "operating_expenses >= 0"
+        severity: "error"
+        message: "Negative operating expenses detected"
+        
+    required: true
+    nullable: false
+  
+  # Level 2: Scenario Parameters (User Configurable)
+  # -------------------------------------------------
+  
+  revenue_multiplier:
+    dependency_id: "revenue_multiplier"
+    level: 2
+    type: "constant"
+    description: "Scenario adjustment for revenue (1.0 = no change, 0.8 = -20%, 1.2 = +20%)"
+    
+    default_value: 1.0
+    user_configurable: true
+    
+    validation:
+      - check: "revenue_multiplier > 0"
+        severity: "error"
+        message: "Revenue multiplier must be positive"
+      - check: "revenue_multiplier >= 0.5 AND revenue_multiplier <= 2.0"
+        severity: "warning"
+        message: "Revenue multiplier outside typical scenario range (50%-200%)"
+        
+    scenario_examples:
+      optimistic: 1.2  # +20% revenue
+      base: 1.0        # No change
+      conservative: 0.8 # -20% revenue
+      worst_case: 0.5  # -50% revenue
+      
+    required: true
+    nullable: false
+    
+  expense_multiplier:
+    dependency_id: "expense_multiplier"
+    level: 2
+    type: "constant"
+    description: "Scenario adjustment for expenses (1.0 = no change, 1.1 = +10%, 0.9 = -10%)"
+    
+    default_value: 1.0
+    user_configurable: true
+    
+    validation:
+      - check: "expense_multiplier > 0"
+        severity: "error"
+        message: "Expense multiplier must be positive"
+      - check: "expense_multiplier >= 0.5 AND expense_multiplier <= 2.0"
+        severity: "warning"
+        message: "Expense multiplier outside typical scenario range (50%-200%)"
+        
+    scenario_examples:
+      cost_cutting: 0.8    # -20% expenses
+      base: 1.0            # No change
+      inflation_impact: 1.1 # +10% expenses
+      rapid_growth: 1.5    # +50% expenses
+      
+    required: true
+    nullable: false
+    
+  cash_adjustment:
+    dependency_id: "cash_adjustment"
+    level: 2
+    type: "constant"
+    description: "One-time cash adjustment (positive = injection, negative = withdrawal)"
+    unit: "currency"
+    
+    default_value: 0.0
+    user_configurable: true
+    
+    validation:
+      - check: "cash_adjustment > -current_cash"
+        severity: "error"
+        message: "Cash withdrawal cannot exceed current cash balance"
+        
+    scenario_examples:
+      base: 0
+      funding_round: 1000000  # €1M injection
+      loan_repayment: -200000 # €200K outflow
+      
+    required: true
+    nullable: true
+    
+  # Level 3: Derived Calculations
+  # ------------------------------
+  
+  average_monthly_revenue:
+    dependency_id: "avg_monthly_revenue"
+    level: 3
+    type: "derived"
+    description: "Average monthly revenue over lookback period"
+    
+    calculation:
+      formula: "AVG(historical_revenue * revenue_multiplier)"
+      depends_on: ["historical_revenue", "revenue_multiplier"]
+      
+    validation:
+      - check: "avg_monthly_revenue >= 0"
+        severity: "error"
+        message: "Average monthly revenue cannot be negative"
+        
+    required: true
+    
+  average_monthly_expenses:
+    dependency_id: "avg_monthly_expenses"
+    level: 3
+    type: "derived"
+    description: "Average monthly operating expenses over lookback period"
+    
+    calculation:
+      formula: "AVG(historical_operating_expenses * expense_multiplier)"
+      depends_on: ["historical_operating_expenses", "expense_multiplier"]
+      
+    validation:
+      - check: "avg_monthly_expenses >= 0"
+        severity: "error"
+        message: "Average monthly expenses cannot be negative"
+        
+    required: true
+    
+  monthly_burn_rate:
+    dependency_id: "monthly_burn_rate"
+    level: 4
+    type: "derived"
+    description: "Net monthly cash burn (expenses minus revenue)"
+    
+    calculation:
+      formula: "average_monthly_expenses - average_monthly_revenue"
+      depends_on: ["average_monthly_expenses", "average_monthly_revenue"]
+      
+    interpretation:
+      positive: "Company is burning cash (expenses > revenue)"
+      negative: "Company is cash flow positive (revenue > expenses)"
+      zero: "Company is break-even"
+      
+    validation:
+      - check: "monthly_burn_rate != 0"
+        severity: "warning"
+        message: "Zero burn rate - runway calculation may be infinite"
+        
+    required: true
+    
+  adjusted_cash_balance:
+    dependency_id: "adjusted_cash"
+    level: 4
+    type: "derived"
+    description: "Current cash plus any scenario adjustments"
+    
+    calculation:
+      formula: "current_cash + cash_adjustment"
+      depends_on: ["current_cash", "cash_adjustment"]
+      
+    validation:
+      - check: "adjusted_cash_balance >= 0"
+        severity: "warning"
+        message: "Adjusted cash balance is negative"
+        
+    required: true
+
+  # Level 5: Final Output Calculation
+  # ----------------------------------
+  cash_runway_months:
+    dependency_id: "cash_runway_months"
+    level: 5
+    type: "derived"
+    description: "Final runway calculation in months"
+
+    calculation:
+      formula: "adjusted_cash_balance / monthly_burn_rate"
+      depends_on: ["adjusted_cash_balance", "monthly_burn_rate"]
+    
+    validation:
+      - check: "cash_runway_months >= 0"
+        severity: "warning"
+        message: "Runway is negative"
+    
+    required: true
+
+# =============================================================================
+# SQL Generation Template
+# =============================================================================
+
+sql_template: |
+  -- =========================================================================
+  -- Cash Runway Calculation
+  -- Generated from calculation graph: cash_runway_graph.yaml v1.0
+  -- =========================================================================
+  
+  WITH parameters AS (
+    -- Scenario parameters
+    SELECT 
+      '{{current_period}}'::DATE as current_period,
+      {{revenue_multiplier}}::FLOAT as revenue_mult,
+      {{expense_multiplier}}::FLOAT as expense_mult,
+      {{cash_adjustment}}::FLOAT as cash_adj
+  ),
+  
+  lookback_periods AS (
+    -- Define 3-month lookback window
+    SELECT 
+      current_period,
+      DATE_SUB(current_period, INTERVAL 1 MONTH) as period_1,
+      DATE_SUB(current_period, INTERVAL 2 MONTH) as period_2,
+      DATE_SUB(current_period, INTERVAL 3 MONTH) as period_3
+    FROM parameters
+  ),
+  
+  current_cash_position AS (
+    -- Get current cash balance (Level 1 dependency)
+    SELECT 
+      p.current_period,
+      COALESCE(bs.cash_and_equivalents, 0) as current_cash,
+      p.cash_adj
+    FROM parameters p
+    LEFT JOIN balance_sheet bs 
+      ON bs.period = p.current_period
+  ),
+  
+  historical_data AS (
+    -- Get last 3 months of revenue and expenses (Level 1 dependencies)
+    SELECT 
+      is_table.period,
+      COALESCE(is_table.revenue, 0) as revenue,
+      COALESCE(is_table.operating_expenses, 0) as operating_expenses,
+      p.revenue_mult,
+      p.expense_mult
+    FROM parameters p
+    CROSS JOIN lookback_periods lp
+    LEFT JOIN income_statement is_table 
+      ON is_table.period IN (lp.period_1, lp.period_2, lp.period_3)
+    WHERE is_table.period IS NOT NULL
+  ),
+  
+  burn_rate_calculation AS (
+    -- Calculate average monthly burn rate (Level 3 & 4 dependencies)
+    SELECT
+      -- Average monthly revenue with scenario adjustment
+      AVG(revenue * revenue_mult) as avg_monthly_revenue,
+      
+      -- Average monthly expenses with scenario adjustment
+      AVG(operating_expenses * expense_mult) as avg_monthly_expenses,
+      
+      -- Net burn rate (positive = burning cash, negative = generating cash)
+      AVG(operating_expenses * expense_mult) - AVG(revenue * revenue_mult) as monthly_burn_rate,
+      
+      -- Data quality metrics
+      COUNT(*) as months_of_data,
+      MIN(period) as earliest_period,
+      MAX(period) as latest_period
+    FROM historical_data
+  ),
+  
+  runway_calculation AS (
+    -- Final runway calculation
+    SELECT
+      -- Adjusted cash position
+      ccp.current_cash + ccp.cash_adj as adjusted_cash_balance,
+      
+      -- Burn components
+      br.avg_monthly_revenue,
+      br.avg_monthly_expenses,
+      br.monthly_burn_rate,
+      
+      -- Runway calculation (handle division by zero)
+      CASE 
+        WHEN br.monthly_burn_rate > 0 THEN 
+          (ccp.current_cash + ccp.cash_adj) / br.monthly_burn_rate
+        WHEN br.monthly_burn_rate < 0 THEN 
+          NULL  -- Cash flow positive, infinite runway
+        ELSE 
+          NULL  -- Break-even, no burn
+      END as cash_runway_months,
+      
+      -- Metadata
+      ccp.current_period,
+      br.months_of_data,
+      br.earliest_period as analysis_start_period,
+      br.latest_period as analysis_end_period,
+      CURRENT_TIMESTAMP as calculated_at,
+      
+      -- Scenario parameters (for audit trail)
+      {{revenue_multiplier}} as revenue_scenario_multiplier,
+      {{expense_multiplier}} as expense_scenario_multiplier,
+      {{cash_adjustment}} as cash_adjustment_applied
+      
+    FROM current_cash_position ccp
+    CROSS JOIN burn_rate_calculation br
+  )
+  
+  SELECT 
+    -- Primary output
+    cash_runway_months,
+    
+    -- Supporting details
+    adjusted_cash_balance as current_cash,
+    monthly_burn_rate,
+    avg_monthly_revenue,
+    avg_monthly_expenses,
+    
+    -- Interpretation helpers
+    CASE 
+      WHEN cash_runway_months IS NULL AND monthly_burn_rate < 0 THEN 'CASH_FLOW_POSITIVE'
+      WHEN cash_runway_months IS NULL AND monthly_burn_rate = 0 THEN 'BREAK_EVEN'
+      WHEN cash_runway_months <= 3 THEN 'CRITICAL'
+      WHEN cash_runway_months <= 6 THEN 'WARNING'
+      WHEN cash_runway_months <= 12 THEN 'HEALTHY'
+      ELSE 'EXCELLENT'
+    END as runway_status,
+    
+    -- Data quality
+    months_of_data,
+    analysis_start_period,
+    analysis_end_period,
+    
+    -- Metadata
+    current_period,
+    calculated_at,
+    
+    -- Scenario audit trail
+    revenue_scenario_multiplier,
+    expense_scenario_multiplier,
+    cash_adjustment_applied,
+    
+    -- Hash for reproducibility
+    MD5(
+      CONCAT(
+        current_period::TEXT, '|',
+        revenue_scenario_multiplier::TEXT, '|',
+        expense_scenario_multiplier::TEXT, '|',
+        cash_adjustment_applied::TEXT
+      )
+    ) as calculation_hash
+    
+  FROM runway_calculation;
+
+# =============================================================================
+# Validation Rules (Pre-execution checks)
+# =============================================================================
+
+pre_execution_validations:
+  
+  - validation_id: "cash_balance_exists"
+    check: "SELECT COUNT(*) FROM balance_sheet WHERE period = '{{current_period}}' AND cash_and_equivalents IS NOT NULL"
+    expected: "> 0"
+    severity: "error"
+    message: "No cash balance found for current period"
+    
+  - validation_id: "sufficient_historical_data"
+    check: "SELECT COUNT(DISTINCT period) FROM income_statement WHERE period >= DATE_SUB('{{current_period}}', INTERVAL 3 MONTH)"
+    expected: ">= 3"
+    severity: "warning"
+    message: "Less than 3 months of historical data available for burn rate calculation"
+    
+  - validation_id: "positive_cash_after_adjustment"
+    check: "SELECT (cash_and_equivalents + {{cash_adjustment}}) >= 0 FROM balance_sheet WHERE period = '{{current_period}}'"
+    expected: "true"
+    severity: "error"
+    message: "Cash adjustment would result in negative cash balance"
+    
+  - validation_id: "revenue_data_quality"
+    check: "SELECT COUNT(*) FROM income_statement WHERE period >= DATE_SUB('{{current_period}}', INTERVAL 3 MONTH) AND revenue < 0"
+    expected: "= 0"
+    severity: "error"
+    message: "Negative revenue values detected in historical data"
+    
+  - validation_id: "expense_data_quality"
+    check: "SELECT COUNT(*) FROM income_statement WHERE period >= DATE_SUB('{{current_period}}', INTERVAL 3 MONTH) AND operating_expenses < 0"
+    expected: "= 0"
+    severity: "error"
+    message: "Negative operating expense values detected in historical data"
+
+# =============================================================================
+# Post-execution validations (Result sanity checks)
+# =============================================================================
+
+post_execution_validations:
+  
+  - validation_id: "runway_reasonable_range"
+    check: "cash_runway_months BETWEEN 0 AND 240"  # 0-20 years
+    severity: "warning"
+    message: "Cash runway outside reasonable range (0-240 months)"
+    
+  - validation_id: "burn_rate_reasonable"
+    check: "ABS(monthly_burn_rate) < (adjusted_cash_balance * 2)"
+    severity: "warning"
+    message: "Monthly burn rate seems unusually high relative to cash balance"
+
+# =============================================================================
+# Interpretation Guide
+# =============================================================================
+
+interpretation:
+  
+  thresholds:
+    critical: 3   # months
+    warning: 6    # months
+    healthy: 12   # months
+    excellent: 24 # months
+    
+  context: |
+    Cash runway represents the number of months a company can continue
+    operations at the current burn rate before depleting cash reserves.
+    
+    Interpretation:
+    - < 3 months: CRITICAL - Immediate action required
+    - 3-6 months: WARNING - Need funding or cost reduction plan
+    - 6-12 months: HEALTHY - Adequate runway for normal operations
+    - 12-24 months: EXCELLENT - Strong financial position
+    - > 24 months: EXCEPTIONAL - Very strong cash position
+    
+    Special cases:
+    - Negative burn (cash flow positive): Infinite runway
+    - Zero burn (break-even): Stable but not growing
+    
+  actionable_insights:
+    critical:
+      - "Immediately explore funding options (equity, debt, grants)"
+      - "Implement emergency cost reduction measures"
+      - "Accelerate revenue collection (invoice aging, payment terms)"
+      - "Consider strategic alternatives (M&A, partnerships)"
+      
+    warning:
+      - "Develop contingency plans for funding"
+      - "Review and optimize operating expenses"
+      - "Focus on revenue growth initiatives"
+      - "Monitor burn rate weekly"
+      
+    healthy:
+      - "Maintain current financial discipline"
+      - "Plan for strategic investments"
+      - "Regular monitoring (monthly reviews)"
+      
+  scenario_use_cases:
+    - name: "Funding round impact"
+      description: "Model impact of raising $XM"
+      parameters:
+        cash_adjustment: "{{funding_amount}}"
+        
+    - name: "Revenue growth"
+      description: "Model impact of 20% revenue increase"
+      parameters:
+        revenue_multiplier: 1.2
+        
+    - name: "Cost reduction"
+      description: "Model impact of 15% expense reduction"
+      parameters:
+        expense_multiplier: 0.85
+        
+    - name: "Economic downturn"
+      description: "Model 30% revenue drop + 10% expense increase"
+      parameters:
+        revenue_multiplier: 0.7
+        expense_multiplier: 1.1
+
+# =============================================================================
+# Testing & Examples
+# =============================================================================
+
+test_cases:
+  
+  - test_id: "basic_calculation"
+    description: "Standard runway calculation"
+    input:
+      current_cash: 500000
+      monthly_revenue: [80000, 85000, 90000]
+      monthly_expenses: [120000, 125000, 130000]
+      revenue_multiplier: 1.0
+      expense_multiplier: 1.0
+      cash_adjustment: 0
+    expected_output:
+      avg_monthly_revenue: 85000
+      avg_monthly_expenses: 125000
+      monthly_burn_rate: 40000
+      cash_runway_months: 12.5
+      runway_status: "HEALTHY"
+      
+  - test_id: "funding_scenario"
+    description: "Impact of €1M funding round"
+    input:
+      current_cash: 300000
+      monthly_revenue: [50000, 50000, 50000]
+      monthly_expenses: [100000, 100000, 100000]
+      revenue_multiplier: 1.0
+      expense_multiplier: 1.0
+      cash_adjustment: 1000000
+    expected_output:
+      adjusted_cash_balance: 1300000
+      monthly_burn_rate: 50000
+      cash_runway_months: 26.0
+      runway_status: "EXCELLENT"
+      
+  - test_id: "revenue_growth_scenario"
+    description: "20% revenue growth scenario"
+    input:
+      current_cash: 200000
+      monthly_revenue: [60000, 60000, 60000]
+      monthly_expenses: [80000, 80000, 80000]
+      revenue_multiplier: 1.2
+      expense_multiplier: 1.0
+      cash_adjustment: 0
+    expected_output:
+      avg_monthly_revenue: 72000
+      monthly_burn_rate: 8000
+      cash_runway_months: 25.0
+      runway_status: "EXCELLENT"
+      
+  - test_id: "cash_flow_positive"
+    description: "Company is cash flow positive"
+    input:
+      current_cash: 1000000
+      monthly_revenue: [150000, 150000, 150000]
+      monthly_expenses: [100000, 100000, 100000]
+      revenue_multiplier: 1.0
+      expense_multiplier: 1.0
+      cash_adjustment: 0
+    expected_output:
+      monthly_burn_rate: -50000  # Negative = generating cash
+      cash_runway_months: null
+      runway_status: "CASH_FLOW_POSITIVE"
+
+# =============================================================================
+# Industry Benchmarks
+# =============================================================================
+
+industry_benchmarks:
+  saas:
+    target_runway: 12
+    critical_threshold: 6
+    note: "SaaS companies should maintain 12+ months given long sales cycles"
+    
+  ecommerce:
+    target_runway: 6
+    critical_threshold: 3
+    note: "E-commerce can operate with shorter runway due to faster revenue cycles"
+    
+  hardware:
+    target_runway: 18
+    critical_threshold: 12
+    note: "Hardware requires longer runway for inventory and manufacturing cycles"
+    
+  professional_services:
+    target_runway: 6
+    critical_threshold: 3
+    note: "Services businesses can adjust capacity quickly"
+
+# =============================================================================
+# Change Log
+# =============================================================================
+
+changelog:
+  - version: "1.0"
+    date: "2025-01-15"
+    changes:
+      - "Initial calculation graph definition"
+      - "Added scenario analysis support"
+      - "Defined DATEV SKR03/SKR04 mappings"
+      - "Added comprehensive validation rules"
