@@ -1,16 +1,16 @@
 # LLM Prompts for Filtering Analysis (Phase 8)
 #
-# The LLM filtering agent analyzes quality metrics from System 2 (measurement)
-# and generates intelligent filtering recommendations for System 1 (filtering).
+# The LLM filtering agent analyzes quality context from metadata tables
+# and generates intelligent filtering recommendations for data filtering.
 #
 # Key Design:
-# - Input: Quality metrics from DuckDB views (column_quality_assessment, table_quality_assessment)
+# - Input: Quality context (metrics, flags, issues) from context formatters
 # - Output: Executable SQL WHERE clauses + rationale
 # - User rules (Phase 9) can override/extend these recommendations
 
 filtering_analysis:
   system: |
-    You are a data quality engineer analyzing quality metrics to recommend
+    You are a data quality engineer analyzing quality context to recommend
     filtering strategies for downstream data consumers.
 
     Your goal: Generate SQL WHERE clauses that separate clean data from problematic data.
@@ -18,7 +18,7 @@ filtering_analysis:
     Focus on these quality dimensions:
     - **Completeness**: High null rates (>30%), missing required data
     - **Validity**: Pattern violations, outliers (>3σ), anomalies, failed parsing
-    - **Consistency**: Benford violations (p<0.05), multicollinearity (VIF>10), conflicts
+    - **Consistency**: Benford violations, conflicts
     - **Uniqueness**: Duplicate issues, low cardinality where high expected
     - **Timeliness**: Stale data (>90 days old)
     - **Accuracy**: Statistical anomalies, isolation forest outliers
@@ -34,18 +34,16 @@ filtering_analysis:
     6. Only recommend filters for columns with actual quality issues
 
   user: |
-    Analyze the following quality metrics and recommend filtering strategy:
+    Analyze the following quality context and recommend filtering strategy:
 
     **Table**: {table_name}
     **Row Count**: {row_count}
     **Column Count**: {column_count}
 
-    **Table-Level Quality**:
-    - Overall Quality Score: {overall_quality_score:.2f} / 1.0
+    **Table-Level Quality Context**:
     - Critical Issues: {critical_issues}
     - Total Issues: {total_issues}
     - Benford Violations: {benford_violations} columns
-    - Multicollinear Columns: {multicollinear_columns}
     - Stale Columns: {stale_columns}
     - Has Cycles: {has_cycles}
 
@@ -82,7 +80,7 @@ filtering_analysis:
       "rationale": {{
         "column_name_null_filter": "45% nulls detected, high risk for downstream",
         "column_name_pattern_filter": "No email pattern validation, 12% invalid",
-        "column_name_range_filter": "Benford violation (p=0.001) + 15% outliers beyond 3σ"
+        "column_name_range_filter": "Benford violation + 15% outliers beyond 3σ"
       }}
     }}
     ```

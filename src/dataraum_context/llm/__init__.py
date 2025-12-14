@@ -28,6 +28,7 @@ from typing import Any
 
 from dataraum_context.llm.cache import LLMCache
 from dataraum_context.llm.config import LLMConfig, load_llm_config
+from dataraum_context.llm.features.filter_recommendations import FilterRecommendationsFeature
 from dataraum_context.llm.features.quality import QualityRulesFeature
 
 # DISABLED: Depend on context module which is not yet implemented
@@ -98,6 +99,13 @@ class LLMService:
             cache=self.cache,
         )
 
+        self.filter_recommendations = FilterRecommendationsFeature(
+            config=config,
+            provider=self.provider,
+            prompt_renderer=self.renderer,
+            cache=self.cache,
+        )
+
         # DISABLED: Depend on context module which is not yet implemented
         self.queries = None  # type: ignore[assignment]
         self.summary = None  # type: ignore[assignment]
@@ -111,6 +119,10 @@ class LLMService:
     async def generate_quality_rules(self, *args: Any, **kwargs: Any) -> Any:
         """Generate quality rules. See QualityRulesFeature.generate_rules()."""
         return await self.quality.generate_rules(*args, **kwargs)
+
+    async def generate_filter_recommendations(self, *args: Any, **kwargs: Any) -> Any:
+        """Generate filter recommendations. See FilterRecommendationsFeature.generate()."""
+        return await self.filter_recommendations.generate(*args, **kwargs)
 
     async def generate_suggested_queries(self, *args: Any, **kwargs: Any) -> Any:
         """Generate suggested queries. See SuggestedQueriesFeature.generate_queries()."""

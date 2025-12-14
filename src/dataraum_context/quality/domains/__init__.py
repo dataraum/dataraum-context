@@ -6,7 +6,7 @@ Each domain provides specialized quality checks and rules:
 - financial: Double-entry, trial balance, sign conventions, fiscal periods
 
 **Domain Rule Analysis (Layer 1.5):**
-- financial_orchestrator: Fiscal stability, financial anomalies, domain-weighted scoring
+- financial_orchestrator: Fiscal stability, financial anomalies
 
 **LLM-Enhanced Analysis:**
 - financial_orchestrator: Complete flow with LLM cycle classification
@@ -27,7 +27,6 @@ Usage:
     from dataraum_context.quality.domains.financial_orchestrator import (
         assess_fiscal_stability,
         detect_financial_anomalies,
-        compute_financial_quality_score,
     )
 """
 
@@ -52,12 +51,6 @@ def __getattr__(name: str) -> Any:
         )
 
         return detect_financial_anomalies
-    if name == "compute_financial_quality_score":
-        from dataraum_context.quality.domains.financial_orchestrator import (
-            compute_financial_quality_score,
-        )
-
-        return compute_financial_quality_score
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -65,5 +58,4 @@ __all__ = [
     "financial",
     "assess_fiscal_stability",
     "detect_financial_anomalies",
-    "compute_financial_quality_score",
 ]

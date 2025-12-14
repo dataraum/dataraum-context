@@ -12,12 +12,12 @@ Pipeline stages:
 6. Topology Enrichment: TDA-based FK detection
 7. Temporal Enrichment: Time series analysis (basic - gaps, completeness)
 8. Cross-table Analysis: Multicollinearity (multi-table datasets only)
-9. Quality Assessment (NEW - Phase 4):
+9. Quality Assessment:
    - Statistical quality (Benford, outliers)
    - Topological quality (cycles, Betti numbers)
    - Temporal quality (seasonality, trends - advanced)
    - Domain quality (financial, if detected)
-   - Quality synthesis (dimensional scores)
+   - Quality context assembly (issues, flags, metrics for LLM/API consumption)
 
 All metadata is stored in the database. Results contain only health information.
 """
@@ -42,9 +42,9 @@ from dataraum_context.enrichment.topology import enrich_topology
 from dataraum_context.llm import LLMService
 from dataraum_context.profiling.profiler import profile_schema, profile_statistics
 from dataraum_context.profiling.type_resolution import resolve_types
+from dataraum_context.quality.context import format_dataset_quality_context
 from dataraum_context.quality.domains.financial import analyze_financial_quality
 from dataraum_context.quality.statistical import assess_statistical_quality
-from dataraum_context.quality.synthesis import assess_dataset_quality
 from dataraum_context.quality.temporal import analyze_temporal_quality
 from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.staging.loaders.csv import CSVLoader
@@ -94,9 +94,8 @@ class TablePipelineHealth:
     semantic_annotation_count: int = 0
     relationship_count: int = 0
 
-    # Quality counts (Phase 4 - NEW)
+    # Quality counts (Phase 4 - context-based)
     quality_issue_count: int = 0
-    quality_score: float | None = None
 
     # Error tracking
     error: str | None = None
@@ -222,12 +221,12 @@ async def run_pipeline(
     6. Topology Enrichment: TDA-based FK detection
     7. Temporal Enrichment: Time series analysis (basic)
     8. Cross-table Analysis: Multicollinearity (if >1 table)
-    9. Quality Assessment (NEW):
+    9. Quality Assessment:
        - Statistical quality (Benford, outliers)
        - Topological quality (cycles, Betti numbers)
        - Temporal quality (seasonality, trends - advanced)
        - Domain quality (financial, if ontology="financial_reporting")
-       - Quality synthesis (dimensional scores)
+       - Quality context assembly (issues, flags, metrics)
 
     Args:
         source: CSV file path or directory path
@@ -607,50 +606,46 @@ async def run_pipeline(
                     f"Financial quality assessment exception for {health.table_name}: {e}"
                 )
 
-    # Stage 4.5: Quality Synthesis
-    # Aggregate all quality pillars into dimensional scores
+    # Stage 4.5: Quality Context Assembly
+    # Aggregate all quality metrics into context-focused output
     if successful_table_ids:
         try:
-            # Use typed table IDs for synthesis
-            typed_ids_for_synthesis = [
+            # Use typed table IDs for context assembly
+            typed_ids_for_context = [
                 typed_table_ids[raw_id]
                 for raw_id in successful_table_ids
                 if raw_id in typed_table_ids
             ]
 
-            if typed_ids_for_synthesis:
-                synthesis_result = await assess_dataset_quality(
-                    typed_ids_for_synthesis, duckdb_conn, session, llm_service
+            if typed_ids_for_context:
+                quality_context = await format_dataset_quality_context(
+                    typed_ids_for_context, session, duckdb_conn, llm_service
                 )
-                # ✅ QualitySynthesisResult stored in database
+                # ✅ Quality context assembled from all pillars
 
-                if synthesis_result.success:
-                    synthesis = synthesis_result.unwrap()
-
-                    # Update health records with quality info
-                    for table_synthesis in synthesis.table_assessments:
-                        # Find corresponding health record by typed table ID
-                        for raw_id, typed_id in typed_table_ids.items():
-                            if typed_id == table_synthesis.table_id:
-                                matching_health = next(
-                                    (h for h in table_health_records if h.table_id == raw_id),
-                                    None,
+                # Update health records with quality info
+                for table_context in quality_context.tables:
+                    # Find corresponding health record by typed table ID
+                    for raw_id, typed_id in typed_table_ids.items():
+                        if typed_id == table_context.table_id:
+                            matching_health = next(
+                                (h for h in table_health_records if h.table_id == raw_id),
+                                None,
+                            )
+                            if matching_health:
+                                matching_health.quality_synthesis_completed = True
+                                # Count all issues: table-level + column-level
+                                table_issue_count = len(table_context.issues)
+                                column_issue_count = sum(
+                                    len(col.issues) for col in table_context.columns
                                 )
-                                if matching_health:
-                                    matching_health.quality_synthesis_completed = True
-                                    matching_health.quality_score = (
-                                        table_synthesis.table_assessment.overall_score
-                                    )
-                                    matching_health.quality_issue_count = len(
-                                        table_synthesis.table_assessment.issues
-                                    )
-                                break
-
-                else:
-                    warnings.append(f"Quality synthesis failed: {synthesis_result.error}")
+                                matching_health.quality_issue_count = (
+                                    table_issue_count + column_issue_count
+                                )
+                            break
 
         except Exception as e:
-            warnings.append(f"Quality synthesis exception: {e}")
+            warnings.append(f"Quality context assembly exception: {e}")
 
     # =========================================================================
     # PHASE 5: RETURN HEALTH INFORMATION
