@@ -81,9 +81,6 @@ class FinancialQualityMetrics(Base):
     fiscal_period_complete: Mapped[bool] = mapped_column(Boolean)
     period_end_cutoff_clean: Mapped[bool] = mapped_column(Boolean)
 
-    # Overall financial quality score
-    financial_quality_score: Mapped[float] = mapped_column(Float)
-
     # Relationships
     table: Mapped[Table] = relationship(back_populates="financial_quality_metrics")
 
