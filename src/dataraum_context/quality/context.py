@@ -19,10 +19,11 @@ import duckdb
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Import formatter and model for multicollinearity
-from dataraum_context.enrichment.context_formatting import format_multicollinearity_for_llm
 from dataraum_context.enrichment.relationships.gathering import gather_relationships
 from dataraum_context.profiling.models import MulticollinearityAnalysis
+
+# Import formatter and model for multicollinearity
+from dataraum_context.quality.formatting import format_multicollinearity_for_llm
 from dataraum_context.quality.models import (
     ColumnQualityContext,
     DatasetQualityContext,

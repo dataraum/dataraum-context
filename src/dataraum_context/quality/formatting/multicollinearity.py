@@ -1,13 +1,9 @@
-"""Context formatting for LLM consumption.
+"""Multicollinearity formatting for LLM consumption.
 
-This module formats metadata from various pillars into structured, interpretable
-context documents that LLMs can use to make data quality and analysis decisions.
+Formats multicollinearity analysis (VIF, Condition Index, dependency groups)
+into structured, interpretable context for LLM consumption.
 
-Each formatter function takes raw metadata and produces:
-- Natural language interpretations
-- Actionable recommendations
-- Structured evidence
-- Severity assessments
+Moved from enrichment/context_formatting.py for consolidation.
 """
 
 from typing import Any
@@ -21,31 +17,90 @@ from dataraum_context.profiling.models import (
     MulticollinearityAnalysis,
     SingleRelationshipJoin,
 )
+from dataraum_context.quality.formatting.base import format_list_with_overflow
+
+# =============================================================================
+# VIF Thresholds and Interpretation
+# =============================================================================
+
+# Research-based VIF thresholds:
+# - VIF = 1: No multicollinearity
+# - VIF 1-5: Low to moderate (acceptable)
+# - VIF > 5: High, requires attention
+# - VIF > 10: Serious, often problematic
+
+_VIF_THRESHOLDS = {
+    "none": 1.0,
+    "low_to_moderate": 5.0,
+    "high": 10.0,
+}
+
+# Condition Index thresholds:
+# - CI < 10: No multicollinearity
+# - CI 10-30: Moderate
+# - CI > 30: Severe
+
+_CI_THRESHOLDS = {
+    "none": 10.0,
+    "moderate": 30.0,
+}
+
+
+def _get_vif_severity_label(vif: float) -> str:
+    """Get severity label based on research thresholds."""
+    if vif <= _VIF_THRESHOLDS["none"]:
+        return "none"
+    elif vif <= _VIF_THRESHOLDS["low_to_moderate"]:
+        return "low_to_moderate"
+    elif vif <= _VIF_THRESHOLDS["high"]:
+        return "high"
+    else:
+        return "serious"
+
+
+def _get_vif_interpretation(vif: float) -> str:
+    """Get natural language interpretation of VIF value."""
+    if vif <= 1.0:
+        return f"No multicollinearity detected (VIF={vif:.1f})"
+    elif vif <= 5.0:
+        return f"Low to moderate multicollinearity (VIF={vif:.1f}) - generally acceptable"
+    elif vif <= 10.0:
+        return f"High multicollinearity (VIF={vif:.1f}) - requires attention"
+    else:
+        return f"Serious multicollinearity (VIF={vif:.1f}) - often considered problematic"
+
+
+def _get_vif_impact(vif: float) -> str:
+    """Explain the practical impact of the VIF value."""
+    if vif <= 1.0:
+        return "Column variance is not inflated by correlation with other columns"
+    elif vif <= 5.0:
+        variance_inflation = (vif - 1) * 100
+        return f"Column variance inflated by ~{variance_inflation:.0f}% due to correlation with other columns"
+    elif vif <= 10.0:
+        return f"Column is {vif:.1f}x more variable than it would be if uncorrelated - may indicate redundancy"
+    else:
+        redundancy = (1 - 1 / vif) * 100
+        return f"Column is ~{redundancy:.0f}% redundant with other columns - likely derived or duplicate data"
+
+
+# =============================================================================
+# Single-Table Multicollinearity Formatting
+# =============================================================================
 
 
 def _format_dependency_groups(
     dependency_groups: list[DependencyGroup], column_vifs: list[ColumnVIF]
 ) -> list[dict[str, Any]]:
-    """Format dependency groups for LLM consumption.
-
-    Args:
-        dependency_groups: List of DependencyGroup objects
-        column_vifs: List of ColumnVIF objects for column name lookup
-
-    Returns:
-        List of formatted dependency group dicts
-    """
-    # Create column ID to name mapping
+    """Format dependency groups for LLM consumption."""
     column_id_to_name = {vif.column_id: vif.column_ref.column_name for vif in column_vifs}
 
     formatted_groups = []
     for i, group in enumerate(dependency_groups, start=1):
-        # Map column IDs to names
         column_names = [
             column_id_to_name.get(col_id, col_id) for col_id in group.involved_column_ids
         ]
 
-        # Get VIF values for group members
         vif_values = {
             column_id_to_name.get(vif.column_id, vif.column_id): round(vif.vif, 2)
             for vif in column_vifs
@@ -69,15 +124,7 @@ def _format_dependency_groups(
 
 
 def _get_dependency_group_recommendation(group: DependencyGroup, column_names: list[str]) -> str:
-    """Generate actionable recommendation for a dependency group.
-
-    Args:
-        group: DependencyGroup object
-        column_names: Column names in the group
-
-    Returns:
-        Recommendation string
-    """
+    """Generate actionable recommendation for a dependency group."""
     num_cols = len(column_names)
 
     if group.severity == "severe":
@@ -87,9 +134,7 @@ def _get_dependency_group_recommendation(group: DependencyGroup, column_names: l
                 f"These columns are nearly identical or one is derived from the other."
             )
         else:
-            col_list = ", ".join(column_names[:3])
-            if num_cols > 3:
-                col_list += f", and {num_cols - 3} others"
+            col_list = format_list_with_overflow(column_names, max_display=3)
             return (
                 f"Review {col_list}. These {num_cols} columns form a linear combination. "
                 f"Consider consolidating or removing redundant columns."
@@ -102,160 +147,8 @@ def _get_dependency_group_recommendation(group: DependencyGroup, column_names: l
         )
 
 
-def format_multicollinearity_for_llm(
-    analysis: MulticollinearityAnalysis,
-) -> dict[str, Any]:
-    """Format multicollinearity analysis for LLM consumption.
-
-    Transforms VIF, Tolerance, and Condition Index metrics into structured
-    context with natural language interpretations and actionable recommendations.
-
-    Research-based thresholds:
-    - VIF = 1: No multicollinearity
-    - VIF 1-5: Low to moderate (acceptable)
-    - VIF > 5: High, requires attention
-    - VIF > 10: Serious, often problematic
-
-    Args:
-        analysis: MulticollinearityAnalysis from profiling
-
-    Returns:
-        Dict with multicollinearity context for LLM
-    """
-    # Generate overall interpretation
-    interpretation = _get_multicollinearity_interpretation(analysis)
-
-    # Format table-level assessment
-    table_level: dict[str, Any] | None = None
-    if analysis.condition_index:
-        table_level = {
-            "condition_index": analysis.condition_index.condition_index,
-            "severity": analysis.condition_index.severity,
-            "assessment": analysis.condition_index.interpretation,
-            "problematic_dimensions": analysis.condition_index.problematic_dimensions,
-        }
-
-        # Add dependency groups if available
-        if analysis.condition_index.dependency_groups:
-            table_level["dependency_groups"] = _format_dependency_groups(
-                analysis.condition_index.dependency_groups, analysis.column_vifs
-            )
-
-    # Format problematic columns with detailed analysis
-    problematic_columns = []
-    for vif in analysis.column_vifs:
-        if vif.vif > 4:  # Threshold for investigation
-            column_info = {
-                "column": vif.column_ref.column_name,
-                "vif": round(vif.vif, 2),
-                "tolerance": round(vif.tolerance, 3),
-                "severity": _get_vif_severity_label(vif.vif),
-                "interpretation": _get_vif_interpretation(vif.vif),
-                "impact": _get_vif_impact(vif.vif),
-            }
-
-            # Add correlated columns if available
-            if vif.correlated_with:
-                column_info["highly_correlated_with"] = vif.correlated_with[:3]
-
-            problematic_columns.append(column_info)
-
-    # Generate recommendations
-    recommendations = _generate_multicollinearity_recommendations(analysis)
-
-    return {
-        "multicollinearity_assessment": {
-            "overall_severity": analysis.overall_severity,
-            "summary": interpretation,
-            "num_problematic_columns": analysis.num_problematic_columns,
-            "table_level": table_level,
-            "problematic_columns": problematic_columns,
-            "recommendations": recommendations,
-            "technical_details": {
-                "total_columns_analyzed": len(analysis.column_vifs),
-                "analysis_method": "VIF (Variance Inflation Factor) via OLS regression",
-                "table_method": "Condition Index via eigenvalue decomposition",
-            },
-        }
-    }
-
-
-def _get_vif_severity_label(vif: float) -> str:
-    """Get severity label based on research thresholds.
-
-    Thresholds:
-    - VIF = 1: No multicollinearity
-    - VIF 1-5: Low to moderate
-    - VIF 5-10: High
-    - VIF > 10: Serious
-
-    Args:
-        vif: Variance Inflation Factor value
-
-    Returns:
-        Severity label
-    """
-    if vif <= 1.0:
-        return "none"
-    elif vif <= 5.0:
-        return "low_to_moderate"
-    elif vif <= 10.0:
-        return "high"
-    else:
-        return "serious"
-
-
-def _get_vif_interpretation(vif: float) -> str:
-    """Get natural language interpretation of VIF value.
-
-    Args:
-        vif: Variance Inflation Factor value
-
-    Returns:
-        Natural language interpretation
-    """
-    if vif <= 1.0:
-        return f"No multicollinearity detected (VIF={vif:.1f})"
-    elif vif <= 5.0:
-        return f"Low to moderate multicollinearity (VIF={vif:.1f}) - generally acceptable"
-    elif vif <= 10.0:
-        return f"High multicollinearity (VIF={vif:.1f}) - requires attention"
-    else:
-        return f"Serious multicollinearity (VIF={vif:.1f}) - often considered problematic"
-
-
-def _get_vif_impact(vif: float) -> str:
-    """Explain the practical impact of the VIF value.
-
-    Args:
-        vif: Variance Inflation Factor value
-
-    Returns:
-        Impact description
-    """
-    if vif <= 1.0:
-        return "Column variance is not inflated by correlation with other columns"
-    elif vif <= 5.0:
-        variance_inflation = (vif - 1) * 100
-        return f"Column variance inflated by ~{variance_inflation:.0f}% due to correlation with other columns"
-    elif vif <= 10.0:
-        return f"Column is {vif:.1f}x more variable than it would be if uncorrelated - may indicate redundancy"
-    else:
-        redundancy = (1 - 1 / vif) * 100
-        return f"Column is ~{redundancy:.0f}% redundant with other columns - likely derived or duplicate data"
-
-
-def _get_multicollinearity_interpretation(
-    analysis: MulticollinearityAnalysis,
-) -> str:
-    """Generate natural language summary of multicollinearity analysis.
-
-    Args:
-        analysis: MulticollinearityAnalysis
-
-    Returns:
-        Natural language summary
-    """
+def _get_multicollinearity_interpretation(analysis: MulticollinearityAnalysis) -> str:
+    """Generate natural language summary of multicollinearity analysis."""
     if analysis.overall_severity == "none":
         return (
             "No significant multicollinearity detected. Columns are relatively "
@@ -306,14 +199,7 @@ def _get_multicollinearity_interpretation(
 def _generate_multicollinearity_recommendations(
     analysis: MulticollinearityAnalysis,
 ) -> list[str]:
-    """Generate actionable recommendations based on multicollinearity analysis.
-
-    Args:
-        analysis: MulticollinearityAnalysis
-
-    Returns:
-        List of actionable recommendations
-    """
+    """Generate actionable recommendations based on multicollinearity analysis."""
     recommendations = []
 
     if analysis.overall_severity == "none":
@@ -324,13 +210,14 @@ def _generate_multicollinearity_recommendations(
 
     if severe_cols:
         col_names = [vif.column_ref.column_name for vif in severe_cols[:3]]
+        col_list = format_list_with_overflow(col_names, max_display=3)
         if len(severe_cols) > 3:
-            col_list = f"{', '.join(col_names)}, and {len(severe_cols) - 3} others"
-        else:
-            col_list = ", ".join(col_names)
+            col_list = format_list_with_overflow(
+                [vif.column_ref.column_name for vif in severe_cols], max_display=3
+            )
 
         recommendations.append(
-            f"🔴 Critical: Investigate {col_list}. These columns show serious "
+            f"Critical: Investigate {col_list}. These columns show serious "
             f"redundancy (VIF > 10). Consider removing or consolidating them."
         )
 
@@ -339,7 +226,7 @@ def _generate_multicollinearity_recommendations(
 
     if high_cols:
         recommendations.append(
-            f"🟡 Attention: {len(high_cols)} column(s) have high multicollinearity "
+            f"Attention: {len(high_cols)} column(s) have high multicollinearity "
             f"(VIF 5-10). Review if these represent the same underlying concept."
         )
 
@@ -350,13 +237,12 @@ def _generate_multicollinearity_recommendations(
 
     if derived_candidates:
         recommendations.append(
-            "💡 Some columns may be calculated from others (e.g., total = sum of parts). "
+            "Some columns may be calculated from others (e.g., total = sum of parts). "
             "Use derived columns for validation only, not as independent variables."
         )
 
     # Dependency group recommendations (VDP-based - most specific)
     if analysis.condition_index and analysis.condition_index.dependency_groups:
-        # Create column ID to name mapping
         column_id_to_name = {
             vif.column_id: vif.column_ref.column_name for vif in analysis.column_vifs
         }
@@ -365,33 +251,30 @@ def _generate_multicollinearity_recommendations(
             column_names = [
                 column_id_to_name.get(col_id, col_id) for col_id in group.involved_column_ids
             ]
-            col_list = ", ".join(column_names[:3])
-            if len(column_names) > 3:
-                col_list += f", and {len(column_names) - 3} others"
+            col_list = format_list_with_overflow(column_names, max_display=3)
 
             if group.severity == "severe":
                 recommendations.append(
-                    f"🔴 Dependency Group {i}: {col_list} form a severe linear dependency "
+                    f"Dependency Group {i}: {col_list} form a severe linear dependency "
                     f"(CI={group.condition_index:.1f}). Remove redundant columns from this group."
                 )
             else:
                 recommendations.append(
-                    f"🟡 Dependency Group {i}: {col_list} show shared variance "
+                    f"Dependency Group {i}: {col_list} show shared variance "
                     f"(CI={group.condition_index:.1f}). Review for potential simplification."
                 )
 
-    # Table-level severity (CI thresholds: <10=none, 10-30=moderate, >30=severe)
+    # Table-level severity
     if analysis.condition_index and analysis.condition_index.condition_index > 30:
         recommendations.append(
-            "⚠️ Severe table-level multicollinearity (Condition Index > 30) suggests "
+            "Severe table-level multicollinearity (Condition Index > 30) suggests "
             "high degree of linear dependency that makes regression estimates unstable. "
             "Consider a comprehensive review of column selection before statistical analysis."
         )
 
-    # Moderate table-level
     if analysis.condition_index and 10 <= analysis.condition_index.condition_index <= 30:
         recommendations.append(
-            "ℹ️ Moderate table-level multicollinearity detected (CI 10-30). This warrants "
+            "Moderate table-level multicollinearity detected (CI 10-30). This warrants "
             "investigation but may not prevent analysis. Review column relationships carefully."
         )
 
@@ -406,18 +289,81 @@ def _generate_multicollinearity_recommendations(
     return recommendations
 
 
-# === Cross-Table Multicollinearity Formatting ===
+def format_multicollinearity_for_llm(
+    analysis: MulticollinearityAnalysis,
+) -> dict[str, Any]:
+    """Format multicollinearity analysis for LLM consumption.
+
+    Transforms VIF, Tolerance, and Condition Index metrics into structured
+    context with natural language interpretations and actionable recommendations.
+
+    Args:
+        analysis: MulticollinearityAnalysis from profiling
+
+    Returns:
+        Dict with multicollinearity context for LLM
+    """
+    interpretation = _get_multicollinearity_interpretation(analysis)
+
+    # Format table-level assessment
+    table_level: dict[str, Any] | None = None
+    if analysis.condition_index:
+        table_level = {
+            "condition_index": analysis.condition_index.condition_index,
+            "severity": analysis.condition_index.severity,
+            "assessment": analysis.condition_index.interpretation,
+            "problematic_dimensions": analysis.condition_index.problematic_dimensions,
+        }
+
+        if analysis.condition_index.dependency_groups:
+            table_level["dependency_groups"] = _format_dependency_groups(
+                analysis.condition_index.dependency_groups, analysis.column_vifs
+            )
+
+    # Format problematic columns with detailed analysis
+    problematic_columns = []
+    for vif in analysis.column_vifs:
+        if vif.vif > 4:  # Threshold for investigation
+            column_info = {
+                "column": vif.column_ref.column_name,
+                "vif": round(vif.vif, 2),
+                "tolerance": round(vif.tolerance, 3),
+                "severity": _get_vif_severity_label(vif.vif),
+                "interpretation": _get_vif_interpretation(vif.vif),
+                "impact": _get_vif_impact(vif.vif),
+            }
+
+            if vif.correlated_with:
+                column_info["highly_correlated_with"] = vif.correlated_with[:3]
+
+            problematic_columns.append(column_info)
+
+    recommendations = _generate_multicollinearity_recommendations(analysis)
+
+    return {
+        "multicollinearity_assessment": {
+            "overall_severity": analysis.overall_severity,
+            "summary": interpretation,
+            "num_problematic_columns": analysis.num_problematic_columns,
+            "table_level": table_level,
+            "problematic_columns": problematic_columns,
+            "recommendations": recommendations,
+            "technical_details": {
+                "total_columns_analyzed": len(analysis.column_vifs),
+                "analysis_method": "VIF (Variance Inflation Factor) via OLS regression",
+                "table_method": "Condition Index via eigenvalue decomposition",
+            },
+        }
+    }
+
+
+# =============================================================================
+# Cross-Table Multicollinearity Formatting
+# =============================================================================
 
 
 def _format_join_path(join_path: SingleRelationshipJoin) -> dict[str, Any]:
-    """Format a join path for LLM consumption.
-
-    Args:
-        join_path: SingleRelationshipJoin object describing a relationship
-
-    Returns:
-        Formatted join path dict
-    """
+    """Format a join path for LLM consumption."""
     return {
         "from": f"{join_path.from_table}.{join_path.from_column}",
         "to": f"{join_path.to_table}.{join_path.to_column}",
@@ -431,23 +377,11 @@ def _format_join_path(join_path: SingleRelationshipJoin) -> dict[str, Any]:
 def _format_cross_table_dependency_groups(
     dependency_groups: list[CrossTableDependencyGroup],
 ) -> list[dict[str, Any]]:
-    """Format cross-table dependency groups for LLM consumption.
-
-    Args:
-        dependency_groups: List of CrossTableDependencyGroup objects
-
-    Returns:
-        List of formatted dependency group dicts
-    """
+    """Format cross-table dependency groups for LLM consumption."""
     formatted_groups = []
     for i, group in enumerate(dependency_groups, start=1):
-        # Format columns as "table.column"
         column_references = [f"{table}.{col}" for table, col in group.involved_columns]
-
-        # Format join paths
         join_paths = [_format_join_path(jp) for jp in group.join_paths]
-
-        # Generate recommendation
         recommendation = _get_cross_table_group_recommendation(group)
 
         formatted_groups.append(
@@ -470,16 +404,8 @@ def _format_cross_table_dependency_groups(
 
 
 def _get_cross_table_group_recommendation(group: CrossTableDependencyGroup) -> str:
-    """Generate actionable recommendation for a cross-table dependency group.
-
-    Args:
-        group: CrossTableDependencyGroup object
-
-    Returns:
-        Recommendation string
-    """
+    """Generate actionable recommendation for a cross-table dependency group."""
     if group.num_tables == 1:
-        # Single-table case
         col_refs = [f"{table}.{col}" for table, col in group.involved_columns]
         if group.severity == "severe":
             return (
@@ -494,13 +420,9 @@ def _get_cross_table_group_recommendation(group: CrossTableDependencyGroup) -> s
 
     # Cross-table case
     table_names = list({table for table, _ in group.involved_columns})
-    col_refs = [f"{table}.{col}" for table, col in group.involved_columns[:3]]
-    if len(group.involved_columns) > 3:
-        col_list = f"{', '.join(col_refs)}, and {len(group.involved_columns) - 3} others"
-    else:
-        col_list = ", ".join(col_refs)
+    col_refs = [f"{table}.{col}" for table, col in group.involved_columns]
+    col_list = format_list_with_overflow(col_refs, max_display=3)
 
-    # Identify relationship types (relationship_types are already enum values)
     has_fk = any(rt == RelationshipType.FOREIGN_KEY for rt in group.relationship_types)
     has_semantic = any(rt == RelationshipType.SEMANTIC for rt in group.relationship_types)
 
@@ -543,14 +465,7 @@ def _get_cross_table_group_recommendation(group: CrossTableDependencyGroup) -> s
 def _get_cross_table_interpretation(
     analysis: CrossTableMulticollinearityAnalysis,
 ) -> str:
-    """Generate natural language summary of cross-table multicollinearity analysis.
-
-    Args:
-        analysis: CrossTableMulticollinearityAnalysis
-
-    Returns:
-        Natural language summary
-    """
+    """Generate natural language summary of cross-table multicollinearity analysis."""
     num_tables = len(analysis.table_ids)
     num_cross_table = analysis.num_cross_table_dependencies
 
@@ -599,14 +514,7 @@ def _get_cross_table_interpretation(
 def _generate_cross_table_recommendations(
     analysis: CrossTableMulticollinearityAnalysis,
 ) -> list[str]:
-    """Generate actionable recommendations based on cross-table multicollinearity analysis.
-
-    Args:
-        analysis: CrossTableMulticollinearityAnalysis
-
-    Returns:
-        List of actionable recommendations
-    """
+    """Generate actionable recommendations based on cross-table multicollinearity analysis."""
     recommendations = []
 
     if analysis.overall_severity == "none":
@@ -614,27 +522,24 @@ def _generate_cross_table_recommendations(
             "No action needed - tables maintain sufficient independence for cross-table analysis"
         ]
 
-    # Cross-table specific recommendations
     if analysis.num_cross_table_dependencies > 0:
         recommendations.append(
-            f"🔍 Found {analysis.num_cross_table_dependencies} cross-table dependency "
+            f"Found {analysis.num_cross_table_dependencies} cross-table dependency "
             f"group(s). Review the detailed dependency groups below for specific "
             f"column-level recommendations."
         )
 
-    # Identify severe cross-table groups
     severe_cross_table = [
         group for group in analysis.cross_table_groups if group.severity == "severe"
     ]
 
     if severe_cross_table:
         recommendations.append(
-            f"🔴 Critical: {len(severe_cross_table)} severe cross-table dependency "
+            f"Critical: {len(severe_cross_table)} severe cross-table dependency "
             f"group(s) detected. These represent significant redundancy across tables. "
             f"Prioritize investigating foreign key relationships and derived columns."
         )
 
-    # Check for denormalization patterns
     fk_groups = [
         group
         for group in analysis.cross_table_groups
@@ -643,12 +548,11 @@ def _generate_cross_table_recommendations(
 
     if fk_groups and len(fk_groups) >= 2:
         recommendations.append(
-            "⚠️ Multiple dependency groups involve foreign key relationships. "
+            "Multiple dependency groups involve foreign key relationships. "
             "This may indicate aggressive denormalization. Verify that duplicated "
             "data serves a clear performance or business purpose."
         )
 
-    # Check for semantic duplication
     semantic_groups = [
         group
         for group in analysis.cross_table_groups
@@ -658,45 +562,40 @@ def _generate_cross_table_recommendations(
 
     if semantic_groups:
         recommendations.append(
-            "💡 Semantically similar columns detected across tables without formal "
+            "Semantically similar columns detected across tables without formal "
             "foreign key relationships. This may indicate shadow schemas or data "
             "duplication. Consider establishing explicit relationships or consolidating."
         )
 
-    # Overall condition index guidance
     if analysis.overall_condition_index > 30:
         recommendations.append(
-            "⚠️ Severe unified Condition Index (>30) indicates high degree of "
+            "Severe unified Condition Index (>30) indicates high degree of "
             "linear dependency across the entire dataset. Cross-table regression "
             "or multi-table analysis may produce unstable estimates. Consider "
             "feature selection or dimensionality reduction before modeling."
         )
     elif analysis.overall_condition_index > 10:
         recommendations.append(
-            "ℹ️ Moderate unified Condition Index (10-30) detected. This is common "
+            "Moderate unified Condition Index (10-30) detected. This is common "
             "in normalized schemas with many relationships. Be cautious when using "
             "columns from multiple related tables in the same regression model."
         )
 
-    # Group-specific recommendations (most actionable)
     for group in analysis.cross_table_groups:
         if group.severity == "severe":
-            col_refs = [f"{table}.{col}" for table, col in group.involved_columns[:3]]
-            col_list = ", ".join(col_refs)
-            if len(group.involved_columns) > 3:
-                col_list += f", and {len(group.involved_columns) - 3} others"
+            col_refs = [f"{table}.{col}" for table, col in group.involved_columns]
+            col_list = format_list_with_overflow(col_refs, max_display=3)
 
             table_names = list({table for table, _ in group.involved_columns})
             recommendations.append(
-                f"🔴 Severe Dependency: {col_list} across {', '.join(table_names)} "
+                f"Severe Dependency: {col_list} across {', '.join(table_names)} "
                 f"(CI={group.condition_index:.1f}). Investigate if one column is "
                 f"derived from others or represents duplicate data."
             )
 
-    # General advice for moderate severity
     if analysis.overall_severity == "moderate" and not severe_cross_table:
         recommendations.append(
-            "✅ Moderate cross-table multicollinearity is expected in normalized "
+            "Moderate cross-table multicollinearity is expected in normalized "
             "schemas with relationships. This doesn't invalidate analysis but be "
             "mindful when combining columns from related tables in statistical models."
         )
@@ -712,32 +611,24 @@ def format_cross_table_multicollinearity_for_llm(
     Transforms unified correlation matrix analysis into structured context with
     natural language interpretations, join paths, and actionable recommendations.
 
-    This extends single-table multicollinearity to detect dependencies across
-    related tables using a unified correlation matrix built from enrichment
-    relationships (FK, semantic, correlation, hierarchy).
-
     Args:
         analysis: CrossTableMulticollinearityAnalysis from enrichment
 
     Returns:
         Dict with cross-table multicollinearity context for LLM
     """
-    # Generate overall interpretation
     interpretation = _get_cross_table_interpretation(analysis)
 
-    # Format cross-table dependency groups
     cross_table_groups_formatted = []
     if analysis.cross_table_groups:
         cross_table_groups_formatted = _format_cross_table_dependency_groups(
             analysis.cross_table_groups
         )
 
-    # Format all dependency groups (including single-table for context)
     all_groups_formatted = []
     if analysis.dependency_groups:
         all_groups_formatted = _format_cross_table_dependency_groups(analysis.dependency_groups)
 
-    # Generate recommendations
     recommendations = _generate_cross_table_recommendations(analysis)
 
     return {
