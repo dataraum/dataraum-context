@@ -1,0 +1,859 @@
+# =============================================================================
+# Operating Cash Flow (OCF) Calculation Graph - Indirect Method
+# =============================================================================
+# 
+# Purpose: Calculate cash generated from core business operations
+# 
+# Formula: Net Income + Non-Cash Items + Working Capital Changes
+# 
+# The indirect method reconciles net income (accrual basis) to cash flow
+# (cash basis) by adjusting for non-cash items and changes in working capital.
+# 
+# This is the most common method used in financial reporting.
+# =============================================================================
+
+graph_id: "ocf_indirect"
+version: "1.0"
+category: "cash_flow"
+complexity: "high"  # Requires multiple statements and period comparisons
+
+metadata:
+  created_by: "Dataraum Finance KB"
+  last_updated: "2025-01-15"
+  tested_with: ["datev_skr03", "datev_skr04", "standard_coa"]
+  typical_execution_time_ms: 200
+  also_known_as: ["operating_cash_flow", "cash_from_operations", "CFO"]
+
+# =============================================================================
+# Core Calculation Definition
+# =============================================================================
+
+output:
+  metric_id: "operating_cash_flow"
+  description: "Cash generated from core business operations"
+  unit: "currency"
+  data_type: "float"
+  decimal_places: 2
+
+formula:
+  human_readable: "Net Income + Non-Cash Expenses + Working Capital Changes"
+  mathematical: "OCF = NI + D + A + ΔWC"
+  components:
+    - "NI = Net Income (from income statement)"
+    - "D = Depreciation (add back non-cash expense)"
+    - "A = Amortization (add back non-cash expense)"
+    - "ΔWC = Change in Working Capital"
+    - "  ΔWC = -(ΔAR + ΔInventory + ΔPrepaid) + (ΔAP + ΔAccrued)"
+  
+  logic: |
+    Start with net income (accrual basis profit)
+    Add back: Non-cash expenses (depreciation, amortization)
+    Adjust for: Changes in working capital accounts
+      - Increase in AR = cash not yet collected (subtract)
+      - Decrease in AR = cash collected (add)
+      - Increase in inventory = cash used (subtract)
+      - Decrease in inventory = cash freed (add)
+      - Increase in AP = cash not yet paid (add)
+      - Decrease in AP = cash paid (subtract)
+
+# =============================================================================
+# Dependency Graph
+# =============================================================================
+
+dependencies:
+  
+  # Level 1: Base Data Inputs - Current Period
+  # ------------------------------------------
+  
+  net_income:
+    dependency_id: "net_income"
+    level: 1
+    type: "direct"
+    description: "Net income (profit after tax) for the period"
+    
+    source:
+      statement: "income_statement"
+      standard_field: "net_income"
+      aggregation: "sum"
+      period: "current"
+      
+    datev_mapping:
+      skr03:
+        - 900   # Jahresüberschuss/Jahresfehlbetrag
+        - 910   # Gewinn/Verlust
+      skr04:
+        - 2999  # Jahresergebnis
+        
+    accounting_notes: |
+      Net income is the bottom line of the income statement.
+      
+      Calculation: Revenue - COGS - Operating Expenses - Interest - Taxes
+      
+      This is the starting point for indirect method OCF because it represents
+      the accrual-basis profitability that needs to be converted to cash basis.
+      
+    validation:
+      - check: "net_income IS NOT NULL"
+        severity: "error"
+        message: "Net income is required for OCF calculation"
+        
+    required: true
+    nullable: false
+    
+  depreciation_amortization:
+    dependency_id: "depreciation_amortization"
+    level: 1
+    type: "direct"
+    description: "Depreciation and amortization expense (non-cash)"
+    
+    source:
+      statement: "income_statement"
+      standard_field: "depreciation_amortization"
+      aggregation: "sum"
+      period: "current"
+      
+    datev_mapping:
+      skr03:
+        - 7480  # Abschreibungen auf Sachanlagen (Depreciation on tangible assets)
+        - 7481  # Abschreibungen auf immaterielle Vermögensgegenstände (Amortization)
+        - 7482  # Abschreibungen Finanzanlagen
+        - 7483  # Sonstige Abschreibungen
+      skr04:
+        - 7610  # Abschreibungen auf Sachanlagen
+        - 7620  # Abschreibungen auf immaterielle Vermögensgegenstände
+        - 7630  # Abschreibungen Finanzanlagen
+        
+    accounting_notes: |
+      Depreciation and amortization are NON-CASH expenses.
+      
+      They reduced net income but didn't use cash, so we add them back
+      to reconcile to cash flow.
+      
+      Important: We add back the EXPENSE, not the accumulated balance.
+      
+    validation:
+      - check: "depreciation_amortization >= 0"
+        severity: "warning"
+        message: "Depreciation should be positive or zero"
+        
+    required: true
+    nullable: false
+    default_if_missing: 0
+    
+  stock_based_compensation:
+    dependency_id: "stock_compensation"
+    level: 1
+    type: "direct"
+    description: "Stock-based compensation expense (non-cash)"
+    
+    source:
+      statement: "income_statement"
+      standard_field: "stock_based_compensation"
+      aggregation: "sum"
+      period: "current"
+      
+    datev_mapping:
+      skr03:
+        - 6500  # Part of personnel costs (may need custom mapping)
+      skr04:
+        - 7400  # Part of personnel costs
+        
+    accounting_notes: |
+      Stock-based compensation is an expense that doesn't use cash
+      (company issues shares instead of paying cash).
+      
+      Not all companies have this (more common in startups/tech).
+      
+    validation:
+      - check: "stock_based_compensation >= 0"
+        severity: "warning"
+        message: "Stock compensation should be positive or zero"
+        
+    required: false
+    nullable: true
+    default_if_missing: 0
+    
+  # Level 2: Working Capital - Current Period Balances
+  # ---------------------------------------------------
+  
+  accounts_receivable_current:
+    dependency_id: "ar_current"
+    level: 2
+    type: "direct"
+    description: "Accounts receivable at end of current period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "accounts_receivable"
+      aggregation: "end_of_period"
+      period: "current"
+      
+    datev_mapping:
+      skr03: [1200, 1400]
+      skr04: [1200, 1400]
+      
+    validation:
+      - check: "accounts_receivable >= 0"
+        severity: "error"
+        message: "Accounts receivable cannot be negative"
+        
+    required: true
+    nullable: false
+    
+  inventory_current:
+    dependency_id: "inventory_current"
+    level: 2
+    type: "direct"
+    description: "Inventory at end of current period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "inventory"
+      aggregation: "end_of_period"
+      period: "current"
+      
+    datev_mapping:
+      skr03: [1000, 1100, 1140, 1200, 1300]
+      skr04: [1000, 1100, 1200]
+      
+    validation:
+      - check: "inventory >= 0"
+        severity: "error"
+        message: "Inventory cannot be negative"
+        
+    required: false
+    nullable: true
+    default_if_missing: 0
+    
+  prepaid_expenses_current:
+    dependency_id: "prepaid_current"
+    level: 2
+    type: "direct"
+    description: "Prepaid expenses at end of current period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "prepaid_expenses"
+      aggregation: "end_of_period"
+      period: "current"
+      
+    datev_mapping:
+      skr03: [1500, 1510, 1520]
+      skr04: [1500, 1510]
+      
+    validation:
+      - check: "prepaid_expenses >= 0"
+        severity: "warning"
+        message: "Prepaid expenses typically non-negative"
+        
+    required: false
+    nullable: true
+    default_if_missing: 0
+    
+  accounts_payable_current:
+    dependency_id: "ap_current"
+    level: 2
+    type: "direct"
+    description: "Accounts payable at end of current period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "accounts_payable"
+      aggregation: "end_of_period"
+      period: "current"
+      
+    datev_mapping:
+      skr03: [1600, 3300, 3320, 3340]
+      skr04: [3300, 3310, 3320]
+      
+    validation:
+      - check: "accounts_payable >= 0"
+        severity: "warning"
+        message: "Accounts payable typically non-negative"
+        
+    required: true
+    nullable: false
+    
+  accrued_expenses_current:
+    dependency_id: "accrued_current"
+    level: 2
+    type: "direct"
+    description: "Accrued expenses at end of current period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "accrued_expenses"
+      aggregation: "end_of_period"
+      period: "current"
+      
+    datev_mapping:
+      skr03: [1700, 1710, 1720, 1730]
+      skr04: [1700, 1710, 1720]
+      
+    validation:
+      - check: "accrued_expenses >= 0"
+        severity: "warning"
+        message: "Accrued expenses typically non-negative"
+        
+    required: false
+    nullable: true
+    default_if_missing: 0
+  
+  # Level 3: Working Capital - Prior Period Balances
+  # -------------------------------------------------
+  
+  accounts_receivable_prior:
+    dependency_id: "ar_prior"
+    level: 3
+    type: "direct"
+    description: "Accounts receivable at end of prior period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "accounts_receivable"
+      aggregation: "end_of_period"
+      period: "prior"
+      
+    datev_mapping:
+      skr03: [1200, 1400]
+      skr04: [1200, 1400]
+      
+    validation:
+      - check: "accounts_receivable >= 0"
+        severity: "error"
+        message: "Accounts receivable cannot be negative"
+        
+    required: true
+    nullable: false
+    
+  inventory_prior:
+    dependency_id: "inventory_prior"
+    level: 3
+    type: "direct"
+    description: "Inventory at end of prior period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "inventory"
+      aggregation: "end_of_period"
+      period: "prior"
+      
+    datev_mapping:
+      skr03: [1000, 1100, 1140, 1200, 1300]
+      skr04: [1000, 1100, 1200]
+      
+    required: false
+    nullable: true
+    default_if_missing: 0
+    
+  prepaid_expenses_prior:
+    dependency_id: "prepaid_prior"
+    level: 3
+    type: "direct"
+    description: "Prepaid expenses at end of prior period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "prepaid_expenses"
+      aggregation: "end_of_period"
+      period: "prior"
+      
+    datev_mapping:
+      skr03: [1500, 1510, 1520]
+      skr04: [1500, 1510]
+      
+    required: false
+    nullable: true
+    default_if_missing: 0
+    
+  accounts_payable_prior:
+    dependency_id: "ap_prior"
+    level: 3
+    type: "direct"
+    description: "Accounts payable at end of prior period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "accounts_payable"
+      aggregation: "end_of_period"
+      period: "prior"
+      
+    datev_mapping:
+      skr03: [1600, 3300, 3320, 3340]
+      skr04: [3300, 3310, 3320]
+      
+    required: true
+    nullable: false
+    
+  accrued_expenses_prior:
+    dependency_id: "accrued_prior"
+    level: 3
+    type: "direct"
+    description: "Accrued expenses at end of prior period"
+    
+    source:
+      statement: "balance_sheet"
+      standard_field: "accrued_expenses"
+      aggregation: "end_of_period"
+      period: "prior"
+      
+    datev_mapping:
+      skr03: [1700, 1710, 1720, 1730]
+      skr04: [1700, 1710, 1720]
+      
+    required: false
+    nullable: true
+    default_if_missing: 0
+  
+  # Level 4: Derived - Working Capital Changes
+  # -------------------------------------------
+  
+  change_in_ar:
+    dependency_id: "delta_ar"
+    level: 4
+    type: "derived"
+    description: "Change in accounts receivable (current - prior)"
+    
+    calculation:
+      formula: "accounts_receivable_current - accounts_receivable_prior"
+      depends_on: ["ar_current", "ar_prior"]
+      
+    interpretation:
+      positive: "AR increased = cash not yet collected (USE of cash)"
+      negative: "AR decreased = collected cash (SOURCE of cash)"
+      
+    required: true
+    
+  change_in_inventory:
+    dependency_id: "delta_inventory"
+    level: 4
+    type: "derived"
+    description: "Change in inventory (current - prior)"
+    
+    calculation:
+      formula: "inventory_current - inventory_prior"
+      depends_on: ["inventory_current", "inventory_prior"]
+      
+    interpretation:
+      positive: "Inventory increased = cash used to buy inventory (USE of cash)"
+      negative: "Inventory decreased = inventory sold/used (SOURCE of cash)"
+      
+    required: true
+    
+  change_in_prepaid:
+    dependency_id: "delta_prepaid"
+    level: 4
+    type: "derived"
+    description: "Change in prepaid expenses (current - prior)"
+    
+    calculation:
+      formula: "prepaid_expenses_current - prepaid_expenses_prior"
+      depends_on: ["prepaid_current", "prepaid_prior"]
+      
+    interpretation:
+      positive: "Prepaid increased = cash paid in advance (USE of cash)"
+      negative: "Prepaid decreased = expenses recognized (SOURCE of cash)"
+      
+    required: true
+    
+  change_in_ap:
+    dependency_id: "delta_ap"
+    level: 4
+    type: "derived"
+    description: "Change in accounts payable (current - prior)"
+    
+    calculation:
+      formula: "accounts_payable_current - accounts_payable_prior"
+      depends_on: ["ap_current", "ap_prior"]
+      
+    interpretation:
+      positive: "AP increased = expenses incurred but not paid (SOURCE of cash)"
+      negative: "AP decreased = paid suppliers (USE of cash)"
+      
+    required: true
+    
+  change_in_accrued:
+    dependency_id: "delta_accrued"
+    level: 4
+    type: "derived"
+    description: "Change in accrued expenses (current - prior)"
+    
+    calculation:
+      formula: "accrued_expenses_current - accrued_expenses_prior"
+      depends_on: ["accrued_current", "accrued_prior"]
+      
+    interpretation:
+      positive: "Accrued increased = expenses not yet paid (SOURCE of cash)"
+      negative: "Accrued decreased = paid accrued expenses (USE of cash)"
+      
+    required: true
+  
+  # Level 5: Aggregated Working Capital Change
+  # -------------------------------------------
+  
+  total_working_capital_change:
+    dependency_id: "total_wc_change"
+    level: 5
+    type: "derived"
+    description: "Total impact of working capital changes on cash"
+    
+    calculation:
+      formula: "-(change_in_ar + change_in_inventory + change_in_prepaid) + (change_in_ap + change_in_accrued)"
+      depends_on: ["delta_ar", "delta_inventory", "delta_prepaid", "delta_ap", "delta_accrued"]
+      
+    interpretation:
+      positive: "Working capital changes generated cash"
+      negative: "Working capital changes used cash"
+      
+    components_detail: |
+      Uses of cash (subtract from net income):
+        - Increase in AR (credit sales not yet collected)
+        - Increase in inventory (cash used to purchase)
+        - Increase in prepaid (cash paid in advance)
+        
+      Sources of cash (add to net income):
+        - Decrease in AR (collections)
+        - Decrease in inventory (inventory sold/consumed)
+        - Decrease in prepaid (expense recognized)
+        - Increase in AP (purchases on credit)
+        - Increase in accrued (expenses incurred but not paid)
+      
+    required: true
+
+# =============================================================================
+# SQL Generation Template
+# =============================================================================
+
+sql_template: |
+  -- =========================================================================
+  -- Operating Cash Flow (Indirect Method) Calculation
+  -- Generated from calculation graph: ocf_calculation_graph.yaml v1.0
+  -- =========================================================================
+  
+  WITH parameters AS (
+    SELECT 
+      '{{current_period}}'::DATE as current_period,
+      DATE_SUB('{{current_period}}', INTERVAL 1 MONTH) as prior_period
+  ),
+  
+  income_data AS (
+    -- Level 1: Get net income and non-cash expenses
+    SELECT
+      p.current_period,
+      COALESCE(is_table.net_income, 0) as net_income,
+      COALESCE(is_table.depreciation_amortization, 0) as depreciation_amortization,
+      COALESCE(is_table.stock_based_compensation, 0) as stock_compensation
+    FROM parameters p
+    LEFT JOIN income_statement is_table 
+      ON is_table.period = p.current_period
+  ),
+  
+  balance_sheet_current AS (
+    -- Level 2: Get current period working capital balances
+    SELECT
+      p.current_period,
+      COALESCE(bs.accounts_receivable, 0) as ar_current,
+      COALESCE(bs.inventory, 0) as inventory_current,
+      COALESCE(bs.prepaid_expenses, 0) as prepaid_current,
+      COALESCE(bs.accounts_payable, 0) as ap_current,
+      COALESCE(bs.accrued_expenses, 0) as accrued_current
+    FROM parameters p
+    LEFT JOIN balance_sheet bs 
+      ON bs.period = p.current_period
+  ),
+  
+  balance_sheet_prior AS (
+    -- Level 3: Get prior period working capital balances
+    SELECT
+      p.prior_period,
+      COALESCE(bs.accounts_receivable, 0) as ar_prior,
+      COALESCE(bs.inventory, 0) as inventory_prior,
+      COALESCE(bs.prepaid_expenses, 0) as prepaid_prior,
+      COALESCE(bs.accounts_payable, 0) as ap_prior,
+      COALESCE(bs.accrued_expenses, 0) as accrued_prior
+    FROM parameters p
+    LEFT JOIN balance_sheet bs 
+      ON bs.period = p.prior_period
+  ),
+  
+  working_capital_changes AS (
+    -- Level 4: Calculate changes in working capital accounts
+    SELECT
+      -- Changes in current assets (increases use cash, decreases generate cash)
+      (bsc.ar_current - bsp.ar_prior) as change_in_ar,
+      (bsc.inventory_current - bsp.inventory_prior) as change_in_inventory,
+      (bsc.prepaid_current - bsp.prepaid_prior) as change_in_prepaid,
+      
+      -- Changes in current liabilities (increases generate cash, decreases use cash)
+      (bsc.ap_current - bsp.ap_prior) as change_in_ap,
+      (bsc.accrued_current - bsp.accrued_prior) as change_in_accrued,
+      
+      -- Total working capital impact (Level 5)
+      -- Subtract increases in assets, add increases in liabilities
+      -(bsc.ar_current - bsp.ar_prior) 
+      -(bsc.inventory_current - bsp.inventory_prior)
+      -(bsc.prepaid_current - bsp.prepaid_prior)
+      +(bsc.ap_current - bsp.ap_prior)
+      +(bsc.accrued_current - bsp.accrued_prior)
+      as total_wc_change,
+      
+      -- For detailed reporting
+      bsc.ar_current,
+      bsp.ar_prior,
+      bsc.inventory_current,
+      bsp.inventory_prior,
+      bsc.prepaid_current,
+      bsp.prepaid_prior,
+      bsc.ap_current,
+      bsp.ap_prior,
+      bsc.accrued_current,
+      bsp.accrued_prior
+      
+    FROM balance_sheet_current bsc
+    CROSS JOIN balance_sheet_prior bsp
+  ),
+  
+  ocf_calculation AS (
+    -- Final OCF calculation
+    SELECT
+      -- Components
+      id.net_income,
+      id.depreciation_amortization,
+      id.stock_compensation,
+      id.depreciation_amortization + id.stock_compensation as total_non_cash_items,
+      
+      wc.change_in_ar,
+      wc.change_in_inventory,
+      wc.change_in_prepaid,
+      wc.change_in_ap,
+      wc.change_in_accrued,
+      wc.total_wc_change,
+      
+      -- Operating Cash Flow Calculation
+      id.net_income 
+      + id.depreciation_amortization 
+      + id.stock_compensation
+      + wc.total_wc_change
+      as operating_cash_flow,
+      
+      -- Metadata
+      id.current_period,
+      p.prior_period,
+      CURRENT_TIMESTAMP as calculated_at,
+      
+      -- Working capital detail (for transparency)
+      wc.ar_current,
+      wc.ar_prior,
+      wc.inventory_current,
+      wc.inventory_prior,
+      wc.prepaid_current,
+      wc.prepaid_prior,
+      wc.ap_current,
+      wc.ap_prior,
+      wc.accrued_current,
+      wc.accrued_prior
+      
+    FROM income_data id
+    CROSS JOIN working_capital_changes wc
+    CROSS JOIN parameters p
+  )
+  
+  SELECT
+    -- Primary output
+    operating_cash_flow,
+    
+    -- Detailed breakdown (for transparency and auditability)
+    net_income,
+    total_non_cash_items,
+    depreciation_amortization,
+    stock_compensation,
+    total_wc_change,
+    
+    -- Working capital detail
+    change_in_ar,
+    change_in_inventory,
+    change_in_prepaid,
+    change_in_ap,
+    change_in_accrued,
+    
+    -- Interpretation helpers
+    CASE 
+      WHEN operating_cash_flow > net_income THEN 'STRONG'
+      WHEN operating_cash_flow > 0 AND operating_cash_flow <= net_income THEN 'ADEQUATE'
+      WHEN operating_cash_flow > 0 AND net_income < 0 THEN 'PROFITABLE_ON_CASH_BASIS'
+      WHEN operating_cash_flow < 0 AND net_income > 0 THEN 'WORKING_CAPITAL_STRAIN'
+      WHEN operating_cash_flow < 0 AND net_income < 0 THEN 'CRITICAL'
+      ELSE 'NEUTRAL'
+    END as ocf_health_status,
+    
+    CASE 
+      WHEN net_income != 0 THEN 
+        (operating_cash_flow / NULLIF(net_income, 0)) * 100
+      ELSE NULL
+    END as ocf_to_net_income_ratio,
+    
+    -- Working capital balances (for reference)
+    ar_current,
+    ar_prior,
+    inventory_current,
+    inventory_prior,
+    prepaid_current,
+    prepaid_prior,
+    ap_current,
+    ap_prior,
+    accrued_current,
+    accrued_prior,
+    
+    -- Metadata
+    current_period,
+    prior_period,
+    calculated_at,
+    
+    -- Hash for reproducibility
+    MD5(
+      CONCAT(
+        current_period::TEXT, '|',
+        prior_period::TEXT
+      )
+    ) as calculation_hash
+    
+  FROM ocf_calculation;
+
+# =============================================================================
+# Validation Rules
+# =============================================================================
+
+pre_execution_validations:
+  
+  - validation_id: "net_income_exists"
+    check: "SELECT COUNT(*) FROM income_statement WHERE period = '{{current_period}}' AND net_income IS NOT NULL"
+    expected: "> 0"
+    severity: "error"
+    message: "Net income required for OCF calculation"
+    
+  - validation_id: "balance_sheet_current_exists"
+    check: "SELECT COUNT(*) FROM balance_sheet WHERE period = '{{current_period}}'"
+    expected: "> 0"
+    severity: "error"
+    message: "Current period balance sheet required"
+    
+  - validation_id: "balance_sheet_prior_exists"
+    check: "SELECT COUNT(*) FROM balance_sheet WHERE period = DATE_SUB('{{current_period}}', INTERVAL 1 MONTH)"
+    expected: "> 0"
+    severity: "error"
+    message: "Prior period balance sheet required for working capital changes"
+
+post_execution_validations:
+  
+  - validation_id: "ocf_reasonable_vs_net_income"
+    check: "ABS(operating_cash_flow - net_income) < (ABS(net_income) * 3)"
+    severity: "warning"
+    message: "OCF differs significantly from net income - verify working capital changes"
+
+# =============================================================================
+# Interpretation Guide
+# =============================================================================
+
+interpretation:
+  
+  context: |
+    Operating Cash Flow (OCF) shows the cash generated by core business operations.
+    
+    Key insights:
+    - OCF > Net Income: Strong cash generation (healthy)
+    - OCF < Net Income: Working capital consuming cash (watch carefully)
+    - OCF positive, Net Income negative: Cash-basis profitability
+    - OCF negative, Net Income positive: Working capital strain (concerning)
+    
+    The relationship between OCF and Net Income reveals:
+    - Quality of earnings (cash vs accrual)
+    - Working capital management efficiency
+    - Sustainability of business model
+    
+  healthy_indicators:
+    - "OCF consistently positive"
+    - "OCF > Net Income (indicates strong cash conversion)"
+    - "Working capital changes are modest relative to net income"
+    - "OCF covers capital expenditures (Free Cash Flow positive)"
+    
+  warning_signs:
+    - "OCF < Net Income persistently (working capital drain)"
+    - "Large negative working capital changes"
+    - "OCF negative while reporting profits (non-sustainable)"
+    - "High volatility in OCF period-over-period"
+    
+  actionable_insights:
+    strong_ocf:
+      - "Consider growth investments"
+      - "Evaluate debt reduction opportunities"
+      - "May have room to extend customer payment terms"
+      
+    weak_ocf:
+      - "Tighten working capital management"
+      - "Accelerate AR collection (reduce DSO)"
+      - "Optimize inventory levels (reduce DIO)"
+      - "Negotiate better supplier terms (increase DPO)"
+      - "Review if revenue growth is sustainable"
+
+# =============================================================================
+# Related Metrics
+# =============================================================================
+
+related_metrics:
+  
+  - metric_id: "free_cash_flow"
+    name: "Free Cash Flow"
+    formula: "Operating Cash Flow - Capital Expenditures"
+    relationship: "FCF shows cash available after maintaining/expanding asset base"
+    
+  - metric_id: "cash_flow_margin"
+    name: "Operating Cash Flow Margin"
+    formula: "(Operating Cash Flow / Revenue) × 100"
+    relationship: "Shows OCF as percentage of revenue"
+    
+  - metric_id: "cash_conversion_cycle"
+    name: "Cash Conversion Cycle"
+    formula: "DSO + DIO - DPO"
+    relationship: "Working capital efficiency drives OCF"
+
+# =============================================================================
+# Testing & Examples
+# =============================================================================
+
+test_cases:
+  
+  - test_id: "healthy_saas_company"
+    description: "Profitable SaaS with strong cash conversion"
+    input:
+      net_income: 100000
+      depreciation: 20000
+      change_in_ar: -10000  # Collected cash
+      change_in_ap: 5000     # Extended payables
+    expected_output:
+      operating_cash_flow: 135000
+      ocf_health_status: "STRONG"
+      
+  - test_id: "growth_company_cash_drain"
+    description: "Profitable but AR/inventory growing faster than payables"
+    input:
+      net_income: 50000
+      depreciation: 10000
+      change_in_ar: 40000    # Growing receivables
+      change_in_inventory: 30000  # Building inventory
+      change_in_ap: 15000    # Growing payables
+    expected_output:
+      operating_cash_flow: -5000
+      ocf_health_status: "WORKING_CAPITAL_STRAIN"
+
+# =============================================================================
+# Change Log
+# =============================================================================
+
+changelog:
+  - version: "1.0"
+    date: "2025-01-15"
+    changes:
+      - "Initial OCF indirect method calculation graph"
+      - "Complete working capital reconciliation"
+      - "DATEV mappings for German accounting"
+      - "Comprehensive validation and interpretation"

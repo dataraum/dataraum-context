@@ -18,70 +18,93 @@ from dataraum_context.profiling.models import (
     SingleRelationshipJoin,
 )
 from dataraum_context.quality.formatting.base import format_list_with_overflow
-
-# =============================================================================
-# VIF Thresholds and Interpretation
-# =============================================================================
-
-# Research-based VIF thresholds:
-# - VIF = 1: No multicollinearity
-# - VIF 1-5: Low to moderate (acceptable)
-# - VIF > 5: High, requires attention
-# - VIF > 10: Serious, often problematic
-
-_VIF_THRESHOLDS = {
-    "none": 1.0,
-    "low_to_moderate": 5.0,
-    "high": 10.0,
-}
-
-# Condition Index thresholds:
-# - CI < 10: No multicollinearity
-# - CI 10-30: Moderate
-# - CI > 30: Severe
-
-_CI_THRESHOLDS = {
-    "none": 10.0,
-    "moderate": 30.0,
-}
+from dataraum_context.quality.formatting.config import FormatterConfig, get_default_config
 
 
-def _get_vif_severity_label(vif: float) -> str:
-    """Get severity label based on research thresholds."""
-    if vif <= _VIF_THRESHOLDS["none"]:
-        return "none"
-    elif vif <= _VIF_THRESHOLDS["low_to_moderate"]:
-        return "low_to_moderate"
-    elif vif <= _VIF_THRESHOLDS["high"]:
-        return "high"
+def _get_vif_severity_label(vif: float, config: FormatterConfig | None = None) -> str:
+    """Get severity label based on configured thresholds.
+
+    Args:
+        vif: VIF value
+        config: Optional formatter config (uses defaults if not provided)
+
+    Returns:
+        Severity label (none, low, moderate, high, severe)
+    """
+    config = config or get_default_config()
+    return config.get_severity("multicollinearity", "vif", vif)
+
+
+def _get_vif_interpretation(vif: float, config: FormatterConfig | None = None) -> str:
+    """Get natural language interpretation of VIF value.
+
+    Args:
+        vif: VIF value
+        config: Optional formatter config for thresholds
+
+    Returns:
+        Human-readable interpretation
+    """
+    config = config or get_default_config()
+    threshold = config.get_threshold("multicollinearity", "vif")
+
+    # Get threshold values for interpretation boundaries
+    if threshold:
+        thresholds = threshold.thresholds
+        none_thresh = thresholds.get("none", 1.0)
+        moderate_thresh = thresholds.get("moderate", 5.0)
+        high_thresh = thresholds.get("high", 10.0)
     else:
-        return "serious"
+        none_thresh, moderate_thresh, high_thresh = 1.0, 5.0, 10.0
 
-
-def _get_vif_interpretation(vif: float) -> str:
-    """Get natural language interpretation of VIF value."""
-    if vif <= 1.0:
+    if vif <= none_thresh:
         return f"No multicollinearity detected (VIF={vif:.1f})"
-    elif vif <= 5.0:
+    elif vif <= moderate_thresh:
         return f"Low to moderate multicollinearity (VIF={vif:.1f}) - generally acceptable"
-    elif vif <= 10.0:
+    elif vif <= high_thresh:
         return f"High multicollinearity (VIF={vif:.1f}) - requires attention"
     else:
         return f"Serious multicollinearity (VIF={vif:.1f}) - often considered problematic"
 
 
-def _get_vif_impact(vif: float) -> str:
-    """Explain the practical impact of the VIF value."""
-    if vif <= 1.0:
+def _get_vif_impact(vif: float, config: FormatterConfig | None = None) -> str:
+    """Explain the practical impact of the VIF value.
+
+    Args:
+        vif: VIF value
+        config: Optional formatter config for thresholds
+
+    Returns:
+        Human-readable impact description
+    """
+    config = config or get_default_config()
+    threshold = config.get_threshold("multicollinearity", "vif")
+
+    # Get threshold values for impact boundaries
+    if threshold:
+        thresholds = threshold.thresholds
+        none_thresh = thresholds.get("none", 1.0)
+        moderate_thresh = thresholds.get("moderate", 5.0)
+        high_thresh = thresholds.get("high", 10.0)
+    else:
+        none_thresh, moderate_thresh, high_thresh = 1.0, 5.0, 10.0
+
+    if vif <= none_thresh:
         return "Column variance is not inflated by correlation with other columns"
-    elif vif <= 5.0:
+    elif vif <= moderate_thresh:
         variance_inflation = (vif - 1) * 100
         return f"Column variance inflated by ~{variance_inflation:.0f}% due to correlation with other columns"
-    elif vif <= 10.0:
-        return f"Column is {vif:.1f}x more variable than it would be if uncorrelated - may indicate redundancy"
+    elif vif <= high_thresh:
+        return (
+            f"Column is {vif:.1f}x more variable than it would be if uncorrelated - "
+            "may indicate redundancy"
+        )
     else:
         redundancy = (1 - 1 / vif) * 100
-        return f"Column is ~{redundancy:.0f}% redundant with other columns - likely derived or duplicate data"
+        return (
+            f"Column is ~{redundancy:.0f}% redundant with other columns - "
+            "likely derived or duplicate data"
+        )
 
 
 # =============================================================================
@@ -90,9 +113,12 @@ def _get_vif_impact(vif: float) -> str:
 
 
 def _format_dependency_groups(
-    dependency_groups: list[DependencyGroup], column_vifs: list[ColumnVIF]
+    dependency_groups: list[DependencyGroup],
+    column_vifs: list[ColumnVIF],
+    config: FormatterConfig | None = None,
 ) -> list[dict[str, Any]]:
     """Format dependency groups for LLM consumption."""
+    config = config or get_default_config()
     column_id_to_name = {vif.column_id: vif.column_ref.column_name for vif in column_vifs}
 
     formatted_groups = []
@@ -291,6 +317,7 @@ def _generate_multicollinearity_recommendations(
 
 def format_multicollinearity_for_llm(
     analysis: MulticollinearityAnalysis,
+    config: FormatterConfig | None = None,
 ) -> dict[str, Any]:
     """Format multicollinearity analysis for LLM consumption.
 
@@ -299,10 +326,12 @@ def format_multicollinearity_for_llm(
 
     Args:
         analysis: MulticollinearityAnalysis from profiling
+        config: Optional formatter configuration for thresholds
 
     Returns:
         Dict with multicollinearity context for LLM
     """
+    config = config or get_default_config()
     interpretation = _get_multicollinearity_interpretation(analysis)
 
     # Format table-level assessment
@@ -317,7 +346,7 @@ def format_multicollinearity_for_llm(
 
         if analysis.condition_index.dependency_groups:
             table_level["dependency_groups"] = _format_dependency_groups(
-                analysis.condition_index.dependency_groups, analysis.column_vifs
+                analysis.condition_index.dependency_groups, analysis.column_vifs, config
             )
 
     # Format problematic columns with detailed analysis
@@ -328,9 +357,9 @@ def format_multicollinearity_for_llm(
                 "column": vif.column_ref.column_name,
                 "vif": round(vif.vif, 2),
                 "tolerance": round(vif.tolerance, 3),
-                "severity": _get_vif_severity_label(vif.vif),
-                "interpretation": _get_vif_interpretation(vif.vif),
-                "impact": _get_vif_impact(vif.vif),
+                "severity": _get_vif_severity_label(vif.vif, config),
+                "interpretation": _get_vif_interpretation(vif.vif, config),
+                "impact": _get_vif_impact(vif.vif, config),
             }
 
             if vif.correlated_with:
@@ -605,6 +634,7 @@ def _generate_cross_table_recommendations(
 
 def format_cross_table_multicollinearity_for_llm(
     analysis: CrossTableMulticollinearityAnalysis,
+    config: FormatterConfig | None = None,
 ) -> dict[str, Any]:
     """Format cross-table multicollinearity analysis for LLM consumption.
 
@@ -613,10 +643,12 @@ def format_cross_table_multicollinearity_for_llm(
 
     Args:
         analysis: CrossTableMulticollinearityAnalysis from enrichment
+        config: Optional formatter configuration for thresholds
 
     Returns:
         Dict with cross-table multicollinearity context for LLM
     """
+    config = config or get_default_config()
     interpretation = _get_cross_table_interpretation(analysis)
 
     cross_table_groups_formatted = []
@@ -630,6 +662,13 @@ def format_cross_table_multicollinearity_for_llm(
         all_groups_formatted = _format_cross_table_dependency_groups(analysis.dependency_groups)
 
     recommendations = _generate_cross_table_recommendations(analysis)
+
+    # Get CI thresholds from config
+    ci_threshold = config.get_threshold("multicollinearity", "condition_index")
+    if ci_threshold:
+        ci_thresholds = ci_threshold.thresholds
+    else:
+        ci_thresholds = {"moderate": 10, "severe": 30}
 
     return {
         "cross_table_multicollinearity_assessment": {
@@ -675,7 +714,7 @@ def format_cross_table_multicollinearity_for_llm(
                 "analysis_method": "Belsley VDP on unified correlation matrix",
                 "relationship_sources": "Semantic + Topology + Temporal enrichment",
                 "vdp_threshold": 0.5,
-                "ci_thresholds": {"moderate": 10, "severe": 30},
+                "ci_thresholds": ci_thresholds,
             },
         }
     }

@@ -19,15 +19,30 @@ from dataraum_context.quality.formatting.multicollinearity import (
 
 
 def test_vif_severity_labels():
-    """Test VIF severity label assignment based on research thresholds."""
+    """Test VIF severity label assignment based on configured thresholds.
+
+    Default thresholds: none=1.0, low=2.5, moderate=5.0, high=10.0
+    Values above high threshold get default_severity="severe"
+    """
+    # At or below none threshold
     assert _get_vif_severity_label(1.0) == "none"
     assert _get_vif_severity_label(0.8) == "none"
-    assert _get_vif_severity_label(3.0) == "low_to_moderate"
-    assert _get_vif_severity_label(5.0) == "low_to_moderate"
+
+    # Between none and low (1.0 < x <= 2.5)
+    assert _get_vif_severity_label(2.0) == "low"
+    assert _get_vif_severity_label(2.5) == "low"
+
+    # Between low and moderate (2.5 < x <= 5.0)
+    assert _get_vif_severity_label(3.0) == "moderate"
+    assert _get_vif_severity_label(5.0) == "moderate"
+
+    # Between moderate and high (5.0 < x <= 10.0)
     assert _get_vif_severity_label(7.5) == "high"
     assert _get_vif_severity_label(10.0) == "high"
-    assert _get_vif_severity_label(15.0) == "serious"
-    assert _get_vif_severity_label(100.0) == "serious"
+
+    # Above high threshold (x > 10.0) - uses default_severity
+    assert _get_vif_severity_label(15.0) == "severe"
+    assert _get_vif_severity_label(100.0) == "severe"
 
 
 def test_vif_interpretation():
