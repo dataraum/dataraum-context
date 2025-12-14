@@ -35,6 +35,7 @@ class LLMFeatures(BaseModel):
     quality_rule_generation: FeatureConfig
     suggested_queries: FeatureConfig
     context_summary: FeatureConfig
+    filter_recommendations: FeatureConfig | None = None
 
 
 class LLMLimits(BaseModel):

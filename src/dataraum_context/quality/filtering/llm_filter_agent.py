@@ -1,14 +1,14 @@
 """LLM Filtering Agent - The Bridge (Phase 8).
 
-This module bridges System 2 (quality measurement) and System 1 (data filtering).
+This module bridges quality context (System 2) and data filtering (System 1).
 
 Flow:
-1. Query quality metrics from DuckDB views (System 2)
-2. Analyze metrics with LLM → generate filtering SQL
+1. Format quality context from metadata tables
+2. Analyze context with LLM → generate filtering SQL
 3. Return FilteringRecommendations for merger with user rules (Phase 9)
 
 Key Design:
-- LLM analyzes ALL quality pillars (statistical, topological, temporal, domain)
+- LLM analyzes quality context from all pillars (statistical, topological, temporal, domain)
 - Generates executable DuckDB SQL WHERE clauses
 - Provides clear rationale for each recommendation
 - User rules (Phase 9) can override/extend recommendations
@@ -25,8 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dataraum_context.core.models.base import Result
 from dataraum_context.llm import LLMService
 from dataraum_context.llm.providers.base import LLMRequest
+from dataraum_context.quality.context import format_table_quality_context
 from dataraum_context.quality.filtering.models import FilteringRecommendations
-from dataraum_context.storage.models_v2.core import Table
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +71,13 @@ async def analyze_quality_for_filtering(
     session: AsyncSession,
     llm_service: LLMService | None,
 ) -> Result[FilteringRecommendations]:
-    """Analyze quality metrics and generate filtering recommendations.
+    """Analyze quality context and generate filtering recommendations.
 
-    This is the LLM bridge between System 2 (measurement) and System 1 (filtering).
+    This is the LLM bridge between quality context and data filtering.
 
     Args:
         table_id: Table to analyze
-        duckdb_conn: DuckDB connection (with metadata attached)
+        duckdb_conn: DuckDB connection (for row counts)
         session: SQLAlchemy session for metadata queries
         llm_service: LLM service (optional - returns empty recommendations if None)
 
@@ -95,14 +95,10 @@ async def analyze_quality_for_filtering(
         ...         print(f"Filter: {filter}")
     """
     try:
-        # Get table metadata
-        from sqlalchemy import select
+        # Get quality context using the new context formatter
+        table_context = await format_table_quality_context(table_id, session, duckdb_conn)
 
-        stmt = select(Table).where(Table.table_id == table_id)
-        result = await session.execute(stmt)
-        table = result.scalar_one_or_none()
-
-        if not table:
+        if not table_context:
             return Result.fail(f"Table {table_id} not found")
 
         # If no LLM, return empty recommendations
@@ -117,79 +113,60 @@ async def analyze_quality_for_filtering(
                 )
             )
 
-        # Query column quality metrics from DuckDB view
-        column_query = f"""
-            SELECT
-                column_name,
-                resolved_type,
-                null_ratio,
-                cardinality_ratio,
-                statistical_quality_score,
-                benford_compliant,
-                iqr_outlier_ratio,
-                temporal_completeness,
-                has_seasonality,
-                is_stale,
-                vif,
-                has_multicollinearity,
-                semantic_role
-            FROM column_quality_assessment
-            WHERE table_id = '{table_id}'
-            ORDER BY column_name
-        """
+        # Build column metrics from context
+        column_metrics = []
+        for col in table_context.columns:
+            col_info = {
+                "column_name": col.column_name,
+                "null_ratio": col.null_ratio,
+                "cardinality_ratio": col.cardinality_ratio,
+                "outlier_ratio": col.outlier_ratio,
+                "parse_success_rate": col.parse_success_rate,
+                "benford_compliant": col.benford_compliant,
+                "is_stale": col.is_stale,
+                "data_freshness_days": col.data_freshness_days,
+                "has_seasonality": col.has_seasonality,
+                "has_trend": col.has_trend,
+                "flags": col.flags,
+                "issue_count": len(col.issues),
+            }
+            column_metrics.append(col_info)
 
-        try:
-            column_metrics_df = duckdb_conn.execute(column_query).fetchdf()
-            column_metrics = column_metrics_df.to_dict(orient="records")
-        except Exception as e:
-            logger.warning(f"Failed to query column quality view: {e}")
-            column_metrics = []
+        # Count issues by type
+        all_issues = table_context.issues + [
+            issue for col in table_context.columns for issue in col.issues
+        ]
+        critical_issues = sum(1 for i in all_issues if i.severity.value == "critical")
+        total_issues = len(all_issues)
 
-        # Query table quality metrics from DuckDB view
-        table_query = f"""
-            SELECT
-                avg_null_ratio,
-                avg_statistical_quality,
-                benford_violations,
-                avg_outlier_ratio,
-                stale_columns,
-                multicollinear_columns,
-                avg_vif,
-                cycles_count,
-                has_cycles,
-                overall_quality_score,
-                total_issues,
-                critical_issues
-            FROM table_quality_assessment
-            WHERE table_id = '{table_id}'
-        """
+        # Count specific issue types
+        benford_violations = sum(
+            1 for col in table_context.columns if col.benford_compliant is False
+        )
+        stale_columns = sum(1 for col in table_context.columns if col.is_stale is True)
 
-        try:
-            table_metrics_df = duckdb_conn.execute(table_query).fetchdf()
-            table_metrics = (
-                table_metrics_df.to_dict(orient="records")[0] if len(table_metrics_df) > 0 else {}
-            )
-        except Exception as e:
-            logger.warning(f"Failed to query table quality view: {e}")
-            table_metrics = {}
-
-        # Build problematic columns summary
+        # Build problematic columns summary from context
         problematic_columns = []
-        for col in column_metrics:
-            issues = []
-            if col.get("null_ratio", 0) > 0.3:
-                issues.append(f"High nulls: {col['null_ratio']:.1%}")
-            if col.get("benford_compliant") is False:
-                issues.append("Benford violation")
-            if col.get("iqr_outlier_ratio", 0) > 0.1:
-                issues.append(f"Outliers: {col['iqr_outlier_ratio']:.1%}")
-            if col.get("is_stale") is True:
-                issues.append("Stale data")
-            if col.get("has_multicollinearity") is True:
-                issues.append(f"Multicollinear (VIF={col.get('vif', 0):.1f})")
+        for col in table_context.columns:
+            if col.flags or col.issues:
+                issue_parts = []
+                if col.null_ratio and col.null_ratio > 0.3:
+                    issue_parts.append(f"High nulls: {col.null_ratio:.1%}")
+                if col.benford_compliant is False:
+                    issue_parts.append("Benford violation")
+                if col.outlier_ratio and col.outlier_ratio > 0.1:
+                    issue_parts.append(f"Outliers: {col.outlier_ratio:.1%}")
+                if col.is_stale is True:
+                    issue_parts.append("Stale data")
+                if "high_nulls" in col.flags:
+                    if not any("null" in p.lower() for p in issue_parts):
+                        issue_parts.append("High nulls (flagged)")
+                if "high_outliers" in col.flags:
+                    if not any("outlier" in p.lower() for p in issue_parts):
+                        issue_parts.append("High outliers (flagged)")
 
-            if issues:
-                problematic_columns.append(f"- {col['column_name']}: {', '.join(issues)}")
+                if issue_parts:
+                    problematic_columns.append(f"- {col.column_name}: {', '.join(issue_parts)}")
 
         # Load prompts
         try:
@@ -211,16 +188,14 @@ async def analyze_quality_for_filtering(
         user_template = filtering_prompt.get("user", "")
 
         user_prompt = user_template.format(
-            table_name=table.table_name,
-            row_count=table.row_count or 0,
-            column_count=len(column_metrics),
-            overall_quality_score=table_metrics.get("overall_quality_score", 1.0) or 1.0,
-            critical_issues=table_metrics.get("critical_issues", 0) or 0,
-            total_issues=table_metrics.get("total_issues", 0) or 0,
-            benford_violations=table_metrics.get("benford_violations", 0) or 0,
-            multicollinear_columns=table_metrics.get("multicollinear_columns", 0) or 0,
-            stale_columns=table_metrics.get("stale_columns", 0) or 0,
-            has_cycles=table_metrics.get("has_cycles", False) or False,
+            table_name=table_context.table_name,
+            row_count=table_context.row_count or 0,
+            column_count=table_context.column_count,
+            critical_issues=critical_issues,
+            total_issues=total_issues,
+            benford_violations=benford_violations,
+            stale_columns=stale_columns,
+            has_cycles=table_context.betti_1 is not None and table_context.betti_1 > 0,
             column_metrics_json=json.dumps(column_metrics, indent=2, default=str),
             problematic_columns_summary=(
                 "\n".join(problematic_columns)
@@ -267,7 +242,8 @@ async def analyze_quality_for_filtering(
 
             logger.info(
                 f"Generated {len(recommendations.clean_view_filters)} clean filters, "
-                f"{len(recommendations.quarantine_criteria)} quarantine criteria for {table.table_name}"
+                f"{len(recommendations.quarantine_criteria)} quarantine criteria "
+                f"for {table_context.table_name}"
             )
 
             return Result.ok(recommendations)

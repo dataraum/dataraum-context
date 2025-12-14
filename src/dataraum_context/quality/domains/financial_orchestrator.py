@@ -297,153 +297,6 @@ def detect_financial_anomalies(
     return anomalies
 
 
-def compute_financial_quality_score(
-    topological_result: Any,
-    financial_anomalies: list[TopologicalAnomaly],
-    classified_cycles: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Compute domain-weighted quality score for financial data.
-
-    Uses configuration-driven thresholds for penalties and bonuses.
-
-    Args:
-        topological_result: TopologicalQualityResult from analysis
-        financial_anomalies: List of detected anomalies
-        classified_cycles: List of LLM-classified cycles
-
-    Returns:
-        Dict with score and breakdown
-    """
-    config = _load_financial_config()
-    thresholds = config.get("quality_thresholds", {})
-
-    quality_score = 1.0
-    penalties: list[dict[str, Any]] = []
-    bonuses: list[dict[str, Any]] = []
-
-    # Critical penalties (structural integrity)
-    if topological_result and hasattr(topological_result, "betti_numbers"):
-        betti_0 = topological_result.betti_numbers.betti_0
-        critical_threshold = (
-            thresholds.get("critical", {}).get("disconnected_components", {}).get("threshold", 3)
-        )
-        critical_penalty = (
-            thresholds.get("critical", {}).get("disconnected_components", {}).get("penalty", 0.5)
-        )
-        moderate_penalty = (
-            thresholds.get("critical", {}).get("moderate_disconnection", {}).get("penalty", 0.2)
-        )
-
-        if betti_0 > critical_threshold:
-            quality_score -= critical_penalty
-            penalties.append(
-                {
-                    "type": "critical_fragmentation",
-                    "penalty": critical_penalty,
-                    "reason": f"Data fragmentation ({betti_0} components)",
-                }
-            )
-        elif betti_0 > 1:
-            quality_score -= moderate_penalty
-            penalties.append(
-                {
-                    "type": "moderate_fragmentation",
-                    "penalty": moderate_penalty,
-                    "reason": f"Multiple components ({betti_0})",
-                }
-            )
-
-    # Medium penalties (anomalies)
-    medium_thresholds = thresholds.get("medium", {})
-    anomaly_penalties = {
-        "excessive_financial_cycles": medium_thresholds.get("excessive_cycles", {}).get(
-            "penalty", 0.3
-        ),
-        "missing_financial_cycles": medium_thresholds.get("missing_expected_cycles", {}).get(
-            "penalty", 0.2
-        ),
-        "unclassified_financial_cycles": medium_thresholds.get("unclassified_cycles", {}).get(
-            "penalty", 0.15
-        ),
-        "cost_center_isolation": medium_thresholds.get("cost_center_isolation", {}).get(
-            "penalty", 0.2
-        ),
-        "financial_data_fragmentation": medium_thresholds.get("data_fragmentation", {}).get(
-            "penalty", 0.3
-        ),
-    }
-
-    for anomaly in financial_anomalies:
-        penalty = anomaly_penalties.get(anomaly.anomaly_type, 0.1)
-        quality_score -= penalty
-        penalties.append(
-            {
-                "type": anomaly.anomaly_type,
-                "penalty": penalty,
-                "reason": anomaly.description,
-            }
-        )
-
-    # Minor penalties (complexity)
-    cycle_count = len(classified_cycles)
-    minor_thresholds = thresholds.get("minor", {})
-    very_high_threshold = minor_thresholds.get("very_high_complexity", {}).get("threshold", 20)
-    high_threshold = minor_thresholds.get("high_complexity", {}).get("threshold", 15)
-
-    if cycle_count > very_high_threshold:
-        penalty = minor_thresholds.get("very_high_complexity", {}).get("penalty", 0.1)
-        quality_score -= penalty
-        penalties.append(
-            {
-                "type": "very_high_complexity",
-                "penalty": penalty,
-                "reason": f"Very high cycle count ({cycle_count})",
-            }
-        )
-    elif cycle_count > high_threshold:
-        penalty = minor_thresholds.get("high_complexity", {}).get("penalty", 0.05)
-        quality_score -= penalty
-        penalties.append(
-            {
-                "type": "high_complexity",
-                "penalty": penalty,
-                "reason": f"High cycle count ({cycle_count})",
-            }
-        )
-
-    # Bonus: Well-classified cycles
-    if cycle_count > 0:
-        classified_count = sum(
-            1 for c in classified_cycles if c.get("cycle_type") not in [None, "UNKNOWN"]
-        )
-        classification_rate = classified_count / cycle_count
-
-        bonus_config = thresholds.get("bonuses", {}).get("well_classified_cycles", {})
-        bonus_threshold = bonus_config.get("threshold", 0.8)
-        bonus_amount = bonus_config.get("bonus", 0.05)
-
-        if classification_rate > bonus_threshold:
-            quality_score += bonus_amount
-            bonuses.append(
-                {
-                    "type": "well_classified",
-                    "bonus": bonus_amount,
-                    "reason": f"{classification_rate:.0%} cycles classified",
-                }
-            )
-
-    # Clamp to valid range
-    quality_score = max(0.0, min(1.0, quality_score))
-
-    return {
-        "score": quality_score,
-        "penalties": penalties,
-        "bonuses": bonuses,
-        "cycle_count": cycle_count,
-        "anomaly_count": len(financial_anomalies),
-    }
-
-
 async def analyze_complete_financial_quality(
     table_id: str,
     duckdb_conn: duckdb.DuckDBPyConnection,
@@ -588,9 +441,6 @@ async def analyze_complete_financial_quality(
             )
             fiscal_stability = assess_fiscal_stability(stability, {})
             financial_anomalies = detect_financial_anomalies(topological_quality, [])
-            domain_quality_score = compute_financial_quality_score(
-                topological_quality, financial_anomalies, []
-            )
 
             domain_analysis = {
                 "fiscal_stability": fiscal_stability,
@@ -603,7 +453,7 @@ async def analyze_complete_financial_quality(
                     }
                     for a in financial_anomalies
                 ],
-                "quality_score": domain_quality_score,
+                "anomaly_count": len(financial_anomalies),
             }
 
             return Result.ok(
@@ -695,12 +545,7 @@ async def analyze_complete_financial_quality(
         # Detect financial-specific anomalies
         financial_anomalies = detect_financial_anomalies(topological_quality, classified_cycles)
 
-        # Compute domain-weighted quality score
-        domain_quality_score = compute_financial_quality_score(
-            topological_quality, financial_anomalies, classified_cycles
-        )
-
-        # Build domain analysis summary
+        # Build domain analysis summary (no scores - just anomalies and metrics)
         domain_analysis = {
             "fiscal_stability": fiscal_stability,
             "anomalies": [
@@ -712,7 +557,8 @@ async def analyze_complete_financial_quality(
                 }
                 for a in financial_anomalies
             ],
-            "quality_score": domain_quality_score,
+            "cycle_count": len(classified_cycles),
+            "anomaly_count": len(financial_anomalies),
         }
 
         # ============================================================================
