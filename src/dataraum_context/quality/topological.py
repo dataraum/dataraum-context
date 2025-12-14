@@ -678,26 +678,6 @@ async def analyze_topological_quality(
                 )
             )
 
-        # Compute quality score (0-1) based on multiple factors
-        quality_score = 1.0
-
-        # Penalty for disconnected components (expect 1)
-        if betti_numbers.betti_0 != 1:
-            quality_score -= min(0.3, betti_numbers.betti_0 * 0.1)
-
-        # Penalty for excessive cycles
-        if len(cycles) > 5:
-            quality_score -= min(0.3, (len(cycles) - 5) * 0.05)
-
-        # Penalty for instability
-        if stability and not stability.is_stable:
-            quality_score -= 0.2
-
-        # Penalty for anomalies
-        quality_score -= len(anomalies) * 0.1
-
-        quality_score = max(0.0, min(1.0, quality_score))
-
         # Compute historical complexity statistics
         complexity_stats = await compute_historical_complexity(
             session=session,
@@ -728,7 +708,6 @@ async def analyze_topological_quality(
             complexity_mean=complexity_mean,
             complexity_std=complexity_std,
             complexity_z_score=complexity_z_score,
-            quality_score=quality_score,
             has_anomalies=has_anomalies,
             anomalies=anomalies,
             anomalous_cycles=anomalous_cycles,

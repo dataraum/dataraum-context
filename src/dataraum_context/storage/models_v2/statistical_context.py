@@ -95,8 +95,6 @@ class StatisticalQualityMetrics(Base):
     )
 
     # STRUCTURED: Queryable quality indicators
-    quality_score: Mapped[float | None] = mapped_column(Float)  # 0-1 aggregate quality score
-
     # Flags for filtering (fast queries)
     benford_compliant: Mapped[bool | None] = mapped_column(Integer)
     has_outliers: Mapped[bool | None] = mapped_column(Integer)

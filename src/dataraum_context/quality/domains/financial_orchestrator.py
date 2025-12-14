@@ -867,7 +867,7 @@ async def analyze_complete_financial_dataset_quality(
                 per_table_topological[table_id] = {
                     "betti_0": tq.betti_numbers.betti_0,
                     "betti_1": tq.betti_numbers.betti_1,
-                    "quality_score": tq.quality_score,
+                    "structural_complexity": tq.structural_complexity,
                     "has_anomalies": tq.has_anomalies,
                 }
 

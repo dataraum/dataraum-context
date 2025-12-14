@@ -410,8 +410,6 @@ async def test_analyze_financial_quality_complete(db_session, duckdb_conn):
     financial_quality = result.value
     assert financial_quality.metric_id is not None
     assert financial_quality.double_entry_balanced
-    assert financial_quality.financial_quality_score >= 0.0
-    assert financial_quality.financial_quality_score <= 1.0
 
 
 @pytest.mark.asyncio
@@ -478,12 +476,10 @@ async def test_pydantic_financial_quality_result():
         sign_convention_compliance=1.0,
         fiscal_period_complete=True,
         period_end_cutoff_clean=True,
-        financial_quality_score=1.0,
         has_issues=False,
     )
 
     assert result.double_entry_balanced
-    assert result.financial_quality_score == 1.0
     assert result.double_entry_details.is_balanced
 
 

@@ -440,7 +440,6 @@ class TopologicalQualityResult(BaseModel):
     complexity_z_score: float | None = None
 
     # Quality assessment
-    quality_score: float  # Retained for analysis reference
     has_anomalies: bool = False
     anomalies: list[TopologicalAnomaly] = Field(default_factory=list)
     anomalous_cycles: list[CycleDetection] = Field(default_factory=list)

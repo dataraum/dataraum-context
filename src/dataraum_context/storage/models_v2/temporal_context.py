@@ -48,9 +48,6 @@ class TemporalQualityMetrics(Base):
     has_trend: Mapped[bool | None] = mapped_column(Boolean)
     is_stale: Mapped[bool | None] = mapped_column(Boolean)
 
-    # Overall quality score (for sorting/filtering)
-    temporal_quality_score: Mapped[float | None] = mapped_column(Float)
-
     # JSONB: Full temporal profile + quality data
     # Stores complete Pydantic models: TemporalProfile, quality analysis results
     temporal_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

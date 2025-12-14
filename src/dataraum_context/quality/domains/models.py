@@ -116,9 +116,6 @@ class FinancialQualityResult(BaseModel):
     period_end_cutoff_clean: bool
     period_integrity_details: list[FiscalPeriodIntegrityCheck] = Field(default_factory=list)
 
-    # Overall score
-    financial_quality_score: float = Field(ge=0.0, le=1.0)
-
     # Issues
     quality_issues: list[FinancialQualityIssue] = Field(default_factory=list)
     has_issues: bool

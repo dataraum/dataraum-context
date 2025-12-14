@@ -701,31 +701,6 @@ async def analyze_financial_quality(
         fiscal_period_complete = True  # Default to true if can't check
         period_end_cutoff_clean = True
 
-    # Calculate overall financial quality score
-    scores = []
-
-    if double_entry_balanced:
-        scores.append(1.0)
-    else:
-        # Penalize based on imbalance size
-        scores.append(max(0.0, 1.0 - min(balance_difference / 10000, 1.0)))
-
-    if trial_balance_check:
-        scores.append(1.0)
-    else:
-        scores.append(0.5)  # Moderate penalty
-
-    scores.append(sign_compliance)
-
-    if fiscal_period_complete and period_end_cutoff_clean:
-        scores.append(1.0)
-    elif fiscal_period_complete:
-        scores.append(0.8)
-    else:
-        scores.append(0.6)
-
-    financial_quality_score = sum(scores) / len(scores)
-
     # Store in database
     db_metric = DBFinancialQualityMetrics(
         metric_id=metric_id,
@@ -753,7 +728,6 @@ async def analyze_financial_quality(
         orphaned_intercompany=None,
         fiscal_period_complete=fiscal_period_complete,
         period_end_cutoff_clean=period_end_cutoff_clean,
-        financial_quality_score=financial_quality_score,
     )
 
     session.add(db_metric)
@@ -846,7 +820,6 @@ async def analyze_financial_quality(
         fiscal_period_complete=fiscal_period_complete,
         period_end_cutoff_clean=period_end_cutoff_clean,
         period_integrity_details=period_checks,
-        financial_quality_score=financial_quality_score,
         quality_issues=quality_issues,
         has_issues=len(quality_issues) > 0,
     )
@@ -906,7 +879,6 @@ def _load_financial_config() -> dict[str, Any]:
 # NOTE: The following functions have been moved to financial_orchestrator.py:
 # - assess_fiscal_stability()
 # - detect_financial_anomalies()
-# - compute_financial_quality_score()
 # - FinancialDomainAnalyzer class
 #
 # For complete financial domain analysis with LLM support, use:

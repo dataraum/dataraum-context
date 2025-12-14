@@ -391,9 +391,6 @@ async def test_analyze_topological_quality_simple(
     # Check persistence diagrams
     assert len(analysis.persistence_diagrams) > 0
 
-    # Check quality score
-    assert 0.0 <= analysis.quality_score <= 1.0
-
     # Check topology description exists
     assert len(analysis.topology_description) > 0
 
@@ -613,7 +610,6 @@ def test_pydantic_topological_quality_result():
         orphaned_components=0,
         complexity_trend="stable",
         complexity_within_bounds=True,
-        quality_score=0.95,
         has_anomalies=False,
         anomalous_cycles=[],
         quality_warnings=[],
