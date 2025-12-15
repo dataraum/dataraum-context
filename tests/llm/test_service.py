@@ -2,6 +2,9 @@
 
 import pytest
 
+# Skip all tests if anthropic is not installed
+pytest.importorskip("anthropic", reason="anthropic package not installed")
+
 from dataraum_context.llm import LLMService, load_llm_config
 
 

@@ -34,6 +34,7 @@ class SemanticAnnotation(BaseModel):
     entity_type: str | None = None
     business_name: str | None = None
     business_description: str | None = None  # LLM-generated description
+    business_domain: str | None = None  # 'finance', 'marketing', 'operations'
 
     annotation_source: DecisionSource
     annotated_by: str | None = None  # e.g., 'claude-sonnet-4-20250514' or 'user@example.com'

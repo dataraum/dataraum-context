@@ -15,27 +15,12 @@ TOD- Evaluate all todos --> phase 7
     complexity_within_bounds: Mapped[bool | None] = mapped_column(Boolean)
     anomalous_cycles: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
-
-### profiling/models.py (5 unused)
-
-1. **DetectedPattern** - 0 usages
-   - Pattern detection model
-   - Never referenced
-
-2. **ColumnCastResult** - 0 usages
-   - Type casting result model
-   - Never referenced
-
-3. **TypeResolutionResult** - 0 usages
-   - Type resolution result model
-   - Never referenced
+● The remaining quality_score references are:
+  - DB columns (nullable) - kept for backward compatibility, no data is written
+  - QualityScore table - different concept (rule evaluation scores), not aggregate scoring
+  - LLM module examples - expected JSON from LLM responses, not internal scoring
 
 
-### quality/models.py (2 unused)
-
-1. **RuleResult** - 0 usages
-   - Quality rule result model
-   - Never referenced
 
 
 Persistent Entropy: You would use this as a summary statistic for a single dataset. For example, you could track the persistent entropy of a data stream over time; a sudden spike or drop in entropy could signal an anomaly or a change in the underlying data distribution, indicating a potential data quality problem. ?
