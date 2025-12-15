@@ -25,6 +25,7 @@ from dataraum_context.storage.models_v2 import (
     core,
     correlation_context,
     domain_quality,
+    filtering,
     llm,
     ontology,
     quality_rules,
@@ -59,6 +60,12 @@ from dataraum_context.storage.models_v2.domain_quality import (
     IntercompanyTransaction,
     SignConventionViolation,
     TrialBalanceCheck,
+)
+
+# Filtering persistence
+from dataraum_context.storage.models_v2.filtering import (
+    FilteringExecutionRecord,
+    FilteringRecommendationRecord,
 )
 
 # LLM integration
@@ -97,6 +104,7 @@ from dataraum_context.storage.models_v2.temporal_context import (
 
 # Pillar 2: Topological Context
 from dataraum_context.storage.models_v2.topological_context import (
+    BusinessCycleClassification,
     MultiTableTopologyMetrics,
     TopologicalQualityMetrics,
 )
@@ -126,6 +134,7 @@ __all__ = [
     # Pillar 2: Topological Context
     "TopologicalQualityMetrics",
     "MultiTableTopologyMetrics",
+    "BusinessCycleClassification",
     "Relationship",
     "JoinPath",
     # Pillar 3: Semantic Context
@@ -158,4 +167,7 @@ __all__ = [
     "LLMCache",
     # Schema Version
     "DBSchemaVersion",
+    # Filtering Persistence
+    "FilteringRecommendationRecord",
+    "FilteringExecutionRecord",
 ]

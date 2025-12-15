@@ -178,18 +178,31 @@ async def merge_filtering_rules(
 
                     logger.debug(f"Applied SUGGEST rule '{rule.name}' to column {col.column_name}")
 
-        # Create merged recommendations
+        # Create merged recommendations - preserve all structured fields from LLM
         merged = FilteringRecommendations(
+            # Structured filters from LLM (preserved as-is)
+            scope_filters=list(llm_recommendations.scope_filters),
+            quality_filters=list(llm_recommendations.quality_filters),
+            flags=list(llm_recommendations.flags),
+            calculation_impacts=list(llm_recommendations.calculation_impacts),
+            # Merged legacy fields (LLM + user rules)
             clean_view_filters=merged_clean_filters,
             quarantine_criteria=merged_quarantine_criteria,
             column_exclusions=merged_column_exclusions,
             rationale=merged_rationale,
+            # Metadata (preserved from LLM, updated source)
+            source="merged",
+            confidence=llm_recommendations.confidence,
+            requires_acknowledgment=llm_recommendations.requires_acknowledgment,
+            business_cycles=list(llm_recommendations.business_cycles),
         )
 
         logger.info(
             f"Merged filtering rules: {len(merged.clean_view_filters)} clean filters "
             f"({len(llm_recommendations.clean_view_filters)} LLM + "
-            f"{len(merged.clean_view_filters) - len(llm_recommendations.clean_view_filters)} user)"
+            f"{len(merged.clean_view_filters) - len(llm_recommendations.clean_view_filters)} user), "
+            f"{len(merged.scope_filters)} scope, {len(merged.quality_filters)} quality, "
+            f"{len(merged.flags)} flags preserved"
         )
 
         return Result.ok(merged)

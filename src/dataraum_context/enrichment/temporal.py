@@ -61,7 +61,7 @@ async def enrich_temporal(
     profiles = []
 
     for col, table in timestamp_columns:
-        print(col,table)
+        print(col, table)
         # Analyze time column
         temporal_result = await _analyze_time_column(
             duckdb_conn,
@@ -259,9 +259,6 @@ async def _analyze_time_column(
     except Exception as e:
         print(f"Error analyzing time column {column_name} in table {table_name}: {e}")
         return Result.fail(f"Failed to analyze time column: {e}")
-    
-
-    
 
 
 def _infer_granularity(

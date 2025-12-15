@@ -38,6 +38,10 @@ from dataraum_context.quality.models import TopologicalAnomaly
 from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.storage.models_v2.core import Column, Table
 from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation
+from dataraum_context.storage.models_v2.topological_context import (
+    BusinessCycleClassification,
+    MultiTableTopologyMetrics,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1098,6 +1102,64 @@ Return JSON:
                 logger.warning("Failed to parse interpretation JSON")
 
         # =====================================================================
+        # PERSIST MULTI-TABLE TOPOLOGY AND BUSINESS CYCLES
+        # =====================================================================
+
+        logger.info("Persisting multi-table topology and business cycles")
+
+        # Create MultiTableTopologyMetrics record
+        topology_metrics = MultiTableTopologyMetrics(
+            table_ids=table_ids,
+            cross_table_cycles=len(cross_table_cycles),
+            graph_betti_0=betti_0,
+            relationship_count=len(relationships),
+            has_cross_table_cycles=len(cross_table_cycles) > 0,
+            is_connected_graph=betti_0 == 1,
+            analysis_data={
+                "per_table_topological": per_table_topological,
+                "relationships": [
+                    {
+                        "from_table": r.from_table,
+                        "to_table": r.to_table,
+                        "from_column": r.from_column,
+                        "to_column": r.to_column,
+                    }
+                    for r in relationships
+                ],
+                "cross_table_cycles": cross_table_cycles,
+            },
+        )
+        session.add(topology_metrics)
+        await session.flush()  # Get the analysis_id
+
+        # Persist each classified business cycle
+        persisted_cycle_ids = []
+        for classified in classified_cycles:
+            # Get confidence from first cycle_type if available
+            cycle_types = classified.get("cycle_types", [])
+            confidence = cycle_types[0].get("confidence", 0.0) if cycle_types else 0.0
+
+            cycle_record = BusinessCycleClassification(
+                analysis_id=topology_metrics.analysis_id,
+                cycle_type=classified.get("primary_type", "UNKNOWN"),
+                confidence=confidence,
+                business_value=classified.get("business_value", "unknown"),
+                completeness=classified.get("completeness", "unknown"),
+                table_ids=classified.get("cycle_tables", []),
+                explanation=classified.get("explanation"),
+                missing_elements=classified.get("missing_elements"),
+                llm_model=llm_service.provider.__class__.__name__ if llm_service else None,
+            )
+            session.add(cycle_record)
+            persisted_cycle_ids.append(cycle_record.cycle_id)
+
+        await session.commit()
+        logger.info(
+            f"Persisted {len(persisted_cycle_ids)} business cycle classifications "
+            f"for analysis {topology_metrics.analysis_id}"
+        )
+
+        # =====================================================================
         # RETURN COMPLETE RESULT
         # =====================================================================
 
@@ -1122,6 +1184,9 @@ Return JSON:
                 "missing_expected_cycles": list(missing_expected),
                 "interpretation": interpretation,
                 "llm_available": True,
+                # Persistence references
+                "analysis_id": topology_metrics.analysis_id,
+                "persisted_cycle_ids": persisted_cycle_ids,
             }
         )
 
