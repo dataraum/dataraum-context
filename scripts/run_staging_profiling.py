@@ -19,6 +19,7 @@ Usage:
 Example:
     python scripts/run_staging_profiling.py examples/finance_csv_example/data.csv my_data
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,7 +36,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from dataraum_context.core.models import SourceConfig
-from dataraum_context.core.models.base import Result
 from dataraum_context.enrichment.cross_table_multicollinearity import (
     compute_cross_table_multicollinearity,
 )
@@ -46,11 +46,11 @@ from dataraum_context.llm import LLMService, load_llm_config
 from dataraum_context.profiling.profiler import profile_schema, profile_statistics
 from dataraum_context.profiling.type_resolution import resolve_types
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.storage.schema import init_database
 from dataraum_context.storage.models_v2.core import Column, Table
-from dataraum_context.storage.models_v2.statistical_context import StatisticalProfile
 from dataraum_context.storage.models_v2.relationship import Relationship
 from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation
+from dataraum_context.storage.models_v2.statistical_context import StatisticalProfile
+from dataraum_context.storage.schema import init_database
 
 
 @dataclass
@@ -105,7 +105,11 @@ async def _count_relationships(session: AsyncSession, table_id: str) -> int:
 
 
 async def run_staging_and_profiling(
-    csv_path: str, table_name: str = "my_table", min_confidence: float = 0.85, llm_service: LLMService | None = None, ontology: str | None = None
+    csv_path: str,
+    table_name: str = "my_table",
+    min_confidence: float = 0.85,
+    llm_service: LLMService | None = None,
+    ontology: str | None = None,
 ):
     """Run staging and profiling on a CSV file.
 
@@ -136,7 +140,7 @@ async def run_staging_and_profiling(
     if sqlite_path.exists():
         sqlite_path.unlink()
 
-    print(f"📁 Output files:")
+    print("📁 Output files:")
     print(f"   DuckDB (data):     {duckdb_path.absolute()}")
     print(f"   SQLite (metadata): {sqlite_path.absolute()}")
     print()
@@ -214,7 +218,6 @@ async def run_staging_and_profiling(
         # Track typed table IDs for statistics profiling
         typed_table_ids: dict[str, str] = {}
 
-        
         # =====================================================================
         # PHASE 2: PROFILING
         # =====================================================================
@@ -260,9 +263,7 @@ async def run_staging_and_profiling(
             if health.error:
                 continue
 
-            type_result = await resolve_types(
-                health.table_id, duckdb_conn, session, min_confidence
-            )
+            type_result = await resolve_types(health.table_id, duckdb_conn, session, min_confidence)
 
             if type_result.success:
                 health.type_resolution_completed = True
@@ -314,7 +315,9 @@ async def run_staging_and_profiling(
                 warnings.append(
                     f"Statistics profiling failed for {health.table_name}: {stats_result.error}"
                 )
-                print(f"⚠️ Statistics profiling failed for {health.table_name}: {stats_result.error}")
+                print(
+                    f"⚠️ Statistics profiling failed for {health.table_name}: {stats_result.error}"
+                )
 
         # =====================================================================
         # DISPLAY DATABASE RESULTS: Stage 2.3 Statistical Profiles
@@ -349,9 +352,19 @@ async def run_staging_and_profiling(
             for profile, column in profiles:
                 col_type = column.resolved_type or column.raw_type or "VARCHAR"
                 print(f"\n  📊 Column: {column.column_name} ({col_type})")
-                print(f"     Total: {profile.total_count:,} | Nulls: {profile.null_count:,} ({profile.null_ratio:.1%})" if profile.null_ratio else f"     Total: {profile.total_count:,} | Nulls: {profile.null_count:,}")
-                print(f"     Distinct: {profile.distinct_count:,} | Cardinality: {profile.cardinality_ratio:.2%}" if profile.cardinality_ratio else f"     Distinct: {profile.distinct_count:,}")
-                print(f"     Unique: {'Yes' if profile.is_unique else 'No'} | Numeric: {'Yes' if profile.is_numeric else 'No'}")
+                print(
+                    f"     Total: {profile.total_count:,} | Nulls: {profile.null_count:,} ({profile.null_ratio:.1%})"
+                    if profile.null_ratio
+                    else f"     Total: {profile.total_count:,} | Nulls: {profile.null_count:,}"
+                )
+                print(
+                    f"     Distinct: {profile.distinct_count:,} | Cardinality: {profile.cardinality_ratio:.2%}"
+                    if profile.cardinality_ratio
+                    else f"     Distinct: {profile.distinct_count:,}"
+                )
+                print(
+                    f"     Unique: {'Yes' if profile.is_unique else 'No'} | Numeric: {'Yes' if profile.is_numeric else 'No'}"
+                )
 
                 # Show detailed stats from profile_data JSON
                 data = profile.profile_data
@@ -359,25 +372,39 @@ async def run_staging_and_profiling(
                     # Numeric stats
                     if "numeric_stats" in data and data["numeric_stats"]:
                         ns = data["numeric_stats"]
-                        print(f"     Numeric Stats:")
-                        print(f"       Min: {ns.get('min', 'N/A')} | Max: {ns.get('max', 'N/A')} | Mean: {ns.get('mean', 'N/A'):.2f}" if ns.get('mean') else f"       Min: {ns.get('min', 'N/A')} | Max: {ns.get('max', 'N/A')}")
-                        if ns.get('std'):
-                            print(f"       Std: {ns['std']:.2f} | Median: {ns.get('median', 'N/A')}")
-                        if ns.get('percentiles'):
-                            p = ns['percentiles']
-                            print(f"       P25: {p.get('p25', 'N/A')} | P50: {p.get('p50', 'N/A')} | P75: {p.get('p75', 'N/A')}")
+                        print("     Numeric Stats:")
+                        print(
+                            f"       Min: {ns.get('min', 'N/A')} | Max: {ns.get('max', 'N/A')} | Mean: {ns.get('mean', 'N/A'):.2f}"
+                            if ns.get("mean")
+                            else f"       Min: {ns.get('min', 'N/A')} | Max: {ns.get('max', 'N/A')}"
+                        )
+                        if ns.get("std"):
+                            print(
+                                f"       Std: {ns['std']:.2f} | Median: {ns.get('median', 'N/A')}"
+                            )
+                        if ns.get("percentiles"):
+                            p = ns["percentiles"]
+                            print(
+                                f"       P25: {p.get('p25', 'N/A')} | P50: {p.get('p50', 'N/A')} | P75: {p.get('p75', 'N/A')}"
+                            )
 
                     # String stats
                     if "string_stats" in data and data["string_stats"]:
                         ss = data["string_stats"]
-                        print(f"     String Stats:")
-                        print(f"       Min len: {ss.get('min_length', 'N/A')} | Max len: {ss.get('max_length', 'N/A')} | Avg len: {ss.get('avg_length', 'N/A'):.1f}" if ss.get('avg_length') else f"       Min len: {ss.get('min_length', 'N/A')} | Max len: {ss.get('max_length', 'N/A')}")
+                        print("     String Stats:")
+                        print(
+                            f"       Min len: {ss.get('min_length', 'N/A')} | Max len: {ss.get('max_length', 'N/A')} | Avg len: {ss.get('avg_length', 'N/A'):.1f}"
+                            if ss.get("avg_length")
+                            else f"       Min len: {ss.get('min_length', 'N/A')} | Max len: {ss.get('max_length', 'N/A')}"
+                        )
 
                     # Top values
                     if "top_values" in data and data["top_values"]:
-                        print(f"     Top Values:")
+                        print("     Top Values:")
                         for tv in data["top_values"][:5]:
-                            print(f"       '{tv.get('value', 'N/A')}': {tv.get('count', 0):,} ({tv.get('percentage', 0):.1%})")
+                            print(
+                                f"       '{tv.get('value', 'N/A')}': {tv.get('count', 0):,} ({tv.get('percentage', 0):.1%})"
+                            )
 
         # =====================================================================
         # PHASE 3: ENRICHMENT
@@ -387,8 +414,12 @@ async def run_staging_and_profiling(
         print("=" * 60)
 
         # Only enrich tables that completed profiling successfully
-        #successful_table_ids = [h.table_id for h in table_health_records if h.error is None]
-        successful_table_ids = [typed_table_ids[h.table_id] for h in table_health_records if h.error is None and h.table_id in typed_table_ids]
+        # successful_table_ids = [h.table_id for h in table_health_records if h.error is None]
+        successful_table_ids = [
+            typed_table_ids[h.table_id]
+            for h in table_health_records
+            if h.error is None and h.table_id in typed_table_ids
+        ]
         print(successful_table_ids)
 
         if not successful_table_ids:
@@ -413,7 +444,7 @@ async def run_staging_and_profiling(
                         warnings.append(f"Semantic enrichment failed: {semantic_result.error}")
                         print(f"❌ Semantic enrichment failed: {semantic_result.error}")
                     else:
-                        if hasattr(semantic_result, 'warnings') and semantic_result.warnings:
+                        if hasattr(semantic_result, "warnings") and semantic_result.warnings:
                             warnings.extend(semantic_result.warnings)
 
                         # Update health records with semantic counts
@@ -424,8 +455,10 @@ async def run_staging_and_profiling(
                                 health.semantic_annotation_count = await _count_annotations(
                                     session, health.table_id
                                 )
-                                health.relationship_count = await _count_relationships(session, health.table_id)
-                        print(f"✅ Semantic enrichment completed")
+                                health.relationship_count = await _count_relationships(
+                                    session, health.table_id
+                                )
+                        print("✅ Semantic enrichment completed")
 
                 except Exception as e:
                     warnings.append(f"Semantic enrichment exception: {e}")
@@ -445,9 +478,9 @@ async def run_staging_and_profiling(
                     for health in table_health_records:
                         if health.table_id in successful_table_ids:
                             health.topology_enrichment_completed = True
-                    if hasattr(topology_result, 'warnings') and topology_result.warnings:
+                    if hasattr(topology_result, "warnings") and topology_result.warnings:
                         warnings.extend(topology_result.warnings)
-                    print(f"✅ Topology enrichment completed")
+                    print("✅ Topology enrichment completed")
                 else:
                     warnings.append(f"Topology enrichment failed: {topology_result.error}")
                     print(f"⚠️ Topology enrichment failed: {topology_result.error}")
@@ -470,9 +503,9 @@ async def run_staging_and_profiling(
                     for health in table_health_records:
                         if health.table_id in successful_table_ids:
                             health.temporal_enrichment_completed = True
-                    if hasattr(temporal_result, 'warnings') and temporal_result.warnings:
+                    if hasattr(temporal_result, "warnings") and temporal_result.warnings:
                         warnings.extend(temporal_result.warnings)
-                    print(f"✅ Temporal enrichment completed")
+                    print("✅ Temporal enrichment completed")
                 else:
                     warnings.append(f"Temporal enrichment failed: {temporal_result.error}")
                     print(f"⚠️ Temporal enrichment failed: {temporal_result.error}")
@@ -483,7 +516,6 @@ async def run_staging_and_profiling(
 
             # Stage 3.4: Cross-table multicollinearity (CONDITIONAL, NON-CRITICAL)
             print("\n--- Stage 3.4: Cross-table Multicollinearity ---")
-            cross_table_completed = False
             cross_table_column_count = 0
             cross_table_relationship_count = 0
 
@@ -497,17 +529,18 @@ async def run_staging_and_profiling(
                     # ✅ CrossTableAnalysis stored by compute_cross_table_multicollinearity()
 
                     if cross_table_result.success and cross_table_result.value:
-                        cross_table_completed = True
                         analysis = cross_table_result.value
                         cross_table_column_count = analysis.total_columns_analyzed
                         cross_table_relationship_count = analysis.total_relationships_used
-                        if hasattr(cross_table_result, 'warnings') and cross_table_result.warnings:
+                        if hasattr(cross_table_result, "warnings") and cross_table_result.warnings:
                             warnings.extend(cross_table_result.warnings)
-                        print(f"✅ Cross-table multicollinearity completed")
+                        print("✅ Cross-table multicollinearity completed")
                         print(f"   Columns analyzed: {cross_table_column_count}")
                         print(f"   Relationships used: {cross_table_relationship_count}")
                     else:
-                        warnings.append(f"Cross-table multicollinearity failed: {cross_table_result.error}")
+                        warnings.append(
+                            f"Cross-table multicollinearity failed: {cross_table_result.error}"
+                        )
                         print(f"⚠️ Cross-table multicollinearity failed: {cross_table_result.error}")
 
                 except Exception as e:
