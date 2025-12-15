@@ -1,8 +1,63 @@
 # Formatter Architecture Plan
 
 **Created:** 2025-12-14
-**Status:** Draft for review
+**Updated:** 2025-12-15
+**Status:** In Progress - Phase 7
 **Related:** METRICS_ANALYSIS.md, quality/formatting/base.py
+
+---
+
+## Implementation Status
+
+| Phase | Description | Status | Notes |
+|-------|-------------|--------|-------|
+| 1 | Configuration Infrastructure | ✅ Done | `quality/formatting/config.py` |
+| 2 | Statistical Formatter | ✅ Done | `quality/formatting/statistical.py` |
+| 3 | Temporal Formatter | ✅ Done | `quality/formatting/temporal.py` |
+| 4 | Topological Formatter | ✅ Done | `quality/formatting/topological.py` |
+| 5 | Domain Formatter | ✅ Done | `quality/formatting/domain.py` |
+| 6 | Calculation Graphs + Mapping | ✅ Done | `calculations/` package |
+| 6b | Business Cycles Formatter | ✅ Done | `quality/formatting/business_cycles.py` |
+| 7 | Filter Generation | 🔄 Next | Extend existing `quality/filtering/` |
+| 8 | Integration | ⏳ Pending | Full pipeline wiring |
+
+---
+
+## Key Architectural Insights
+
+### 1. Calculations Drive Quality Focus
+The calculation graphs define what data matters. Quality issues in columns that feed DSO/Cash Runway are more critical than issues in unused columns.
+
+### 2. Aggregation Lives in Calculation Graphs
+Calculation graphs (e.g., `dso_calculation_graph.yaml`) define:
+- Abstract fields (`revenue`, `accounts_receivable`)
+- Aggregation method (`sum`, `end_of_period`)
+- Validation rules
+
+Schema mapping ONLY binds concrete columns to abstract fields. The LLM matcher does NOT determine aggregation - it just says "transactions.amount → revenue".
+
+### 3. Origin Tables vs Target Schema
+```
+ORIGIN TABLES (raw)              TARGET SCHEMA (for calculations)
+─────────────────────            ────────────────────────────────
+transactions.amount        →     revenue = SUM(amount) GROUP BY period
+ledger.ar_balance          →     accounts_receivable = END_OF_PERIOD(ar_balance)
+```
+
+- Filters apply to ORIGIN tables (data quality)
+- Aggregations are defined in graphs, not mappings
+
+### 4. Business Cycles Are Context for Filtering
+Business cycles (AR, AP, Revenue cycles) are detected cross-table process flows. They provide context for:
+- **Filter Generation** (primary): "This table is part of the AR cycle, prioritize quality"
+- **Quality Assessment** (light): "AR cycle is incomplete, missing payments table"
+
+Business cycles are NOT needed for schema mapping.
+
+### 5. Scope vs Quality Filters
+Two types of filters, potentially from same LLM call:
+- **Scope filters**: Row selection for calculation (e.g., `WHERE type = 'sale'` for revenue)
+- **Quality filters**: Data cleaning (e.g., `WHERE amount IS NOT NULL AND amount > 0`)
 
 ---
 
@@ -344,35 +399,63 @@ Each formatter should produce a consistent structure:
 - `quality/formatting/domain.py`
 - `tests/quality/test_domain_formatting.py`
 
-### Phase 6: Calculation Graph & Schema Mapping
+### Phase 6: Calculation Graph & Schema Mapping ✅ DONE
 
-1. Create calculation graph loader (parse `*_graph.yaml` files)
-2. Extract abstract field definitions (revenue, accounts_receivable, etc.)
-3. Design schema mapping interface (abstract → concrete columns)
-4. Implement LLM-based schema matcher prompt
-5. Store schema mappings for reuse
+**What was built:**
+- `calculations/graphs.py` - Graph loader (`GraphLoader`, `CalculationGraph`, `AbstractField`)
+- `calculations/mapping.py` - Schema mapping models (`SchemaMapping`, `ColumnMapping`, `DatasetSchemaMapping`)
+- `calculations/matcher.py` - LLM-based schema matcher (`SchemaMatcherLLM`)
 
-**Files to create:**
-- `quality/formatting/calculation_graphs.py` - Graph loading
-- `quality/formatting/schema_mapping.py` - Abstract → concrete mapping
-- `config/prompts/schema_mapping.yaml` - LLM prompt for mapping
+**Key clarification:** The calculation graph DEFINES the aggregation method (e.g., `aggregation: "sum"` for revenue). The schema mapping ONLY binds concrete columns to abstract fields. The LLM matcher says "transactions.amount maps to revenue with 85% confidence" - it does NOT determine how revenue is aggregated.
 
-**Note:** Schema mapping is a prerequisite for downstream impact analysis. The LLM must understand which actual columns feed into which abstract calculation fields.
+```
+Calculation Graph                    Schema Mapping (LLM)
+─────────────────                    ────────────────────
+revenue:                             revenue:
+  aggregation: "sum"                   - transactions.amount (confidence: 0.85)
+  required: true                       - sales.total (confidence: 0.70)
+```
 
-### Phase 7: Filter Generation (LLM)
+**Note:** `AggregationDefinition` in `mapping.py` is for OVERRIDES only - when a specific dataset needs different aggregation than the graph default. Most mappings should NOT specify aggregation.
 
-1. Design FilterResponse schema (JSON Schema for structured output)
-2. Implement filter generation prompt with contextualized metrics input
-3. Add response storage (DB model for FilterResponse)
-4. Implement acknowledgment flow (auto-approve + human acknowledge)
-5. Add API endpoint for filter generation
+### Phase 7: Filter Generation (LLM) - 🔄 IN PROGRESS
 
-**Files to create:**
-- `quality/filtering/models.py` - FilterResponse, FilterDefinition, QualityFlag
-- `quality/filtering/generator.py` - LLM filter generation
-- `quality/filtering/storage.py` - Persist and retrieve FilterResponse
-- `config/prompts/filter_generation.yaml` - LLM prompt
-- `config/schemas/filter_response.json` - JSON Schema for LLM output
+**Existing infrastructure to extend (NOT replace):**
+- `quality/filtering/models.py` - `FilteringRecommendations`, `FilteringRule`, `FilteringResult`
+- `quality/filtering/llm_filter_agent.py` - `analyze_quality_for_filtering()`
+- `quality/filtering/executor.py` - `execute_filtering()`
+- `quality/filtering/rules_merger.py` - `merge_filtering_rules()`
+
+**Changes needed:**
+
+1. **Extend `FilteringRecommendations`** to include:
+   - `scope_filters`: Row selection for calculations (e.g., `type = 'sale'`)
+   - `quality_filters`: Data cleaning (e.g., `amount IS NOT NULL`)
+   - `flags`: Issues that can't be filtered, only flagged
+   - `confidence`: LLM confidence in recommendations
+   - `requires_acknowledgment`: Whether human review needed
+
+2. **Add business cycles context** to `analyze_quality_for_filtering()`:
+   - Which business cycle(s) this table belongs to
+   - Cycle completeness (are related tables present?)
+   - Business value (high/medium/low priority)
+
+3. **Add schema mapping context** to filter generation:
+   - Which calculations use this table's columns
+   - Required vs optional fields
+   - Downstream impact of quality issues
+
+4. **Update prompt** (`config/prompts/filtering_analysis.yaml`):
+   - Include business cycle context
+   - Include calculation dependency context
+   - Generate both scope and quality filters
+
+**Files to modify:**
+- `quality/filtering/models.py` - Extend `FilteringRecommendations`
+- `quality/filtering/llm_filter_agent.py` - Add business cycles + schema mapping context
+- `config/prompts/filtering_analysis.yaml` - Update prompt template
+
+**Key principle:** One LLM call generates both scope filters (calculation boundaries) and quality filters (data cleaning). They can be separated later if needed.
 
 ### Phase 8: Integration
 
@@ -725,56 +808,66 @@ class QualityFlag:
 │ 1. QUALITY ANALYSIS (on origin tables)                              │
 │                                                                      │
 │    Origin Tables → Profiling → Quality Metrics                      │
+│    + Business Cycle Detection → Which tables form AR/AP/etc cycles  │
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 2. CONTEXTUALIZATION (Formatters - Deterministic, Grouped)          │
+│ 2. CONTEXTUALIZATION (Formatters - Deterministic, Grouped) ✅ DONE  │
 │                                                                      │
 │    Quality Metrics + Thresholds + Domain → Contextualized Metrics   │
+│    Business Cycles → BusinessCyclesOutput (severity, interpretation)│
 │                                                                      │
-│    Adds: severity, interpretation (per metric group)                │
+│    Formatters: statistical, temporal, topological, domain,          │
+│                multicollinearity, business_cycles                   │
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 3. SCHEMA MAPPING (LLM - two parts, independent of filters)         │
+│ 3. SCHEMA MAPPING (LLM - column binding only) ✅ DONE               │
 │                                                                      │
-│    Part 1: Origin column mapping                                    │
-│            Abstract field → Origin columns                          │
+│    Input: Calculation graph abstract fields + Dataset columns       │
+│    Output: Which concrete columns map to which abstract fields      │
 │                                                                      │
-│    Part 2: Aggregation definition                                   │
-│            Origin columns → Target schema (SUM, GROUP BY, etc.)     │
+│    NOTE: Aggregation is defined in graph, NOT in mapping            │
+│          LLM just says "transactions.amount → revenue"              │
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 4. FILTER GENERATION (LLM - applies to origin tables)               │
+│ 4. FILTER GENERATION (LLM) 🔄 IN PROGRESS                           │
 │                                                                      │
-│    Contextualized Metrics → FilterResponse (stored)                 │
+│    Input:                                                           │
+│      - Contextualized quality metrics                               │
+│      - Business cycles (which process is this table part of?)       │
+│      - Schema mapping (which calculations use these columns?)       │
 │                                                                      │
-│    Filters target ORIGIN tables, not aggregated results             │
-│    Output: filters[], flags[], reasoning                            │
+│    Output (extends FilteringRecommendations):                       │
+│      - scope_filters: Row selection for calculations                │
+│      - quality_filters: Data cleaning                               │
+│      - flags: Issues to flag (can't filter)                         │
+│      - rationale: Explanation for each                              │
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 5. HUMAN ACKNOWLEDGMENT                                             │
+│ 5. FILTER EXECUTION (existing executor.py)                          │
 │                                                                      │
-│    Auto-approved filters → Acknowledge                              │
-│    Review-required filters → Approve/Modify/Reject                  │
-│                                                                      │
-│    Result: FilterResponse marked as acknowledged                    │
+│    FilteringRecommendations + User Rules → Merged Rules             │
+│    Merged Rules → execute_filtering() → clean_view + quarantine     │
 └─────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 6. DOWNSTREAM CONSUMPTION                                           │
+│ 6. CALCULATION EXECUTION                                            │
 │                                                                      │
-│    FilterResponse + Schema Mapping → Clean origin data              │
-│                                    → Aggregations applied           │
-│                                    → Target schema for calculations │
+│    Clean Views + Schema Mapping + Graph Aggregations                │
+│    → Execute calculation SQL from graph templates                   │
+│    → DSO, Cash Runway, OCF, etc.                                    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key: Filters and Aggregations are independent.**
+**Key principles:**
+- Filters and Aggregations are independent concerns
 - Filters = data quality (which rows to include from origin)
-- Aggregations = data transformation (how to produce target schema)
+- Aggregations = defined in calculation graphs, applied to clean data
+- Schema mapping = column binding only (which column → which field)
+- Business cycles = context for prioritizing quality focus
 
 ---
 
@@ -796,28 +889,30 @@ Some interpretations depend on multiple metrics (e.g., staleness interpretation 
 
 ## Success Criteria
 
-### Formatters (Contextualization)
-1. [ ] All 5 formatters implemented with tests
-2. [ ] YAML configuration system working with resolution hierarchy
-3. [ ] Per-column pattern overrides (`*_id`, `*_optional`)
-4. [ ] At least 2 domain-specific threshold configurations (financial, generic)
-5. [ ] Formatters output contextualized metrics (severity, interpretation, business_impact)
+### Formatters (Contextualization) ✅ DONE
+1. [x] All 6 formatters implemented (statistical, temporal, topological, domain, multicollinearity, business_cycles)
+2. [x] YAML configuration system working with resolution hierarchy
+3. [x] Per-column pattern overrides (`*_id`, `*_optional`)
+4. [x] Default threshold configurations in `quality/formatting/config.py`
+5. [x] Formatters output contextualized metrics (severity, interpretation, recommendations)
 
-### Schema Mapping
-6. [ ] Calculation graph loader extracts abstract field definitions
-7. [ ] LLM-based schema mapping: abstract fields → concrete columns
-8. [ ] Schema mappings stored and reusable
+### Schema Mapping ✅ DONE
+6. [x] Calculation graph loader extracts abstract field definitions (`calculations/graphs.py`)
+7. [x] LLM-based schema mapping: abstract fields → concrete columns (`calculations/matcher.py`)
+8. [x] Schema mappings modeled (`calculations/mapping.py`)
+9. [x] Clarified: Aggregation in graph, mapping is column binding only
 
-### Filter Generation
-9. [ ] FilterResponse JSON Schema defined and enforced
-10. [ ] LLM generates filters from contextualized metrics
-11. [ ] FilterResponse persisted in database
-12. [ ] Human acknowledgment flow implemented
-13. [ ] Downstream agents can consume FilterResponse
+### Filter Generation 🔄 IN PROGRESS
+10. [ ] Extend `FilteringRecommendations` with scope_filters, quality_filters, flags
+11. [ ] Add business cycles context to filter generation
+12. [ ] Add schema mapping context (downstream impact) to filter generation
+13. [ ] Update `filtering_analysis.yaml` prompt
+14. [ ] Test full filter generation with business cycle + mapping context
 
-### Integration
-14. [ ] Full pipeline: metrics → formatters → mapping → filters → acknowledgment
-15. [ ] Documentation for adding custom thresholds and formatters
+### Integration ⏳ PENDING
+15. [ ] Full pipeline: metrics → formatters → mapping → filters → execution
+16. [ ] Clean view creation with both scope and quality filters
+17. [ ] Calculation execution using clean views + graph aggregations
 
 ---
 
