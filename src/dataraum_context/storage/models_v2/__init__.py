@@ -68,6 +68,13 @@ from dataraum_context.storage.models_v2.filtering import (
     FilteringRecommendationRecord,
 )
 
+# Graph execution persistence (unified transformation graphs)
+from dataraum_context.storage.models_v2.graphs import (
+    GeneratedCodeRecord,
+    GraphExecutionRecord,
+    StepResultRecord,
+)
+
 # LLM integration
 from dataraum_context.storage.models_v2.llm import LLMCache
 
@@ -170,4 +177,8 @@ __all__ = [
     # Filtering Persistence
     "FilteringRecommendationRecord",
     "FilteringExecutionRecord",
+    # Graph Execution Persistence
+    "GeneratedCodeRecord",
+    "GraphExecutionRecord",
+    "StepResultRecord",
 ]

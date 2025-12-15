@@ -55,13 +55,9 @@ async def enrich_temporal(
     result = await session.execute(stmt)
     timestamp_columns = result.all()
 
-    print(table_ids)
-    print(timestamp_columns[0][0].column_name)
-
     profiles = []
 
     for col, table in timestamp_columns:
-        print(col, table)
         # Analyze time column
         temporal_result = await _analyze_time_column(
             duckdb_conn,
