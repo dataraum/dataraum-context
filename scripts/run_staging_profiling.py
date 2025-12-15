@@ -387,7 +387,9 @@ async def run_staging_and_profiling(
         print("=" * 60)
 
         # Only enrich tables that completed profiling successfully
-        successful_table_ids = [h.table_id for h in table_health_records if h.error is None]
+        #successful_table_ids = [h.table_id for h in table_health_records if h.error is None]
+        successful_table_ids = [typed_table_ids[h.table_id] for h in table_health_records if h.error is None and h.table_id in typed_table_ids]
+        print(successful_table_ids)
 
         if not successful_table_ids:
             print("❌ No tables completed profiling successfully - skipping enrichment")
