@@ -1,4 +1,4 @@
-"""LLM Integration Models.
+"""LLM Integration Database Models.
 
 SQLAlchemy models for LLM response caching.
 """
@@ -6,16 +6,13 @@ SQLAlchemy models for LLM response caching.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataraum_context.storage.models_v2.base import Base
-
-if TYPE_CHECKING:
-    pass  # No relationships yet, but keeping for consistency
 
 
 class LLMCache(Base):

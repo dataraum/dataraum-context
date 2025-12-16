@@ -1,4 +1,4 @@
-"""Graph execution persistence models.
+"""Graph execution persistence database models.
 
 SQLAlchemy models for persisting graph executions and generated code to enable
 audit trails, reproducibility, and trend analysis.

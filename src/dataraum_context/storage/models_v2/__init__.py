@@ -7,12 +7,13 @@ Domain-specific models have been co-located with their business logic:
 - Enrichment models: dataraum_context.enrichment.db_models
 - Quality models: dataraum_context.quality.db_models
 - Domain quality models: dataraum_context.quality.domains.db_models
+- LLM models: dataraum_context.llm.db_models
+- Graphs models: dataraum_context.graphs.db_models
 
-Remaining models (to be co-located in future phases):
-- LLM models (llm.py)
-- Graphs/Filtering models (graphs.py, filtering.py)
+Pruned (unused):
+- Filtering models (FilteringRecommendationRecord, FilteringExecutionRecord)
 
-Core modules (will remain here):
+Core modules (remain here):
 - core.py: Core entities (sources, tables, columns)
 - ontology.py: Ontology definitions and applications
 
@@ -23,9 +24,6 @@ Created: 2025-11-28
 # ruff: noqa: F401
 from dataraum_context.storage.models_v2 import (
     core,
-    filtering,
-    graphs,
-    llm,
     ontology,
     schema,
 )
@@ -33,22 +31,6 @@ from dataraum_context.storage.models_v2.base import Base, metadata_obj
 
 # Core entities
 from dataraum_context.storage.models_v2.core import Column, Source, Table
-
-# Filtering persistence
-from dataraum_context.storage.models_v2.filtering import (
-    FilteringExecutionRecord,
-    FilteringRecommendationRecord,
-)
-
-# Graph execution persistence (unified transformation graphs)
-from dataraum_context.storage.models_v2.graphs import (
-    GeneratedCodeRecord,
-    GraphExecutionRecord,
-    StepResultRecord,
-)
-
-# LLM integration
-from dataraum_context.storage.models_v2.llm import LLMCache
 
 # Ontology system
 from dataraum_context.storage.models_v2.ontology import Ontology, OntologyApplication
@@ -67,15 +49,6 @@ __all__ = [
     # Ontology System
     "Ontology",
     "OntologyApplication",
-    # LLM Integration
-    "LLMCache",
     # Schema Version
     "DBSchemaVersion",
-    # Filtering Persistence
-    "FilteringRecommendationRecord",
-    "FilteringExecutionRecord",
-    # Graph Execution Persistence
-    "GeneratedCodeRecord",
-    "GraphExecutionRecord",
-    "StepResultRecord",
 ]
