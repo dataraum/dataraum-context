@@ -35,6 +35,7 @@ from dataraum_context.core.models.base import ColumnRef, Result
 from dataraum_context.profiling.correlation import (
     analyze_correlations,
 )
+from dataraum_context.profiling.db_models import StatisticalProfile as DBColumnProfile
 from dataraum_context.profiling.models import (
     ColumnProfile,
     HistogramBucket,
@@ -43,7 +44,6 @@ from dataraum_context.profiling.models import (
     StringStats,
     ValueCount,
 )
-from dataraum_context.profiling.db_models import StatisticalProfile as DBColumnProfile
 from dataraum_context.storage.models_v2 import Column, Table
 
 

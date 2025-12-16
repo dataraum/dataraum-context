@@ -127,13 +127,13 @@ class SemanticAnalysisFeature(LLMFeature):
             # We use a subquery to get the most recent profile per column
             from sqlalchemy import func
 
+            from dataraum_context.profiling.db_models import (
+                StatisticalProfile as ColumnProfileModel,
+            )
             from dataraum_context.profiling.models import (
                 NumericStats,
                 StringStats,
                 ValueCount,
-            )
-            from dataraum_context.storage.models_v2 import (
-                StatisticalProfile as ColumnProfileModel,
             )
 
             subq = (

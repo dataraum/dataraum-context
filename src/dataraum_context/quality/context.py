@@ -20,6 +20,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.enrichment.relationships.gathering import gather_relationships
+from dataraum_context.profiling.db_models import (
+    ColumnCorrelation,
+    CrossTableMulticollinearityMetrics,
+    DerivedColumn,
+    FunctionalDependency,
+    MulticollinearityMetrics,
+    StatisticalProfile,
+    StatisticalQualityMetrics,
+    TypeCandidate,
+    TypeDecision,
+)
 from dataraum_context.profiling.models import MulticollinearityAnalysis
 
 # Import formatter and model for multicollinearity
@@ -39,17 +50,6 @@ from dataraum_context.quality.synthesis import (
     aggregate_statistical_issues,
     aggregate_temporal_issues,
     aggregate_topological_issues,
-)
-from dataraum_context.profiling.db_models import (
-    ColumnCorrelation,
-    CrossTableMulticollinearityMetrics,
-    DerivedColumn,
-    FunctionalDependency,
-    MulticollinearityMetrics,
-    StatisticalProfile,
-    StatisticalQualityMetrics,
-    TypeCandidate,
-    TypeDecision,
 )
 from dataraum_context.storage.models_v2.core import Column, Table
 from dataraum_context.storage.models_v2.domain_quality import DomainQualityMetrics
