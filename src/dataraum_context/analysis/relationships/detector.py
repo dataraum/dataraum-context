@@ -2,18 +2,23 @@
 
 import time
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import duckdb
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.relationships.db_models import (
+    Relationship as RelationshipDB,
+)
 from dataraum_context.analysis.relationships.finder import find_relationships
 from dataraum_context.analysis.relationships.models import (
     JoinCandidate,
     RelationshipCandidate,
     RelationshipDetectionResult,
 )
+from dataraum_context.analysis.semantic.utils import load_column_mappings, load_table_mappings
 from dataraum_context.core.models.base import Result
 from dataraum_context.storage import Table
 
@@ -25,7 +30,11 @@ async def detect_relationships(
     min_confidence: float = 0.3,
     sample_percent: float = 10.0,
 ) -> Result[RelationshipDetectionResult]:
-    """Detect relationships between tables.
+    """Detect relationships between tables and store as candidates.
+
+    Stores all detected relationships in the database with detection_method='tda'
+    for topology-based detection or 'join_detection' for value overlap detection.
+    These serve as candidates for LLM semantic analysis to confirm/reject.
 
     Args:
         table_ids: List of table IDs to analyze
@@ -77,6 +86,9 @@ async def detect_relationships(
             for r in raw_results
         ]
 
+        # Store candidates in database
+        await _store_candidates(session, table_ids, candidates)
+
         return Result.ok(
             RelationshipDetectionResult(
                 candidates=candidates,
@@ -90,6 +102,61 @@ async def detect_relationships(
 
     except Exception as e:
         return Result.fail(f"Relationship detection failed: {e}")
+
+
+async def _store_candidates(
+    session: AsyncSession,
+    table_ids: list[str],
+    candidates: list[RelationshipCandidate],
+) -> None:
+    """Store relationship candidates in the database.
+
+    Each join candidate is stored as a separate relationship with
+    detection_method='candidate' to distinguish from LLM-confirmed relationships.
+    """
+    # Load mappings
+    column_map = await load_column_mappings(session, table_ids)
+    table_map = await load_table_mappings(session, table_ids)
+
+    for candidate in candidates:
+        table1_id = table_map.get(candidate.table1)
+        table2_id = table_map.get(candidate.table2)
+
+        if not table1_id or not table2_id:
+            continue
+
+        # Store each join candidate as a relationship
+        for jc in candidate.join_candidates:
+            col1_id = column_map.get((candidate.table1, jc.column1))
+            col2_id = column_map.get((candidate.table2, jc.column2))
+
+            if not col1_id or not col2_id:
+                continue
+
+            # Build evidence with topology info
+            evidence = {
+                "topology_similarity": candidate.topology_similarity,
+                "join_confidence": jc.confidence,
+                "cardinality": jc.cardinality,
+                "source": "tda_join_detection",
+            }
+
+            db_rel = RelationshipDB(
+                relationship_id=str(uuid4()),
+                from_table_id=table1_id,
+                from_column_id=col1_id,
+                to_table_id=table2_id,
+                to_column_id=col2_id,
+                relationship_type="candidate",
+                cardinality=jc.cardinality,
+                confidence=jc.confidence,
+                detection_method="candidate",
+                evidence=evidence,
+                is_confirmed=False,
+            )
+            session.add(db_rel)
+
+    await session.commit()
 
 
 async def _load_tables(

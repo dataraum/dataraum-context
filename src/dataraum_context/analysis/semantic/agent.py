@@ -3,7 +3,7 @@
 This agent follows the same pattern as graphs/agent.py:
 - It extends LLMFeature from the llm module
 - It depends on llm module, but llm module does not depend on it
-- Used directly by enrichment/semantic.py
+- Used directly by analysis/semantic/processor.py
 """
 
 import json
@@ -14,6 +14,13 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.semantic.models import (
+    EntityDetection,
+    Relationship,
+    SemanticAnnotation,
+    SemanticEnrichmentResult,
+)
+from dataraum_context.analysis.semantic.ontology import OntologyLoader
 from dataraum_context.analysis.statistics.models import ColumnProfile
 from dataraum_context.core.models.base import (
     Cardinality,
@@ -23,13 +30,6 @@ from dataraum_context.core.models.base import (
     Result,
     SemanticRole,
 )
-from dataraum_context.enrichment.models import (
-    EntityDetection,
-    Relationship,
-    SemanticAnnotation,
-    SemanticEnrichmentResult,
-)
-from dataraum_context.enrichment.ontology import OntologyLoader
 from dataraum_context.llm.features._base import LLMFeature
 from dataraum_context.llm.privacy import DataSampler
 from dataraum_context.storage import Column, Table
