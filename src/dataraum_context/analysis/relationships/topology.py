@@ -17,7 +17,18 @@ def extract_column_features(series: pd.Series) -> np.ndarray:
     """Extract numerical features from a column for TDA."""
     features = []
 
-    if pd.api.types.is_numeric_dtype(series):
+    if pd.api.types.is_bool_dtype(series):
+        # Handle boolean columns - convert to int to avoid numpy warning
+        series_int = series.astype(int)
+        features = [
+            series_int.mean() if not series.empty else 0,
+            series_int.std() if len(series) > 1 else 0,
+            0,  # skew not meaningful for binary
+            0,  # kurtosis not meaningful for binary
+            entropy([series.sum(), len(series) - series.sum()] + np.array([1e-10, 1e-10])),
+            0,  # autocorr not meaningful for binary
+        ]
+    elif pd.api.types.is_numeric_dtype(series):
         features = [
             series.mean() if not series.empty else 0,
             series.std() if len(series) > 1 else 0,

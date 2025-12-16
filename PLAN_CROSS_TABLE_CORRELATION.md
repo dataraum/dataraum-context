@@ -12,13 +12,14 @@ The analysis runs 2x:
 Rationale:
 - It's computing correlations (unified correlation matrix across tables)
 - Multicollinearity is derived from that correlation matrix
-- Pure algorithms are reusable for both calls
+- Pure algorithms are reusable for both per-table and cross-table analysis
 - Cross-table runner uses existing relationships infrastructure for joins (doesn't rebuild it)
 
 This means `enrichment/cross_table_multicollinearity.py` gets replaced by `correlation/cross_table.py`.
 
 ## Current State
 - [x] `analysis/correlation/algorithms/` - pure computation functions (numeric, categorical, multicollinearity)
+- [x] `analysis/correlation/cross_table.py` - cross-table correlation runner
 - `analysis/correlation/` - per-table correlation analysis
 - `analysis/relationships/` - relationship detection (topology, finder, joins)
 - `enrichment/cross_table_multicollinearity.py` - to be replaced
@@ -26,9 +27,9 @@ This means `enrichment/cross_table_multicollinearity.py` gets replaced by `corre
 ## Tasks
 
 ### Task 0: Create pure algorithms in correlation/algorithms/ ✅
-- [x] `algorithms/numeric.py` - pure Pearson/Spearman on numpy arrays
-- [x] `algorithms/categorical.py` - pure Cramér's V on contingency tables
-- [x] `algorithms/multicollinearity.py` - pure VDP/condition index (exact copy from enrichment)
+- [x] `algorithms/numeric.py` - pure Pearson/Spearman on numpy arrays (`compute_pairwise_correlations`)
+- [x] `algorithms/categorical.py` - pure Cramér's V on contingency tables (`compute_cramers_v`, `build_contingency_table`)
+- [x] `algorithms/multicollinearity.py` - pure VDP/condition index (`compute_multicollinearity`)
 
 ### Task 1: Create cross-table correlation runner ✅
 - [x] Created `analysis/correlation/cross_table.py`
@@ -57,6 +58,37 @@ This means `enrichment/cross_table_multicollinearity.py` gets replaced by `corre
 - [ ] Old file `enrichment/cross_table_multicollinearity.py` can be deleted when ready
 - [ ] Old test files in `tests/enrichment/` can be updated or removed
 
+### Task 6: Use pure algorithms in cross-table analysis ✅
+**Problem:** The pure algorithms created in Task 0 were not being used in cross-table analysis.
+
+**Solution:** Updated `cross_table.py` to use all pure algorithms:
+- [x] Use `compute_pairwise_correlations` instead of raw `np.corrcoef`
+- [x] Add cross-table categorical associations using `compute_cramers_v`
+- [x] Handle zero-variance columns (skip from correlation matrix)
+- [x] Handle NaN values and masked arrays in correlation matrix
+- [x] Use DuckDB `USING SAMPLE` for random data sampling
+- [x] Update result model with `numeric_correlations` and `categorical_associations`
+- [x] Update `_format_correlation_context()` to include new results
+
+**Results from test data:**
+- 30 numeric correlations (17 cross-table)
+- 25 categorical associations (11 cross-table)
+- Cross-table dependencies detected when data supports it
+
+### Task 7: Test data validation ✅
+**Status:** Existing finance CSV example works well with updated implementation.
+
+**What works:**
+- [x] `USING SAMPLE` for random sampling now implemented
+- [x] Master_txn_table has good numeric columns (Amount, Quantity, Rate, Credit, Debit)
+- [x] Cross-table correlations detected (17 cross-table out of 30 total)
+- [x] Cross-table categorical associations detected (11 cross-table out of 25 total)
+- [x] Multicollinearity groups detected (within-table Business ID dependencies)
+
+**Future improvements (optional):**
+- [ ] Create synthetic test dataset with explicit cross-table multicollinearity
+- [ ] Add more diverse numeric columns to customer/vendor tables
+
 ## Output Context (what downstream agents receive)
 
 ```python
@@ -65,11 +97,23 @@ CrossTableCorrelationResult:
   - table_names: list[str]
   - relationships_used: list[RelationshipInfo]
 
-  # Correlations
-  - numeric_correlations: list[CrossTableCorrelation]
-  - categorical_associations: list[CrossTableAssociation]  # optional
+  # Numeric Correlations (NEW - from compute_pairwise_correlations)
+  - numeric_correlations: list[CrossTableNumericCorrelation]
+    - table1, column1: source column
+    - table2, column2: target column
+    - pearson_r, spearman_rho: correlation coefficients
+    - strength: "weak" | "moderate" | "strong" | "very_strong"
+    - is_cross_table: bool (whether columns are from different tables)
 
-  # Multicollinearity
+  # Categorical Associations (NEW - from compute_cramers_v)
+  - categorical_associations: list[CrossTableCategoricalAssociation]
+    - table1, column1: source column
+    - table2, column2: target column
+    - cramers_v: association strength
+    - strength: "weak" | "moderate" | "strong"
+    - is_cross_table: bool
+
+  # Multicollinearity (existing)
   - overall_condition_index: float
   - overall_severity: "none" | "moderate" | "severe"
   - dependency_groups: list[DependencyGroup]
@@ -84,5 +128,6 @@ CrossTableCorrelationResult:
 ## Principles
 - Keep it lean and focused
 - Use existing infrastructure (relationships module for joins)
+- Use pure algorithms consistently (algorithms/ folder)
 - Exact function copies when possible, no unnecessary reinterpretation
 - Rich context output for both semantic and quality agents
