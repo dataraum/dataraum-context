@@ -1,6 +1,7 @@
 """Semantic analysis feature - LLM-powered column and table analysis."""
 
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -101,11 +102,11 @@ class SemanticAnalysisFeature(LLMFeature):
 
         response = response_result.value
 
-        # Parse response
         try:
             parsed = json.loads(response.content)
             return self._parse_semantic_response(parsed, response.model)
         except json.JSONDecodeError as e:
+            # Log the problematic content for debugging
             return Result.fail(f"Failed to parse LLM response as JSON: {e}")
         except Exception as e:
             return Result.fail(f"Failed to parse semantic response: {e}")
@@ -166,28 +167,34 @@ class SemanticAnalysisFeature(LLMFeature):
             profiles = []
             for profile_model, col, table in rows:
                 # Convert storage model to core model
+                # StatisticalProfile uses hybrid storage: stats are in profile_data JSONB field
+                profile_data = profile_model.profile_data or {}
+
                 numeric_stats = None
-                if profile_model.min_value is not None:
+                numeric_data = profile_data.get("numeric_stats")
+                if numeric_data is not None:
                     numeric_stats = NumericStats(
-                        min_value=profile_model.min_value,
-                        max_value=profile_model.max_value or 0.0,
-                        mean=profile_model.mean_value or 0.0,
-                        stddev=profile_model.stddev_value or 0.0,
-                        percentiles=profile_model.percentiles or {},
+                        min_value=numeric_data.get("min", 0.0),
+                        max_value=numeric_data.get("max", 0.0),
+                        mean=numeric_data.get("mean", 0.0),
+                        stddev=numeric_data.get("std", 0.0),
+                        percentiles=numeric_data.get("percentiles", {}),
                     )
 
                 string_stats = None
-                if profile_model.min_length is not None:
+                string_data = profile_data.get("string_stats")
+                if string_data is not None:
                     string_stats = StringStats(
-                        min_length=profile_model.min_length,
-                        max_length=profile_model.max_length or 0,
-                        avg_length=profile_model.avg_length or 0.0,
+                        min_length=string_data.get("min_length", 0),
+                        max_length=string_data.get("max_length", 0),
+                        avg_length=string_data.get("avg_length", 0.0),
                     )
 
                 # Convert top values
                 top_values = []
-                if profile_model.top_values:
-                    for val_data in profile_model.top_values.get("values", []):
+                top_values_data = profile_data.get("top_values")
+                if top_values_data:
+                    for val_data in top_values_data:
                         top_values.append(
                             ValueCount(
                                 value=val_data.get("value"),
