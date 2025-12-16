@@ -180,38 +180,6 @@ class SignConventionViolation(Base):
     )
 
 
-class IntercompanyTransaction(Base):
-    """Intercompany transaction tracking.
-
-    Stores intercompany transactions for consolidation validation.
-    """
-
-    __tablename__ = "intercompany_transactions"
-
-    transaction_id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4())
-    )
-    metric_id: Mapped[str] = mapped_column(
-        String, ForeignKey("financial_quality_metrics.metric_id")
-    )
-
-    # Transaction details
-    source_entity: Mapped[str] = mapped_column(String)
-    target_entity: Mapped[str] = mapped_column(String)
-    amount: Mapped[float] = mapped_column(Float)
-    transaction_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-    # Matching status
-    is_matched: Mapped[bool] = mapped_column(Boolean)
-    matching_transaction_id: Mapped[str | None] = mapped_column(
-        String, ForeignKey("intercompany_transactions.transaction_id"), nullable=True
-    )
-    elimination_status: Mapped[str] = mapped_column(String)  # 'eliminated', 'pending', 'orphaned'
-
-    # Details
-    description: Mapped[str | None] = mapped_column(String, nullable=True)
-
-
 class FiscalPeriodIntegrity(Base):
     """Fiscal period integrity checks.
 
