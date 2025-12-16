@@ -21,28 +21,9 @@ from dataraum_context.profiling.db_models import (
 from dataraum_context.quality.db_models import QualityResult, QualityRule
 from dataraum_context.storage.models_v2 import (
     Column,
-    DBSchemaVersion,
     Source,
     Table,
 )
-
-
-class TestSchemaVersion:
-    """Test DBSchemaVersion model."""
-
-    async def test_create_schema_version(self, session: AsyncSession):
-        # init_database already created version 0.1.0, so create a different one
-        version = DBSchemaVersion(version="0.2.0")
-        session.add(version)
-        await session.commit()
-
-        result = await session.execute(
-            select(DBSchemaVersion).where(DBSchemaVersion.version == "0.2.0")
-        )
-        saved = result.scalar_one()
-
-        assert saved.version == "0.2.0"
-        assert isinstance(saved.applied_at, datetime)
 
 
 class TestCoreModels:

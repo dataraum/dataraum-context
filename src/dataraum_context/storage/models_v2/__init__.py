@@ -13,6 +13,7 @@ Domain-specific models have been co-located with their business logic:
 Pruned (unused):
 - Filtering models (FilteringRecommendationRecord, FilteringExecutionRecord)
 - Ontology models (ontologies, ontology_applications) - loaded from config files instead
+- Schema version tracking (DBSchemaVersion)
 
 Core modules (remain here):
 - core.py: Core entities (sources, tables, columns)
@@ -22,17 +23,11 @@ Created: 2025-11-28
 
 # Import all model modules to ensure SQLAlchemy relationships are resolved
 # ruff: noqa: F401
-from dataraum_context.storage.models_v2 import (
-    core,
-    schema,
-)
+from dataraum_context.storage.models_v2 import core
 from dataraum_context.storage.models_v2.base import Base, metadata_obj
 
 # Core entities
 from dataraum_context.storage.models_v2.core import Column, Source, Table
-
-# Schema version tracking
-from dataraum_context.storage.models_v2.schema import DBSchemaVersion
 
 __all__ = [
     # Base
@@ -42,6 +37,4 @@ __all__ = [
     "Source",
     "Table",
     "Column",
-    # Schema Version
-    "DBSchemaVersion",
 ]
