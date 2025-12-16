@@ -781,7 +781,8 @@ dataflows/pipeline.py            # Replaced by pipeline/
 | Phase 2 | `scripts/test_phase2_typing.py` | PASSED |
 | Phase 3 | `scripts/test_phase3_statistics.py` | PASSED |
 | Phase 4 | `scripts/test_phase4_correlation.py` | PASSED |
-| Phase 5 | `scripts/test_phase5_semantic.py` | PENDING |
+| Phase 5 | `scripts/test_phase5_semantic.py` | PASSED |
+| Phase 6 | `scripts/test_phase6_relationships.py` | PASSED |
 
 Run verification:
 ```bash
@@ -813,6 +814,8 @@ uv run python scripts/test_phase4_correlation.py
 | 2024-12-16 | 0.4.0 | Phase 4 complete - analysis/correlation module, deleted profiling/ |
 | 2024-12-16 | 0.4.1 | Phase 4 fixes - deduplicate commutative derived columns, multicollinearity optional |
 | 2024-12-16 | 0.5.0 | Phase 5 planned - analysis/semantic with enriched context from prior phases |
+| 2024-12-16 | 0.6.0 | Phase 6 complete - analysis/relationships with TDA + DuckDB join detection |
+| 2024-12-16 | 0.6.1 | Phase 5 complete - analysis/semantic module with relationship candidates integration |
 
 ## Phase 2 Completion Notes
 
@@ -845,6 +848,31 @@ Architectural cleanup after Phase 3:
 1. **Moved statistical quality models to quality/** - BenfordAnalysis, OutlierDetection, StatisticalQualityResult → `quality/models.py` and StatisticalQualityMetrics → `quality/db_models.py`. These represent quality assessment, not statistics computation.
 2. **Removed detected_patterns from ColumnProfile** - This field is only meaningful during schema profiling (raw stage pattern detection). Statistics profiling always sets it to `[]`. Patterns are stored in SchemaProfileResult.detected_patterns instead.
 3. **Backwards compatibility maintained in profiling/** - Re-exports in `profiling/models.py` and `profiling/db_models.py` for code that imports from the old location.
+
+---
+
+## Phase 5 & 6 Completion Notes
+
+### Phase 6: analysis/relationships
+
+Key changes:
+1. Created `analysis/relationships/` module with TDA-based topology analysis
+2. Implemented DuckDB-based join detection using SQL for accurate value overlap
+3. Fixed TDA persistence similarity to use death times (not births which are all 0 in H0)
+4. Removed max_candidates limit - let all candidates flow to semantic analysis
+5. Relationship candidates include: topology_similarity, join_columns with confidence and cardinality
+
+### Phase 5: analysis/semantic
+
+Key changes:
+1. Created `analysis/semantic/` module with agent, processor, ontology, models, db_models
+2. Moved SemanticAnnotation, EntityDetection, Relationship Pydantic models to `analysis/semantic/models.py`
+3. Moved SemanticAnnotation, TableEntity SQLAlchemy models to `analysis/semantic/db_models.py`
+4. Updated `enrichment/` to re-export from new location for backwards compatibility
+5. Added `relationship_candidates` parameter to `SemanticAgent.analyze()` and `enrich_semantic()`
+6. Updated `config/prompts/semantic_analysis.yaml` with relationship candidates section
+7. LLM receives pre-computed relationship candidates and confirms/rejects them with semantic understanding
+8. All 419 tests pass
 
 ---
 

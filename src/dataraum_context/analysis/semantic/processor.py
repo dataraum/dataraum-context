@@ -1,22 +1,23 @@
-"""Semantic enrichment using LLM analysis."""
+"""Semantic enrichment processor.
+
+Orchestrates semantic analysis using the SemanticAgent and stores results.
+"""
 
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.core.models.base import Result
-from dataraum_context.enrichment.agent import SemanticAgent
-from dataraum_context.enrichment.db_models import (
-    Relationship as RelationshipModel,
-)
-from dataraum_context.enrichment.db_models import (
+from dataraum_context.analysis.relationships.db_models import Relationship as RelationshipModel
+from dataraum_context.analysis.semantic.agent import SemanticAgent
+from dataraum_context.analysis.semantic.db_models import (
     SemanticAnnotation as AnnotationModel,
 )
-from dataraum_context.enrichment.db_models import (
+from dataraum_context.analysis.semantic.db_models import (
     TableEntity as EntityModel,
 )
-from dataraum_context.enrichment.models import SemanticEnrichmentResult
-from dataraum_context.enrichment.utils import load_column_mappings, load_table_mappings
+from dataraum_context.analysis.semantic.models import SemanticEnrichmentResult
+from dataraum_context.analysis.semantic.utils import load_column_mappings, load_table_mappings
+from dataraum_context.core.models.base import Result
 
 
 async def enrich_semantic(
@@ -105,7 +106,7 @@ async def enrich_semantic(
         )
         session.add(db_entity)
 
-    # Store relationships
+    # Store LLM-confirmed relationships (separate from Phase 6 candidates)
     for rel in enrichment.relationships:
         from_col_id = column_map.get((rel.from_table, rel.from_column))
         to_col_id = column_map.get((rel.to_table, rel.to_column))
@@ -124,7 +125,7 @@ async def enrich_semantic(
             relationship_type=rel.relationship_type.value,
             cardinality=rel.cardinality,
             confidence=rel.confidence,
-            detection_method=rel.detection_method,
+            detection_method="llm",  # Always 'llm' for semantic analysis
             evidence=rel.evidence,
         )
         session.add(db_rel)

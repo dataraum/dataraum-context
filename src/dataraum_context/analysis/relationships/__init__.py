@@ -7,6 +7,7 @@ Combines two signals:
 Confidence = max(topology_similarity, best_join_confidence)
 """
 
+from dataraum_context.analysis.relationships.db_models import Relationship
 from dataraum_context.analysis.relationships.detector import detect_relationships
 from dataraum_context.analysis.relationships.finder import find_relationships
 from dataraum_context.analysis.relationships.joins import find_join_columns
@@ -32,4 +33,6 @@ __all__ = [
     "RelationshipCandidate",
     "JoinCandidate",
     "RelationshipDetectionResult",
+    # DB Models
+    "Relationship",
 ]

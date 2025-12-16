@@ -11,7 +11,7 @@ description: Analyze table and column semantics for AI-driven analytics
 temperature: 0.0
 
 # The prompt template
-# Available variables: {tables_json}, {ontology_name}, {ontology_concepts}
+# Available variables: {tables_json}, {ontology_name}, {ontology_concepts}, {relationship_candidates}
 prompt: |
   You are a data analyst examining a database schema. Your task is to analyze the semantic meaning of each table and column to enable AI-driven data analytics.
 
@@ -23,6 +23,20 @@ prompt: |
 
   Map columns to these domain concepts where applicable:
   {ontology_concepts}
+
+  ## Pre-computed Relationship Candidates
+
+  The following relationship candidates were detected by analyzing actual data values.
+  Each candidate shows the value overlap score (1.0 = perfect containment or match).
+
+  {relationship_candidates}
+
+  **Your task**: Evaluate each candidate and determine:
+  - Is this a real foreign key relationship? (e.g., customer_id → customers.id)
+  - Is this shared reference data? (e.g., both tables have US state codes)
+  - Is this coincidental overlap? (e.g., row IDs happen to overlap with business IDs)
+
+  Not all candidates are real relationships. Use column names and semantic context to decide.
 
   ## Analysis Instructions
 
@@ -40,21 +54,11 @@ prompt: |
   - **description**: One sentence human-readable description
   - **confidence**: Your confidence in this analysis (0.0-1.0)
 
-  For **relationships**, identify ALL possible relationships between tables:
-  - **Foreign key relationships**: Look for columns that reference keys in other tables
-    * Match on naming patterns (customer_id → customers.id, vendor_id → vendors.id)
-    * Match on semantic meaning (txn_customer → customers.customer_id)
-    * Consider cardinality based on distinct counts
-  - **Hierarchical relationships**: Parent-child structures (product → category)
-  - **Business process flows**: Tables connected through business cycles
-    * Example: customers → invoices → payments (AR cycle)
-    * Example: vendors → purchase_orders → invoices → payments (AP cycle)
-
-  **IMPORTANT**: Be thorough in detecting relationships. Missing a relationship is worse than suggesting a low-confidence one. Consider:
-  - Column name similarities (even partial matches)
-  - Semantic similarity (customer vs client, product vs item)
-  - Domain-specific patterns (txn_id, order_id, invoice_id often link tables)
-  - Cardinality hints from distinct_count ratios
+  For **relationships**, evaluate the pre-computed candidates above and:
+  - **Confirm real FKs**: Candidates where column names indicate a key reference
+  - **Mark shared data**: Candidates that are lookup/reference values (states, codes)
+  - **Reject coincidental**: Candidates with no semantic connection
+  - **Add missing**: Any relationships you detect that weren't in the candidates
 
   ## Semantic Role Definitions
 
@@ -120,6 +124,11 @@ inputs:
     description: List of concepts from the ontology
     required: false
     default: "No specific ontology concepts defined"
+
+  relationship_candidates:
+    description: Pre-computed relationship candidates from TDA and join detection
+    required: false
+    default: "No pre-computed relationship candidates available."
 
 # Expected output schema (for validation)
 output_schema:

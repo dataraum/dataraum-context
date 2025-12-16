@@ -1,8 +1,8 @@
 """SQLAlchemy models for enrichment domain.
 
 This module contains all database models for the enrichment subsystem:
-- Semantic Context (SemanticAnnotation, TableEntity)
-- Relationship Models (Relationship, JoinPath)
+- Semantic Context (SemanticAnnotation, TableEntity) - imported from analysis/semantic
+- Relationship Models (Relationship, JoinPath) - Relationship imported from analysis/relationships
 - Topological Context (TopologicalQualityMetrics, MultiTableTopologyMetrics, BusinessCycleClassification)
 - Temporal Context (TemporalQualityMetrics, TemporalTableSummaryMetrics)
 """
@@ -10,7 +10,7 @@ This module contains all database models for the enrichment subsystem:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -19,175 +19,21 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    Index,
     Integer,
     String,
-    Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
+# Import models from their new canonical locations
+from dataraum_context.analysis.relationships.db_models import Relationship
+from dataraum_context.analysis.semantic.db_models import SemanticAnnotation, TableEntity
 from dataraum_context.storage import Base
-
-if TYPE_CHECKING:
-    from dataraum_context.storage import Column, Table
-
-
-# =============================================================================
-# Semantic Context Models (Pillar 3)
-# =============================================================================
-
-
-class SemanticAnnotation(Base):
-    """Semantic annotations for columns.
-
-    Stores LLM-generated or manually-provided semantic metadata
-    including business terms, roles, and ontology mappings.
-    """
-
-    __tablename__ = "semantic_annotations"
-    __table_args__ = (UniqueConstraint("column_id", name="uq_column_semantic_annotation"),)
-
-    annotation_id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4())
-    )
-    column_id: Mapped[str] = mapped_column(
-        ForeignKey("columns.column_id", ondelete="CASCADE"), nullable=False
-    )
-
-    # Classification
-    semantic_role: Mapped[str | None] = mapped_column(
-        String
-    )  # 'identifier', 'measure', 'attribute', 'dimension'
-    entity_type: Mapped[str | None] = mapped_column(
-        String
-    )  # 'customer', 'product', 'transaction', etc.
-
-    # Business terms
-    business_name: Mapped[str | None] = mapped_column(String)
-    business_description: Mapped[str | None] = mapped_column(Text)
-    business_domain: Mapped[str | None] = mapped_column(
-        String
-    )  # 'finance', 'marketing', 'operations'
-
-    # Ontology mapping
-    ontology_term: Mapped[str | None] = mapped_column(String)
-    ontology_uri: Mapped[str | None] = mapped_column(String)
-
-    # Provenance
-    annotation_source: Mapped[str | None] = mapped_column(
-        String
-    )  # 'llm', 'manual', 'config_override'
-    annotated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.now(UTC)
-    )
-    annotated_by: Mapped[str | None] = mapped_column(String)
-    confidence: Mapped[float | None] = mapped_column(Float)
-
-    # Relationships
-    column: Mapped[Column] = relationship(back_populates="semantic_annotation")
-
-
-class TableEntity(Base):
-    """Entity detection at table level.
-
-    Identifies the type of entity represented by the table
-    and classifies it as fact/dimension table with grain analysis.
-    """
-
-    __tablename__ = "table_entities"
-
-    entity_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    table_id: Mapped[str] = mapped_column(
-        ForeignKey("tables.table_id", ondelete="CASCADE"), nullable=False
-    )
-
-    detected_entity_type: Mapped[str] = mapped_column(
-        String, nullable=False
-    )  # 'customer', 'order', 'product', etc.
-    description: Mapped[str | None] = mapped_column(Text)
-    confidence: Mapped[float | None] = mapped_column(Float)
-    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-
-    # Grain analysis
-    grain_columns: Mapped[dict[str, Any] | None] = mapped_column(
-        JSON
-    )  # List of column IDs that define grain
-    is_fact_table: Mapped[bool | None] = mapped_column(Boolean)
-    is_dimension_table: Mapped[bool | None] = mapped_column(Boolean)
-
-    # Provenance
-    detection_source: Mapped[str | None] = mapped_column(String)  # 'llm', 'heuristic', 'manual'
-    detected_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.now(UTC)
-    )
-
-    # Relationships
-    table: Mapped[Table] = relationship(back_populates="entity_detections")
-
 
 # =============================================================================
 # Relationship Models (Pillar 2)
 # =============================================================================
-
-
-class Relationship(Base):
-    """Detected relationships between columns.
-
-    Represents foreign key relationships or other associations
-    detected through TDA, cardinality analysis, or semantic similarity.
-    """
-
-    __tablename__ = "relationships"
-    __table_args__ = (
-        UniqueConstraint("from_column_id", "to_column_id", name="uq_relationship_columns"),
-    )
-
-    relationship_id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4())
-    )
-
-    # Source side
-    from_table_id: Mapped[str] = mapped_column(ForeignKey("tables.table_id"), nullable=False)
-    from_column_id: Mapped[str] = mapped_column(ForeignKey("columns.column_id"), nullable=False)
-
-    # Target side
-    to_table_id: Mapped[str] = mapped_column(ForeignKey("tables.table_id"), nullable=False)
-    to_column_id: Mapped[str] = mapped_column(ForeignKey("columns.column_id"), nullable=False)
-
-    # Classification
-    relationship_type: Mapped[str] = mapped_column(
-        String, nullable=False
-    )  # 'foreign_key', 'semantic_reference', 'derived'
-    cardinality: Mapped[str | None] = mapped_column(String)  # '1:1', '1:N', 'N:1', 'N:M'
-
-    # Confidence and evidence
-    confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    detection_method: Mapped[str | None] = mapped_column(
-        String
-    )  # 'tda', 'cardinality', 'semantic', 'manual'
-    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-
-    # Verification (human-in-loop)
-    is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
-    confirmed_by: Mapped[str | None] = mapped_column(String)
-
-    detected_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.now(UTC)
-    )
-
-    # Relationships
-    from_column: Mapped[Column] = relationship(
-        foreign_keys=[from_column_id], back_populates="relationships_from"
-    )
-    to_column: Mapped[Column] = relationship(
-        foreign_keys=[to_column_id], back_populates="relationships_to"
-    )
-
-
-Index("idx_relationships_from", Relationship.from_table_id)
-Index("idx_relationships_to", Relationship.to_table_id)
+# Relationship is imported from analysis/relationships/db_models.py
 
 
 class JoinPath(Base):
