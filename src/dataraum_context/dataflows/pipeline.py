@@ -207,7 +207,7 @@ async def run_pipeline(
     session: AsyncSession,
     semantic_agent: SemanticAgent,
     min_confidence: float = 0.85,
-    ontology: str = "general",
+    ontology: str = "financial_reporting",
 ) -> Result[PipelineResult]:
     """Run complete pipeline from CSV(s) through enrichment and quality assessment.
 
@@ -219,7 +219,7 @@ async def run_pipeline(
     2. Schema Profiling: Pattern detection, type candidates
     3. Type Resolution: Create typed tables, quarantine failed casts
     4. Statistics Profiling: Column stats, correlations
-    5. Semantic Enrichment: LLM analysis (CRITICAL)
+    5. Semantic Enrichment: LLM analysis (uses ontology concepts)
     6. Topology Enrichment: TDA-based FK detection
     7. Temporal Enrichment: Time series analysis (basic)
     8. Cross-table Analysis: Multicollinearity (if >1 table)
@@ -227,7 +227,7 @@ async def run_pipeline(
        - Statistical quality (Benford, outliers)
        - Topological quality (cycles, Betti numbers)
        - Temporal quality (seasonality, trends - advanced)
-       - Domain quality (financial, if ontology="financial_reporting")
+       - Domain quality (financial checks enabled by default)
        - Quality context assembly (issues, flags, metrics)
 
     Args:
@@ -237,8 +237,8 @@ async def run_pipeline(
         session: SQLAlchemy async session
         semantic_agent: Semantic agent for LLM analysis
         min_confidence: Minimum confidence for type resolution (default: 0.85)
-        ontology: Ontology for semantic analysis (default: "general")
-                  Use "financial_reporting" to enable domain quality checks
+        ontology: Ontology for semantic analysis (default: "financial_reporting")
+                  Loads domain concepts from config/ontologies/{ontology}.yaml
 
     Returns:
         Result containing PipelineResult with health information

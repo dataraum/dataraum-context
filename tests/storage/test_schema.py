@@ -4,7 +4,7 @@ from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from dataraum_context.storage.models_v2 import Source
-from dataraum_context.storage.schema import get_schema_version, init_database, reset_database
+from dataraum_context.storage.schema import init_database, reset_database
 
 
 class TestSchemaInitialization:
@@ -18,7 +18,6 @@ class TestSchemaInitialization:
 
         # Check that key tables exist
         expected_tables = [
-            "schema_version",
             "sources",
             "tables",
             "columns",
@@ -37,15 +36,6 @@ class TestSchemaInitialization:
 
         for table in expected_tables:
             assert table in tables, f"Table {table} not created"
-
-    async def test_init_database_sets_version(self, engine: AsyncEngine):
-        """Test that init_database sets the schema version."""
-        from sqlalchemy.ext.asyncio import async_sessionmaker
-
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        async with factory() as session:
-            version = await get_schema_version(session)
-            assert version == "0.1.0"
 
     async def test_reset_database_clears_data(self, engine: AsyncEngine):
         """Test that reset_database clears all data."""
@@ -68,15 +58,11 @@ class TestSchemaInitialization:
         # Reset database
         await reset_database(engine)
 
-        # Verify data is cleared (except schema version)
+        # Verify data is cleared
         async with factory() as session:
             result = await session.execute(select(Source))
             sources = result.scalars().all()
             assert len(sources) == 0
-
-            # But schema version should still be set
-            version = await get_schema_version(session)
-            assert version == "0.1.0"
 
     async def test_init_database_idempotent(self, engine: AsyncEngine):
         """Test that init_database can be called multiple times safely."""
