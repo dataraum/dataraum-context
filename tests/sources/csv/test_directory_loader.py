@@ -1,4 +1,7 @@
-"""Tests for CSV directory loading functionality."""
+"""Tests for CSV directory loading functionality.
+
+Tests the load_directory() method of CSVLoader for loading multiple CSV files.
+"""
 
 from pathlib import Path
 
@@ -7,8 +10,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from dataraum_context.dataflows.pipeline import run_pipeline
-from dataraum_context.staging.loaders.csv import CSVLoader
+from dataraum_context.sources.csv import CSVLoader
 from dataraum_context.storage import init_database
 
 
@@ -42,27 +44,6 @@ def test_duckdb():
     conn = duckdb.connect(":memory:")
     yield conn
     conn.close()
-
-
-@pytest.fixture
-def mock_semantic_agent():
-    """Create a mock semantic agent for testing."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from dataraum_context.core.models.base import Result
-    from dataraum_context.enrichment.models import SemanticEnrichmentResult
-
-    mock = MagicMock()
-    mock.analyze = AsyncMock(
-        return_value=Result.ok(
-            SemanticEnrichmentResult(
-                annotations=[],
-                entity_detections=[],
-                relationships=[],
-            )
-        )
-    )
-    return mock
 
 
 @pytest.fixture
@@ -184,43 +165,3 @@ class TestCSVDirectoryLoader:
 
         assert not result.success
         assert "no csv files" in result.error.lower() or "no files" in result.error.lower()
-
-
-class TestCSVDirectoryPipeline:
-    """Tests for unified run_pipeline() with directories."""
-
-    async def test_pipeline_directory(
-        self,
-        finance_csv_directory,
-        test_duckdb,
-        test_session,
-        mock_semantic_agent,
-    ):
-        """Test the unified pipeline with a directory."""
-        if not finance_csv_directory.exists():
-            pytest.skip("Finance CSV example directory not found")
-
-        result = await run_pipeline(
-            source=str(finance_csv_directory),
-            source_name="finance_test",
-            duckdb_conn=test_duckdb,
-            session=test_session,
-            semantic_agent=mock_semantic_agent,
-        )
-
-        assert result.success, f"Pipeline failed: {result.error}"
-
-        pipeline_result = result.value
-        assert pipeline_result is not None
-
-        # Should have 7 tables
-        assert pipeline_result.table_count == 7
-        assert pipeline_result.successful_tables >= 1
-
-        # Check that all stages completed for at least some tables
-        for table_health in pipeline_result.table_health:
-            if table_health.error is None:
-                assert table_health.staging_completed
-                assert table_health.schema_profiling_completed
-                assert table_health.type_resolution_completed
-                # Stats and enrichment may have issues, but should at least attempt

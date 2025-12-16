@@ -1,7 +1,12 @@
 """Type resolution engine - DuckDB SQL generation.
 
 Generates SQL to create typed tables from raw VARCHAR tables
-using TypeCandidates computed during profiling.
+using TypeCandidates computed during type inference.
+
+The quarantine pattern:
+- Rows where ANY column fails TRY_CAST go to quarantine table
+- This allows downstream processing on clean typed data
+- Quarantined rows can be reviewed and fixed
 """
 
 from __future__ import annotations
@@ -135,11 +140,20 @@ async def resolve_types(
 ) -> Result[TypeResolutionResult]:
     """Resolve types for a raw table using DuckDB SQL.
 
-    1. Load TypeCandidates (from profiling)
+    1. Load TypeCandidates (from inference)
     2. Select best candidate per column
     3. Generate and execute typed table SQL
     4. Generate and execute quarantine table SQL
     5. Return stats
+
+    Args:
+        table_id: ID of the raw table to resolve
+        duckdb_conn: DuckDB connection
+        session: SQLAlchemy session
+        min_confidence: Minimum confidence threshold for automatic type selection
+
+    Returns:
+        Result containing TypeResolutionResult with table names and row counts
     """
     # Load table with columns and type candidates
     stmt = (

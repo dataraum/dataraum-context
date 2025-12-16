@@ -19,6 +19,10 @@ import duckdb
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.typing.db_models import (
+    TypeCandidate,
+    TypeDecision,
+)
 from dataraum_context.enrichment.db_models import (
     SemanticAnnotation,
     TableEntity,
@@ -34,8 +38,6 @@ from dataraum_context.profiling.db_models import (
     MulticollinearityMetrics,
     StatisticalProfile,
     StatisticalQualityMetrics,
-    TypeCandidate,
-    TypeDecision,
 )
 from dataraum_context.profiling.models import MulticollinearityAnalysis
 from dataraum_context.quality.domains.db_models import DomainQualityMetrics

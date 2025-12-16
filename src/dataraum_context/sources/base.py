@@ -1,13 +1,18 @@
 """Base classes for data loaders."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.core.models.base import Result, SourceConfig
-from dataraum_context.staging.models import StagingResult
+from dataraum_context.core.models import Result, SourceConfig
+
+if TYPE_CHECKING:
+    from dataraum_context.sources.csv.models import StagingResult
 
 
 class TypeSystemStrength(str, Enum):

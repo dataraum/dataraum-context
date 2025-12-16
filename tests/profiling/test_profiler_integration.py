@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.profiling import profile_schema
-from dataraum_context.staging.loaders.csv import CSVLoader
+from dataraum_context.sources.csv import CSVLoader
 from dataraum_context.storage import init_database
 
 
@@ -165,7 +165,7 @@ class TestProfilerIntegration:
         assert schema_result.success
 
         # Check that metadata was stored in database
-        from dataraum_context.profiling.db_models import TypeCandidate
+        from dataraum_context.analysis.typing.db_models import TypeCandidate
         from dataraum_context.storage import Table
 
         # Refresh table to get updated last_profiled_at
