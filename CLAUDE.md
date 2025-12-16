@@ -148,16 +148,19 @@ ls prototypes/analytics-agents-ts       # Agents and prompts (inside prompts fol
 src/dataraum_context/
 ├── core/           # Config, connections, shared models
 ├── staging/        # Raw data loading (VARCHAR-first)
-├── profiling/      # Statistical metadata, type inference
-├── enrichment/     # Semantic, topological, temporal metadata
-├── quality/        # Rule generation, scoring, anomalies
+├── profiling/      # Statistical metadata, type inference (+ db_models.py)
+├── enrichment/     # Semantic, topological, temporal metadata (+ db_models.py)
+├── quality/        # Rule generation, scoring, anomalies (+ db_models.py, domains/db_models.py)
+├── graphs/         # Transformation graphs (+ db_models.py)
 ├── context/        # Context assembly, ontology application
-├── storage/        # SQLAlchemy models and repository
-├── llm/            # LLM providers, prompts, features
+├── storage/        # Core SQLAlchemy models (Source, Table, Column, Ontology)
+├── llm/            # LLM providers, prompts, features (+ db_models.py)
 ├── dataflows/      # Hamilton dataflow definitions
 ├── api/            # FastAPI routes
 └── mcp/            # MCP server and tools
 ```
+
+**Note:** SQLAlchemy DB models are co-located with business logic in `db_models.py` files within each module.
 
 ## Data Flow
 
