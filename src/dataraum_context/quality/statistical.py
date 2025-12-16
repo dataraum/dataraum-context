@@ -28,10 +28,10 @@ from dataraum_context.profiling.models import (
     OutlierDetection,
     StatisticalQualityResult,
 )
-from dataraum_context.storage.models_v2.core import Column, Table
-from dataraum_context.storage.models_v2.statistical_context import (
+from dataraum_context.profiling.db_models import (
     StatisticalQualityMetrics as DBStatisticalQualityMetrics,
 )
+from dataraum_context.storage.models_v2.core import Column, Table
 
 # Type checking imports to avoid hard dependency on scikit-learn
 if TYPE_CHECKING:

@@ -43,8 +43,8 @@ from dataraum_context.profiling.models import (
     StringStats,
     ValueCount,
 )
+from dataraum_context.profiling.db_models import StatisticalProfile as DBColumnProfile
 from dataraum_context.storage.models_v2 import Column, Table
-from dataraum_context.storage.models_v2 import StatisticalProfile as DBColumnProfile
 
 
 async def profile_statistics(

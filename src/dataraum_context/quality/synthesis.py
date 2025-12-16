@@ -20,22 +20,20 @@ import logging
 from typing import Any
 from uuid import uuid4
 
+from dataraum_context.profiling.db_models import (
+    CategoricalAssociation,
+    ColumnCorrelation,
+    FunctionalDependency,
+    MulticollinearityMetrics,
+    StatisticalProfile,
+    StatisticalQualityMetrics,
+)
 from dataraum_context.quality.models import (
     QualityDimension,
     QualitySynthesisIssue,
     QualitySynthesisSeverity,
 )
-from dataraum_context.storage.models_v2.correlation_context import (
-    CategoricalAssociation,
-    ColumnCorrelation,
-    FunctionalDependency,
-    MulticollinearityMetrics,
-)
 from dataraum_context.storage.models_v2.domain_quality import DomainQualityMetrics
-from dataraum_context.storage.models_v2.statistical_context import (
-    StatisticalProfile,
-    StatisticalQualityMetrics,
-)
 from dataraum_context.storage.models_v2.temporal_context import TemporalQualityMetrics
 from dataraum_context.storage.models_v2.topological_context import (
     MultiTableTopologyMetrics,
