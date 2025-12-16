@@ -94,6 +94,44 @@ class SingleRelationshipJoin(BaseModel):
 
 
 # =============================================================================
+# Cross-Table Correlation Models
+# =============================================================================
+
+
+class CrossTableNumericCorrelation(BaseModel):
+    """A numeric correlation between columns across tables."""
+
+    table1: str
+    column1: str
+    table2: str
+    column2: str
+    pearson_r: float
+    pearson_p: float
+    spearman_rho: float
+    spearman_p: float
+    sample_size: int
+    strength: str  # 'none', 'weak', 'moderate', 'strong', 'very_strong'
+    is_significant: bool
+    is_cross_table: bool  # True if table1 != table2
+
+
+class CrossTableCategoricalAssociation(BaseModel):
+    """A categorical association between columns across tables."""
+
+    table1: str
+    column1: str
+    table2: str
+    column2: str
+    cramers_v: float
+    chi_square: float
+    p_value: float
+    sample_size: int
+    strength: str  # 'none', 'weak', 'moderate', 'strong'
+    is_significant: bool
+    is_cross_table: bool
+
+
+# =============================================================================
 # Cross-Table Multicollinearity Models
 # =============================================================================
 
@@ -181,10 +219,12 @@ class CrossTableDependencyGroup(BaseModel):
 
 
 class CrossTableMulticollinearityAnalysis(BaseModel):
-    """Complete cross-table multicollinearity analysis.
+    """Complete cross-table correlation and multicollinearity analysis.
 
-    Computes correlation matrix across all related tables and identifies
-    columns that are linearly dependent across table boundaries.
+    Computes correlation matrix across all related tables and identifies:
+    - Numeric correlations (Pearson/Spearman) between columns
+    - Categorical associations (Cramér's V) between columns
+    - Multicollinearity groups (columns that are linearly dependent)
     """
 
     # Scope
@@ -194,7 +234,21 @@ class CrossTableMulticollinearityAnalysis(BaseModel):
 
     # Unified matrix info
     total_columns_analyzed: int
+    total_numeric_columns: int = 0
+    total_categorical_columns: int = 0
     total_relationships_used: int
+
+    # Pairwise correlations (from compute_pairwise_correlations)
+    numeric_correlations: list[CrossTableNumericCorrelation] = Field(default_factory=list)
+    cross_table_correlations: list[CrossTableNumericCorrelation] = Field(
+        default_factory=list
+    )  # Filtered: is_cross_table=True
+
+    # Categorical associations (from compute_cramers_v)
+    categorical_associations: list[CrossTableCategoricalAssociation] = Field(default_factory=list)
+    cross_table_associations: list[CrossTableCategoricalAssociation] = Field(
+        default_factory=list
+    )  # Filtered: is_cross_table=True
 
     # Overall condition index for unified matrix
     overall_condition_index: float

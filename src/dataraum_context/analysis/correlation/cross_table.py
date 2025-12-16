@@ -4,11 +4,17 @@ Computes correlations and multicollinearity across joined tables using
 the relationships infrastructure. Called 2x:
 1. Before semantic agent: on relationship candidates → context for LLM
 2. After semantic agent: on confirmed relationships → context for quality agents
+
+Uses pure algorithms from algorithms/ folder:
+- compute_pairwise_correlations: Pearson/Spearman correlations
+- compute_cramers_v: Categorical associations
+- compute_multicollinearity: Belsley VDP analysis
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import duckdb
@@ -16,24 +22,37 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.correlation.algorithms.categorical import (
+    build_contingency_table,
+    compute_cramers_v,
+)
 from dataraum_context.analysis.correlation.algorithms.multicollinearity import (
     compute_multicollinearity,
+)
+from dataraum_context.analysis.correlation.algorithms.numeric import (
+    compute_pairwise_correlations,
 )
 from dataraum_context.analysis.relationships.db_models import (
     CrossTableMulticollinearityMetrics,
 )
 from dataraum_context.analysis.relationships.models import (
+    CrossTableCategoricalAssociation,
     CrossTableDependencyGroup,
     CrossTableMulticollinearityAnalysis,
+    CrossTableNumericCorrelation,
     EnrichedRelationship,
     SingleRelationshipJoin,
 )
 from dataraum_context.core.models.base import Result
 from dataraum_context.storage import Column, Table
 
+# Default sample size for correlation analysis
+DEFAULT_SAMPLE_SIZE = 10000
+MIN_ROWS_FOR_ANALYSIS = 10
+
 
 class ColumnMetadata:
-    """Metadata for a numeric column in cross-table analysis."""
+    """Metadata for a column in cross-table analysis."""
 
     def __init__(
         self,
@@ -41,12 +60,22 @@ class ColumnMetadata:
         table_id: str,
         table_name: str,
         column_name: str,
+        column_type: str,
     ):
         self.column_id = column_id
         self.table_id = table_id
         self.table_name = table_name
         self.column_name = column_name
+        self.column_type = column_type
         self.qualified_name = f"{table_name}.{column_name}"
+
+    @property
+    def is_numeric(self) -> bool:
+        return self.column_type in ["INTEGER", "BIGINT", "DOUBLE", "DECIMAL", "FLOAT"]
+
+    @property
+    def is_categorical(self) -> bool:
+        return self.column_type in ["VARCHAR", "BOOLEAN"]
 
 
 async def analyze_cross_table_correlations(
@@ -55,17 +84,25 @@ async def analyze_cross_table_correlations(
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: AsyncSession,
     min_correlation: float = 0.3,
+    min_cramers_v: float = 0.1,
     vdp_threshold: float = 0.5,
+    sample_size: int = DEFAULT_SAMPLE_SIZE,
+    max_categorical_distinct: int = 50,
 ) -> Result[CrossTableMulticollinearityAnalysis]:
     """Compute cross-table correlations and multicollinearity.
+
+    Uses pure algorithms from algorithms/ folder for all computations.
 
     Args:
         table_ids: Tables to analyze
         relationships: Enriched relationships for building joins
         duckdb_conn: DuckDB connection
         session: Async database session
-        min_correlation: Minimum |r| for correlation results
+        min_correlation: Minimum |r| for numeric correlation results
+        min_cramers_v: Minimum Cramér's V for categorical associations
         vdp_threshold: VDP threshold for multicollinearity (0.5-0.8)
+        sample_size: Number of rows to sample (uses DuckDB USING SAMPLE)
+        max_categorical_distinct: Max distinct values for categorical analysis
 
     Returns:
         Result containing CrossTableMulticollinearityAnalysis
@@ -73,9 +110,9 @@ async def analyze_cross_table_correlations(
     if len(table_ids) < 2:
         return Result.fail("Cross-table analysis requires at least 2 tables")
 
+    table_names = await _get_table_names(table_ids, session)
+
     if not relationships:
-        # No relationships - return empty analysis
-        table_names = await _get_table_names(table_ids, session)
         return Result.ok(
             CrossTableMulticollinearityAnalysis(
                 table_ids=table_ids,
@@ -88,48 +125,322 @@ async def analyze_cross_table_correlations(
             )
         )
 
-    # Step 1: Get numeric columns across tables
-    numeric_columns = await _get_numeric_columns(table_ids, session)
-    if len(numeric_columns) < 2:
-        return Result.fail("Need at least 2 numeric columns for correlation analysis")
+    # Step 1: Get all columns across tables
+    all_columns = await _get_all_columns(table_ids, session)
+    numeric_columns = [c for c in all_columns if c.is_numeric]
+    categorical_columns = [c for c in all_columns if c.is_categorical]
 
-    # Step 2: Build and execute join query
+    if len(numeric_columns) < 2 and len(categorical_columns) < 2:
+        return Result.fail("Need at least 2 numeric or 2 categorical columns for analysis")
+
+    # Step 2: Build and execute join query with sampling
     try:
-        join_query = await _build_join_query(table_ids, relationships, numeric_columns, session)
-        data = duckdb_conn.execute(join_query).fetchnumpy()
+        join_query = await _build_join_query(
+            table_ids, relationships, all_columns, session, sample_size
+        )
+        raw_data = duckdb_conn.execute(join_query).fetchnumpy()
     except Exception as e:
         return Result.fail(f"Join query failed: {e}")
 
-    # Step 3: Build data matrix
-    if not isinstance(data, dict):
+    if not isinstance(raw_data, dict):
         return Result.fail("Unexpected data format from DuckDB")
 
-    X = np.column_stack([data[col.qualified_name] for col in numeric_columns])
-    X = X[~np.isnan(X).any(axis=1)]  # Remove rows with NULL
+    # Step 3: Compute numeric correlations using pure algorithm
+    numeric_correlations = []
+    cross_table_correlations = []
 
-    if len(X) < 10:
-        return Result.fail(f"Not enough data after join: {len(X)} rows")
+    if len(numeric_columns) >= 2:
+        numeric_result = _compute_numeric_correlations(raw_data, numeric_columns, min_correlation)
+        numeric_correlations = numeric_result["all"]
+        cross_table_correlations = numeric_result["cross_table"]
 
-    # Step 4: Compute correlation matrix
-    corr_matrix = np.corrcoef(X, rowvar=False)
+    # Step 4: Compute categorical associations using pure algorithm
+    categorical_associations = []
+    cross_table_associations = []
 
-    # Step 5: Compute multicollinearity
-    multi_result = compute_multicollinearity(corr_matrix, vdp_threshold)
+    if len(categorical_columns) >= 2:
+        cat_result = _compute_categorical_associations(
+            raw_data, categorical_columns, min_cramers_v, max_categorical_distinct
+        )
+        categorical_associations = cat_result["all"]
+        cross_table_associations = cat_result["cross_table"]
 
-    # Step 6: Enrich dependency groups with cross-table context
+    # Step 5: Compute multicollinearity on numeric columns
+    multi_result = None
+    enriched_groups = []
+    cross_table_groups = []
+    overall_condition_index = 0.0
+    overall_severity = "none"
+
+    if len(numeric_columns) >= 2:
+        multi_result = _compute_multicollinearity_analysis(
+            raw_data, numeric_columns, vdp_threshold, relationships
+        )
+        if multi_result:
+            enriched_groups = multi_result["dependency_groups"]
+            cross_table_groups = multi_result["cross_table_groups"]
+            overall_condition_index = multi_result["overall_condition_index"]
+            overall_severity = multi_result["overall_severity"]
+
+    # Step 6: Generate quality issues
+    quality_issues = _generate_quality_issues(
+        cross_table_correlations,
+        cross_table_associations,
+        cross_table_groups,
+        overall_condition_index,
+        overall_severity,
+    )
+
+    # Build result
+    analysis = CrossTableMulticollinearityAnalysis(
+        table_ids=table_ids,
+        table_names=table_names,
+        computed_at=datetime.now(UTC),
+        total_columns_analyzed=len(all_columns),
+        total_numeric_columns=len(numeric_columns),
+        total_categorical_columns=len(categorical_columns),
+        total_relationships_used=len(relationships),
+        numeric_correlations=numeric_correlations,
+        cross_table_correlations=cross_table_correlations,
+        categorical_associations=categorical_associations,
+        cross_table_associations=cross_table_associations,
+        overall_condition_index=overall_condition_index,
+        overall_severity=overall_severity,
+        dependency_groups=enriched_groups,
+        cross_table_groups=cross_table_groups,
+        quality_issues=quality_issues,
+    )
+
+    return Result.ok(analysis)
+
+
+def _compute_numeric_correlations(
+    data: dict[str, Any],
+    columns: list[ColumnMetadata],
+    min_correlation: float,
+) -> dict[str, list[CrossTableNumericCorrelation]]:
+    """Compute numeric correlations using pure algorithm.
+
+    Handles zero-variance columns and NaN values.
+    """
+    # Build data matrix, filtering zero-variance columns
+    valid_columns = []
+    column_data = []
+
+    for col in columns:
+        col_values = data.get(col.qualified_name)
+        if col_values is None:
+            continue
+
+        # Convert to float array
+        arr = np.asarray(col_values, dtype=np.float64)
+
+        # Check for zero variance (would cause NaN in correlation)
+        if np.nanstd(arr) < 1e-10:
+            continue
+
+        valid_columns.append(col)
+        column_data.append(arr)
+
+    if len(valid_columns) < 2:
+        return {"all": [], "cross_table": []}
+
+    # Stack into matrix
+    X = np.column_stack(column_data)
+
+    # Use pure algorithm
+    corr_results = compute_pairwise_correlations(
+        X, min_correlation=min_correlation, min_samples=MIN_ROWS_FOR_ANALYSIS
+    )
+
+    # Convert to CrossTableNumericCorrelation
+    all_correlations = []
+    cross_table = []
+
+    for result in corr_results:
+        col1 = valid_columns[result.col1_idx]
+        col2 = valid_columns[result.col2_idx]
+        is_cross = col1.table_id != col2.table_id
+
+        corr = CrossTableNumericCorrelation(
+            table1=col1.table_name,
+            column1=col1.column_name,
+            table2=col2.table_name,
+            column2=col2.column_name,
+            pearson_r=result.pearson_r,
+            pearson_p=result.pearson_p,
+            spearman_rho=result.spearman_rho,
+            spearman_p=result.spearman_p,
+            sample_size=result.sample_size,
+            strength=result.strength,
+            is_significant=result.is_significant,
+            is_cross_table=is_cross,
+        )
+        all_correlations.append(corr)
+        if is_cross:
+            cross_table.append(corr)
+
+    return {"all": all_correlations, "cross_table": cross_table}
+
+
+def _compute_categorical_associations(
+    data: dict[str, Any],
+    columns: list[ColumnMetadata],
+    min_cramers_v: float,
+    max_distinct: int,
+) -> dict[str, list[CrossTableCategoricalAssociation]]:
+    """Compute categorical associations using pure algorithm."""
+    # Filter columns with too many distinct values
+    valid_columns = []
+    column_values = []
+
+    for col in columns:
+        col_data = data.get(col.qualified_name)
+        if col_data is None:
+            continue
+
+        # Convert to list and filter None/masked values
+        values = []
+        for v in col_data:
+            if v is None:
+                continue
+            # Handle numpy masked values
+            if hasattr(v, "mask") or isinstance(v, np.ma.core.MaskedConstant):
+                continue
+            values.append(v)
+
+        if not values:
+            continue
+
+        # Convert to hashable types for distinct count
+        try:
+            distinct = len({str(v) for v in values})
+        except Exception:
+            continue
+
+        if distinct < 2 or distinct > max_distinct:
+            continue
+
+        valid_columns.append(col)
+        column_values.append(values)
+
+    if len(valid_columns) < 2:
+        return {"all": [], "cross_table": []}
+
+    # Compute pairwise associations
+    all_associations = []
+    cross_table = []
+
+    for i in range(len(valid_columns)):
+        for j in range(i + 1, len(valid_columns)):
+            col1 = valid_columns[i]
+            col2 = valid_columns[j]
+            vals1 = column_values[i]
+            vals2 = column_values[j]
+
+            # Align lengths (use min length)
+            min_len = min(len(vals1), len(vals2))
+            if min_len < MIN_ROWS_FOR_ANALYSIS:
+                continue
+
+            vals1 = vals1[:min_len]
+            vals2 = vals2[:min_len]
+
+            # Build contingency table
+            try:
+                contingency = build_contingency_table(vals1, vals2)
+                result = compute_cramers_v(contingency, i, j)
+            except Exception:
+                continue
+
+            if result is None or result.cramers_v < min_cramers_v:
+                continue
+
+            is_cross = col1.table_id != col2.table_id
+
+            assoc = CrossTableCategoricalAssociation(
+                table1=col1.table_name,
+                column1=col1.column_name,
+                table2=col2.table_name,
+                column2=col2.column_name,
+                cramers_v=result.cramers_v,
+                chi_square=result.chi_square,
+                p_value=result.p_value,
+                sample_size=result.sample_size,
+                strength=result.strength,
+                is_significant=result.is_significant,
+                is_cross_table=is_cross,
+            )
+            all_associations.append(assoc)
+            if is_cross:
+                cross_table.append(assoc)
+
+    return {"all": all_associations, "cross_table": cross_table}
+
+
+def _compute_multicollinearity_analysis(
+    data: dict[str, Any],
+    columns: list[ColumnMetadata],
+    vdp_threshold: float,
+    relationships: list[EnrichedRelationship],
+) -> dict[str, Any] | None:
+    """Compute multicollinearity using pure algorithm.
+
+    Handles zero-variance columns and NaN values.
+    """
+    # Build data matrix, filtering zero-variance columns
+    valid_columns = []
+    column_data = []
+
+    for col in columns:
+        col_values = data.get(col.qualified_name)
+        if col_values is None:
+            continue
+
+        arr = np.asarray(col_values, dtype=np.float64)
+
+        # Check for zero variance
+        if np.nanstd(arr) < 1e-10:
+            continue
+
+        valid_columns.append(col)
+        column_data.append(arr)
+
+    if len(valid_columns) < 2:
+        return None
+
+    # Stack and remove rows with NaN
+    X = np.column_stack(column_data)
+    X = X[~np.isnan(X).any(axis=1)]
+
+    if len(X) < MIN_ROWS_FOR_ANALYSIS:
+        return None
+
+    # Compute correlation matrix
+    try:
+        corr_matrix = np.corrcoef(X, rowvar=False)
+
+        # Check for NaN in correlation matrix
+        if np.isnan(corr_matrix).any():
+            return None
+
+        # Use pure algorithm
+        multi_result = compute_multicollinearity(corr_matrix, vdp_threshold)
+    except Exception:
+        return None
+
+    # Enrich dependency groups with cross-table context
     enriched_groups = []
     cross_table_groups = []
 
     for group in multi_result.dependency_groups:
-        # Map indices to (table, column) pairs
         involved_columns = [
-            (numeric_columns[idx].table_name, numeric_columns[idx].column_name)
+            (valid_columns[idx].table_name, valid_columns[idx].column_name)
             for idx in group.involved_col_indices
         ]
-        column_ids = [numeric_columns[idx].column_id for idx in group.involved_col_indices]
+        column_ids = [valid_columns[idx].column_id for idx in group.involved_col_indices]
 
-        # Find join paths connecting these columns
-        join_paths = _find_join_paths(column_ids, relationships, numeric_columns)
+        join_paths = _find_join_paths(column_ids, relationships, valid_columns)
         relationship_types = list({path.relationship_type for path in join_paths})
 
         enriched = CrossTableDependencyGroup(
@@ -148,8 +459,69 @@ async def analyze_cross_table_correlations(
         if enriched.num_tables > 1:
             cross_table_groups.append(enriched)
 
-    # Step 7: Generate quality issues
+    return {
+        "dependency_groups": enriched_groups,
+        "cross_table_groups": cross_table_groups,
+        "overall_condition_index": multi_result.overall_condition_index,
+        "overall_severity": multi_result.overall_severity,
+    }
+
+
+def _generate_quality_issues(
+    cross_table_correlations: list[CrossTableNumericCorrelation],
+    cross_table_associations: list[CrossTableCategoricalAssociation],
+    cross_table_groups: list[CrossTableDependencyGroup],
+    overall_condition_index: float,
+    overall_severity: str,
+) -> list[dict[str, Any]]:
+    """Generate quality issues from analysis results."""
     quality_issues = []
+
+    # Strong cross-table correlations
+    strong_correlations = [
+        c for c in cross_table_correlations if c.strength in ["strong", "very_strong"]
+    ]
+    if strong_correlations:
+        quality_issues.append(
+            {
+                "issue_type": "strong_cross_table_correlation",
+                "severity": "info",
+                "description": (
+                    f"{len(strong_correlations)} strong numeric correlations found across tables"
+                ),
+                "evidence": {
+                    "count": len(strong_correlations),
+                    "examples": [
+                        f"{c.table1}.{c.column1} <-> {c.table2}.{c.column2} (r={c.pearson_r:.2f})"
+                        for c in strong_correlations[:3]
+                    ],
+                },
+            }
+        )
+
+    # Strong cross-table categorical associations
+    strong_associations = [
+        a for a in cross_table_associations if a.strength in ["strong", "moderate"]
+    ]
+    if strong_associations:
+        quality_issues.append(
+            {
+                "issue_type": "strong_cross_table_association",
+                "severity": "info",
+                "description": (
+                    f"{len(strong_associations)} categorical associations found across tables"
+                ),
+                "evidence": {
+                    "count": len(strong_associations),
+                    "examples": [
+                        f"{a.table1}.{a.column1} <-> {a.table2}.{a.column2} (V={a.cramers_v:.2f})"
+                        for a in strong_associations[:3]
+                    ],
+                },
+            }
+        )
+
+    # Cross-table multicollinearity
     if cross_table_groups:
         affected_tables = list(
             {table for g in cross_table_groups for table, _ in g.involved_columns}
@@ -157,37 +529,20 @@ async def analyze_cross_table_correlations(
         quality_issues.append(
             {
                 "issue_type": "cross_table_multicollinearity",
-                "severity": "critical" if multi_result.overall_severity == "severe" else "warning",
+                "severity": "critical" if overall_severity == "severe" else "warning",
                 "description": (
                     f"{len(cross_table_groups)} dependency groups span multiple tables "
-                    f"(overall CI={multi_result.overall_condition_index:.1f})"
+                    f"(overall CI={overall_condition_index:.1f})"
                 ),
                 "affected_tables": affected_tables,
                 "evidence": {
-                    "condition_index": multi_result.overall_condition_index,
+                    "condition_index": overall_condition_index,
                     "num_groups": len(cross_table_groups),
-                    "total_columns": len(numeric_columns),
                 },
             }
         )
 
-    # Build result
-    table_names = await _get_table_names(table_ids, session)
-
-    analysis = CrossTableMulticollinearityAnalysis(
-        table_ids=table_ids,
-        table_names=table_names,
-        computed_at=datetime.now(UTC),
-        total_columns_analyzed=len(numeric_columns),
-        total_relationships_used=len(relationships),
-        overall_condition_index=multi_result.overall_condition_index,
-        overall_severity=multi_result.overall_severity,
-        dependency_groups=enriched_groups,
-        cross_table_groups=cross_table_groups,
-        quality_issues=quality_issues,
-    )
-
-    return Result.ok(analysis)
+    return quality_issues
 
 
 async def _get_table_names(table_ids: list[str], session: AsyncSession) -> list[str]:
@@ -200,17 +555,27 @@ async def _get_table_names(table_ids: list[str], session: AsyncSession) -> list[
     return names
 
 
-async def _get_numeric_columns(
+async def _get_all_columns(
     table_ids: list[str],
     session: AsyncSession,
 ) -> list[ColumnMetadata]:
-    """Get all numeric columns across tables."""
+    """Get all columns (numeric and categorical) across tables."""
     stmt = (
         select(Column, Table)
         .join(Table, Column.table_id == Table.table_id)
         .where(
             Column.table_id.in_(table_ids),
-            Column.resolved_type.in_(["INTEGER", "BIGINT", "DOUBLE", "DECIMAL", "FLOAT"]),
+            Column.resolved_type.in_(
+                [
+                    "INTEGER",
+                    "BIGINT",
+                    "DOUBLE",
+                    "DECIMAL",
+                    "FLOAT",  # Numeric
+                    "VARCHAR",
+                    "BOOLEAN",  # Categorical
+                ]
+            ),
         )
     )
 
@@ -223,6 +588,7 @@ async def _get_numeric_columns(
             table_id=table.table_id,
             table_name=table.table_name,
             column_name=col.column_name,
+            column_type=col.resolved_type,
         )
         for col, table in rows
     ]
@@ -233,8 +599,9 @@ async def _build_join_query(
     relationships: list[EnrichedRelationship],
     columns: list[ColumnMetadata],
     session: AsyncSession,
+    sample_size: int,
 ) -> str:
-    """Build SQL query to join tables and select numeric columns."""
+    """Build SQL query to join tables and select columns with sampling."""
     # Select base table (one with most relationships)
     rel_counts = dict.fromkeys(table_ids, 0)
     for rel in relationships:
@@ -261,7 +628,7 @@ async def _build_join_query(
         if col.table_id in aliases
     ]
 
-    # FROM clause
+    # FROM clause with USING SAMPLE for random sampling
     query = f"SELECT {', '.join(select_parts)} FROM {base_table.duckdb_path} AS t0"
 
     # JOIN clauses
@@ -288,6 +655,9 @@ async def _build_join_query(
                     f'ON {from_alias}."{rel.from_column}" = {to_alias}."{rel.to_column}"'
                 )
                 joined.add(rel.from_table_id)
+
+    # Add sampling using USING SAMPLE (DuckDB feature)
+    query += f" USING SAMPLE {sample_size} ROWS"
 
     return query
 
