@@ -6,7 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.storage.models_v2 import (
-    Checkpoint,
     Column,
     DBSchemaVersion,
     JoinPath,
@@ -17,7 +16,6 @@ from dataraum_context.storage.models_v2 import (
     QualityRule,
     QualityScore,
     Relationship,
-    ReviewQueue,
     SemanticAnnotation,
     Source,
     StatisticalProfile,
@@ -503,61 +501,6 @@ class TestOntologyModels:
         saved = result.scalar_one()
 
         assert saved.matched_concepts == ["revenue"]
-
-
-class TestCheckpointModels:
-    """Test checkpoint and review queue models."""
-
-    async def test_create_checkpoint(self, session: AsyncSession):
-        source = Source(name="test_source", source_type="csv")
-        session.add(source)
-        await session.flush()
-
-        checkpoint = Checkpoint(
-            dataflow_name="ingest",
-            source_id=source.source_id,
-            status="pending_review",
-            checkpoint_type="type_review",
-            checkpoint_state={"step": "profiling", "data": {}},
-        )
-        session.add(checkpoint)
-        await session.commit()
-
-        result = await session.execute(select(Checkpoint))
-        saved = result.scalar_one()
-
-        assert saved.dataflow_name == "ingest"
-        assert saved.status == "pending_review"
-
-    async def test_create_review_queue_item(self, session: AsyncSession):
-        source = Source(name="test_source", source_type="csv")
-        session.add(source)
-        await session.flush()
-
-        checkpoint = Checkpoint(
-            dataflow_name="ingest",
-            source_id=source.source_id,
-            status="pending_review",
-            checkpoint_type="type_review",
-        )
-        session.add(checkpoint)
-        await session.flush()
-
-        review = ReviewQueue(
-            checkpoint=checkpoint,
-            review_type="type_decision",
-            item_id="column_123",
-            context_data={"column": "amount", "candidates": ["DOUBLE", "DECIMAL"]},
-            status="pending",
-        )
-        session.add(review)
-        await session.commit()
-
-        result = await session.execute(select(ReviewQueue))
-        saved = result.scalar_one()
-
-        assert saved.review_type == "type_decision"
-        assert saved.status == "pending"
 
 
 class TestLLMCache:

@@ -64,12 +64,6 @@ class FilteringRecommendationRecord(Base):
         JSON, nullable=False, default=list
     )
 
-    # Legacy format (backward compatibility)
-    clean_view_filters: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    quarantine_criteria: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    column_exclusions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    rationale: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
-
 
 class FilteringExecutionRecord(Base):
     """Record of filter execution creating clean/quarantine artifacts.

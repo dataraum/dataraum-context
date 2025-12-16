@@ -35,8 +35,6 @@ class TestSchemaInitialization:
             "quality_scores",
             "ontologies",
             "ontology_applications",
-            "checkpoints",
-            "review_queue",
             "llm_cache",
         ]
 
