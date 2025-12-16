@@ -2,7 +2,7 @@
 
 ## Overview
 
-Metadata is stored via SQLAlchemy, supporting both SQLite (development) and 
+Metadata is stored via SQLAlchemy, supporting both SQLite (development) and
 PostgreSQL (production). DuckDB is used for data compute only.
 This separation allows metadata to be queried independently of data files.
 
@@ -10,8 +10,25 @@ This separation allows metadata to be queried independently of data files.
 - **SQLite** (default): Zero-config local development, file-based
 - **PostgreSQL**: Production deployments, concurrent access
 
-The schema below is shown in SQL for clarity. Implementation uses SQLAlchemy 
+The schema below is shown in SQL for clarity. Implementation uses SQLAlchemy
 ORM models with async support via `aiosqlite` and `asyncpg`.
+
+## Model Organization
+
+SQLAlchemy models are **co-located with their business logic** for better maintainability:
+
+| Domain | Location | Models |
+|--------|----------|--------|
+| Core | `storage/models_v2/core.py` | Source, Table, Column |
+| Ontology | `storage/models_v2/ontology.py` | Ontology, OntologyApplication |
+| Profiling | `profiling/db_models.py` | StatisticalProfile, TypeCandidate, TypeDecision, correlations |
+| Enrichment | `enrichment/db_models.py` | SemanticAnnotation, TableEntity, Relationship, JoinPath, topological/temporal metrics |
+| Quality | `quality/db_models.py` | QualityRule, QualityResult |
+| Domain Quality | `quality/domains/db_models.py` | DomainQualityMetrics, FinancialQualityMetrics, detail tables |
+| LLM | `llm/db_models.py` | LLMCache |
+| Graphs | `graphs/db_models.py` | GeneratedCodeRecord, GraphExecutionRecord, StepResultRecord |
+
+All models inherit from `storage/models_v2/base.py:Base` and are registered via imports in `storage/schema.py`.
 
 ## Schema: `metadata`
 
