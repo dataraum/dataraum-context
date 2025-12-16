@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 # Import all model modules to register them with SQLAlchemy Base metadata
 # These imports ensure tables are created when init_database() is called
 from dataraum_context.enrichment import db_models as _enrichment_models  # noqa: F401
+from dataraum_context.graphs import db_models as _graphs_models  # noqa: F401
+from dataraum_context.llm import db_models as _llm_models  # noqa: F401
 from dataraum_context.profiling import db_models as _profiling_models  # noqa: F401
 from dataraum_context.quality import db_models as _quality_models  # noqa: F401
 from dataraum_context.quality.domains import db_models as _domain_quality_models  # noqa: F401

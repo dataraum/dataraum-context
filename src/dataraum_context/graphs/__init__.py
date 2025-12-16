@@ -31,8 +31,8 @@ Usage:
     result = await agent.execute(session, graph, context)
 """
 
-# Re-export from storage for convenience
-from dataraum_context.storage.models_v2.graphs import (
+# Re-export DB models for convenience
+from dataraum_context.graphs.db_models import (
     GeneratedCodeRecord,
     GraphExecutionRecord,
     StepResultRecord,

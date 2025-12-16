@@ -17,11 +17,11 @@ from dataraum_context.profiling.db_models import (
     TypeCandidate,
     TypeDecision,
 )
+from dataraum_context.llm.db_models import LLMCache
 from dataraum_context.quality.db_models import QualityResult, QualityRule
 from dataraum_context.storage.models_v2 import (
     Column,
     DBSchemaVersion,
-    LLMCache,
     Ontology,
     OntologyApplication,
     Source,

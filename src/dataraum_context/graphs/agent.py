@@ -25,12 +25,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models.base import Result
+from dataraum_context.graphs.db_models import GeneratedCodeRecord
 from dataraum_context.llm.cache import LLMCache
 from dataraum_context.llm.config import LLMConfig
 from dataraum_context.llm.features._base import LLMFeature
 from dataraum_context.llm.prompts import PromptRenderer
 from dataraum_context.llm.providers.base import LLMProvider
-from dataraum_context.storage.models_v2.graphs import GeneratedCodeRecord
 
 from .models import (
     DatasetSchemaMapping,

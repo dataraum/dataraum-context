@@ -18,7 +18,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.storage.models_v2.graphs import GraphExecutionRecord, StepResultRecord
+from dataraum_context.graphs.db_models import GraphExecutionRecord, StepResultRecord
 
 from .models import (
     Classification,
