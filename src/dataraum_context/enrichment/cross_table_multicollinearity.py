@@ -34,7 +34,7 @@ from dataraum_context.profiling.models import (
     CrossTableMulticollinearityAnalysis,
     SingleRelationshipJoin,
 )
-from dataraum_context.storage.models_v2 import Column, Table
+from dataraum_context.storage import Column, Table
 
 __all__ = ["EnrichedRelationship", "gather_relationships", "CONFIDENCE_THRESHOLDS"]
 

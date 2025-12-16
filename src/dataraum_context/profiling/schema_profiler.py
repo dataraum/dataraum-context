@@ -22,7 +22,7 @@ from dataraum_context.core.models.base import Result
 from dataraum_context.profiling.models import DetectedPattern, SchemaProfileResult, TypeCandidate
 from dataraum_context.profiling.patterns import PatternConfig, load_pattern_config
 from dataraum_context.profiling.type_inference import infer_type_candidates
-from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage import Column, Table
 
 
 async def profile_schema(

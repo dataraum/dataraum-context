@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from dataraum_context.storage.schema import init_database
+from dataraum_context.storage import init_database
 
 
 @pytest.fixture(scope="function")

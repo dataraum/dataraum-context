@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.storage.models_v2 import Column, Table
+from dataraum_context.storage import Column, Table
 
 
 async def load_table_mappings(

@@ -12,7 +12,7 @@ from uuid import uuid4
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from dataraum_context.storage.models_v2.base import Base
+from dataraum_context.storage import Base
 
 
 class LLMCache(Base):

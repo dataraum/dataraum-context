@@ -24,7 +24,7 @@ from dataraum_context.quality.formatting.multicollinearity import (
     _get_cross_table_interpretation,
     format_cross_table_multicollinearity_for_llm,
 )
-from dataraum_context.storage.models_v2 import (
+from dataraum_context.storage import (
     Column,
     Source,
     Table,

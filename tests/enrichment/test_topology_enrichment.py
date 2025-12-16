@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from dataraum_context.enrichment.models import Relationship, TopologyEnrichmentResult
 from dataraum_context.enrichment.topology import enrich_topology
-from dataraum_context.storage.models_v2 import Base, Column, Source, Table
+from dataraum_context.storage import Base, Column, Source, Table
 
 
 @pytest.fixture

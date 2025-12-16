@@ -39,18 +39,16 @@ from dataraum_context.core.models import SourceConfig
 from dataraum_context.enrichment.cross_table_multicollinearity import (
     compute_cross_table_multicollinearity,
 )
+from dataraum_context.enrichment.db_models import Relationship, SemanticAnnotation
 from dataraum_context.enrichment.semantic import enrich_semantic
 from dataraum_context.enrichment.temporal import enrich_temporal
 from dataraum_context.enrichment.topology import enrich_topology
 from dataraum_context.llm import LLMService, load_llm_config
+from dataraum_context.profiling.db_models import StatisticalProfile
 from dataraum_context.profiling.profiler import profile_schema, profile_statistics
 from dataraum_context.profiling.type_resolution import resolve_types
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.storage.models_v2.core import Column, Table
-from dataraum_context.storage.models_v2.relationship import Relationship
-from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation
-from dataraum_context.storage.models_v2.statistical_context import StatisticalProfile
-from dataraum_context.storage.schema import init_database
+from dataraum_context.storage import Column, Table, init_database
 
 
 @dataclass

@@ -16,10 +16,10 @@ from uuid import uuid4
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from dataraum_context.storage.models_v2.base import Base
+from dataraum_context.storage import Base
 
 if TYPE_CHECKING:
-    from dataraum_context.storage.models_v2.core import Column, Table
+    from dataraum_context.storage import Column, Table
 
 
 class QualityRule(Base):

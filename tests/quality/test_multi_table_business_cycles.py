@@ -22,7 +22,7 @@ from dataraum_context.quality.domains.financial_orchestrator import (
     classify_cross_table_cycle_with_llm,
 )
 from dataraum_context.quality.topological import analyze_relationship_graph
-from dataraum_context.storage.models_v2 import Base, Column, Source, Table
+from dataraum_context.storage import Base, Column, Source, Table
 
 
 @pytest.fixture

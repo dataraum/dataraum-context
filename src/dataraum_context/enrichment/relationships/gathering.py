@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dataraum_context.core.models.base import Cardinality, RelationshipType
 from dataraum_context.enrichment.db_models import Relationship as RelationshipModel
 from dataraum_context.enrichment.relationships.models import EnrichedRelationship
-from dataraum_context.storage.models_v2 import Column, Table
+from dataraum_context.storage import Column, Table
 
 # Differentiated confidence thresholds by relationship type
 CONFIDENCE_THRESHOLDS = {

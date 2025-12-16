@@ -29,7 +29,7 @@ async def test_enrich_semantic_stores_annotations(db_session):
     agent.analyze = AsyncMock()
 
     # Setup test data - create tables and columns
-    from dataraum_context.storage.models_v2 import Column, Source, Table
+    from dataraum_context.storage import Column, Source, Table
 
     source = Source(name="test_source", source_type="csv")
     db_session.add(source)
@@ -152,7 +152,7 @@ async def test_enrich_semantic_handles_missing_columns(db_session):
     agent.analyze = AsyncMock()
 
     # Create test table
-    from dataraum_context.storage.models_v2 import Column, Source, Table
+    from dataraum_context.storage import Column, Source, Table
 
     source = Source(name="test_source", source_type="csv")
     db_session.add(source)
@@ -228,7 +228,7 @@ async def test_enrich_semantic_stores_relationships(db_session):
     agent.analyze = AsyncMock()
 
     # Create two related tables
-    from dataraum_context.storage.models_v2 import Column, Source, Table
+    from dataraum_context.storage import Column, Source, Table
 
     source = Source(name="test_source", source_type="csv")
     db_session.add(source)

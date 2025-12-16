@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 from dataraum_context.core.models.base import ColumnRef, DataType, Result
 from dataraum_context.profiling.models import ColumnCastResult, TypeResolutionResult
 from dataraum_context.profiling.patterns import Pattern, load_pattern_config
-from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage import Column, Table
 
 
 @dataclass

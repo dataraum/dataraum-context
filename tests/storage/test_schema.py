@@ -3,8 +3,7 @@
 from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from dataraum_context.storage.models_v2 import Source
-from dataraum_context.storage.schema import init_database, reset_database
+from dataraum_context.storage import Source, init_database, reset_database
 
 
 class TestSchemaInitialization:

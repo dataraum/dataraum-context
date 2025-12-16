@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from dataraum_context.enrichment.models import TemporalEnrichmentResult
 from dataraum_context.enrichment.temporal import enrich_temporal
 from dataraum_context.quality.models import TemporalQualityResult
-from dataraum_context.storage.models_v2 import Base, Column, Source, Table
+from dataraum_context.storage import Base, Column, Source, Table
 
 
 @pytest.fixture

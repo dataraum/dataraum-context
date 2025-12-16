@@ -19,11 +19,7 @@ from dataraum_context.profiling.db_models import (
     TypeDecision,
 )
 from dataraum_context.quality.db_models import QualityResult, QualityRule
-from dataraum_context.storage.models_v2 import (
-    Column,
-    Source,
-    Table,
-)
+from dataraum_context.storage import Column, Source, Table
 
 
 class TestCoreModels:

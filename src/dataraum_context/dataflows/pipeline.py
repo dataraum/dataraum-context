@@ -53,7 +53,7 @@ from dataraum_context.quality.statistical import assess_statistical_quality
 from dataraum_context.quality.temporal import analyze_temporal_quality
 from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage import Column, Table
 
 # =============================================================================
 # Result Models (Simplified - Health Info Only)

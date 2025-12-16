@@ -53,7 +53,7 @@ from dataraum_context.quality.domains.models import (
     SignConventionViolation,
     TrialBalanceResult,
 )
-from dataraum_context.storage.models_v2 import Table
+from dataraum_context.storage import Table
 
 logger = logging.getLogger(__name__)
 

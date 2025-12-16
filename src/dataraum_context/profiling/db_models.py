@@ -26,10 +26,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from dataraum_context.storage.models_v2.base import Base
+from dataraum_context.storage import Base
 
 if TYPE_CHECKING:
-    from dataraum_context.storage.models_v2.core import Column
+    from dataraum_context.storage import Column
 
 
 # =============================================================================

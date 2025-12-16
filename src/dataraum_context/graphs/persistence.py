@@ -1,7 +1,7 @@
 """Graph execution persistence.
 
 Repository and converter functions for persisting graph executions.
-SQLAlchemy models are in storage/models_v2/graphs.py to avoid circular imports.
+SQLAlchemy models are in graphs/db_models.py.
 
 Usage:
     from dataraum_context.graphs.persistence import GraphExecutionRepository

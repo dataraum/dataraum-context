@@ -26,7 +26,7 @@ from dataraum_context.quality.temporal import (
     detect_change_points,
     detect_fiscal_calendar,
 )
-from dataraum_context.storage.models_v2.core import Column, Source, Table
+from dataraum_context.storage import Column, Source, Table
 
 
 def create_column(

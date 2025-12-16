@@ -38,7 +38,7 @@ from dataraum_context.quality.domains.financial_orchestrator import (
     analyze_complete_financial_dataset_quality,
 )
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.storage.models_v2 import (
+from dataraum_context.storage import (
     Base,
     BusinessCycleClassification,
     MultiTableTopologyMetrics,
