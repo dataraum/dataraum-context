@@ -1,18 +1,18 @@
-"""Profiling Database Models.
+"""Correlation Analysis Database Models.
 
-SQLAlchemy models for profiling-related persistence:
-- Correlation analysis (numeric, categorical, functional dependencies)
-- Multicollinearity analysis
-
-NOTE: Statistical profiles and type inference have been moved to dedicated modules:
-- StatisticalProfile, StatisticalQualityMetrics -> analysis/statistics/db_models.py
-- TypeCandidate, TypeDecision -> analysis/typing/db_models.py
+SQLAlchemy models for correlation analysis persistence:
+- ColumnCorrelation: Numeric correlations (Pearson, Spearman)
+- CategoricalAssociation: Categorical associations (Cramér's V)
+- FunctionalDependency: Functional dependencies (A → B)
+- DerivedColumn: Derived column detection
+- MulticollinearityMetrics: VIF, Condition Index
+- CrossTableMulticollinearityMetrics: Cross-table multicollinearity
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -27,37 +27,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-# Re-export for backwards compatibility
-from dataraum_context.analysis.statistics.db_models import StatisticalProfile  # noqa: F401
-from dataraum_context.quality.db_models import StatisticalQualityMetrics  # noqa: F401
 from dataraum_context.storage import Base
-
-# Re-export all models (backwards compatibility)
-__all__ = [
-    "StatisticalProfile",
-    "StatisticalQualityMetrics",
-    "ColumnCorrelation",
-    "CategoricalAssociation",
-    "FunctionalDependency",
-    "DerivedColumn",
-    "MulticollinearityMetrics",
-    "CrossTableMulticollinearityMetrics",
-]
-
-if TYPE_CHECKING:
-    pass
-
-
-# =============================================================================
-# Type Inference Models
-# =============================================================================
-# NOTE: TypeCandidate and TypeDecision have been moved to analysis/typing/db_models.py
-# Import them from there: from dataraum_context.analysis.typing.db_models import TypeCandidate, TypeDecision
-
-
-# =============================================================================
-# Correlation and Dependency Models
-# =============================================================================
 
 
 class ColumnCorrelation(Base):
@@ -248,11 +218,6 @@ class DerivedColumn(Base):
     )  # Sample of rows where formula doesn't hold
 
 
-# =============================================================================
-# Multicollinearity Models
-# =============================================================================
-
-
 class MulticollinearityMetrics(Base):
     """Multicollinearity analysis results (hybrid storage).
 
@@ -330,9 +295,6 @@ class CrossTableMulticollinearityMetrics(Base):
 # =============================================================================
 # Indexes for efficient queries
 # =============================================================================
-
-# Statistical indexes are defined in analysis/statistics/db_models.py
-# Type inference indexes are defined in analysis/typing/db_models.py
 
 # Correlations
 Index("idx_correlations_table", ColumnCorrelation.table_id)

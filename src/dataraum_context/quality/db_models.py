@@ -1,6 +1,7 @@
-"""Quality Rules Database Models.
+"""Quality Database Models.
 
-SQLAlchemy models for rule-based quality framework:
+SQLAlchemy models for quality framework:
+- Statistical quality metrics (Benford's Law, outlier detection)
 - Quality rules (LLM-generated or manual)
 - Quality results (rule execution results)
 
@@ -20,6 +21,64 @@ from dataraum_context.storage import Base
 
 if TYPE_CHECKING:
     from dataraum_context.storage import Column, Table
+
+
+# =============================================================================
+# Statistical Quality Models
+# =============================================================================
+
+
+class StatisticalQualityMetrics(Base):
+    """Statistical quality assessment for a column.
+
+    HYBRID STORAGE APPROACH:
+    - Structured fields: Queryable quality indicators (flags, scores, key ratios)
+    - JSONB field: Full quality analysis results for flexibility
+
+    Advanced quality metrics that may be expensive to compute:
+    - Benford's Law compliance (fraud detection for financial amounts)
+    - Outlier detection (Isolation Forest + IQR method)
+
+    Note: Distribution stability (KS test) is handled by temporal quality module.
+    """
+
+    __tablename__ = "statistical_quality_metrics"
+
+    metric_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    column_id: Mapped[str] = mapped_column(
+        ForeignKey("columns.column_id", ondelete="CASCADE"), nullable=False
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    # STRUCTURED: Queryable quality indicators
+    # Flags for filtering (fast queries)
+    benford_compliant: Mapped[bool | None] = mapped_column(Integer)
+    has_outliers: Mapped[bool | None] = mapped_column(Integer)
+
+    # Key metrics for sorting/filtering
+    iqr_outlier_ratio: Mapped[float | None] = mapped_column(Float)
+    isolation_forest_anomaly_ratio: Mapped[float | None] = mapped_column(Float)
+
+    # JSONB: Full quality analysis results
+    # Stores: Benford analysis, outlier details, quality issues
+    quality_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    # Relationships
+    column: Mapped[Column] = relationship(back_populates="statistical_quality_metrics")
+
+
+Index(
+    "idx_statistical_quality_column",
+    StatisticalQualityMetrics.column_id,
+    StatisticalQualityMetrics.computed_at.desc(),
+)
+
+
+# =============================================================================
+# Rule-Based Quality Models
+# =============================================================================
 
 
 class QualityRule(Base):

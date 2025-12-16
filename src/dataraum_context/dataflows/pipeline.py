@@ -52,7 +52,7 @@ from dataraum_context.quality.domains.financial import analyze_financial_quality
 from dataraum_context.quality.statistical import assess_statistical_quality
 from dataraum_context.quality.temporal import analyze_temporal_quality
 from dataraum_context.quality.topological import analyze_topological_quality
-from dataraum_context.staging.loaders.csv import CSVLoader
+from dataraum_context.sources.csv import CSVLoader
 from dataraum_context.storage import Column, Table
 
 # =============================================================================

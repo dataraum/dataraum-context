@@ -1,4 +1,7 @@
-"""Tests for CSV loader."""
+"""Tests for CSV loader.
+
+Tests the sources.csv module which implements VARCHAR-first CSV loading.
+"""
 
 from pathlib import Path
 
@@ -8,7 +11,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from dataraum_context.core.models import SourceConfig
-from dataraum_context.staging.loaders.csv import CSVLoader
+from dataraum_context.sources.csv import CSVLoader
 from dataraum_context.storage import init_database
 
 

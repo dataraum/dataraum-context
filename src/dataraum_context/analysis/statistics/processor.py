@@ -7,14 +7,11 @@ Computes ALL row-based statistics on CLEAN data after type resolution:
 - Numeric stats (min, max, mean, stddev, skewness, kurtosis, cv)
 - Percentiles (p01, p25, p50, p75, p99)
 - Histograms
-- Correlations (Pearson, Spearman)
-- Categorical associations (Cramér's V)
-- Functional dependencies
-- Multicollinearity (VIF, Tolerance, Condition Index)
-- Derived column detection (arithmetic)
 
 This REQUIRES a typed table (layer="typed"). Row-based statistics
 must be computed on clean data to be accurate.
+
+Note: Correlation analysis is handled separately by analysis/correlation module.
 """
 
 from __future__ import annotations
@@ -27,16 +24,10 @@ from uuid import uuid4
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.core.config import get_settings
-
-if TYPE_CHECKING:
-    from dataraum_context.core.config import Settings
-from dataraum_context.core.models.base import ColumnRef, Result
-from dataraum_context.profiling.correlation import (
-    analyze_correlations,
+from dataraum_context.analysis.statistics.db_models import (
+    StatisticalProfile as DBColumnProfile,
 )
-from dataraum_context.profiling.db_models import StatisticalProfile as DBColumnProfile
-from dataraum_context.profiling.models import (
+from dataraum_context.analysis.statistics.models import (
     ColumnProfile,
     HistogramBucket,
     NumericStats,
@@ -44,14 +35,18 @@ from dataraum_context.profiling.models import (
     StringStats,
     ValueCount,
 )
+from dataraum_context.core.config import get_settings
+from dataraum_context.core.models.base import ColumnRef, Result
 from dataraum_context.storage import Column, Table
+
+if TYPE_CHECKING:
+    from dataraum_context.core.config import Settings
 
 
 async def profile_statistics(
     table_id: str,
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: AsyncSession,
-    include_correlations: bool = True,
 ) -> Result[StatisticsProfileResult]:
     """Profile typed data to compute all row-based statistics.
 
@@ -62,15 +57,15 @@ async def profile_statistics(
     - Numeric stats (min, max, mean, stddev, skewness, kurtosis, cv)
     - Percentiles (p01, p25, p50, p75, p99)
     - Histograms
-    - Correlations (if include_correlations=True)
 
     REQUIRES table.layer == "typed". Raises error otherwise.
+
+    Note: Correlation analysis is handled separately by analysis/correlation module.
 
     Args:
         table_id: Table ID to profile
         duckdb_conn: DuckDB connection
         session: SQLAlchemy session
-        include_correlations: Whether to compute correlations (default True)
 
     Returns:
         Result containing StatisticsProfileResult
@@ -144,17 +139,6 @@ async def profile_statistics(
             session.add(db_profile)
             profiles.append(profile)
 
-        # Run correlation analysis if requested
-        correlation_result = None
-        if include_correlations:
-            corr_result = await analyze_correlations(
-                table_id=table_id,
-                duckdb_conn=duckdb_conn,
-                session=session,
-            )
-            if corr_result.success:
-                correlation_result = corr_result.unwrap()
-
         # Update table's last_profiled_at
         table.last_profiled_at = profiled_at
         await session.commit()
@@ -164,7 +148,6 @@ async def profile_statistics(
         return Result.ok(
             StatisticsProfileResult(
                 column_profiles=profiles,
-                correlation_result=correlation_result,
                 duration_seconds=duration,
             )
         )

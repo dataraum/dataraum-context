@@ -242,11 +242,8 @@ class SemanticAgent(LLMFeature):
                             )
                         )
 
-                # Convert detected patterns
-                # TODO: this should be implemented
-                _detected_patterns: list[str] = []
-                # Note: patterns are stored in type_candidates table in Phase 2B
-                # For now, leave empty - will be populated when profiling is integrated
+                # Note: patterns are stored in SchemaProfileResult.detected_patterns
+                # and are only available during schema profiling, not statistics profiling
 
                 profile = ColumnProfile(
                     column_id=col.column_id,
@@ -260,7 +257,6 @@ class SemanticAgent(LLMFeature):
                     numeric_stats=numeric_stats,
                     string_stats=string_stats,
                     top_values=top_values,
-                    detected_patterns=[],
                 )
                 profiles.append(profile)
 
@@ -286,7 +282,6 @@ class SemanticAgent(LLMFeature):
                         null_ratio=0.0,
                         cardinality_ratio=0.0,
                         top_values=[],
-                        detected_patterns=[],
                     )
                     profiles.append(profile)
 
@@ -333,9 +328,8 @@ class SemanticAgent(LLMFeature):
                 col_data["max"] = profile.numeric_stats.max_value
                 col_data["mean"] = profile.numeric_stats.mean
 
-            # Add detected patterns
-            if profile.detected_patterns:
-                col_data["patterns"] = [p.name for p in profile.detected_patterns]
+            # Note: patterns are available via SchemaProfileResult.detected_patterns
+            # but not included in ColumnProfile which is for statistics stage
 
             tables_data[table_name]["columns"].append(col_data)
 

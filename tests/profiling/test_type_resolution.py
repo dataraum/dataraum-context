@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.dataflows.pipeline import run_pipeline
 from dataraum_context.profiling.profiler import profile_and_resolve_types
-from dataraum_context.staging.loaders.csv import CSVLoader
+from dataraum_context.sources.csv import CSVLoader
 from dataraum_context.storage import init_database
 
 

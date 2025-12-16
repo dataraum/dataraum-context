@@ -1,4 +1,16 @@
-"""Type inference through pattern matching."""
+"""Type inference from value patterns.
+
+This module infers type candidates for VARCHAR columns by:
+1. Sampling values from the column
+2. Matching against value patterns (regex)
+3. Testing TRY_CAST success rates
+4. Detecting units with Pint
+
+IMPORTANT: Type inference is based ONLY on value analysis, NOT column names.
+Column names are semantically meaningful but fragile for type inference.
+"""
+
+from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -20,6 +32,14 @@ from dataraum_context.core.models.base import (
 from dataraum_context.storage import Column, Table
 
 
+class ParseResult:
+    """Result of type cast testing."""
+
+    def __init__(self, success_rate: float, failed_examples: list[str]):
+        self.success_rate = success_rate
+        self.failed_examples = failed_examples
+
+
 async def infer_type_candidates(
     table: Table,
     duckdb_conn: duckdb.DuckDBPyConnection,
@@ -29,7 +49,7 @@ async def infer_type_candidates(
 
     This function:
     1. Samples values from each VARCHAR column
-    2. Applies pattern matching to detect types
+    2. Applies pattern matching to detect types (VALUE patterns only)
     3. Attempts to cast values to candidate types
     4. Scores candidates by parse success rate
     5. Detects units for numeric types
@@ -111,6 +131,12 @@ async def _infer_column_types(
 ) -> Result[list[TypeCandidateModel]]:
     """Infer type candidates for a single column.
 
+    Type inference strategy (value-based only):
+    1. Pattern matches on VALUES with >= 50% match rate
+    2. TRY_CAST validation with >= 80% success rate
+    3. Pint unit detection as fallback for numeric values
+    4. VARCHAR fallback if nothing else works
+
     Args:
         table: Parent table
         column: Column to analyze
@@ -142,9 +168,9 @@ async def _infer_column_types(
         if not sample_values:
             return Result.fail("No values to analyze")
 
-        # Pattern matching
+        # Pattern matching on VALUES
         pattern_matches: dict[str, int] = defaultdict(int)
-        pattern_by_name = {}
+        pattern_by_name: dict[str, Pattern] = {}
 
         for value in sample_values:
             str_value = str(value)
@@ -154,13 +180,12 @@ async def _infer_column_types(
                 pattern_by_name[pattern.name] = pattern
 
         # Try Pint unit detection on the VARCHAR values
-        # This detects units like "100 kg", "5.5 m", "$25.30" that patterns might miss
         pint_unit_result = detect_unit(sample_values)
 
         # Build type candidates
         candidates = []
 
-        # Strategy 1: From pattern matches
+        # Strategy 1: From value pattern matches
         for pattern_name, match_count in pattern_matches.items():
             pattern = pattern_by_name[pattern_name]
             match_rate = match_count / len(sample_values)
@@ -182,13 +207,11 @@ async def _infer_column_types(
                 continue  # Too many parse failures
 
             # Detect units on VARCHAR values
-            # Note: Units are detected BEFORE type conversion, on the original string values
             detected_unit = None
             unit_confidence = None
 
             if pattern.detected_unit:
                 # Pattern already specifies unit (e.g., currency pattern like "$123.45")
-                # The pattern matched the VARCHAR string, so we know it has this unit
                 detected_unit = pattern.detected_unit
                 unit_confidence = match_rate
             elif pint_unit_result and pattern.inferred_type in [
@@ -198,8 +221,6 @@ async def _infer_column_types(
                 DataType.BIGINT,
             ]:
                 # Pattern indicates numeric type, and Pint detected a unit
-                # This catches cases like "100 kg" that match the numeric pattern
-                # but also have units that Pint can extract
                 detected_unit = pint_unit_result.unit
                 unit_confidence = pint_unit_result.confidence
 
@@ -227,7 +248,6 @@ async def _infer_column_types(
         # This handles cases like "100 kg" where the unit detection worked
         # but our regex patterns didn't catch it
         if not candidates and pint_unit_result:
-            # Infer numeric type since Pint successfully parsed it
             candidate = TypeCandidateModel(
                 column_id=column.column_id,
                 column_ref=ColumnRef(
@@ -267,14 +287,6 @@ async def _infer_column_types(
 
     except Exception as e:
         return Result.fail(f"Failed to infer types for column {column.column_name}: {e}")
-
-
-class ParseResult:
-    """Result of type cast testing."""
-
-    def __init__(self, success_rate: float, failed_examples: list[str]):
-        self.success_rate = success_rate
-        self.failed_examples = failed_examples
 
 
 async def _test_type_cast(

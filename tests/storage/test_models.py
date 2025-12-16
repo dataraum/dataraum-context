@@ -5,6 +5,10 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.typing.db_models import (
+    TypeCandidate,
+    TypeDecision,
+)
 from dataraum_context.enrichment.db_models import (
     JoinPath,
     Relationship,
@@ -15,8 +19,6 @@ from dataraum_context.enrichment.db_models import (
 from dataraum_context.llm.db_models import LLMCache
 from dataraum_context.profiling.db_models import (
     StatisticalProfile,
-    TypeCandidate,
-    TypeDecision,
 )
 from dataraum_context.quality.db_models import QualityResult, QualityRule
 from dataraum_context.storage import Column, Source, Table

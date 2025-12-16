@@ -9,14 +9,15 @@ Domain models live in their respective packages:
 - enrichment/models.py          → Enrichment models (topological, temporal, semantic)
 - quality/models.py             → Quality synthesis models
 - quality/domains/models.py     → Domain-specific quality models (financial, etc.)
-- staging/models.py             → Staging models
+- sources/csv/models.py         → CSV staging models
+- analysis/typing/models.py     → Type inference models
 
 Import domain models directly from their packages:
     from dataraum_context.profiling.models import BenfordAnalysis, NumericCorrelation
     from dataraum_context.enrichment.models import TopologicalQualityResult
     from dataraum_context.quality.models import QualityRule, QualitySynthesisResult
     from dataraum_context.quality.domains.models import FinancialQualityConfig
-    from dataraum_context.staging.models import StagedTable
+    from dataraum_context.sources.csv.models import StagedTable
 """
 
 # =============================================================================

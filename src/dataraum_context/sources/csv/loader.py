@@ -8,9 +8,9 @@ import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models import Result, SourceConfig
-from dataraum_context.staging.base import ColumnInfo, LoaderBase, TypeSystemStrength
-from dataraum_context.staging.models import StagedTable, StagingResult
-from dataraum_context.staging.null_values import NullValueConfig, load_null_value_config
+from dataraum_context.sources.base import ColumnInfo, LoaderBase, TypeSystemStrength
+from dataraum_context.sources.csv.models import StagedTable, StagingResult
+from dataraum_context.sources.csv.null_values import NullValueConfig, load_null_value_config
 from dataraum_context.storage import Column, Source, Table
 
 
@@ -178,7 +178,6 @@ class CSVLoader(LoaderBase):
 
         try:
             # Load null value configuration once
-            # TODO this could be used to report on null values
             null_config = load_null_value_config()
 
             # Create single Source for the directory
