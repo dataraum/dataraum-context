@@ -5,12 +5,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from dataraum_context.storage.base import Base
-from dataraum_context.storage.models_v2.base import Base as BaseV2
-
 # Import all model modules to register them with SQLAlchemy Base metadata
 # These imports ensure tables are created when init_database() is called
 from dataraum_context.profiling import db_models as _profiling_models  # noqa: F401
+from dataraum_context.storage.base import Base
+from dataraum_context.storage.models_v2.base import Base as BaseV2
 
 
 async def init_database(engine: AsyncEngine) -> None:

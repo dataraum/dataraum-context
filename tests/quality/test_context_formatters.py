@@ -7,6 +7,10 @@ from datetime import UTC, datetime
 
 import pytest
 
+from dataraum_context.profiling.db_models import (
+    StatisticalProfile,
+    StatisticalQualityMetrics,
+)
 from dataraum_context.quality.context import (
     _generate_column_flags,
     _generate_table_flags,
@@ -18,10 +22,6 @@ from dataraum_context.quality.models import (
     ColumnQualityContext,
     DatasetQualityContext,
     TableQualityContext,
-)
-from dataraum_context.profiling.db_models import (
-    StatisticalProfile,
-    StatisticalQualityMetrics,
 )
 from dataraum_context.storage.models_v2.core import Column, Source, Table
 from dataraum_context.storage.models_v2.temporal_context import TemporalQualityMetrics

@@ -23,13 +23,13 @@ from scipy import stats
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models.base import ColumnRef, Result
+from dataraum_context.profiling.db_models import (
+    StatisticalQualityMetrics as DBStatisticalQualityMetrics,
+)
 from dataraum_context.profiling.models import (
     BenfordAnalysis,
     OutlierDetection,
     StatisticalQualityResult,
-)
-from dataraum_context.profiling.db_models import (
-    StatisticalQualityMetrics as DBStatisticalQualityMetrics,
 )
 from dataraum_context.storage.models_v2.core import Column, Table
 
