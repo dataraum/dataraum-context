@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from dataraum_context.enrichment.db_models import MultiTableTopologyMetrics
 from dataraum_context.quality.topological import analyze_topological_quality_multi_table
-from dataraum_context.storage.models_v2 import (
+from dataraum_context.storage import (
     Base,
     Column,
     Source,

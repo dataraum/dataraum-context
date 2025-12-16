@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.storage.schema import init_database
+from dataraum_context.storage import init_database
 
 
 @pytest.fixture

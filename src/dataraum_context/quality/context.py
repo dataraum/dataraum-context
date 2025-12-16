@@ -58,7 +58,7 @@ from dataraum_context.quality.synthesis import (
     aggregate_temporal_issues,
     aggregate_topological_issues,
 )
-from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage import Column, Table
 
 logger = logging.getLogger(__name__)
 

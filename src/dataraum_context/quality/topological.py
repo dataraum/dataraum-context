@@ -43,7 +43,7 @@ from dataraum_context.quality.models import (
     StabilityAnalysis,
     TopologicalQualityResult,
 )
-from dataraum_context.storage.models_v2.core import Table
+from dataraum_context.storage import Table
 
 # ============================================================================
 # Betti Number Extraction

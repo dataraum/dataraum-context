@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from dataraum_context.enrichment.db_models import TopologicalQualityMetrics
 from dataraum_context.quality.topological import compute_historical_complexity
-from dataraum_context.storage.models_v2 import Base
+from dataraum_context.storage import Base
 
 
 @pytest.fixture

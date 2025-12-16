@@ -27,7 +27,7 @@ from dataraum_context.quality.models import (
     DatasetQualityContext,
     TableQualityContext,
 )
-from dataraum_context.storage.models_v2.core import Column, Source, Table
+from dataraum_context.storage import Column, Source, Table
 
 # ============================================================================
 # Flag Generation Tests

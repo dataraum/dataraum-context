@@ -13,7 +13,7 @@ from uuid import uuid4
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from dataraum_context.storage.models_v2.base import Base
+from dataraum_context.storage.base import Base
 
 if TYPE_CHECKING:
     from dataraum_context.enrichment.db_models import (

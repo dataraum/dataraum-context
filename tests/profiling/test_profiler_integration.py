@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.profiling import profile_schema
 from dataraum_context.staging.loaders.csv import CSVLoader
-from dataraum_context.storage.schema import init_database
+from dataraum_context.storage import init_database
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ class TestProfilerIntegration:
 
         # Check that metadata was stored in database
         from dataraum_context.profiling.db_models import TypeCandidate
-        from dataraum_context.storage.models_v2 import Table
+        from dataraum_context.storage import Table
 
         # Refresh table to get updated last_profiled_at
         await test_session.refresh(await test_session.get(Table, str(table.table_id)))

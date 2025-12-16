@@ -15,10 +15,7 @@ from dataraum_context.quality.models import (
     TemporalQualityResult,
     TemporalTableSummary,
 )
-from dataraum_context.storage.models_v2 import Column, Table
-
-# Note: TemporalProfile storage model was replaced by TemporalQualityMetrics in models_v2
-# from dataraum_context.storage.models_v2 import TemporalProfile as TemporalProfileModel
+from dataraum_context.storage import Column, Table
 
 
 async def enrich_temporal(

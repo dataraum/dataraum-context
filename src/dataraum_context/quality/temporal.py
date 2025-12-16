@@ -39,7 +39,7 @@ from dataraum_context.quality.models import (
 from dataraum_context.quality.models import (
     QualityIssue as TemporalQualityIssue,
 )
-from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage import Column, Table
 
 # NOTE: ChangePoint and DistributionShift tables are DEPRECATED
 # Data is now stored in TemporalQualityMetrics.temporal_data JSONB field

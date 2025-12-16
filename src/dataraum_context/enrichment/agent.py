@@ -32,7 +32,7 @@ from dataraum_context.enrichment.ontology import OntologyLoader
 from dataraum_context.llm.features._base import LLMFeature
 from dataraum_context.llm.privacy import DataSampler
 from dataraum_context.profiling.models import ColumnProfile
-from dataraum_context.storage.models_v2 import Column, Table
+from dataraum_context.storage import Column, Table
 
 if TYPE_CHECKING:
     from dataraum_context.llm.cache import LLMCache

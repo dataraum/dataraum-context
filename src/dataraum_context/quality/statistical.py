@@ -31,7 +31,7 @@ from dataraum_context.profiling.models import (
     OutlierDetection,
     StatisticalQualityResult,
 )
-from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage import Column, Table
 
 # Type checking imports to avoid hard dependency on scikit-learn
 if TYPE_CHECKING:

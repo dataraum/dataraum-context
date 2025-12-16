@@ -23,7 +23,7 @@ from dataraum_context.quality.domains.financial import (
     check_trial_balance,
 )
 from dataraum_context.quality.domains.models import FinancialQualityConfig
-from dataraum_context.storage.models_v2 import Base, Source, Table
+from dataraum_context.storage import Base, Source, Table
 
 
 @pytest.fixture

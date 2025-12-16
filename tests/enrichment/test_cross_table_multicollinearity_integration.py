@@ -17,7 +17,7 @@ from dataraum_context.enrichment.cross_table_multicollinearity import (
     compute_cross_table_multicollinearity,
 )
 from dataraum_context.enrichment.db_models import Relationship
-from dataraum_context.storage.models_v2 import (
+from dataraum_context.storage import (
     Column,
     Source,
     Table,

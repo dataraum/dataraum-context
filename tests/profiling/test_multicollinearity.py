@@ -9,7 +9,7 @@ from dataraum_context.profiling.correlation import (
     compute_multicollinearity_for_table,
 )
 from dataraum_context.profiling.db_models import MulticollinearityMetrics
-from dataraum_context.storage.models_v2.core import Column, Source, Table
+from dataraum_context.storage import Column, Source, Table
 
 
 def create_column(col_id: str, table_id: str, name: str, position: int, col_type: str = "DOUBLE"):

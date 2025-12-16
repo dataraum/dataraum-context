@@ -40,7 +40,7 @@ from dataraum_context.quality.domains.financial_llm import (
 )
 from dataraum_context.quality.models import TopologicalAnomaly
 from dataraum_context.quality.topological import analyze_topological_quality
-from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage import Column, Table
 
 logger = logging.getLogger(__name__)
 

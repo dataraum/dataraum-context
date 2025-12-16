@@ -21,7 +21,7 @@ from dataraum_context.quality.topological import (
     extract_betti_numbers,
     process_persistence_diagrams,
 )
-from dataraum_context.storage.models_v2.core import Column, Source, Table
+from dataraum_context.storage import Column, Source, Table
 
 
 def create_column(col_id: str, table_id: str, name: str, position: int, col_type: str = "DOUBLE"):
