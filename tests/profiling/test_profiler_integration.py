@@ -165,7 +165,8 @@ class TestProfilerIntegration:
         assert schema_result.success
 
         # Check that metadata was stored in database
-        from dataraum_context.storage.models_v2 import Table, TypeCandidate
+        from dataraum_context.profiling.db_models import TypeCandidate
+        from dataraum_context.storage.models_v2 import Table
 
         # Refresh table to get updated last_profiled_at
         await test_session.refresh(await test_session.get(Table, str(table.table_id)))

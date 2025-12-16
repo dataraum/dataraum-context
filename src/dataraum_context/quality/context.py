@@ -40,23 +40,22 @@ from dataraum_context.quality.synthesis import (
     aggregate_temporal_issues,
     aggregate_topological_issues,
 )
-from dataraum_context.storage.models_v2.core import Column, Table
-from dataraum_context.storage.models_v2.correlation_context import (
+from dataraum_context.profiling.db_models import (
     ColumnCorrelation,
     CrossTableMulticollinearityMetrics,
     DerivedColumn,
     FunctionalDependency,
     MulticollinearityMetrics,
-)
-from dataraum_context.storage.models_v2.domain_quality import DomainQualityMetrics
-from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation, TableEntity
-from dataraum_context.storage.models_v2.statistical_context import (
     StatisticalProfile,
     StatisticalQualityMetrics,
+    TypeCandidate,
+    TypeDecision,
 )
+from dataraum_context.storage.models_v2.core import Column, Table
+from dataraum_context.storage.models_v2.domain_quality import DomainQualityMetrics
+from dataraum_context.storage.models_v2.semantic_context import SemanticAnnotation, TableEntity
 from dataraum_context.storage.models_v2.temporal_context import TemporalQualityMetrics
 from dataraum_context.storage.models_v2.topological_context import TopologicalQualityMetrics
-from dataraum_context.storage.models_v2.type_inference import TypeCandidate, TypeDecision
 
 if TYPE_CHECKING:
     from dataraum_context.llm import LLMService

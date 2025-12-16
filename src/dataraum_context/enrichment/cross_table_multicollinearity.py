@@ -485,7 +485,7 @@ async def get_stored_cross_table_analysis(
     Returns:
         Result containing most recent analysis if found, None if not found
     """
-    from dataraum_context.storage.models_v2.correlation_context import (
+    from dataraum_context.profiling.db_models import (
         CrossTableMulticollinearityMetrics,
     )
 
@@ -533,7 +533,7 @@ async def store_cross_table_analysis(
     Returns:
         Result containing metric_id
     """
-    from dataraum_context.storage.models_v2.correlation_context import (
+    from dataraum_context.profiling.db_models import (
         CrossTableMulticollinearityMetrics,
     )
 

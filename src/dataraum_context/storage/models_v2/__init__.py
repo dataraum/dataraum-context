@@ -1,28 +1,28 @@
 """
-New 5-pillar context architecture models.
+Core storage models.
 
-This module contains the revised schema aligned with the 5-pillar context architecture:
-- Pillar 1: Statistical Context (statistical_context.py, correlation_context.py)
+This module contains the core storage models and shared infrastructure.
+Domain-specific models have been co-located with their business logic:
+- Profiling models: dataraum_context.profiling.db_models
+
+Remaining models (to be co-located in future phases):
 - Pillar 2: Topological Context (topological_context.py, relationship.py)
 - Pillar 3: Semantic Context (semantic_context.py)
 - Pillar 4: Temporal Context (temporal_context.py)
 - Pillar 5: Quality Context (domain_quality.py, quality_rules.py)
 
-Additional supporting modules:
+Core modules (will remain here):
 - core.py: Core entities (sources, tables, columns)
-- type_inference.py: Type candidate and decision models
 - ontology.py: Ontology definitions and applications
-- llm.py: LLM response caching
+- llm.py: LLM response caching (to be moved to llm module)
 
 Created: 2025-11-28
-Replaces: storage/models.py (deprecated)
 """
 
 # Import all model modules to ensure SQLAlchemy relationships are resolved
 # ruff: noqa: F401
 from dataraum_context.storage.models_v2 import (
     core,
-    correlation_context,
     domain_quality,
     filtering,
     llm,
@@ -31,23 +31,13 @@ from dataraum_context.storage.models_v2 import (
     relationship,
     schema,
     semantic_context,
-    statistical_context,
     temporal_context,
     topological_context,
-    type_inference,
 )
 from dataraum_context.storage.models_v2.base import Base, metadata_obj
 
 # Core entities
 from dataraum_context.storage.models_v2.core import Column, Source, Table
-
-# Pillar 1: Correlation Context (relationships within data)
-from dataraum_context.storage.models_v2.correlation_context import (
-    CategoricalAssociation,
-    ColumnCorrelation,
-    DerivedColumn,
-    FunctionalDependency,
-)
 
 # Pillar 5: Quality Context (domain-specific)
 from dataraum_context.storage.models_v2.domain_quality import (
@@ -95,12 +85,6 @@ from dataraum_context.storage.models_v2.semantic_context import (
     TableEntity,
 )
 
-# Pillar 1: Statistical Context
-from dataraum_context.storage.models_v2.statistical_context import (
-    StatisticalProfile,
-    StatisticalQualityMetrics,
-)
-
 # Pillar 4: Temporal Context
 from dataraum_context.storage.models_v2.temporal_context import (
     TemporalQualityMetrics,
@@ -113,9 +97,6 @@ from dataraum_context.storage.models_v2.topological_context import (
     TopologicalQualityMetrics,
 )
 
-# Type inference
-from dataraum_context.storage.models_v2.type_inference import TypeCandidate, TypeDecision
-
 __all__ = [
     # Base
     "Base",
@@ -124,14 +105,6 @@ __all__ = [
     "Source",
     "Table",
     "Column",
-    # Pillar 1: Statistical Context
-    "StatisticalProfile",
-    "StatisticalQualityMetrics",
-    # Pillar 1: Correlations and Dependencies
-    "ColumnCorrelation",
-    "CategoricalAssociation",
-    "FunctionalDependency",
-    "DerivedColumn",
     # Pillar 2: Topological Context
     "TopologicalQualityMetrics",
     "MultiTableTopologyMetrics",
@@ -154,9 +127,6 @@ __all__ = [
     "QualityRule",
     "QualityResult",
     "QualityScore",
-    # Type Inference
-    "TypeCandidate",
-    "TypeDecision",
     # Ontology System
     "Ontology",
     "OntologyApplication",

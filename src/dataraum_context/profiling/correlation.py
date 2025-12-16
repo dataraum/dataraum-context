@@ -40,22 +40,22 @@ from dataraum_context.profiling.models import (
 from dataraum_context.profiling.models import (
     FunctionalDependency as FunctionalDependencyModel,
 )
-from dataraum_context.storage.models_v2.core import Column, Table
-from dataraum_context.storage.models_v2.correlation_context import (
+from dataraum_context.profiling.db_models import (
     CategoricalAssociation as DBCategoricalAssociation,
 )
-from dataraum_context.storage.models_v2.correlation_context import (
+from dataraum_context.profiling.db_models import (
     ColumnCorrelation as DBColumnCorrelation,
 )
-from dataraum_context.storage.models_v2.correlation_context import (
+from dataraum_context.profiling.db_models import (
     DerivedColumn as DBDerivedColumn,
 )
-from dataraum_context.storage.models_v2.correlation_context import (
+from dataraum_context.profiling.db_models import (
     FunctionalDependency as DBFunctionalDependency,
 )
-from dataraum_context.storage.models_v2.correlation_context import (
+from dataraum_context.profiling.db_models import (
     MulticollinearityMetrics as DBMulticollinearityMetrics,
 )
+from dataraum_context.storage.models_v2.core import Column, Table
 
 # ============================================================================
 # Numeric Correlation (Pearson & Spearman)

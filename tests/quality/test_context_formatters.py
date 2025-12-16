@@ -19,11 +19,11 @@ from dataraum_context.quality.models import (
     DatasetQualityContext,
     TableQualityContext,
 )
-from dataraum_context.storage.models_v2.core import Column, Source, Table
-from dataraum_context.storage.models_v2.statistical_context import (
+from dataraum_context.profiling.db_models import (
     StatisticalProfile,
     StatisticalQualityMetrics,
 )
+from dataraum_context.storage.models_v2.core import Column, Source, Table
 from dataraum_context.storage.models_v2.temporal_context import TemporalQualityMetrics
 from dataraum_context.storage.models_v2.topological_context import TopologicalQualityMetrics
 

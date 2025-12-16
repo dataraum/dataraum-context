@@ -5,6 +5,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.profiling.db_models import (
+    StatisticalProfile,
+    TypeCandidate,
+    TypeDecision,
+)
 from dataraum_context.storage.models_v2 import (
     Column,
     DBSchemaVersion,
@@ -18,12 +23,9 @@ from dataraum_context.storage.models_v2 import (
     Relationship,
     SemanticAnnotation,
     Source,
-    StatisticalProfile,
     Table,
     TableEntity,
     TemporalQualityMetrics,
-    TypeCandidate,
-    TypeDecision,
 )
 
 
