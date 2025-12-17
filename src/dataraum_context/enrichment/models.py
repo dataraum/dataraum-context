@@ -2,7 +2,9 @@
 
 Defines data structures for semantic and topological relationship discovery.
 
-NOTE: Semantic models have been moved to analysis/semantic/models.py.
+NOTE:
+- Semantic models have been moved to analysis/semantic/models.py.
+- Temporal models have been moved to analysis/temporal/models.py.
 This module re-exports them for backwards compatibility.
 """
 
@@ -19,8 +21,11 @@ from dataraum_context.analysis.semantic.models import (  # noqa: F401
     SemanticEnrichmentResult,
 )
 
-# Import quality models that enrichment references
-from dataraum_context.quality.models import TemporalQualityResult
+# Import temporal models from their new canonical location
+from dataraum_context.analysis.temporal.models import (  # noqa: F401
+    TemporalAnalysisResult,
+    TemporalEnrichmentResult,
+)
 
 
 class JoinStep(BaseModel):
@@ -43,6 +48,7 @@ class JoinPath(BaseModel):
 
 # === Enrichment Result Models ===
 # SemanticEnrichmentResult is imported from analysis/semantic/models.py above
+# TemporalEnrichmentResult is imported from analysis/temporal/models.py above
 
 
 class TopologyEnrichmentResult(BaseModel):
@@ -52,21 +58,17 @@ class TopologyEnrichmentResult(BaseModel):
     join_paths: list[JoinPath] = Field(default_factory=list)
 
 
-class TemporalEnrichmentResult(BaseModel):
-    """Result of temporal enrichment operation."""
-
-    profiles: list[TemporalQualityResult] = Field(default_factory=list)
-
-
 __all__ = [
     # Re-exported from analysis/semantic/models.py
     "EntityDetection",
     "Relationship",
     "SemanticAnnotation",
     "SemanticEnrichmentResult",
+    # Re-exported from analysis/temporal/models.py
+    "TemporalAnalysisResult",
+    "TemporalEnrichmentResult",
     # Local models
     "JoinStep",
     "JoinPath",
     "TopologyEnrichmentResult",
-    "TemporalEnrichmentResult",
 ]

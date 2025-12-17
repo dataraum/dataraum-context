@@ -36,6 +36,13 @@ from dataraum_context.analysis.correlation import analyze_correlations
 # NOTE: Cross-table multicollinearity disabled - being replaced with per-relationship evaluation
 # from dataraum_context.analysis.correlation import compute_cross_table_multicollinearity
 from dataraum_context.analysis.statistics import profile_statistics
+from dataraum_context.analysis.temporal import (
+    TemporalAnalysisMetrics as TemporalQualityMetrics,
+)
+from dataraum_context.analysis.temporal import (
+    analyze_temporal as analyze_temporal_quality,
+    profile_temporal,
+)
 from dataraum_context.analysis.typing import infer_type_candidates, resolve_types
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.core.models.base import Result
@@ -43,15 +50,12 @@ from dataraum_context.enrichment.agent import SemanticAgent
 from dataraum_context.enrichment.db_models import (
     Relationship,
     SemanticAnnotation,
-    TemporalQualityMetrics,
 )
 from dataraum_context.enrichment.semantic import enrich_semantic
-from dataraum_context.enrichment.temporal import enrich_temporal
 from dataraum_context.enrichment.topology import enrich_topology
 from dataraum_context.quality.context import format_dataset_quality_context
 from dataraum_context.quality.domains.financial import analyze_financial_quality
 from dataraum_context.quality.statistical import assess_statistical_quality
-from dataraum_context.quality.temporal import analyze_temporal_quality
 from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.sources.csv import CSVLoader
 from dataraum_context.storage import Column, Table
@@ -434,25 +438,28 @@ async def run_pipeline(
     except Exception as e:
         warnings.append(f"Topology enrichment exception: {e}")
 
-    # Stage 3.3: Temporal enrichment (NON-CRITICAL)
+    # Stage 3.3: Temporal profiling (NON-CRITICAL)
     try:
-        temporal_result = await enrich_temporal(
-            session=session,
-            duckdb_conn=duckdb_conn,
-            table_ids=successful_table_ids,
-        )
-        # ✅ TemporalQualityMetrics stored by enrich_temporal()
+        for table_id in successful_table_ids:
+            temporal_result = await profile_temporal(
+                table_id=table_id,
+                duckdb_conn=duckdb_conn,
+                session=session,
+            )
+            # ✅ TemporalColumnProfile stored by profile_temporal()
 
-        if temporal_result.success:
-            for health in table_health_records:
-                if health.table_id in successful_table_ids:
-                    health.temporal_enrichment_completed = True
-            warnings.extend(temporal_result.warnings)
-        else:
-            warnings.append(f"Temporal enrichment failed: {temporal_result.error}")
+            if temporal_result.success:
+                for health in table_health_records:
+                    if health.table_id == table_id:
+                        health.temporal_enrichment_completed = True
+                warnings.extend(temporal_result.warnings)
+            else:
+                warnings.append(
+                    f"Temporal profiling failed for {table_id}: {temporal_result.error}"
+                )
 
     except Exception as e:
-        warnings.append(f"Temporal enrichment exception: {e}")
+        warnings.append(f"Temporal profiling exception: {e}")
 
     # Stage 3.4: Cross-table multicollinearity (DISABLED)
     # NOTE: Being replaced with per-relationship evaluation

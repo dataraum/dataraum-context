@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 import pytest
 
 from dataraum_context.analysis.statistics.db_models import StatisticalProfile
+from dataraum_context.analysis.temporal import TemporalColumnProfile
 from dataraum_context.enrichment.db_models import (
-    TemporalQualityMetrics,
     TopologicalQualityMetrics,
 )
 from dataraum_context.quality.context import (
@@ -330,19 +330,21 @@ class TestFormatColumnQualityContext:
     ):
         """Test column context includes temporal metrics."""
         # Add temporal metrics with all required fields
-        temporal = TemporalQualityMetrics(
-            metric_id="temporal-1",
+        temporal = TemporalColumnProfile(
+            profile_id="temporal-1",
             column_id=sample_column.column_id,
             min_timestamp=datetime(2023, 1, 1),
             max_timestamp=datetime(2023, 12, 31),
             detected_granularity="daily",
+            has_seasonality=True,
+            has_trend=False,
             is_stale=True,
-            temporal_data={
+            profile_data={
                 "data_freshness_days": 120,
                 "seasonality": {"has_seasonality": True},
                 "trend": {"has_trend": False},
             },
-            computed_at=datetime.now(UTC),
+            profiled_at=datetime.now(UTC),
         )
         async_session.add(temporal)
         await async_session.commit()

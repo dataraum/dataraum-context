@@ -4,7 +4,8 @@ This module contains all database models for the enrichment subsystem:
 - Semantic Context (SemanticAnnotation, TableEntity) - imported from analysis/semantic
 - Relationship Models (Relationship, JoinPath) - Relationship imported from analysis/relationships
 - Topological Context (TopologicalQualityMetrics, MultiTableTopologyMetrics, BusinessCycleClassification)
-- Temporal Context (TemporalQualityMetrics, TemporalTableSummaryMetrics)
+
+NOTE: Temporal Context models have been moved to analysis/temporal/db_models.py
 """
 
 from __future__ import annotations
@@ -198,79 +199,9 @@ class BusinessCycleClassification(Base):
 
 
 # =============================================================================
-# Temporal Context Models (Pillar 4)
+# NOTE: Temporal Context Models moved to analysis/temporal/db_models.py
+# Import from dataraum_context.analysis.temporal instead
 # =============================================================================
-
-
-class TemporalQualityMetrics(Base):
-    """Temporal quality metrics for a time column.
-
-    HYBRID STORAGE APPROACH:
-    - Structured fields: Queryable dimensions (IDs, timestamps, key metrics)
-    - JSONB field: Full Pydantic model for flexibility
-
-    This allows:
-    - Fast queries on core dimensions
-    - Schema flexibility for experimentation
-    - Zero mapping code (Pydantic handles serialization)
-    """
-
-    __tablename__ = "temporal_quality_metrics"
-
-    metric_id: Mapped[str] = mapped_column(String, primary_key=True)
-    column_id: Mapped[str] = mapped_column(ForeignKey("columns.column_id"), nullable=False)
-    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
-    # STRUCTURED: Queryable core dimensions
-    min_timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    max_timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    detected_granularity: Mapped[str] = mapped_column(String, nullable=False)
-    completeness_ratio: Mapped[float | None] = mapped_column(Float)
-
-    # Flags for filtering (fast queries)
-    has_seasonality: Mapped[bool | None] = mapped_column(Boolean)
-    has_trend: Mapped[bool | None] = mapped_column(Boolean)
-    is_stale: Mapped[bool | None] = mapped_column(Boolean)
-
-    # JSONB: Full temporal profile + quality data
-    # Stores complete Pydantic models: TemporalProfile, quality analysis results
-    temporal_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-
-
-class TemporalTableSummaryMetrics(Base):
-    """Table-level temporal quality summary across multiple temporal columns.
-
-    HYBRID STORAGE APPROACH:
-    - Structured fields: Queryable aggregates (counts, scores, freshness)
-    - JSONB field: Full TemporalTableSummary Pydantic model
-
-    This allows dashboards to quickly query:
-    - Tables with seasonality patterns
-    - Tables with stale data
-    - Average temporal quality across tables
-    """
-
-    __tablename__ = "temporal_table_summary_metrics"
-
-    table_id: Mapped[str] = mapped_column(ForeignKey("tables.table_id"), primary_key=True)
-    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
-    # STRUCTURED: Queryable aggregates
-    temporal_column_count: Mapped[int] = mapped_column(nullable=False)
-    total_issues: Mapped[int] = mapped_column(nullable=False)
-
-    # Pattern counts (for filtering)
-    columns_with_seasonality: Mapped[int] = mapped_column(nullable=False, default=0)
-    columns_with_trends: Mapped[int] = mapped_column(nullable=False, default=0)
-    columns_with_change_points: Mapped[int] = mapped_column(nullable=False, default=0)
-    columns_with_fiscal_alignment: Mapped[int] = mapped_column(nullable=False, default=0)
-
-    # Freshness tracking
-    stalest_column_days: Mapped[int | None] = mapped_column()
-    has_stale_columns: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-    # JSONB: Full table summary data
-    summary_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
 
 
 # =============================================================================
@@ -288,7 +219,4 @@ __all__ = [
     "TopologicalQualityMetrics",
     "MultiTableTopologyMetrics",
     "BusinessCycleClassification",
-    # Temporal Context
-    "TemporalQualityMetrics",
-    "TemporalTableSummaryMetrics",
 ]

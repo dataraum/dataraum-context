@@ -27,6 +27,7 @@ from dataraum_context.analysis.correlation.db_models import (
 
 # NOTE: CrossTableMulticollinearityMetrics removed - being replaced with per-relationship evaluation
 from dataraum_context.analysis.statistics.db_models import StatisticalProfile
+from dataraum_context.analysis.temporal import TemporalAnalysisMetrics as TemporalQualityMetrics
 from dataraum_context.analysis.typing.db_models import (
     TypeCandidate,
     TypeDecision,
@@ -34,7 +35,6 @@ from dataraum_context.analysis.typing.db_models import (
 from dataraum_context.enrichment.db_models import (
     SemanticAnnotation,
     TableEntity,
-    TemporalQualityMetrics,
     TopologicalQualityMetrics,
 )
 from dataraum_context.enrichment.relationships.gathering import gather_relationships
@@ -165,7 +165,7 @@ async def format_column_quality_context(
     temp_quality_stmt = (
         select(TemporalQualityMetrics)
         .where(TemporalQualityMetrics.column_id == column.column_id)
-        .order_by(TemporalQualityMetrics.computed_at.desc())
+        .order_by(TemporalQualityMetrics.profiled_at.desc())
         .limit(1)
     )
     temp_quality = (await session.execute(temp_quality_stmt)).scalar_one_or_none()
@@ -252,13 +252,13 @@ async def format_column_quality_context(
         detected_granularity = temp_quality.detected_granularity
         completeness_ratio = temp_quality.completeness_ratio
 
-        # Extract from JSONB temporal_data
-        if temp_quality.temporal_data:
-            freshness_days = temp_quality.temporal_data.get("data_freshness_days")
-            seasonality = temp_quality.temporal_data.get("seasonality")
+        # Extract from JSONB profile_data
+        if temp_quality.profile_data:
+            freshness_days = temp_quality.profile_data.get("data_freshness_days")
+            seasonality = temp_quality.profile_data.get("seasonality")
             if seasonality:
                 has_seasonality = seasonality.get("has_seasonality")
-            trend = temp_quality.temporal_data.get("trend")
+            trend = temp_quality.profile_data.get("trend")
             if trend:
                 has_trend = trend.get("has_trend")
 

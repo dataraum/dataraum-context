@@ -26,9 +26,9 @@ from dataraum_context.analysis.correlation.db_models import (
     FunctionalDependency,
 )
 from dataraum_context.analysis.statistics.db_models import StatisticalProfile
+from dataraum_context.analysis.temporal import TemporalAnalysisMetrics as TemporalQualityMetrics
 from dataraum_context.enrichment.db_models import (
     MultiTableTopologyMetrics,
-    TemporalQualityMetrics,
     TopologicalQualityMetrics,
 )
 from dataraum_context.quality.db_models import StatisticalQualityMetrics
@@ -147,18 +147,18 @@ def aggregate_temporal_issues(
     Returns:
         List of QualitySynthesisIssue for gaps, staleness, distribution changes
     """
-    if not temp_quality or not temp_quality.temporal_data:
+    if not temp_quality or not temp_quality.profile_data:
         return []
 
     # Deserialize JSONB to Pydantic model
-    from dataraum_context.quality.models import TemporalQualityResult
+    from dataraum_context.analysis.temporal import TemporalAnalysisResult
 
     try:
-        quality_result = TemporalQualityResult.model_validate(temp_quality.temporal_data)
+        quality_result = TemporalAnalysisResult.model_validate(temp_quality.profile_data)
         issues_list = quality_result.quality_issues
     except Exception:
         # Fallback to dict access if deserialization fails
-        issues_list = temp_quality.temporal_data.get("quality_issues", [])
+        issues_list = temp_quality.profile_data.get("quality_issues", [])
 
     if not issues_list:
         return []

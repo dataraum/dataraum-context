@@ -738,24 +738,451 @@ async def build_semantic_context(
 
 ---
 
-## Phases 6-10: To Be Planned
+## Phase 7: analysis/temporal
 
-### Phase 6: analysis/relationships
-Source: `enrichment/topology.py`, `enrichment/relationships/*`, `enrichment/tda/*`, parts of `enrichment/db_models.py`
+### Goal
+Consolidate all temporal analysis into one module. Currently split between:
+- `enrichment/temporal.py` - Basic detection (granularity, gaps, completeness)
+- `quality/temporal.py` - Enhanced analysis (seasonality, trends, change points, fiscal calendar, distribution stability)
 
-**Key Decision**: TDA detects structural candidates. LLM (Phase 5) confirms/enhances. No heuristic combination.
+These serve the same purpose (temporal pattern analysis) and should be unified.
 
-### Phase 7: analysis/temporal
-Source: `enrichment/temporal.py` + `quality/temporal.py` (consolidate), `quality/formatting/temporal.py`
+### Source Files (current → new)
 
-### Phase 8: analysis/topological
-Source: `quality/topological.py`, `quality/formatting/topological.py`
+| Current Location | New Location | Notes |
+|-----------------|--------------|-------|
+| `enrichment/temporal.py` | `analysis/temporal/detection.py` | Granularity, gaps, basic completeness |
+| `quality/temporal.py` | `analysis/temporal/patterns.py` | Seasonality, trends, change points |
+| `enrichment/db_models.py` (TemporalQualityMetrics, TemporalTableSummaryMetrics) | `analysis/temporal/db_models.py` | Consolidated |
+| `quality/models.py` (temporal models) | `analysis/temporal/models.py` | All temporal Pydantic models |
+| `quality/formatting/temporal.py` | `analysis/temporal/formatter.py` | LLM context formatting |
 
-### Phase 9: quality/*
-Source: `quality/statistical.py`, `quality/domains/*`, `quality/synthesis.py`, `quality/formatting/*`
+### What Stays
+All temporal analysis algorithms:
+- Granularity detection (_infer_granularity)
+- Gap detection
+- Completeness calculation
+- Seasonality analysis (statsmodels seasonal_decompose)
+- Trend analysis (linear regression)
+- Change point detection (ruptures PELT)
+- Update frequency analysis
+- Fiscal calendar detection
+- Distribution stability (KS tests)
 
-### Phase 10: context/ + pipeline/
-Source: `quality/context.py`, `quality/models.py`, `dataflows/pipeline.py`
+### What Changes
+- Single entry point: `analyze_temporal()` in processor.py
+- `enrichment/temporal.py:enrich_temporal()` becomes a thin wrapper calling processor
+- All models consolidated in one place
+- Cleaner separation: detection.py (what patterns), patterns.py (pattern analysis)
+
+### New Structure
+```
+analysis/temporal/
+├── __init__.py
+├── db_models.py          # TemporalQualityMetrics, TemporalTableSummaryMetrics
+├── models.py             # All temporal Pydantic models (consolidated)
+├── detection.py          # Granularity, gaps, basic completeness (from enrichment)
+├── patterns.py           # Seasonality, trends, change points (from quality)
+├── processor.py          # Main analyze_temporal() orchestrator
+├── formatter.py          # LLM context formatting
+└── tests/
+    ├── test_detection.py
+    ├── test_patterns.py
+    └── test_processor.py
+```
+
+### Interface
+
+**analysis/temporal/__init__.py**:
+```python
+from analysis.temporal.processor import analyze_temporal
+from analysis.temporal.detection import detect_granularity, detect_gaps
+from analysis.temporal.patterns import analyze_seasonality, analyze_trend, detect_change_points
+from analysis.temporal.db_models import TemporalQualityMetrics, TemporalTableSummaryMetrics
+from analysis.temporal.models import (
+    TemporalQualityResult,
+    SeasonalityAnalysis,
+    TrendAnalysis,
+    ChangePointResult,
+    TemporalGapInfo,
+    TemporalCompletenessAnalysis,
+    FiscalCalendarAnalysis,
+    UpdateFrequencyAnalysis,
+    DistributionStabilityAnalysis,
+)
+```
+
+### Dependencies
+- Depends on: `core/` (Result, ColumnRef)
+- Depends on: `core/storage/` (Table, Column)
+- Depends on: `analysis/typing/` (resolved temporal columns)
+- Optional: scipy, statsmodels, ruptures
+
+### Verification
+1. Import works: `from analysis.temporal import analyze_temporal`
+2. `enrich_temporal()` still works (thin wrapper)
+3. All temporal metrics computed and persisted
+4. Formatter produces correct LLM context
+
+---
+
+## Phase 8: analysis/topological (POSTPONED)
+
+**Status**: Needs more analysis before implementation.
+
+The topology/cycle detection relationship is complex:
+- `quality/topological.py` does single-table TDA (Betti numbers, persistence)
+- `quality/domains/financial_orchestrator.py` uses topology for cycle classification
+- `analysis/relationships/` also uses TDA for cross-table similarity
+
+These interdependencies need to be understood better before restructuring.
+
+**Defer until after**: Phase 7, Phase 9A, Phase 9B (standard financial checks)
+
+---
+
+## Phase 9: quality/ Reorganization (REVISED)
+
+### Execution Order
+
+1. **Phase 9A**: Merge quality/statistical → analysis/statistics (approved)
+2. **Phase 9B**: Standard financial domain checks with pluggable domain design (new approach)
+3. **Later**: Topology + cycle detection (needs more analysis)
+
+---
+
+### 9A: Merge quality/statistical into analysis/statistics
+
+The current split is:
+- `analysis/statistics/` - Descriptive stats (counts, distributions, histograms)
+- `quality/statistical.py` - Quality assessment (Benford, outliers)
+
+**Decision**: Merge. Outlier detection and Benford analysis are statistical computations, not domain-specific quality rules. They belong with statistics.
+
+**Changes**:
+```
+analysis/statistics/
+├── processor.py          # Existing: profile_statistics
+├── quality.py            # NEW: check_benford, detect_outliers_iqr, detect_outliers_isolation_forest
+├── models.py             # Add: BenfordAnalysis, OutlierDetection, StatisticalQualityResult
+├── db_models.py          # Add: StatisticalQualityMetrics
+```
+
+The main `profile_statistics()` will optionally call quality checks:
+```python
+async def profile_statistics(
+    ...,
+    include_quality_checks: bool = True,  # NEW parameter
+) -> StatisticsProfileResult:
+    # ... compute basic stats ...
+    if include_quality_checks:
+        benford = await check_benford_law(...)
+        outliers = await detect_outliers(...)
+```
+
+**Files to Delete** (no backward compat):
+- `quality/statistical.py`
+- `quality/db_models.py` (StatisticalQualityMetrics moves to analysis/statistics)
+- `quality/formatting/statistical.py`
+
+---
+
+### 9B: Standard Financial Domain Checks (Pluggable Design)
+
+#### Goal
+Create a pluggable domain system where business domains (financial, marketing, healthcare, etc.) can be added without modifying core code.
+
+#### Separation of Concerns
+
+The financial domain currently mixes two distinct concerns:
+
+| Concern | Complexity | Examples | Depends On |
+|---------|------------|----------|------------|
+| **Standard Metrics** | Simple | Double-entry, trial balance, sign conventions, fiscal periods | Only table data |
+| **Cycle Detection** | Complex | AR/AP cycles, revenue cycles, business process topology | Topology + relationships |
+
+**Decision**: Handle standard metrics first, defer cycle detection.
+
+#### Pluggable Domain Design Pattern
+
+Use **Strategy Pattern** with a registry for domain analyzers:
+
+```python
+# quality/domains/base.py
+from abc import ABC, abstractmethod
+from typing import Any, Protocol
+from dataraum_context.core.models.base import Result
+
+class DomainConfig(Protocol):
+    """Protocol for domain configuration."""
+    domain_name: str
+
+class DomainAnalyzer(ABC):
+    """Base class for domain-specific analyzers.
+
+    Each domain (financial, marketing, healthcare) implements this interface.
+    The analyzer receives pre-computed statistics and returns domain-specific
+    quality assessments.
+    """
+
+    @property
+    @abstractmethod
+    def domain_name(self) -> str:
+        """Unique identifier for this domain (e.g., 'financial', 'marketing')."""
+        ...
+
+    @abstractmethod
+    async def analyze(
+        self,
+        table_id: str,
+        duckdb_conn: Any,  # duckdb.DuckDBPyConnection
+        session: Any,      # AsyncSession
+        config: DomainConfig | None = None,
+    ) -> Result[dict[str, Any]]:
+        """Run domain-specific analysis.
+
+        Args:
+            table_id: Table to analyze
+            duckdb_conn: DuckDB connection for queries
+            session: SQLAlchemy session for metadata
+            config: Optional domain-specific configuration
+
+        Returns:
+            Result containing domain-specific metrics dict
+        """
+        ...
+
+    @abstractmethod
+    def get_issues(self, metrics: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract quality issues from computed metrics.
+
+        Args:
+            metrics: Computed metrics from analyze()
+
+        Returns:
+            List of issue dicts with: type, severity, description, recommendation
+        """
+        ...
+
+
+# quality/domains/registry.py
+from typing import Type
+
+_DOMAIN_ANALYZERS: dict[str, Type[DomainAnalyzer]] = {}
+
+def register_domain(name: str):
+    """Decorator to register a domain analyzer."""
+    def decorator(cls: Type[DomainAnalyzer]) -> Type[DomainAnalyzer]:
+        _DOMAIN_ANALYZERS[name] = cls
+        return cls
+    return decorator
+
+def get_analyzer(domain_name: str) -> DomainAnalyzer | None:
+    """Get analyzer instance for a domain."""
+    analyzer_cls = _DOMAIN_ANALYZERS.get(domain_name)
+    if analyzer_cls:
+        return analyzer_cls()
+    return None
+
+def list_domains() -> list[str]:
+    """List all registered domains."""
+    return list(_DOMAIN_ANALYZERS.keys())
+```
+
+#### Financial Domain Implementation (Standard Metrics Only)
+
+```python
+# quality/domains/financial/analyzer.py
+from quality.domains.base import DomainAnalyzer, register_domain
+from quality.domains.financial.checks import (
+    check_double_entry_balance,
+    check_trial_balance,
+    check_sign_conventions,
+    check_fiscal_period_integrity,
+)
+
+@register_domain("financial")
+class FinancialDomainAnalyzer(DomainAnalyzer):
+    """Financial domain analyzer - standard accounting checks."""
+
+    @property
+    def domain_name(self) -> str:
+        return "financial"
+
+    async def analyze(
+        self,
+        table_id: str,
+        duckdb_conn: Any,
+        session: Any,
+        config: FinancialQualityConfig | None = None,
+    ) -> Result[dict[str, Any]]:
+        """Run standard financial quality checks.
+
+        Checks:
+        - Double-entry balance (debits = credits)
+        - Trial balance (Assets = Liabilities + Equity)
+        - Sign conventions (correct debit/credit signs)
+        - Fiscal period integrity (completeness, cutoff)
+
+        Does NOT include:
+        - Business cycle detection (requires topology)
+        - LLM interpretation (separate concern)
+        """
+        if config is None:
+            config = FinancialQualityConfig()
+
+        metrics = {
+            "domain": "financial",
+            "table_id": table_id,
+            "computed_at": datetime.now(UTC).isoformat(),
+        }
+
+        # Run each check
+        double_entry = await check_double_entry_balance(table_id, duckdb_conn, session, config)
+        if double_entry.success:
+            metrics["double_entry"] = double_entry.unwrap().model_dump()
+
+        trial_balance = await check_trial_balance(table_id, duckdb_conn, session, config)
+        if trial_balance.success:
+            metrics["trial_balance"] = trial_balance.unwrap().model_dump()
+
+        sign_conv = await check_sign_conventions(table_id, duckdb_conn, session, config)
+        if sign_conv.success:
+            compliance, violations = sign_conv.unwrap()
+            metrics["sign_conventions"] = {
+                "compliance": compliance,
+                "violations": [v.model_dump() for v in violations],
+            }
+
+        fiscal = await check_fiscal_period_integrity(table_id, duckdb_conn, session, config)
+        if fiscal.success:
+            metrics["fiscal_periods"] = [p.model_dump() for p in fiscal.unwrap()]
+
+        return Result.ok(metrics)
+
+    def get_issues(self, metrics: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract issues from financial metrics."""
+        issues = []
+
+        # Double-entry issues
+        de = metrics.get("double_entry", {})
+        if de and not de.get("is_balanced"):
+            issues.append({
+                "type": "double_entry_imbalance",
+                "severity": "critical",
+                "description": f"Debits/credits imbalanced by {de.get('net_difference', 0):.2f}",
+                "recommendation": "Review all transactions for missing entries",
+            })
+
+        # Trial balance issues
+        tb = metrics.get("trial_balance", {})
+        if tb and not tb.get("equation_holds"):
+            issues.append({
+                "type": "trial_balance_imbalance",
+                "severity": "critical",
+                "description": "Accounting equation does not hold",
+                "recommendation": "Review account classifications",
+            })
+
+        # Sign convention issues
+        sc = metrics.get("sign_conventions", {})
+        if sc and sc.get("compliance", 1.0) < 0.95:
+            issues.append({
+                "type": "sign_convention_violations",
+                "severity": "moderate",
+                "description": f"Sign compliance: {sc.get('compliance', 0):.1%}",
+                "recommendation": "Review account type assignments",
+            })
+
+        return issues
+```
+
+#### New File Structure
+
+```
+quality/domains/
+├── __init__.py           # Exports: DomainAnalyzer, register_domain, get_analyzer
+├── base.py               # DomainAnalyzer ABC, DomainConfig Protocol
+├── registry.py           # Domain registration and lookup
+└── financial/
+    ├── __init__.py       # Exports: FinancialDomainAnalyzer, FinancialQualityConfig
+    ├── analyzer.py       # @register_domain("financial") FinancialDomainAnalyzer
+    ├── checks.py         # check_double_entry, check_trial_balance, etc. (from financial.py)
+    ├── models.py         # DoubleEntryResult, TrialBalanceResult, etc.
+    └── db_models.py      # FinancialQualityMetrics, etc.
+```
+
+#### Files to Delete (no backward compat)
+
+After Phase 9B:
+- `quality/domains/financial.py` → split into `financial/analyzer.py` and `financial/checks.py`
+- `quality/domains/financial_llm.py` → defer to later (cycle detection)
+- `quality/domains/financial_orchestrator.py` → defer to later (cycle detection)
+- `quality/domains/models.py` → move to `financial/models.py`
+- `quality/domains/db_models.py` → move to `financial/db_models.py`
+
+---
+
+## Phase 10: Topology + Cycle Detection (DEFERRED)
+
+**Status**: Plan later, after understanding dependencies better.
+
+This phase will address:
+- `quality/topological.py` → where should it go?
+- `quality/domains/financial_orchestrator.py` → how to simplify?
+- `quality/domains/financial_llm.py` → cycle classification
+- Cross-table business cycle detection
+
+**Dependencies to analyze**:
+1. `financial_orchestrator.py` calls `analyze_topological_quality()` internally
+2. `financial_orchestrator.py` uses `gather_relationships()` for cross-table cycles
+3. Cycle classification uses LLM with topology context
+
+**Options to consider**:
+- A: Keep topology in quality/, make it a dependency of domains
+- B: Move topology to analysis/, have domains import from there
+- C: Create a separate `cycles/` module for business cycle detection
+
+---
+
+## Phase 11: Context & Synthesis (DEFERRED)
+
+**Status**: Plan later, after core reorganization is stable.
+
+- `quality/synthesis.py` - Issue aggregation
+- `quality/context.py` - LLM context formatting
+
+These are consumers of the analysis modules and should be addressed last.
+
+---
+
+## Summary: Revised Execution Order
+
+| Order | Phase | Focus | Key Change |
+|-------|-------|-------|------------|
+| 1 | 7 | Temporal | Consolidate enrichment/temporal + quality/temporal → analysis/temporal |
+| 2 | 9A | Statistical Quality | Merge quality/statistical → analysis/statistics/quality |
+| 3 | 9B | Domain Quality | Pluggable domain system, standard financial checks only |
+| 4 | 10 | Topology + Cycles | DEFERRED - needs more analysis |
+| 5 | 11 | Context + Synthesis | DEFERRED - after core is stable |
+
+## Key Principles
+
+1. **No backward compatibility** - Delete old code, don't maintain re-exports
+2. **Delete enrichment/ module** - Move everything out, then delete
+3. **Remove unused models/attributes** - Clean slate
+4. **Pluggable domains** - Strategy pattern with registry
+5. **Separate standard metrics from complex cycles** - Do simple first
+
+## Verification Checklist
+
+After Phases 7, 9A, 9B:
+- [ ] All tests pass
+- [ ] `analysis/temporal/` works standalone
+- [ ] `analysis/statistics/` includes quality checks
+- [ ] `quality/domains/financial/` works with pluggable design
+- [ ] No circular imports
+- [ ] Unused code deleted
 
 ---
 
@@ -816,6 +1243,8 @@ uv run python scripts/test_phase4_correlation.py
 | 2024-12-16 | 0.5.0 | Phase 5 planned - analysis/semantic with enriched context from prior phases |
 | 2024-12-16 | 0.6.0 | Phase 6 complete - analysis/relationships with TDA + DuckDB join detection |
 | 2024-12-16 | 0.6.1 | Phase 5 complete - analysis/semantic module with relationship candidates integration |
+| 2024-12-17 | 0.7.0 | Phases 7-10 planned in detail: temporal consolidation, topological migration, quality reorganization |
+| 2024-12-17 | 0.8.0 | Revised plan: Phase 8 postponed, Phase 9B with pluggable domain design, no backward compat, clean slate |
 
 ## Phase 2 Completion Notes
 

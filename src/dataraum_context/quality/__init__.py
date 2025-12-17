@@ -4,7 +4,7 @@ The quality module synthesizes quality metrics from all other pillars:
 - Statistical quality (Pillar 1)
 - Topological quality (Pillar 2)
 - Semantic quality (Pillar 3)
-- Temporal quality (Pillar 4)
+- Temporal quality (Pillar 4) - now in analysis/temporal
 
 Plus domain-specific quality rules for various business domains.
 
@@ -12,15 +12,18 @@ Architecture:
     quality/
       statistical.py   # Statistical quality metrics (moved from profiling/)
       topological.py   # Topological quality metrics (moved from enrichment/)
-      temporal.py      # Temporal quality metrics (moved from enrichment/)
       domains/         # Domain-specific quality rules
         financial.py   # Financial accounting
         marketing.py   # Marketing analytics (future)
       synthesis.py     # Aggregate quality from all pillars (Phase 5)
 
+    analysis/
+      temporal/        # Temporal quality metrics (consolidated module)
+
 Usage:
     # Pillar-specific quality
-    from dataraum_context.quality import statistical, temporal, topological
+    from dataraum_context.quality import statistical, topological
+    from dataraum_context.analysis import temporal
 
     # Domain-specific quality
     from dataraum_context.quality.domains import financial
@@ -31,12 +34,11 @@ Usage:
     quality_context = await synthesis.synthesize_quality_context(source_id, conn, session)
 """
 
-from dataraum_context.quality import domains, statistical, synthesis, temporal, topological
+from dataraum_context.quality import domains, statistical, synthesis, topological
 
 __all__ = [
     "domains",
     "statistical",
     "synthesis",
-    "temporal",
     "topological",
 ]

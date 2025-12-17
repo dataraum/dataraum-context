@@ -27,7 +27,7 @@ class TestSchemaInitialization:
             "table_entities",
             "relationships",
             "join_paths",
-            "temporal_quality_metrics",
+            "temporal_column_profiles",
             "quality_rules",
             "quality_results",
             "llm_cache",

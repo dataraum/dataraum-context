@@ -6,27 +6,105 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dataraum_context.quality.models import (
+from dataraum_context.analysis.temporal import (
     ChangePointResult,
     DistributionStabilityAnalysis,
     FiscalCalendarAnalysis,
     SeasonalityAnalysis,
+    TemporalAnalysisResult,
     TemporalCompletenessAnalysis,
-    TemporalQualityResult,
     TrendAnalysis,
     UpdateFrequencyAnalysis,
-)
-from dataraum_context.quality.temporal import (
-    analyze_completeness,
     analyze_distribution_stability,
     analyze_seasonality,
-    analyze_temporal_quality,
     analyze_trend,
     analyze_update_frequency,
     detect_change_points,
     detect_fiscal_calendar,
 )
+from dataraum_context.analysis.temporal import (
+    analyze_temporal as analyze_temporal_quality,
+)
 from dataraum_context.storage import Column, Source, Table
+
+
+async def analyze_completeness(ts, granularity):
+    """Wrapper for analyze_completeness using basic detection."""
+    from dataraum_context.analysis.temporal.models import (
+        TemporalCompletenessAnalysis,
+        TemporalGapInfo,
+    )
+
+    if len(ts) < 2:
+        raise ValueError("Insufficient data")
+
+    min_ts = ts.index.min()
+    max_ts = ts.index.max()
+    span = (max_ts - min_ts).total_seconds()
+
+    granularity_seconds = {
+        "second": 1,
+        "minute": 60,
+        "hour": 3600,
+        "day": 86400,
+        "weekly": 604800,
+        "monthly": 2592000,
+        "quarterly": 7776000,
+        "yearly": 31536000,
+    }
+
+    seconds_per_period = granularity_seconds.get(granularity, 86400)
+    expected_periods = int(span / seconds_per_period) + 1
+    actual_periods = len(ts)
+
+    completeness_ratio = (
+        min(1.0, actual_periods / expected_periods) if expected_periods > 0 else 1.0
+    )
+
+    # Detect gaps
+    intervals = ts.index.to_series().diff()
+    median_interval = intervals.median()
+
+    gap_threshold = median_interval * 2
+    large_gaps = intervals[intervals > gap_threshold].dropna()
+
+    gaps = []
+    for gap_end, gap_length in zip(large_gaps.index, large_gaps.values, strict=False):
+        gap_start = gap_end - gap_length
+        gap_seconds = pd.Timedelta(gap_length).total_seconds()
+        gap_days = gap_seconds / 86400
+        missing_periods = int(gap_seconds / seconds_per_period) - 1
+
+        severity = "minor"
+        if gap_days > 30:
+            severity = "severe"
+        elif gap_days > 7:
+            severity = "moderate"
+
+        gap_info = TemporalGapInfo(
+            gap_start=gap_start.to_pydatetime(),
+            gap_end=gap_end.to_pydatetime(),
+            gap_length_days=gap_days,
+            missing_periods=missing_periods,
+            severity=severity,
+        )
+        gaps.append(gap_info)
+
+    gaps.sort(key=lambda g: g.gap_length_days, reverse=True)
+    largest_gap_days = gaps[0].gap_length_days if gaps else 0.0
+
+    from dataraum_context.core.models.base import Result
+
+    return Result.ok(
+        TemporalCompletenessAnalysis(
+            completeness_ratio=completeness_ratio,
+            expected_periods=expected_periods,
+            actual_periods=actual_periods,
+            gap_count=len(gaps),
+            largest_gap_days=largest_gap_days,
+            gaps=gaps[:10],
+        )
+    )
 
 
 def create_column(
@@ -64,7 +142,7 @@ async def temporal_table(async_session, sample_source, duckdb_conn):
         source_id=sample_source.source_id,
         table_name="temporal_data",
         layer="typed",
-        duckdb_path="temporal_data",
+        duckdb_path="typed_temporal_data",
     )
     async_session.add(table)
 
@@ -77,10 +155,11 @@ async def temporal_table(async_session, sample_source, duckdb_conn):
     dates = [start_date + timedelta(days=i) for i in range(365)]
 
     # Build SQL for creating table with dates
+    # Table name must match typed_{table_name} pattern used by processor
     date_values = ", ".join([f"timestamp '{d.strftime('%Y-%m-%d %H:%M:%S')}'" for d in dates])
     duckdb_conn.execute(
         f"""
-        CREATE TABLE temporal_data AS
+        CREATE TABLE typed_temporal_data AS
         SELECT unnest([{date_values}]) as event_time
         """
     )
@@ -165,7 +244,7 @@ async def test_detect_change_points_with_break():
     values = np.concatenate([np.ones(100) * 10, np.ones(100) * 20])
     ts = pd.Series(values, index=dates)
 
-    result = await detect_change_points(ts, "test-metric")
+    result = await detect_change_points(ts)
 
     assert result.success
     change_points = result.value
@@ -184,7 +263,7 @@ async def test_detect_change_points_no_breaks():
     values = np.ones(100) + np.random.randn(100) * 0.1
     ts = pd.Series(values, index=dates)
 
-    result = await detect_change_points(ts, "test-metric")
+    result = await detect_change_points(ts)
 
     assert result.success
     # Should detect few or no change points
@@ -258,7 +337,7 @@ async def test_analyze_distribution_stability_stable():
     values = np.random.normal(10, 2, 200)  # Constant distribution
     ts = pd.Series(values, index=dates)
 
-    result = await analyze_distribution_stability(ts, "test-metric", num_periods=4)
+    result = await analyze_distribution_stability(ts, num_periods=4)
 
     assert result.success
     stability = result.value
@@ -281,7 +360,7 @@ async def test_analyze_distribution_stability_shift():
     )
     ts = pd.Series(values, index=dates)
 
-    result = await analyze_distribution_stability(ts, "test-metric", num_periods=4)
+    result = await analyze_distribution_stability(ts, num_periods=4)
 
     assert result.success
     stability = result.value
@@ -355,7 +434,7 @@ async def test_analyze_temporal_quality_complete(temporal_table, duckdb_conn, as
     assert result.success, f"Analysis failed: {result.error}"
 
     analysis = result.value
-    assert isinstance(analysis, TemporalQualityResult)
+    assert isinstance(analysis, TemporalAnalysisResult)
     assert analysis.column_id == column.column_id
     assert analysis.table_name == "temporal_data"
 
@@ -508,12 +587,12 @@ def test_pydantic_fiscal_calendar_analysis():
     assert "month_end" in analysis.detected_periods
 
 
-def test_pydantic_temporal_quality_result():
-    """Test TemporalQualityResult model."""
+def test_pydantic_temporal_analysis_result():
+    """Test TemporalAnalysisResult model."""
     from dataraum_context.core.models.base import ColumnRef
 
     now = datetime.now()
-    result = TemporalQualityResult(
+    result = TemporalAnalysisResult(
         metric_id="metric-1",
         column_id="col-1",
         column_ref=ColumnRef(table_name="test_table", column_name="event_time"),
