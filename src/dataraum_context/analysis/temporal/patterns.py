@@ -1,11 +1,12 @@
-"""Temporal Quality Analysis (Pillar 4).
+"""Advanced temporal pattern analysis.
 
-This module extracts enhanced quality metrics from temporal patterns including:
-- Seasonality strength (quantified)
-- Trend breaks (change points)
-- Update frequency scoring
+Analyzes:
+- Seasonality (using seasonal decomposition)
+- Trends (linear regression)
+- Change points (PELT algorithm)
+- Update frequency and staleness
 - Fiscal calendar alignment
-- Distribution stability across time periods
+- Distribution stability (KS tests)
 
 Uses statsmodels for seasonal decomposition and ruptures for change point detection.
 """
@@ -13,91 +14,27 @@ Uses statsmodels for seasonal decomposition and ruptures for change point detect
 from datetime import UTC, datetime
 from uuid import uuid4
 
-import duckdb
 import numpy as np
 import pandas as pd
 import ruptures as rpt
 from scipy import stats
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from statsmodels.tsa.seasonal import seasonal_decompose
 
-from dataraum_context.core.models.base import Result
-from dataraum_context.quality.models import (
+from dataraum_context.analysis.temporal.models import (
     ChangePointResult,
     DistributionShiftResult,
     DistributionStabilityAnalysis,
     FiscalCalendarAnalysis,
     SeasonalDecompositionResult,
     SeasonalityAnalysis,
-    TemporalCompletenessAnalysis,
-    TemporalGapInfo,
-    TemporalQualityResult,
     TrendAnalysis,
     UpdateFrequencyAnalysis,
 )
-from dataraum_context.quality.models import (
-    QualityIssue as TemporalQualityIssue,
-)
-from dataraum_context.storage import Column, Table
+from dataraum_context.core.models.base import Result
 
-# NOTE: ChangePoint and DistributionShift tables are DEPRECATED
-# Data is now stored in TemporalQualityMetrics.temporal_data JSONB field
-
-# ============================================================================
-# Helper: Load Time Series Data
-# ============================================================================
-
-
-async def _load_time_series(
-    duckdb_conn: duckdb.DuckDBPyConnection,
-    table_name: str,
-    column_name: str,
-    limit: int = 10000,
-) -> Result[pd.Series]:
-    """Load time series data from DuckDB.
-
-    Args:
-        duckdb_conn: DuckDB connection
-        table_name: DuckDB table name
-        column_name: Column name
-        limit: Maximum rows to load
-
-    Returns:
-        Result containing pandas Series indexed by datetime
-    """
-    try:
-        query = f"""
-        SELECT {column_name}::TIMESTAMP as ts
-        FROM {table_name}
-        WHERE {column_name} IS NOT NULL
-        ORDER BY {column_name}
-        LIMIT {limit}
-        """
-
-        df = duckdb_conn.execute(query).fetchdf()
-
-        if df.empty:
-            return Result.fail("No data found")
-
-        # Create time series
-        ts = pd.Series(
-            1, index=pd.to_datetime(df["ts"])
-        )  # Value doesn't matter for temporal analysis
-        ts = pd.Series(
-            1, index=pd.to_datetime(df["ts"])
-        )  # Value doesn't matter for temporal analysis
-        ts = ts.sort_index()
-
-        return Result.ok(ts)
-
-    except Exception as e:
-        return Result.fail(f"Failed to load time series: {e}")
-
-
-# ============================================================================
+# =============================================================================
 # Seasonality Analysis
-# ============================================================================
+# =============================================================================
 
 
 async def analyze_seasonality(
@@ -107,7 +44,7 @@ async def analyze_seasonality(
     """Analyze seasonality strength using seasonal decomposition.
 
     Args:
-        time_series: Time series data
+        time_series: Time series data (pandas Series with datetime index)
         period: Seasonal period (auto-detected if None)
 
     Returns:
@@ -124,7 +61,6 @@ async def analyze_seasonality(
 
         # Auto-detect period if not provided
         if period is None:
-            # Infer from time series frequency
             freq = pd.infer_freq(time_series)
             if freq:
                 if "D" in freq:
@@ -175,8 +111,7 @@ async def analyze_seasonality(
                     )
                 )
 
-        # Calculate seasonality strength
-        # Formula: 1 - Var(residual) / Var(detrended)
+        # Calculate seasonality strength: 1 - Var(residual) / Var(detrended)
         detrended = time_series - decomposition.trend
         detrended = detrended.dropna()
 
@@ -187,7 +122,6 @@ async def analyze_seasonality(
             detrended_var = detrended.var()
             seasonality_strength = max(0.0, 1.0 - (residual_var / detrended_var))
 
-        # Determine if seasonality is significant
         has_seasonality = seasonality_strength > 0.3
 
         # Detect peaks in seasonal pattern
@@ -195,7 +129,6 @@ async def analyze_seasonality(
         peaks = {}
 
         if has_seasonality and len(seasonal_component) > 0:
-            # For time-based data, identify peak periods
             peak_idx = seasonal_component.idxmax()
             if isinstance(peak_idx, pd.Timestamp):
                 peaks["month"] = peak_idx.month
@@ -203,8 +136,7 @@ async def analyze_seasonality(
 
         period_name = _period_to_name(period)
 
-        # Calculate trend strength
-        # Formula: 1 - Var(residual) / Var(deseasonalized)
+        # Calculate trend strength: 1 - Var(residual) / Var(deseasonalized)
         deseasonalized = time_series - decomposition.seasonal
         deseasonalized = deseasonalized.dropna()
 
@@ -232,7 +164,6 @@ async def analyze_seasonality(
                 seasonal_pattern_summary["trough_month"] = int(trough_idx.month)
                 seasonal_pattern_summary["trough_day_of_week"] = int(trough_idx.dayofweek)
 
-        # Create detailed decomposition result
         decomposition_result = SeasonalDecompositionResult(
             seasonal_component=decomposition.seasonal.fillna(0).tolist(),
             trend_component=decomposition.trend.fillna(0).tolist(),
@@ -272,15 +203,15 @@ def _period_to_name(period: int) -> str:
     return mapping.get(period, f"period_{period}")
 
 
-# ============================================================================
+# =============================================================================
 # Trend Analysis
-# ============================================================================
+# =============================================================================
 
 
 async def analyze_trend(
     time_series: pd.Series,
 ) -> Result[TrendAnalysis]:
-    """Analyze trend strength and direction.
+    """Analyze trend strength and direction using linear regression.
 
     Args:
         time_series: Time series data
@@ -298,7 +229,6 @@ async def analyze_trend(
                 )
             )
 
-        # Calculate trend using linear regression
         x = np.arange(len(time_series))
         y = np.asarray(time_series.values, dtype=float)
 
@@ -358,14 +288,13 @@ async def analyze_trend(
         return Result.fail(f"Trend analysis failed: {e}")
 
 
-# ============================================================================
+# =============================================================================
 # Change Point Detection
-# ============================================================================
+# =============================================================================
 
 
 async def detect_change_points(
     time_series: pd.Series,
-    metric_id: str,
     min_size: int = 10,
     jump: int = 5,
 ) -> Result[list[ChangePointResult]]:
@@ -373,7 +302,6 @@ async def detect_change_points(
 
     Args:
         time_series: Time series data
-        metric_id: Parent metric ID
         min_size: Minimum segment size
         jump: Jump parameter for efficiency
 
@@ -384,7 +312,6 @@ async def detect_change_points(
         if len(time_series) < 30:
             return Result.ok([])
 
-        # Prepare data
         signal = np.asarray(time_series.values, dtype=float)
         mask = ~np.isnan(signal)
         signal_clean = signal[mask]
@@ -404,7 +331,6 @@ async def detect_change_points(
             except Exception:
                 return Result.ok([])
 
-        # Convert to results
         changes = []
         timestamps: pd.Index[pd.Timestamp] = time_series.index[mask]
 
@@ -413,7 +339,6 @@ async def detect_change_points(
             if cp_idx >= len(timestamps):
                 continue
 
-            # Get change point timestamp (convert to datetime)
             cp_timestamp = timestamps[cp_idx].to_pydatetime()
 
             # Calculate before/after statistics
@@ -431,7 +356,6 @@ async def detect_change_points(
             var_before = float(np.var(before_segment))
             var_after = float(np.var(after_segment))
 
-            # Determine change type and magnitude
             mean_change = abs(mean_after - mean_before)
             var_change = abs(var_after - var_before)
 
@@ -442,7 +366,6 @@ async def detect_change_points(
                 change_type = "variance_change"
                 magnitude = var_change
 
-            # Simple confidence based on segment sizes
             confidence = min(0.9, (len(before_segment) + len(after_segment)) / 100)
 
             change = ChangePointResult(
@@ -468,9 +391,9 @@ async def detect_change_points(
         return Result.fail(f"Change point detection failed: {e}")
 
 
-# ============================================================================
+# =============================================================================
 # Update Frequency Analysis
-# ============================================================================
+# =============================================================================
 
 
 async def analyze_update_frequency(
@@ -488,7 +411,6 @@ async def analyze_update_frequency(
         if len(time_series) < 2:
             return Result.fail("Insufficient data for update frequency analysis")
 
-        # Calculate intervals between updates
         timestamps = time_series.index
         intervals_seconds = timestamps.to_series().diff().dt.total_seconds().dropna()
 
@@ -505,12 +427,10 @@ async def analyze_update_frequency(
             interval_cv = 0.0
 
         # Regularity score (0-1, higher = more regular)
-        # Based on coefficient of variation
         regularity_score = max(0.0, 1.0 - min(interval_cv, 1.0))
 
         # Data freshness
         last_update = timestamps[-1].to_pydatetime()
-        # Make timezone-aware if needed
         if last_update.tzinfo is None:
             last_update = last_update.replace(tzinfo=UTC)
         now = datetime.now(UTC)
@@ -536,9 +456,9 @@ async def analyze_update_frequency(
         return Result.fail(f"Update frequency analysis failed: {e}")
 
 
-# ============================================================================
+# =============================================================================
 # Fiscal Calendar Detection
-# ============================================================================
+# =============================================================================
 
 
 async def detect_fiscal_calendar(
@@ -560,7 +480,6 @@ async def detect_fiscal_calendar(
                 )
             )
 
-        # Count events by month to detect fiscal year end
         timestamps = time_series.index
         month_counts = pd.Series([ts.month for ts in timestamps]).value_counts()
 
@@ -617,21 +536,19 @@ async def detect_fiscal_calendar(
         return Result.fail(f"Fiscal calendar detection failed: {e}")
 
 
-# ============================================================================
+# =============================================================================
 # Distribution Stability Analysis
-# ============================================================================
+# =============================================================================
 
 
 async def analyze_distribution_stability(
     time_series: pd.Series,
-    metric_id: str,
     num_periods: int = 4,
 ) -> Result[DistributionStabilityAnalysis]:
     """Analyze distribution stability across time periods using KS tests.
 
     Args:
         time_series: Time series data
-        metric_id: Parent metric ID
         num_periods: Number of periods to compare
 
     Returns:
@@ -664,8 +581,6 @@ async def analyze_distribution_stability(
             period1 = periods[i]
             period2 = periods[i + 1]
 
-            # Kolmogorov-Smirnov test
-            # Convert to numpy arrays for scipy compatibility
             values1 = np.asarray(period1.values, dtype=np.float64)
             values2 = np.asarray(period2.values, dtype=np.float64)
             ks_stat, p_value = stats.ks_2samp(values1, values2)
@@ -673,7 +588,6 @@ async def analyze_distribution_stability(
             is_significant = bool(p_value < 0.05)
 
             if is_significant:
-                # Determine shift direction
                 mean1 = period1.mean()
                 mean2 = period2.mean()
 
@@ -711,7 +625,6 @@ async def analyze_distribution_stability(
         if ks_statistics:
             mean_ks = float(np.mean(ks_statistics))
             max_ks = float(np.max(ks_statistics))
-            # Lower KS statistic = more stable
             stability_score = max(0.0, 1.0 - mean_ks)
         else:
             mean_ks = None
@@ -732,335 +645,11 @@ async def analyze_distribution_stability(
         return Result.fail(f"Distribution stability analysis failed: {e}")
 
 
-# ============================================================================
-# Temporal Completeness Analysis
-# ============================================================================
-
-
-async def analyze_completeness(
-    time_series: pd.Series,
-    granularity: str,
-) -> Result[TemporalCompletenessAnalysis]:
-    """Analyze temporal completeness and gaps.
-
-    Args:
-        time_series: Time series data
-        granularity: Detected granularity ('daily', 'weekly', etc.)
-
-    Returns:
-        Result containing TemporalCompletenessAnalysis
-    """
-    try:
-        if len(time_series) < 2:
-            return Result.fail("Insufficient data")
-
-        # Calculate expected periods
-        min_ts = time_series.index.min()
-        max_ts = time_series.index.max()
-        span = (max_ts - min_ts).total_seconds()
-
-        granularity_seconds = {
-            "second": 1,
-            "minute": 60,
-            "hour": 3600,
-            "day": 86400,
-            "weekly": 604800,
-            "monthly": 2592000,
-            "quarterly": 7776000,
-            "yearly": 31536000,
-        }
-
-        seconds_per_period = granularity_seconds.get(granularity, 86400)
-        expected_periods = int(span / seconds_per_period) + 1
-        actual_periods = len(time_series)
-
-        completeness_ratio = (
-            min(1.0, actual_periods / expected_periods) if expected_periods > 0 else 1.0
-        )
-
-        # Detect gaps
-        # Convert index to series and compute differences (timedeltas)
-        intervals: pd.Series = time_series.index.to_series().diff()
-        median_interval = intervals.median()
-
-        # Gaps are intervals > 2x median
-        gap_threshold = median_interval * 2
-        large_gaps = intervals[intervals > gap_threshold].dropna()
-
-        gaps = []
-        for gap_end, gap_length in zip(large_gaps.index, large_gaps.values, strict=False):
-            gap_start = gap_end - gap_length
-            gap_seconds = pd.Timedelta(gap_length).total_seconds()
-            gap_days = gap_seconds / 86400
-            missing_periods = int(gap_seconds / seconds_per_period) - 1
-
-            severity = "minor"
-            if gap_days > 30:
-                severity = "severe"
-            elif gap_days > 7:
-                severity = "moderate"
-
-            gap_info = TemporalGapInfo(
-                gap_start=gap_start.to_pydatetime(),
-                gap_end=gap_end.to_pydatetime(),
-                gap_length_days=gap_days,
-                missing_periods=missing_periods,
-                severity=severity,
-            )
-            gaps.append(gap_info)
-
-        # Sort by length
-        gaps.sort(key=lambda g: g.gap_length_days, reverse=True)
-
-        largest_gap_days = gaps[0].gap_length_days if gaps else 0.0
-
-        analysis = TemporalCompletenessAnalysis(
-            completeness_ratio=completeness_ratio,
-            expected_periods=expected_periods,
-            actual_periods=actual_periods,
-            gap_count=len(gaps),
-            largest_gap_days=largest_gap_days,
-            gaps=gaps[:10],  # Top 10 largest gaps
-        )
-
-        return Result.ok(analysis)
-
-    except Exception as e:
-        return Result.fail(f"Completeness analysis failed: {e}")
-
-
-# ============================================================================
-# Main Analysis Function
-# ============================================================================
-
-
-async def analyze_temporal_quality(
-    column_id: str,
-    duckdb_conn: duckdb.DuckDBPyConnection,
-    session: AsyncSession,
-) -> Result[TemporalQualityResult]:
-    """Analyze temporal quality for a time column.
-
-    This is the main entry point for temporal quality analysis.
-
-    Args:
-        column_id: Column to analyze
-        duckdb_conn: DuckDB connection
-        session: Database session
-
-    Returns:
-        Result containing complete temporal quality assessment
-    """
-    try:
-        # Get column info
-        stmt = select(Column, Table).join(Table).where(Column.column_id == column_id)
-        result = await session.execute(stmt)
-        row = result.one_or_none()
-
-        if not row:
-            return Result.fail(f"Column {column_id} not found")
-
-        column, table = row
-
-        # Verify it's a temporal column
-        if column.resolved_type not in ["DATE", "TIMESTAMP", "TIMESTAMPTZ"]:
-            return Result.fail(f"Column {column.column_name} is not a temporal type")
-
-        # Load time series
-        ts_result = await _load_time_series(
-            duckdb_conn,
-            table.duckdb_path,
-            column.column_name,
-        )
-
-        if not ts_result.success:
-            return Result.fail(ts_result.error if ts_result.error else "Unknown Error")
-
-        time_series = ts_result.unwrap()
-
-        # Basic temporal info
-        min_timestamp = time_series.index.min().to_pydatetime()
-        max_timestamp = time_series.index.max().to_pydatetime()
-        span_days = (max_timestamp - min_timestamp).total_seconds() / 86400
-
-        # Infer granularity (simple approach)
-        interval: pd.Series = time_series.index.to_series().diff()
-        median_interval = interval.median()
-
-        # Handle case where median_interval might be a float (NaT case)
-        if isinstance(median_interval, (int, float)):
-            # If it's already a number, use it directly
-            interval_seconds = float(median_interval)
-        else:
-            # Otherwise assume it's a Timedelta
-            interval_seconds = median_interval.total_seconds()
-
-        granularity, confidence = _infer_granularity(interval_seconds)
-
-        # Analyze seasonality
-        seasonality_result = await analyze_seasonality(time_series)
-        seasonality = seasonality_result.value if seasonality_result.success else None
-
-        # Analyze trend
-        trend_result = await analyze_trend(time_series)
-        trend = trend_result.value if trend_result.success else None
-
-        # Detect change points
-        metric_id = str(uuid4())
-        changes_result = await detect_change_points(time_series, metric_id)
-        change_points = changes_result.unwrap() if changes_result.success else []
-
-        # Analyze update frequency
-        frequency_result = await analyze_update_frequency(time_series)
-        update_frequency = frequency_result.value if frequency_result.success else None
-
-        # Detect fiscal calendar
-        fiscal_result = await detect_fiscal_calendar(time_series)
-        fiscal_calendar = fiscal_result.value if fiscal_result.success else None
-
-        # Analyze distribution stability
-        stability_result = await analyze_distribution_stability(time_series, metric_id)
-        distribution_stability = stability_result.value if stability_result.success else None
-
-        # Analyze completeness
-        completeness_result = await analyze_completeness(time_series, granularity)
-        completeness = completeness_result.value if completeness_result.success else None
-
-        # Detect quality issues
-        issues = []
-
-        if completeness and completeness.completeness_ratio < 0.8:
-            issues.append(
-                TemporalQualityIssue(
-                    issue_type="low_completeness",
-                    severity="high" if completeness.completeness_ratio < 0.5 else "medium",
-                    description=(
-                        f"Only {completeness.completeness_ratio:.1%} of expected "
-                        "data points present"
-                    ),
-                    evidence={"completeness_ratio": completeness.completeness_ratio},
-                    detected_at=datetime.now(UTC),
-                )
-            )
-
-        if completeness and completeness.largest_gap_days and completeness.largest_gap_days > 30:
-            issues.append(
-                TemporalQualityIssue(
-                    issue_type="large_gap",
-                    severity="high" if completeness.largest_gap_days > 90 else "medium",
-                    description=f"Large gap of {completeness.largest_gap_days:.0f} days detected",
-                    evidence={"gap_days": completeness.largest_gap_days},
-                    detected_at=datetime.now(UTC),
-                )
-            )
-
-        if update_frequency and update_frequency.is_stale:
-            issues.append(
-                TemporalQualityIssue(
-                    issue_type="stale_data",
-                    severity="medium",
-                    description=f"Data is {update_frequency.data_freshness_days:.0f} days old",
-                    evidence={"freshness_days": update_frequency.data_freshness_days},
-                    detected_at=datetime.now(UTC),
-                )
-            )
-
-        if len(change_points) > 5:
-            issues.append(
-                TemporalQualityIssue(
-                    issue_type="many_change_points",
-                    severity="medium",
-                    description=f"{len(change_points)} change points detected (unstable pattern)",
-                    evidence={"change_point_count": len(change_points)},
-                    detected_at=datetime.now(UTC),
-                )
-            )
-
-        if distribution_stability and distribution_stability.stability_score < 0.7:
-            issues.append(
-                TemporalQualityIssue(
-                    issue_type="unstable_distribution",
-                    severity="medium",
-                    description=(
-                        f"Distribution stability score: "
-                        f"{distribution_stability.stability_score:.2f}"
-                    ),
-                    evidence={"stability_score": distribution_stability.stability_score},
-                    detected_at=datetime.now(UTC),
-                )
-            )
-
-        computed_at = datetime.now(UTC)
-
-        # Build result
-        from dataraum_context.core.models.base import ColumnRef
-
-        column_ref = ColumnRef(
-            source_id=table.source_id,
-            table_name=table.table_name,
-            column_name=column.column_name,
-        )
-
-        result_obj = TemporalQualityResult(
-            metric_id=metric_id,
-            column_id=column_id,
-            column_ref=column_ref,
-            column_name=column.column_name,
-            table_name=table.table_name,
-            computed_at=computed_at,
-            min_timestamp=min_timestamp,
-            max_timestamp=max_timestamp,
-            span_days=span_days,
-            detected_granularity=granularity,
-            granularity_confidence=confidence,
-            seasonality=seasonality,
-            trend=trend,
-            change_points=change_points,
-            update_frequency=update_frequency,
-            fiscal_calendar=fiscal_calendar,
-            distribution_stability=distribution_stability,
-            completeness=completeness,
-            quality_issues=issues,
-            has_issues=len(issues) > 0,
-        )
-
-        # NOTE: Data storage happens in enrichment/temporal.py
-        # This quality module only performs analysis and returns results
-        # The enrichment module handles persistence using the hybrid storage approach
-
-        return Result.ok(result_obj)
-
-    except Exception as e:
-        return Result.fail(f"Temporal quality analysis failed: {e}")
-
-
-def _infer_granularity(median_gap_seconds: float | None) -> tuple[str, float]:
-    """Infer time granularity from median gap."""
-    if median_gap_seconds is None:
-        return ("unknown", 0.0)
-
-    granularities = [
-        ("second", 1, 0.5),
-        ("minute", 60, 5),
-        ("hour", 3600, 300),
-        ("day", 86400, 3600),
-        ("weekly", 604800, 86400),
-        ("monthly", 2592000, 259200),
-        ("quarterly", 7776000, 777600),
-        ("yearly", 31536000, 3153600),
-    ]
-
-    best_match = None
-    best_distance = float("inf")
-
-    for name, expected_seconds, tolerance in granularities:
-        distance = abs(median_gap_seconds - expected_seconds)
-        if distance < tolerance and distance < best_distance:
-            best_match = name
-            best_distance = distance
-
-    if best_match:
-        confidence = 0.9
-        return (best_match, confidence)
-
-    return ("irregular", 0.3)
+__all__ = [
+    "analyze_seasonality",
+    "analyze_trend",
+    "detect_change_points",
+    "analyze_update_frequency",
+    "detect_fiscal_calendar",
+    "analyze_distribution_stability",
+]

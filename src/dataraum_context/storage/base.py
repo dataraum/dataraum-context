@@ -86,6 +86,7 @@ async def init_database(engine: AsyncEngine) -> None:
     # These imports ensure tables are created when init_database() is called
     from dataraum_context.analysis.correlation import db_models as _correlation_models  # noqa: F401
     from dataraum_context.analysis.statistics import db_models as _statistics_models  # noqa: F401
+    from dataraum_context.analysis.temporal import db_models as _temporal_models  # noqa: F401
     from dataraum_context.analysis.typing import db_models as _typing_models  # noqa: F401
     from dataraum_context.enrichment import db_models as _enrichment_models  # noqa: F401
     from dataraum_context.graphs import db_models as _graphs_models  # noqa: F401
@@ -110,6 +111,7 @@ async def reset_database(engine: AsyncEngine) -> None:
     # Import all model modules to register them with SQLAlchemy Base metadata
     from dataraum_context.analysis.correlation import db_models as _correlation_models  # noqa: F401
     from dataraum_context.analysis.statistics import db_models as _statistics_models  # noqa: F401
+    from dataraum_context.analysis.temporal import db_models as _temporal_models  # noqa: F401
     from dataraum_context.analysis.typing import db_models as _typing_models  # noqa: F401
     from dataraum_context.enrichment import db_models as _enrichment_models  # noqa: F401
     from dataraum_context.graphs import db_models as _graphs_models  # noqa: F401

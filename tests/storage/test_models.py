@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dataraum_context.analysis.statistics.db_models import (
     StatisticalProfile,
 )
+from dataraum_context.analysis.temporal import TemporalColumnProfile
 from dataraum_context.analysis.typing.db_models import (
     TypeCandidate,
     TypeDecision,
@@ -17,7 +18,6 @@ from dataraum_context.enrichment.db_models import (
     Relationship,
     SemanticAnnotation,
     TableEntity,
-    TemporalQualityMetrics,
 )
 from dataraum_context.llm.db_models import LLMCache
 from dataraum_context.quality.db_models import QualityResult, QualityRule
@@ -318,16 +318,18 @@ class TestTemporalModels:
 
         from uuid import uuid4
 
-        temporal = TemporalQualityMetrics(
-            metric_id=str(uuid4()),
+        temporal = TemporalColumnProfile(
+            profile_id=str(uuid4()),
             column_id=column.column_id,
-            computed_at=datetime.now(),
+            profiled_at=datetime.now(),
             min_timestamp=datetime(2024, 1, 1),
             max_timestamp=datetime(2024, 12, 31),
             detected_granularity="day",
             completeness_ratio=0.96,
             has_seasonality=True,
-            temporal_data={
+            has_trend=True,
+            is_stale=False,
+            profile_data={
                 "span_days": 364.0,
                 "granularity_confidence": 0.98,
                 "gap_count": 5,
@@ -338,7 +340,7 @@ class TestTemporalModels:
         session.add(temporal)
         await session.commit()
 
-        result = await session.execute(select(TemporalQualityMetrics))
+        result = await session.execute(select(TemporalColumnProfile))
         saved = result.scalar_one()
 
         assert saved.detected_granularity == "day"
