@@ -94,9 +94,10 @@ class RelationshipType(str, Enum):
 class Cardinality(str, Enum):
     """Relationship cardinality."""
 
-    ONE_TO_ONE = "1:1"
-    ONE_TO_MANY = "1:n"
-    MANY_TO_MANY = "n:m"
+    ONE_TO_ONE = "one-to-one"
+    ONE_TO_MANY = "one-to-many"
+    MANY_TO_ONE = "many-to-one"
+    MANY_TO_MANY = "many-to-many"
 
 
 class QualitySeverity(str, Enum):
