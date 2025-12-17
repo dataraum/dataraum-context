@@ -161,7 +161,7 @@ async def _print_relationship_summary(session: Any) -> None:
 
     # Count by cardinality
     cardinality_counts = {}
-    for card in ["1:1", "1:N", "N:1", "N:M"]:
+    for card in ["one-to-one", "one-to-many", "many-to-one", "many-to-many"]:
         count = (
             await session.execute(
                 select(func.count(Relationship.relationship_id)).where(

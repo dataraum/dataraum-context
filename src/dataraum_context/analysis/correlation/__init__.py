@@ -4,29 +4,12 @@ Analyzes relationships between columns:
 - Per-table: Numeric correlations, categorical associations, functional dependencies, derived columns
 - Post-confirmation: Cross-table quality analysis (VDP, redundant/derived columns)
 
-Cross-table relationship evaluation is in analysis/relationships/evaluator.py.
-Quality-focused cross-table analysis is in analysis/correlation/cross_table.py.
+Main entry points:
+- analyze_correlations: Within-table correlation analysis
+- analyze_cross_table_quality: Cross-table quality analysis on confirmed relationships
 """
 
-# Algorithms (pure computation)
-from dataraum_context.analysis.correlation.algorithms import (
-    AssociationResult,
-    CorrelationResult,
-    DependencyGroupResult,
-    MulticollinearityResult,
-    compute_cramers_v,
-    compute_multicollinearity,
-    compute_pairwise_correlations,
-)
-
-# Per-table runners
-from dataraum_context.analysis.correlation.categorical import compute_categorical_associations
-
-# Post-confirmation quality analysis
-from dataraum_context.analysis.correlation.cross_table import (
-    analyze_relationship_quality,
-)
-
+# Processors (main entry points)
 # DB Models - Within-table
 from dataraum_context.analysis.correlation.db_models import (
     CategoricalAssociation as DBCategoricalAssociation,
@@ -46,10 +29,6 @@ from dataraum_context.analysis.correlation.db_models import (
 from dataraum_context.analysis.correlation.db_models import (
     FunctionalDependency as DBFunctionalDependency,
 )
-from dataraum_context.analysis.correlation.derived_columns import detect_derived_columns
-from dataraum_context.analysis.correlation.functional_dependency import (
-    detect_functional_dependencies,
-)
 
 # Pydantic Models - Within-table
 # Pydantic Models - Cross-table quality
@@ -67,26 +46,15 @@ from dataraum_context.analysis.correlation.models import (
     QualityIssue,
     RedundantColumnPair,
 )
-from dataraum_context.analysis.correlation.numeric import compute_numeric_correlations
-from dataraum_context.analysis.correlation.processor import analyze_correlations
+from dataraum_context.analysis.correlation.processor import (
+    analyze_correlations,
+    analyze_cross_table_quality,
+)
 
 __all__ = [
-    # Main entry points
-    "analyze_correlations",  # Per-table
-    "analyze_relationship_quality",  # Post-confirmation cross-table
-    # Per-table analysis functions
-    "compute_numeric_correlations",
-    "compute_categorical_associations",
-    "detect_functional_dependencies",
-    "detect_derived_columns",
-    # Algorithms (pure computation)
-    "compute_pairwise_correlations",
-    "compute_cramers_v",
-    "compute_multicollinearity",
-    "CorrelationResult",
-    "AssociationResult",
-    "DependencyGroupResult",
-    "MulticollinearityResult",
+    # Processors (main entry points)
+    "analyze_correlations",
+    "analyze_cross_table_quality",
     # DB Models - Within-table
     "ColumnCorrelation",
     "DBCategoricalAssociation",

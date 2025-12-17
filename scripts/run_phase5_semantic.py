@@ -112,35 +112,19 @@ async def main() -> int:
         print("\n2. Loading relationship candidates...")
         print("-" * 50)
 
-        relationships_stmt = select(Relationship).where(
-            Relationship.detection_method == "candidate"
+        from dataraum_context.analysis.relationships import (
+            load_relationship_candidates_for_semantic,
         )
-        relationships = (await session.execute(relationships_stmt)).scalars().all()
 
-        # Convert to dict format expected by semantic agent
-        from dataraum_context.storage import Column
+        table_ids = [t.table_id for t in typed_tables]
+        relationship_candidates = await load_relationship_candidates_for_semantic(
+            session, table_ids=table_ids, detection_method="candidate"
+        )
 
-        relationship_candidates = []
-        for rel in relationships:
-            from_col = await session.get(Column, rel.from_column_id)
-            to_col = await session.get(Column, rel.to_column_id)
-            from_table = await session.get(Table, rel.from_table_id)
-            to_table = await session.get(Table, rel.to_table_id)
-
-            if from_col and to_col and from_table and to_table:
-                relationship_candidates.append(
-                    {
-                        "table1": from_table.table_name,
-                        "table2": to_table.table_name,
-                        "column1": from_col.column_name,
-                        "column2": to_col.column_name,
-                        "confidence": rel.confidence,
-                        "relationship_type": rel.relationship_type,
-                        "cardinality": rel.cardinality,
-                    }
-                )
-
-        print(f"   Loaded {len(relationship_candidates)} candidates for semantic analysis")
+        # Count total join columns across all candidates
+        total_joins = sum(len(c.get("join_columns", [])) for c in relationship_candidates)
+        print(f"   Loaded {len(relationship_candidates)} relationship candidates")
+        print(f"   Total join column pairs: {total_joins}")
 
         # Setup LLM and create semantic agent
         print("\n3. Running semantic analysis...")

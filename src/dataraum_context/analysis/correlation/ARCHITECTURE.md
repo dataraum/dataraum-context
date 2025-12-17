@@ -49,27 +49,43 @@ SQLAlchemy models for storing analysis results in SQLite.
 **Metadata:**
 - `CorrelationAnalysisRun` - Tracks when analysis was run
 
-### 3. Algorithms (`algorithms/`) - Pure Computation
+### 3. Algorithms (`algorithms.py`) - Pure Computation (Internal)
 
-Pure functions operating on numpy arrays:
+Pure functions operating on numpy arrays. These are internal and not exported from the module:
 - `compute_pairwise_correlations()` - Pearson/Spearman
 - `compute_cramers_v()` - Chi-square based association
 - `compute_multicollinearity()` - VDP analysis
 
-### 4. API (`api.py`) - Unified Entry Points
+### 4. Processor (`processor.py`) - Entry Points
 
-Main functions that orchestrate analysis and storage:
-- `analyze_table()` - Per-table analysis (stores to DB)
-- `analyze_relationship()` - Cross-table quality (stores to DB)
+Main functions that orchestrate analysis:
+- `analyze_correlations()` - Per-table analysis
+- `analyze_cross_table_quality()` - Cross-table quality after semantic confirmation
+
+## Public API
+
+Only processors and models are exported from the module:
+
+```python
+from dataraum_context.analysis.correlation import (
+    # Processors (main entry points)
+    analyze_correlations,
+    analyze_cross_table_quality,
+    # Pydantic Models
+    CorrelationAnalysisResult,
+    CrossTableQualityResult,
+    # etc.
+)
+```
 
 ## Usage Pattern
 
 ```python
 # Per-table analysis
-result = await analyze_table(table_id, duckdb_conn, session)
+result = await analyze_correlations(table_id, duckdb_conn, session)
 
 # Cross-table quality (after semantic agent confirms relationship)
-quality = await analyze_relationship(relationship, duckdb_conn, session)
+quality = await analyze_cross_table_quality(relationship, duckdb_conn, session)
 ```
 
 ## Data Flow

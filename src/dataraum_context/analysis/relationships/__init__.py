@@ -26,12 +26,17 @@ from dataraum_context.analysis.relationships.topology import (
     compute_persistence,
     persistence_similarity,
 )
+from dataraum_context.analysis.relationships.utils import (
+    load_relationship_candidates_for_semantic,
+)
 
 __all__ = [
     # Main entry points
     "detect_relationships",
     "find_relationships",
     "evaluate_candidates",
+    # Utilities
+    "load_relationship_candidates_for_semantic",
     # Components
     "find_join_columns",
     "compute_persistence",

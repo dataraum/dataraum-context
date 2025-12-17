@@ -72,7 +72,9 @@ class Relationship(Base):
     relationship_type: Mapped[str] = mapped_column(
         String, nullable=False
     )  # 'foreign_key', 'semantic_reference', 'derived', 'candidate'
-    cardinality: Mapped[str | None] = mapped_column(String)  # '1:1', '1:N', 'N:1', 'N:M'
+    cardinality: Mapped[str | None] = mapped_column(
+        String
+    )  # 'one-to-one', 'one-to-many', 'many-to-one', 'many-to-many'
 
     # Confidence and evidence
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
