@@ -24,9 +24,8 @@ from dataraum_context.analysis.correlation.db_models import (
     DerivedColumn,
     FunctionalDependency,
 )
-from dataraum_context.analysis.relationships.db_models import (
-    CrossTableMulticollinearityMetrics,
-)
+
+# NOTE: CrossTableMulticollinearityMetrics removed - being replaced with per-relationship evaluation
 from dataraum_context.analysis.statistics.db_models import StatisticalProfile
 from dataraum_context.analysis.typing.db_models import (
     TypeCandidate,
@@ -44,9 +43,7 @@ from dataraum_context.quality.domains.db_models import DomainQualityMetrics
 from dataraum_context.quality.models import (
     ColumnQualityContext,
     DatasetQualityContext,
-    QualityDimension,
     QualitySynthesisIssue,
-    QualitySynthesisSeverity,
     RelationshipContext,
     TableQualityContext,
 )
@@ -481,63 +478,11 @@ async def format_dataset_quality_context(
                 )
             )
 
-    # Fetch cross-table analysis
+    # Cross-table analysis disabled - being replaced with per-relationship evaluation
+    # See analysis/relationships/evaluator.py (TODO: implement)
     cross_table_issues: list[QualitySynthesisIssue] = []
-    cross_table_severity = None
+    cross_table_severity: str | None = None
     cross_table_correlation_count = 0
-
-    if len(table_ids) > 1:
-        # Get cross-table analysis
-        # Note: table_ids is stored as JSON, so we query the most recent
-        cross_stmt = (
-            select(CrossTableMulticollinearityMetrics)
-            .order_by(CrossTableMulticollinearityMetrics.computed_at.desc())
-            .limit(1)
-        )
-        cross_analysis = (await session.execute(cross_stmt)).scalar_one_or_none()
-
-        if cross_analysis:
-            # Derive severity from has_severe_cross_table_dependencies
-            if cross_analysis.has_severe_cross_table_dependencies:
-                cross_table_severity = "severe"
-            elif (
-                cross_analysis.num_cross_table_groups and cross_analysis.num_cross_table_groups > 0
-            ):
-                cross_table_severity = "moderate"
-            else:
-                cross_table_severity = None
-
-            cross_table_correlation_count = cross_analysis.num_cross_table_groups or 0
-
-            # Create cross-table issue if severity is concerning
-            if cross_table_severity in ["moderate", "severe"]:
-                from uuid import uuid4
-
-                cross_table_issues.append(
-                    QualitySynthesisIssue(
-                        issue_id=str(uuid4()),
-                        issue_type="cross_table_multicollinearity",
-                        severity=(
-                            QualitySynthesisSeverity.ERROR
-                            if cross_table_severity == "severe"
-                            else QualitySynthesisSeverity.WARNING
-                        ),
-                        dimension=QualityDimension.CONSISTENCY,
-                        table_id=None,
-                        column_id=None,
-                        column_name=None,
-                        description=f"Cross-table multicollinearity detected: {cross_table_severity}",
-                        recommendation="Review correlated columns across tables for redundancy",
-                        evidence={
-                            "severity": cross_table_severity,
-                            "cross_table_groups": cross_table_correlation_count,
-                            "condition_index": cross_analysis.overall_condition_index,
-                        },
-                        source_pillar=1,
-                        source_module="cross_table_analysis",
-                        detected_at=cross_analysis.computed_at,
-                    )
-                )
 
     # Aggregate all issues
     all_issues = (

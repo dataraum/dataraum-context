@@ -1,19 +1,20 @@
-"""Relationship detection between tables.
+"""Relationship detection and evaluation between tables.
 
 Combines multiple signals:
 - TDA (Topological Data Analysis): structural similarity via persistence diagrams
 - Value overlap: join column detection via Jaccard/containment
-
-Cross-table correlation models are in analysis/correlation/models.py
+- Evaluation: referential integrity, cardinality verification, join quality
 
 Confidence = max(topology_similarity, best_join_confidence)
 """
 
-from dataraum_context.analysis.relationships.db_models import (
-    CrossTableMulticollinearityMetrics,
-    Relationship,
-)
+from dataraum_context.analysis.relationships.db_models import Relationship
 from dataraum_context.analysis.relationships.detector import detect_relationships
+from dataraum_context.analysis.relationships.evaluator import (
+    evaluate_candidates,
+    evaluate_join_candidate,
+    evaluate_relationship_candidate,
+)
 from dataraum_context.analysis.relationships.finder import find_relationships
 from dataraum_context.analysis.relationships.joins import find_join_columns
 from dataraum_context.analysis.relationships.models import (
@@ -30,15 +31,17 @@ __all__ = [
     # Main entry points
     "detect_relationships",
     "find_relationships",
+    "evaluate_candidates",
     # Components
     "find_join_columns",
     "compute_persistence",
     "persistence_similarity",
+    "evaluate_join_candidate",
+    "evaluate_relationship_candidate",
     # Relationship detection models
     "RelationshipCandidate",
     "JoinCandidate",
     "RelationshipDetectionResult",
     # DB Models
     "Relationship",
-    "CrossTableMulticollinearityMetrics",
 ]

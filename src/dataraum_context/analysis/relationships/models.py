@@ -1,10 +1,11 @@
-"""Relationship detection models.
+"""Relationship detection and evaluation models.
 
 Models for:
-- Relationship candidates (TDA + join detection)
+- JoinCandidate: potential join between columns (with evaluation metrics)
+- RelationshipCandidate: candidate relationship between tables (with evaluation metrics)
+- RelationshipDetectionResult: detection results
 
-Cross-table models are in analysis/correlation/models.py
-Legacy DependencyGroup is in enrichment/cross_table_multicollinearity.py
+Evaluation metrics are populated by analysis/relationships/evaluator.py.
 """
 
 from datetime import datetime
@@ -13,16 +14,34 @@ from pydantic import BaseModel, Field
 
 
 class JoinCandidate(BaseModel):
-    """A potential join between two columns."""
+    """A potential join between two columns.
+
+    Evaluation metrics (populated by evaluator.py):
+    - left_referential_integrity: % of FK values with matching PK
+    - right_referential_integrity: % of PK values that are referenced
+    - orphan_count: FK values with no matching PK
+    - cardinality_verified: whether detected cardinality matches actual
+    """
 
     column1: str
     column2: str
     confidence: float
     cardinality: str  # one-to-one, one-to-many, many-to-one
 
+    # Evaluation metrics (populated by evaluator.py)
+    left_referential_integrity: float | None = None  # 0-100%
+    right_referential_integrity: float | None = None  # 0-100%
+    orphan_count: int | None = None
+    cardinality_verified: bool | None = None
+
 
 class RelationshipCandidate(BaseModel):
-    """A candidate relationship between two tables."""
+    """A candidate relationship between two tables.
+
+    Evaluation metrics (populated by evaluator.py):
+    - join_success_rate: % of rows from table1 that match in table2
+    - introduces_duplicates: whether join multiplies rows (fan trap)
+    """
 
     table1: str
     table2: str
@@ -31,6 +50,10 @@ class RelationshipCandidate(BaseModel):
     relationship_type: str
 
     join_candidates: list[JoinCandidate] = Field(default_factory=list)
+
+    # Evaluation metrics (populated by evaluator.py)
+    join_success_rate: float | None = None  # 0-100%
+    introduces_duplicates: bool | None = None
 
 
 class RelationshipDetectionResult(BaseModel):

@@ -2,11 +2,9 @@
 
 Analyzes relationships between columns:
 - Per-table: Numeric correlations, categorical associations, functional dependencies, derived columns
-- Cross-table: Correlations and multicollinearity across joined tables
 
-Cross-table analysis runs 2x:
-1. Before semantic agent: on relationship candidates → context for LLM
-2. After semantic agent: on confirmed relationships → context for quality agents
+Cross-table relationship evaluation is in analysis/relationships/evaluator.py.
+Quality-focused cross-table analysis (VDP) will be rebuilt in cross_table.py.
 """
 
 # Algorithms (pure computation)
@@ -23,13 +21,8 @@ from dataraum_context.analysis.correlation.algorithms import (
 # Per-table runners
 from dataraum_context.analysis.correlation.categorical import compute_categorical_associations
 
-# Cross-table runner
-from dataraum_context.analysis.correlation.cross_table import (
-    analyze_cross_table_correlations,
-    compute_cross_table_multicollinearity,
-    store_cross_table_analysis,
-)
-
+# NOTE: Cross-table runner disabled - being replaced with per-relationship evaluation
+# See analysis/relationships/evaluator.py
 # DB Models
 from dataraum_context.analysis.correlation.db_models import (
     CategoricalAssociation as DBCategoricalAssociation,
@@ -62,9 +55,7 @@ from dataraum_context.analysis.correlation.processor import analyze_correlations
 __all__ = [
     # Main entry points
     "analyze_correlations",  # Per-table
-    "analyze_cross_table_correlations",  # Cross-table (with explicit relationships)
-    "compute_cross_table_multicollinearity",  # Cross-table (convenience wrapper)
-    "store_cross_table_analysis",  # Storage for quality pipeline
+    # NOTE: Cross-table functions disabled - see analysis/relationships/evaluator.py
     # Per-table analysis functions
     "compute_numeric_correlations",
     "compute_categorical_associations",

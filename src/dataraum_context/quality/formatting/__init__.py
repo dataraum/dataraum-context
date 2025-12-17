@@ -38,9 +38,11 @@ from dataraum_context.quality.formatting.domain import (
     format_fiscal_period_group,
     format_sign_convention_group,
 )
-from dataraum_context.quality.formatting.multicollinearity import (
-    format_cross_table_multicollinearity_for_llm,
-)
+
+# NOTE: multicollinearity formatting disabled - being replaced with per-relationship evaluation
+# from dataraum_context.quality.formatting.multicollinearity import (
+#     format_cross_table_multicollinearity_for_llm,
+# )
 from dataraum_context.quality.formatting.statistical import (
     format_benford_group,
     format_completeness_group,
@@ -78,8 +80,7 @@ __all__ = [
     "MetricGroupConfig",
     "get_default_config",
     "load_formatter_config",
-    # Multicollinearity formatters (cross-table only)
-    "format_cross_table_multicollinearity_for_llm",
+    # NOTE: Multicollinearity formatters disabled - being replaced with per-relationship evaluation
     # Statistical formatters
     "format_completeness_group",
     "format_outliers_group",

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dataraum_context.analysis.relationships.db_models import (
     Relationship as RelationshipDB,
 )
+from dataraum_context.analysis.relationships.evaluator import evaluate_candidates
 from dataraum_context.analysis.relationships.finder import find_relationships
 from dataraum_context.analysis.relationships.models import (
     JoinCandidate,
@@ -29,6 +30,7 @@ async def detect_relationships(
     session: AsyncSession,
     min_confidence: float = 0.3,
     sample_percent: float = 10.0,
+    evaluate: bool = True,
 ) -> Result[RelationshipDetectionResult]:
     """Detect relationships between tables and store as candidates.
 
@@ -42,6 +44,7 @@ async def detect_relationships(
         session: SQLAlchemy async session
         min_confidence: Minimum confidence threshold
         sample_percent: Percentage of rows to sample (uses reservoir sampling)
+        evaluate: Whether to evaluate candidates with quality metrics (default True)
 
     Returns:
         Result containing RelationshipDetectionResult
@@ -85,6 +88,11 @@ async def detect_relationships(
             )
             for r in raw_results
         ]
+
+        # Evaluate candidates with quality metrics (referential integrity, etc.)
+        if evaluate and candidates:
+            table_paths = {name: path for name, (path, _df) in tables_data.items()}
+            candidates = evaluate_candidates(candidates, table_paths, duckdb_conn)
 
         # Store candidates in database
         await _store_candidates(session, table_ids, candidates)
@@ -133,13 +141,29 @@ async def _store_candidates(
             if not col1_id or not col2_id:
                 continue
 
-            # Build evidence with topology info
+            # Build evidence with topology info and evaluation metrics
             evidence = {
                 "topology_similarity": candidate.topology_similarity,
                 "join_confidence": jc.confidence,
                 "cardinality": jc.cardinality,
                 "source": "tda_join_detection",
             }
+
+            # Add evaluation metrics if available
+            if jc.left_referential_integrity is not None:
+                evidence["left_referential_integrity"] = jc.left_referential_integrity
+            if jc.right_referential_integrity is not None:
+                evidence["right_referential_integrity"] = jc.right_referential_integrity
+            if jc.orphan_count is not None:
+                evidence["orphan_count"] = jc.orphan_count
+            if jc.cardinality_verified is not None:
+                evidence["cardinality_verified"] = jc.cardinality_verified
+
+            # Add relationship-level evaluation metrics
+            if candidate.join_success_rate is not None:
+                evidence["join_success_rate"] = candidate.join_success_rate
+            if candidate.introduces_duplicates is not None:
+                evidence["introduces_duplicates"] = candidate.introduces_duplicates
 
             db_rel = RelationshipDB(
                 relationship_id=str(uuid4()),

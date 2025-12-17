@@ -31,10 +31,10 @@ import duckdb
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.analysis.correlation import (
-    analyze_correlations,
-    compute_cross_table_multicollinearity,
-)
+from dataraum_context.analysis.correlation import analyze_correlations
+
+# NOTE: Cross-table multicollinearity disabled - being replaced with per-relationship evaluation
+# from dataraum_context.analysis.correlation import compute_cross_table_multicollinearity
 from dataraum_context.analysis.statistics import profile_statistics
 from dataraum_context.analysis.typing import infer_type_candidates, resolve_types
 from dataraum_context.core.models import SourceConfig
@@ -454,31 +454,12 @@ async def run_pipeline(
     except Exception as e:
         warnings.append(f"Temporal enrichment exception: {e}")
 
-    # Stage 3.4: Cross-table multicollinearity (CONDITIONAL, NON-CRITICAL)
+    # Stage 3.4: Cross-table multicollinearity (DISABLED)
+    # NOTE: Being replaced with per-relationship evaluation
+    # See analysis/relationships/evaluator.py
     cross_table_completed = False
     cross_table_column_count = 0
     cross_table_relationship_count = 0
-
-    if len(successful_table_ids) > 1:
-        try:
-            cross_table_result = await compute_cross_table_multicollinearity(
-                table_ids=successful_table_ids,
-                duckdb_conn=duckdb_conn,
-                session=session,
-            )
-            # ✅ CrossTableAnalysis stored by compute_cross_table_multicollinearity()
-
-            if cross_table_result.success and cross_table_result.value:
-                cross_table_completed = True
-                analysis = cross_table_result.value
-                cross_table_column_count = analysis.total_columns_analyzed
-                cross_table_relationship_count = analysis.total_relationships_used
-                warnings.extend(cross_table_result.warnings)
-            else:
-                warnings.append(f"Cross-table multicollinearity failed: {cross_table_result.error}")
-
-        except Exception as e:
-            warnings.append(f"Cross-table multicollinearity exception: {e}")
 
     # =========================================================================
     # PHASE 4: QUALITY ASSESSMENT (NEW)

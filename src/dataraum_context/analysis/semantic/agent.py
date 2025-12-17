@@ -14,9 +14,6 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.analysis.correlation.models import (
-    CrossTableMulticollinearityAnalysis,
-)
 from dataraum_context.analysis.semantic.models import (
     EntityDetection,
     Relationship,
@@ -86,7 +83,6 @@ class SemanticAgent(LLMFeature):
         table_ids: list[str],
         ontology: str = "general",
         relationship_candidates: list[dict[str, Any]] | None = None,
-        correlation_context: CrossTableMulticollinearityAnalysis | None = None,
     ) -> Result[SemanticEnrichmentResult]:
         """Analyze semantic meaning of tables and columns.
 
@@ -99,8 +95,6 @@ class SemanticAgent(LLMFeature):
                 - table1, table2: Table names
                 - join_columns: List of column pairs with confidence scores
                 - topology_similarity: TDA-based structural similarity
-            correlation_context: Cross-table correlation and multicollinearity
-                analysis from analysis/correlation module
 
         Returns:
             Result containing SemanticEnrichmentResult or error
@@ -132,7 +126,6 @@ class SemanticAgent(LLMFeature):
             "relationship_candidates": self._format_relationship_candidates(
                 relationship_candidates
             ),
-            "correlation_context": self._format_correlation_context(correlation_context),
         }
 
         # Render prompt
@@ -326,6 +319,15 @@ class SemanticAgent(LLMFeature):
 
             lines.append(f"\n### {table1} <-> {table2}")
             lines.append(f"Structural similarity: {topo_sim:.2f}")
+
+            # Add relationship-level evaluation metrics if available
+            join_success = rel.get("join_success_rate")
+            introduces_dups = rel.get("introduces_duplicates")
+            if join_success is not None:
+                lines.append(f"Join success rate: {join_success:.1f}%")
+            if introduces_dups is not None:
+                lines.append(f"Introduces duplicates (fan trap): {introduces_dups}")
+
             lines.append("Column pairs with value overlap:")
 
             join_cols = rel.get("join_columns", [])
@@ -337,96 +339,28 @@ class SemanticAgent(LLMFeature):
                     col2 = jc.get("column2", "?")
                     conf = jc.get("confidence", 0.0)
                     card = jc.get("cardinality", "unknown")
-                    lines.append(f"  - {col1} <-> {col2}: {conf:.2f} ({card})")
 
-        return "\n".join(lines)
+                    # Basic info
+                    line = f"  - {col1} <-> {col2}: {conf:.2f} ({card})"
 
-    def _format_correlation_context(
-        self, analysis: CrossTableMulticollinearityAnalysis | None
-    ) -> str:
-        """Format cross-table correlation context for the prompt.
+                    # Add evaluation metrics if available
+                    left_ri = jc.get("left_referential_integrity")
+                    right_ri = jc.get("right_referential_integrity")
+                    orphans = jc.get("orphan_count")
+                    verified = jc.get("cardinality_verified")
 
-        Args:
-            analysis: Cross-table multicollinearity analysis result
+                    metrics = []
+                    if left_ri is not None and right_ri is not None:
+                        metrics.append(f"RI: L={left_ri:.0f}% R={right_ri:.0f}%")
+                    if orphans is not None and orphans > 0:
+                        metrics.append(f"orphans={orphans}")
+                    if verified is not None:
+                        metrics.append(f"verified={verified}")
 
-        Returns:
-            Formatted string for the prompt
-        """
-        if not analysis:
-            return "No cross-table correlation analysis available."
+                    if metrics:
+                        line += f" [{', '.join(metrics)}]"
 
-        lines = []
-
-        # Overall summary
-        lines.append(f"Tables analyzed: {', '.join(analysis.table_names)}")
-        lines.append(f"Total numeric columns: {analysis.total_columns_analyzed}")
-        lines.append(f"Overall condition index: {analysis.overall_condition_index:.1f}")
-        lines.append(f"Severity: {analysis.overall_severity}")
-
-        # Cross-table numeric correlations (strong correlations suggest similar concepts)
-        strong_correlations = [
-            c
-            for c in analysis.cross_table_correlations
-            if c.is_significant and c.strength in ("strong", "very_strong")
-        ]
-        if strong_correlations:
-            lines.append(f"\n### Cross-Table Correlations ({len(strong_correlations)} strong)")
-            lines.append("Numeric columns with strong correlation across tables:")
-            for corr in strong_correlations[:10]:  # Limit to top 10
-                lines.append(
-                    f"  - {corr.table1}.{corr.column1} <-> {corr.table2}.{corr.column2}: "
-                    f"r={corr.pearson_r:.2f}, ρ={corr.spearman_rho:.2f} ({corr.strength})"
-                )
-            if len(strong_correlations) > 10:
-                lines.append(f"  ... and {len(strong_correlations) - 10} more")
-
-        # Cross-table categorical associations (strong associations suggest grouping)
-        strong_associations = [
-            a
-            for a in analysis.cross_table_associations
-            if a.is_significant and a.strength in ("moderate", "strong")
-        ]
-        if strong_associations:
-            lines.append(f"\n### Cross-Table Categorical Associations ({len(strong_associations)})")
-            lines.append("Categorical columns with significant association across tables:")
-            for assoc in strong_associations[:10]:  # Limit to top 10
-                lines.append(
-                    f"  - {assoc.table1}.{assoc.column1} <-> {assoc.table2}.{assoc.column2}: "
-                    f"V={assoc.cramers_v:.2f} ({assoc.strength})"
-                )
-            if len(strong_associations) > 10:
-                lines.append(f"  ... and {len(strong_associations) - 10} more")
-
-        # Cross-table dependency groups (multicollinearity)
-        if analysis.cross_table_groups:
-            lines.append(f"\n### Cross-Table Dependencies ({len(analysis.cross_table_groups)})")
-            lines.append("Columns that are linearly related across table boundaries:")
-
-            for group in analysis.cross_table_groups:
-                tables_involved = list({table for table, _ in group.involved_columns})
-                lines.append(f"\n**Group (CI={group.condition_index:.1f}, {group.severity})**")
-                lines.append(f"Tables: {', '.join(tables_involved)}")
-                lines.append("Columns:")
-                for (table, col), vdp in zip(
-                    group.involved_columns, group.variance_proportions, strict=False
-                ):
-                    lines.append(f"  - {table}.{col} (VDP={vdp:.2f})")
-
-                if group.join_paths:
-                    lines.append("Connected via:")
-                    for path in group.join_paths:
-                        lines.append(
-                            f"  - {path.from_table}.{path.from_column} -> "
-                            f"{path.to_table}.{path.to_column}"
-                        )
-
-                lines.append(f"Interpretation: {group.interpretation}")
-
-        # Quality issues
-        if analysis.quality_issues:
-            lines.append("\n### Quality Concerns")
-            for issue in analysis.quality_issues:
-                lines.append(f"- {issue.get('description', 'Unknown issue')}")
+                    lines.append(line)
 
         return "\n".join(lines)
 

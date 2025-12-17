@@ -7,7 +7,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dataraum_context.analysis.correlation.models import CrossTableMulticollinearityAnalysis
 from dataraum_context.analysis.relationships.db_models import Relationship as RelationshipModel
 from dataraum_context.analysis.semantic.agent import SemanticAgent
 from dataraum_context.analysis.semantic.db_models import (
@@ -27,7 +26,6 @@ async def enrich_semantic(
     table_ids: list[str],
     ontology: str = "general",
     relationship_candidates: list[dict[str, Any]] | None = None,
-    correlation_context: CrossTableMulticollinearityAnalysis | None = None,
 ) -> Result[SemanticEnrichmentResult]:
     """Run semantic enrichment on tables.
 
@@ -46,19 +44,16 @@ async def enrich_semantic(
         ontology: Ontology context for analysis
         relationship_candidates: Pre-computed relationship candidates from
             analysis/relationships module (TDA + join detection)
-        correlation_context: Cross-table correlation and multicollinearity
-            analysis from analysis/correlation module
 
     Returns:
         Result containing semantic enrichment data
     """
-    # Call semantic agent with relationship candidates and correlation context
+    # Call semantic agent with relationship candidates
     llm_result = await agent.analyze(
         session=session,
         table_ids=table_ids,
         ontology=ontology,
         relationship_candidates=relationship_candidates,
-        correlation_context=correlation_context,
     )
 
     if not llm_result.success:
