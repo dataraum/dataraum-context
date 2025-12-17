@@ -55,8 +55,8 @@ def _compute_join_score(
 ) -> tuple[float, str]:
     """Compute join score using DuckDB SQL for efficient set operations."""
     try:
-        # Get distinct counts and intersection using SQL
-        # Use LIMIT on distinct values to bound memory for huge tables
+        # Get distinct counts, intersection, and uniqueness checks
+        # Cardinality depends on whether values are unique (key columns), not count ratios
         result = conn.execute(f"""
             WITH
             vals1 AS (SELECT DISTINCT "{col1}" AS v FROM {table1} WHERE "{col1}" IS NOT NULL LIMIT {max_distinct}),
@@ -65,15 +65,19 @@ def _compute_join_score(
                 SELECT
                     (SELECT COUNT(*) FROM vals1) AS count1,
                     (SELECT COUNT(*) FROM vals2) AS count2,
-                    (SELECT COUNT(*) FROM vals1 WHERE v IN (SELECT v FROM vals2)) AS intersection
+                    (SELECT COUNT(*) FROM vals1 WHERE v IN (SELECT v FROM vals2)) AS intersection,
+                    -- Check if col1 values are unique in table1 (potential key)
+                    (SELECT COUNT(*) FROM {table1} WHERE "{col1}" IS NOT NULL) AS total1,
+                    -- Check if col2 values are unique in table2 (potential key)
+                    (SELECT COUNT(*) FROM {table2} WHERE "{col2}" IS NOT NULL) AS total2
             )
-            SELECT count1, count2, intersection FROM stats
+            SELECT count1, count2, intersection, total1, total2 FROM stats
         """).fetchone()
 
         if result is None:
             return 0.0, "unknown"
 
-        count1, count2, intersection = result
+        count1, count2, intersection, total1, total2 = result
 
         if count1 == 0 or count2 == 0:
             return 0.0, "unknown"
@@ -86,14 +90,19 @@ def _compute_join_score(
 
         score = max(jaccard, containment)
 
-        # Determine cardinality
-        ratio = count1 / count2 if count2 > 0 else 0
-        if 0.9 < ratio < 1.1:
+        # Determine cardinality based on uniqueness (not count ratios)
+        # A column is "unique" if distinct_count == total_count (it's a key)
+        col1_is_unique = count1 == total1
+        col2_is_unique = count2 == total2
+
+        if col1_is_unique and col2_is_unique:
             cardinality = "one-to-one"
-        elif ratio > 1:
+        elif col1_is_unique and not col2_is_unique:
+            cardinality = "one-to-many"
+        elif not col1_is_unique and col2_is_unique:
             cardinality = "many-to-one"
         else:
-            cardinality = "one-to-many"
+            cardinality = "many-to-many"
 
         return score, cardinality
 

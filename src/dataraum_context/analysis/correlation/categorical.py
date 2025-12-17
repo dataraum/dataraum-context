@@ -49,11 +49,15 @@ async def compute_categorical_associations(
         result = await session.execute(stmt)
         all_columns = result.scalars().all()
 
-        # Filter to categorical candidates
+        # Filter to categorical candidates (VARCHAR or BOOLEAN with reasonable cardinality)
         categorical_columns = []
         table_name = table.duckdb_path
 
         for col in all_columns:
+            # Only include categorical types - not numeric columns
+            if col.resolved_type not in ("VARCHAR", "BOOLEAN"):
+                continue
+
             # Get distinct count
             query = f'SELECT COUNT(DISTINCT "{col.column_name}") FROM {table_name}'
             distinct_count_rows = duckdb_conn.execute(query).fetchone()

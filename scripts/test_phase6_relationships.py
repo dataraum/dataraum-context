@@ -112,6 +112,54 @@ async def main():
                     f"      {j['column1']} <-> {j['column2']}: {j['confidence']:.3f} ({j['cardinality']})"
                 )
 
+        # Test evaluator separately
+        print("\n2b. Evaluator on raw results")
+        print("-" * 50)
+        from dataraum_context.analysis.relationships import evaluate_candidates
+        from dataraum_context.analysis.relationships.models import (
+            JoinCandidate,
+            RelationshipCandidate,
+        )
+
+        # Convert raw results to candidates for evaluation
+        raw_candidates = [
+            RelationshipCandidate(
+                table1=r["table1"],
+                table2=r["table2"],
+                confidence=r["confidence"],
+                topology_similarity=r["topology_similarity"],
+                relationship_type=r["relationship_type"],
+                join_candidates=[
+                    JoinCandidate(
+                        column1=j["column1"],
+                        column2=j["column2"],
+                        confidence=j["confidence"],
+                        cardinality=j["cardinality"],
+                    )
+                    for j in r["join_columns"]
+                ],
+            )
+            for r in results
+        ]
+
+        # Evaluate
+        table_paths = {name: path for name, (path, _df) in tables_data.items()}
+        evaluated = evaluate_candidates(raw_candidates, table_paths, duckdb_conn)
+
+        for c in evaluated:
+            print(f"\n   {c.table1} <-> {c.table2}")
+            print(
+                f"   join_success_rate={c.join_success_rate}%, introduces_duplicates={c.introduces_duplicates}"
+            )
+            for jc in c.join_candidates:
+                print(f"      {jc.column1} <-> {jc.column2}:")
+                print(
+                    f"         left_RI={jc.left_referential_integrity}%, right_RI={jc.right_referential_integrity}%"
+                )
+                print(
+                    f"         orphans={jc.orphan_count}, cardinality_verified={jc.cardinality_verified}"
+                )
+
         # Test async detector
         print("\n3. Async detect_relationships()")
         print("-" * 50)
@@ -123,6 +171,22 @@ async def main():
                 f"   tables={r.total_tables}, candidates={r.total_candidates}, high_conf={r.high_confidence_count}"
             )
             print(f"   duration={r.duration_seconds:.2f}s")
+
+            # Show evaluation metrics from detector (now integrated)
+            print("\n   Evaluation metrics (via detector):")
+            for c in r.candidates:
+                print(f"\n   {c.table1} <-> {c.table2}")
+                print(
+                    f"   join_success_rate={c.join_success_rate}%, duplicates={c.introduces_duplicates}"
+                )
+                for jc in c.join_candidates:
+                    print(f"      {jc.column1} <-> {jc.column2}:")
+                    print(
+                        f"         RI: L={jc.left_referential_integrity}% R={jc.right_referential_integrity}%"
+                    )
+                    print(f"         orphans={jc.orphan_count}, verified={jc.cardinality_verified}")
+        else:
+            print(f"   ERROR: {result.error}")
 
     duckdb_conn.close()
     await engine.dispose()
