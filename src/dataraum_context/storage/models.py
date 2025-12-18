@@ -24,16 +24,14 @@ if TYPE_CHECKING:
         TypeCandidate,
         TypeDecision,
     )
+    from dataraum_context.domains.db_models import DomainQualityMetrics
+    from dataraum_context.domains.financial.db_models import FinancialQualityMetrics
     from dataraum_context.enrichment.db_models import (
         Relationship,
         SemanticAnnotation,
         TableEntity,
     )
     from dataraum_context.quality.db_models import QualityRule
-    from dataraum_context.quality.domains.db_models import (
-        DomainQualityMetrics,
-        FinancialQualityMetrics,
-    )
 
 
 class Source(Base):

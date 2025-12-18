@@ -26,10 +26,8 @@ from infra import (
 )
 
 # CSV files to load
-CSV_DIR = Path(__file__).parent.parent / "examples" #/ "finance_csv_example"
-CSV_FILES = [
-    "kontobuchungen.csv"
-]
+CSV_DIR = Path(__file__).parent.parent / "examples"  # / "finance_csv_example"
+CSV_FILES = ["kontobuchungen.csv"]
 
 # Junk columns to drop (artifacts from CSV exports)
 JUNK_COLUMNS = ["column0", "column00", "Unnamed: 0.2", "Unnamed: 0.1", "Unnamed: 0"]

@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.core.models.base import Result
+from dataraum_context.domains.financial import analyze_financial_quality
 from dataraum_context.enrichment.db_models import (
     BusinessCycleClassification,
     MultiTableTopologyMetrics,
@@ -33,7 +34,6 @@ from dataraum_context.enrichment.relationships import (
     gather_relationships,
 )
 from dataraum_context.llm.providers.base import LLMProvider, LLMRequest
-from dataraum_context.quality.domains.financial import analyze_financial_quality
 from dataraum_context.quality.domains.financial_llm import (
     classify_financial_cycle_with_llm,
     interpret_financial_quality_with_llm,

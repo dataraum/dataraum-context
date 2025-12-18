@@ -1,7 +1,6 @@
-"""Domain-specific quality metrics database models.
+"""Financial domain database models.
 
-SQLAlchemy models for storing domain-specific quality metrics,
-focusing on financial domain rules (double-entry, trial balance, etc.).
+SQLAlchemy models for storing financial quality metrics.
 """
 
 from __future__ import annotations
@@ -17,31 +16,6 @@ from dataraum_context.storage import Base
 
 if TYPE_CHECKING:
     from dataraum_context.storage import Table
-
-
-class DomainQualityMetrics(Base):
-    """Domain-specific quality metrics for a table.
-
-    Stores quality metrics specific to a business domain (financial, marketing, etc.).
-    The metrics field is a flexible JSONB storage for domain-specific data.
-    """
-
-    __tablename__ = "domain_quality_metrics"
-
-    metric_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    table_id: Mapped[str] = mapped_column(String, ForeignKey("tables.table_id"))
-    domain: Mapped[str] = mapped_column(String)  # 'financial', 'marketing', etc.
-    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-    # Generic storage for domain-specific metrics
-    metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
-
-    # Overall domain compliance
-    domain_compliance_score: Mapped[float] = mapped_column(Float)
-    violations: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
-
-    # Relationships
-    table: Mapped[Table] = relationship(back_populates="domain_quality_metrics")
 
 
 class FinancialQualityMetrics(Base):
@@ -86,10 +60,7 @@ class FinancialQualityMetrics(Base):
 
 
 class DoubleEntryCheck(Base):
-    """Detailed double-entry balance check results.
-
-    Stores the breakdown of debits and credits for validation.
-    """
+    """Detailed double-entry balance check results."""
 
     __tablename__ = "double_entry_checks"
 
@@ -118,10 +89,7 @@ class DoubleEntryCheck(Base):
 
 
 class TrialBalanceCheck(Base):
-    """Trial balance validation results.
-
-    Stores the accounting equation validation (Assets = Liabilities + Equity).
-    """
+    """Trial balance validation results."""
 
     __tablename__ = "trial_balance_checks"
 
@@ -137,7 +105,7 @@ class TrialBalanceCheck(Base):
     equity: Mapped[float] = mapped_column(Float)
 
     # Validation
-    equation_difference: Mapped[float] = mapped_column(Float)  # Assets - (Liabilities + Equity)
+    equation_difference: Mapped[float] = mapped_column(Float)
     equation_holds: Mapped[bool] = mapped_column(Boolean)
     tolerance: Mapped[float] = mapped_column(Float)
 
@@ -147,11 +115,7 @@ class TrialBalanceCheck(Base):
 
 
 class SignConventionViolation(Base):
-    """Sign convention violations.
-
-    Stores examples of accounts that violate expected sign conventions
-    (e.g., negative revenue, positive expense).
-    """
+    """Sign convention violations."""
 
     __tablename__ = "sign_convention_violations"
 
@@ -165,13 +129,13 @@ class SignConventionViolation(Base):
 
     # Account info
     account_identifier: Mapped[str] = mapped_column(String)
-    account_type: Mapped[str] = mapped_column(String)  # 'Asset', 'Revenue', etc.
-    expected_sign: Mapped[str] = mapped_column(String)  # 'debit' or 'credit'
-    actual_sign: Mapped[str] = mapped_column(String)  # 'debit' or 'credit'
+    account_type: Mapped[str] = mapped_column(String)
+    expected_sign: Mapped[str] = mapped_column(String)
+    actual_sign: Mapped[str] = mapped_column(String)
 
     # Details
     amount: Mapped[float] = mapped_column(Float)
-    violation_severity: Mapped[str] = mapped_column(String)  # 'minor', 'moderate', 'severe'
+    violation_severity: Mapped[str] = mapped_column(String)
     description: Mapped[str] = mapped_column(String)
 
     # Context
@@ -181,10 +145,7 @@ class SignConventionViolation(Base):
 
 
 class FiscalPeriodIntegrity(Base):
-    """Fiscal period integrity checks.
-
-    Validates that fiscal periods are complete and have clean cutoffs.
-    """
+    """Fiscal period integrity checks."""
 
     __tablename__ = "fiscal_period_integrity"
 
@@ -195,7 +156,7 @@ class FiscalPeriodIntegrity(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     # Period definition
-    fiscal_period: Mapped[str] = mapped_column(String)  # 'Q1-2024', 'FY-2024', etc.
+    fiscal_period: Mapped[str] = mapped_column(String)
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
@@ -205,8 +166,8 @@ class FiscalPeriodIntegrity(Base):
 
     # Cutoff validation
     cutoff_clean: Mapped[bool] = mapped_column(Boolean)
-    late_transactions: Mapped[int] = mapped_column(Integer)  # Transactions after period close
-    early_transactions: Mapped[int] = mapped_column(Integer)  # Transactions before period start
+    late_transactions: Mapped[int] = mapped_column(Integer)
+    early_transactions: Mapped[int] = mapped_column(Integer)
 
     # Quality indicators
     transaction_count: Mapped[int] = mapped_column(Integer)

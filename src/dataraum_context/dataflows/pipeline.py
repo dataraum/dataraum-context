@@ -42,6 +42,7 @@ from dataraum_context.analysis.temporal import (
 from dataraum_context.analysis.typing import infer_type_candidates, resolve_types
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.core.models.base import Result
+from dataraum_context.domains.financial import analyze_financial_quality
 from dataraum_context.enrichment.agent import SemanticAgent
 from dataraum_context.enrichment.db_models import (
     Relationship,
@@ -50,7 +51,6 @@ from dataraum_context.enrichment.db_models import (
 from dataraum_context.enrichment.semantic import enrich_semantic
 from dataraum_context.enrichment.topology import enrich_topology
 from dataraum_context.quality.context import format_dataset_quality_context
-from dataraum_context.quality.domains.financial import analyze_financial_quality
 from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.sources.csv import CSVLoader
 from dataraum_context.storage import Column, Table

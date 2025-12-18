@@ -1,16 +1,12 @@
-"""Domain-specific quality models.
+"""Financial domain quality models.
 
-Pydantic models for domain-specific quality metrics.
-Moved from core/models/domain_quality.py - these are domain-specific quality outputs.
+Pydantic models for financial accounting quality metrics.
 """
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-# ============================================================================
-# Financial Domain Models
-# ============================================================================
 
 
 class DoubleEntryResult(BaseModel):
@@ -110,6 +106,7 @@ class FinancialQualityResult(BaseModel):
     # Consolidation
     intercompany_elimination_rate: float | None = Field(None, ge=0.0, le=1.0)
     orphaned_intercompany: int | None = None
+    intercompany_details: list[dict[str, Any]] = Field(default_factory=list)
 
     # Period integrity
     fiscal_period_complete: bool
@@ -157,6 +154,7 @@ class SignConventionConfig(BaseModel):
 class FinancialQualityConfig(BaseModel):
     """Configuration for financial quality checks."""
 
+    domain_name: str = "financial"  # For DomainConfig protocol
     double_entry_tolerance: float = 0.01
     trial_balance_tolerance: float = 0.01
     sign_conventions: SignConventionConfig = Field(default_factory=SignConventionConfig)
