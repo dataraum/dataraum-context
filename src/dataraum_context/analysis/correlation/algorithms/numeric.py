@@ -70,6 +70,13 @@ def compute_pairwise_correlations(
             if len(col1_clean) < min_samples:
                 continue
 
+            # Skip constant columns (no variance = correlation undefined)
+            # This avoids ConstantInputWarning from scipy
+            std1 = np.std(col1_clean)
+            std2 = np.std(col2_clean)
+            if std1 < 1e-10 or std2 < 1e-10:
+                continue
+
             # Pearson
             pearson_r, pearson_p = stats.pearsonr(col1_clean, col2_clean)
             pearson_r = float(np.asarray(pearson_r).item())
