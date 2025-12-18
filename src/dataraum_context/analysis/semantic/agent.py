@@ -119,6 +119,23 @@ class SemanticAgent(LLMFeature):
         # Load within-table correlation data (if available from Phase 4b)
         correlations = await load_correlations_for_semantic(session, table_ids)
 
+        # Log correlation context usage
+        if correlations:
+            total_fds = sum(
+                len(d.get("functional_dependencies", [])) for d in correlations.values()
+            )
+            total_corrs = sum(len(d.get("numeric_correlations", [])) for d in correlations.values())
+            total_derived = sum(len(d.get("derived_columns", [])) for d in correlations.values())
+            if total_fds or total_corrs or total_derived:
+                print(
+                    f"   Including within-table correlations: {total_fds} FDs, "
+                    f"{total_corrs} numeric correlations, {total_derived} derived columns"
+                )
+            else:
+                print("   No significant within-table correlations found for context")
+        else:
+            print("   No within-table correlation data available for context")
+
         # Build context for prompt
         tables_json = self._build_tables_json(profiles, samples)
         ontology_def = self._ontology_loader.load(ontology)

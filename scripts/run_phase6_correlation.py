@@ -135,14 +135,22 @@ async def main() -> int:
                     print(
                         f"      Cross-table correlations: {len(quality.cross_table_correlations)}"
                     )
-                    print(f"      Multicollinearity: {quality.overall_severity}")
+
+                    # Multicollinearity context: FK joins naturally create high CI
+                    mc_note = ""
+                    if quality.overall_severity == "severe":
+                        # Check if it's primarily from join columns
+                        cross_groups = len(quality.cross_table_dependency_groups)
+                        if cross_groups > 0:
+                            mc_note = " (expected: FK join columns are perfectly correlated)"
+                    print(f"      Multicollinearity: {quality.overall_severity}{mc_note}")
                     print(f"      Quality issues: {len(quality.issues)}")
 
-                    # Show notable issues
+                    # Show all issues (not truncated)
                     if quality.issues:
-                        print("      Notable issues:")
-                        for issue in quality.issues[:3]:
-                            print(f"         [{issue.severity}] {issue.message[:60]}...")
+                        print("      Issues detected:")
+                        for issue in quality.issues:
+                            print(f"         [{issue.severity}] {issue.message}")
 
                     cross_table_count += 1
                 except Exception as e:
