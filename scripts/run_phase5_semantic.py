@@ -9,6 +9,7 @@ This script runs LLM-powered semantic analysis on typed tables:
 
 Prerequisites:
     - Phase 4 must be completed (run_phase4_relationships.py)
+    - Phase 4b is recommended (run_phase4b_correlations.py) for enriched context
     - ANTHROPIC_API_KEY must be set in environment or .env file
 
 Usage:

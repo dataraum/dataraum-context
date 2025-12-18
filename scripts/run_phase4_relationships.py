@@ -120,14 +120,18 @@ async def main() -> int:
         # Show top candidates
         if detection_result.candidates:
             print("\n   Top relationship candidates:")
-            for candidate in sorted(
-                detection_result.candidates, key=lambda c: c.confidence, reverse=True
-            )[:10]:
-                conf = f"{candidate.confidence:.2f}"
-                rel_type = candidate.relationship_type or "unknown"
-                print(f"      {candidate.table1} <-> {candidate.table2}: {conf} ({rel_type})")
+            # Sort by best join_confidence among join_candidates
+            sorted_candidates = sorted(
+                detection_result.candidates,
+                key=lambda c: max((jc.join_confidence for jc in c.join_candidates), default=0),
+                reverse=True,
+            )
+            for candidate in sorted_candidates[:10]:
                 if candidate.join_candidates:
-                    best_join = max(candidate.join_candidates, key=lambda j: j.confidence)
+                    best_join = max(candidate.join_candidates, key=lambda j: j.join_confidence)
+                    conf = f"{best_join.join_confidence:.2f}"
+                    card = best_join.cardinality
+                    print(f"      {candidate.table1} <-> {candidate.table2}: {conf} ({card})")
                     print(f"         Best join: {best_join.column1} <-> {best_join.column2}")
 
         # Summary

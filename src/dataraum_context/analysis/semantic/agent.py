@@ -21,6 +21,7 @@ from dataraum_context.analysis.semantic.models import (
     SemanticEnrichmentResult,
 )
 from dataraum_context.analysis.semantic.ontology import OntologyLoader
+from dataraum_context.analysis.semantic.utils import load_correlations_for_semantic
 from dataraum_context.analysis.statistics.models import ColumnProfile
 from dataraum_context.core.models.base import (
     Cardinality,
@@ -115,6 +116,9 @@ class SemanticAgent(LLMFeature):
         sampler = DataSampler(self.config.privacy)
         samples = sampler.prepare_samples(profiles)
 
+        # Load within-table correlation data (if available from Phase 4b)
+        correlations = await load_correlations_for_semantic(session, table_ids)
+
         # Build context for prompt
         tables_json = self._build_tables_json(profiles, samples)
         ontology_def = self._ontology_loader.load(ontology)
@@ -126,6 +130,7 @@ class SemanticAgent(LLMFeature):
             "relationship_candidates": self._format_relationship_candidates(
                 relationship_candidates
             ),
+            "within_table_correlations": self._format_correlations(correlations),
         }
 
         # Render prompt
@@ -367,6 +372,72 @@ class SemanticAgent(LLMFeature):
                     lines.append(line)
 
         return "\n".join(lines)
+
+    def _format_correlations(self, correlations: dict[str, dict[str, Any]]) -> str:
+        """Format within-table correlation data for the prompt.
+
+        Args:
+            correlations: Dict mapping table_name to correlation data
+
+        Returns:
+            Formatted string for the prompt
+        """
+        if not correlations:
+            return "No within-table correlation data available."
+
+        # Check if we have any actual data
+        has_data = False
+        for table_data in correlations.values():
+            if (
+                table_data.get("functional_dependencies")
+                or table_data.get("numeric_correlations")
+                or table_data.get("derived_columns")
+            ):
+                has_data = True
+                break
+
+        if not has_data:
+            return "No significant within-table correlations detected."
+
+        lines = []
+
+        for table_name, data in correlations.items():
+            fds = data.get("functional_dependencies", [])
+            corrs = data.get("numeric_correlations", [])
+            derived = data.get("derived_columns", [])
+
+            if not fds and not corrs and not derived:
+                continue
+
+            lines.append(f"\n### {table_name}")
+
+            # Functional dependencies (key indicators)
+            if fds:
+                lines.append("Functional dependencies (determinant → dependent):")
+                for fd in fds:
+                    det = ", ".join(fd["determinant"])
+                    dep = fd["dependent"]
+                    conf = fd["confidence"]
+                    lines.append(f"  - {det} → {dep} (conf: {conf:.2f})")
+
+            # Strong numeric correlations
+            if corrs:
+                lines.append("Strong numeric correlations:")
+                for c in corrs:
+                    r = c.get("pearson_r") or c.get("spearman_rho") or 0
+                    lines.append(
+                        f"  - {c['column1']} <-> {c['column2']}: r={r:.2f} ({c['strength']})"
+                    )
+
+            # Derived columns
+            if derived:
+                lines.append("Derived columns:")
+                for d in derived:
+                    lines.append(
+                        f"  - {d['derived_column']} = {d['formula']} (match: {d['match_rate']:.0%})"
+                    )
+
+        return "\n".join(lines) if lines else "No significant within-table correlations detected."
 
     def _build_tables_json(
         self, profiles: list[ColumnProfile], samples: dict[str, list[Any]]
