@@ -35,13 +35,13 @@ from dataraum_context.analysis.typing.db_models import (
     TypeCandidate,
     TypeDecision,
 )
+from dataraum_context.domains.db_models import DomainQualityMetrics
 from dataraum_context.enrichment.db_models import (
     SemanticAnnotation,
     TableEntity,
     TopologicalQualityMetrics,
 )
 from dataraum_context.enrichment.relationships.gathering import gather_relationships
-from dataraum_context.quality.domains.db_models import DomainQualityMetrics
 from dataraum_context.quality.models import (
     ColumnQualityContext,
     DatasetQualityContext,

@@ -15,14 +15,14 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from dataraum_context.quality.domains.financial import (
+from dataraum_context.domains.financial import (
     analyze_financial_quality,
     check_double_entry_balance,
     check_fiscal_period_integrity,
     check_sign_conventions,
     check_trial_balance,
 )
-from dataraum_context.quality.domains.models import FinancialQualityConfig
+from dataraum_context.domains.financial.models import FinancialQualityConfig
 from dataraum_context.storage import Base, Source, Table
 
 
@@ -449,7 +449,7 @@ async def test_analyze_financial_quality_with_issues(db_session, duckdb_conn):
 @pytest.mark.asyncio
 async def test_pydantic_financial_quality_result():
     """Test FinancialQualityResult Pydantic model validation."""
-    from dataraum_context.quality.domains.models import (
+    from dataraum_context.domains.financial.models import (
         DoubleEntryResult,
         FinancialQualityResult,
     )
@@ -486,7 +486,7 @@ async def test_pydantic_financial_quality_result():
 @pytest.mark.asyncio
 async def test_pydantic_sign_convention_config():
     """Test SignConventionConfig model."""
-    from dataraum_context.quality.domains.models import SignConventionConfig
+    from dataraum_context.domains.financial.models import SignConventionConfig
 
     config = SignConventionConfig()
 
