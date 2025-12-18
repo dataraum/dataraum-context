@@ -38,12 +38,14 @@ prompt: |
 
   Not all candidates are real relationships. Use column names and semantic context to decide.
 
-  ## Cross-Table Correlation Analysis
+  ## Within-Table Correlation Analysis
 
-  The following shows correlation and multicollinearity patterns detected across tables.
-  This helps identify columns that may be related, derived, or redundant.
+  The following shows within-table patterns detected by analyzing actual data:
+  - **Functional dependencies**: Column A → B means values in A uniquely determine B (helps identify keys)
+  - **Strong correlations**: Highly correlated numeric columns (may indicate derived or redundant data)
+  - **Derived columns**: Columns that appear to be computed from others (e.g., total = qty * price)
 
-  {correlation_context}
+  {within_table_correlations}
 
   ## Analysis Instructions
 
@@ -137,10 +139,10 @@ inputs:
     required: false
     default: "No pre-computed relationship candidates available."
 
-  correlation_context:
-    description: Cross-table correlation and multicollinearity analysis
+  within_table_correlations:
+    description: Within-table correlations (functional dependencies, strong correlations, derived columns)
     required: false
-    default: "No cross-table correlation analysis available."
+    default: "No within-table correlation data available."
 
 # Expected output schema (for validation)
 output_schema:
