@@ -32,6 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.analysis.correlation import analyze_correlations
+from dataraum_context.analysis.semantic import SemanticAgent, enrich_semantic
 
 # NOTE: Cross-table multicollinearity disabled - being replaced with per-relationship evaluation
 # from dataraum_context.analysis.correlation import compute_cross_table_multicollinearity
@@ -43,13 +44,10 @@ from dataraum_context.analysis.typing import infer_type_candidates, resolve_type
 from dataraum_context.core.models import SourceConfig
 from dataraum_context.core.models.base import Result
 from dataraum_context.domains.financial import analyze_financial_quality
-from dataraum_context.enrichment.agent import SemanticAgent
 from dataraum_context.enrichment.db_models import (
     Relationship,
     SemanticAnnotation,
 )
-from dataraum_context.enrichment.semantic import enrich_semantic
-from dataraum_context.enrichment.topology import enrich_topology
 from dataraum_context.quality.context import format_dataset_quality_context
 from dataraum_context.quality.topological import analyze_topological_quality
 from dataraum_context.sources.csv import CSVLoader
@@ -413,25 +411,10 @@ async def run_pipeline(
     except Exception as e:
         return Result.fail(f"Semantic enrichment exception: {e}")
 
-    # Stage 3.2: Topology enrichment (NON-CRITICAL)
-    try:
-        topology_result = await enrich_topology(
-            session=session,
-            duckdb_conn=duckdb_conn,
-            table_ids=successful_table_ids,
-        )
-        # ✅ Relationship, TopologyMetrics stored by enrich_topology()
-
-        if topology_result.success:
-            for health in table_health_records:
-                if health.table_id in successful_table_ids:
-                    health.topology_enrichment_completed = True
-            warnings.extend(topology_result.warnings)
-        else:
-            warnings.append(f"Topology enrichment failed: {topology_result.error}")
-
-    except Exception as e:
-        warnings.append(f"Topology enrichment exception: {e}")
+    # Stage 3.2: Topology enrichment (DISABLED - TDA code removed)
+    # TODO: Re-implement using analysis.relationships for relationship detection
+    # Relationships are now detected via semantic analysis (LLM) instead of TDA
+    warnings.append("Topology enrichment skipped: enrich_topology not available")
 
     # Stage 3.3: Temporal profiling (NON-CRITICAL)
     try:

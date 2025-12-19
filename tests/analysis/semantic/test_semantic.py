@@ -5,6 +5,13 @@ from uuid import uuid4
 
 import pytest
 
+from dataraum_context.analysis.semantic import (
+    EntityDetection,
+    Relationship,
+    SemanticAnnotation,
+    SemanticEnrichmentResult,
+    enrich_semantic,
+)
 from dataraum_context.core.models.base import (
     ColumnRef,
     DecisionSource,
@@ -12,17 +19,10 @@ from dataraum_context.core.models.base import (
     Result,
     SemanticRole,
 )
-from dataraum_context.enrichment.models import (
-    EntityDetection,
-    Relationship,
-    SemanticAnnotation,
-    SemanticEnrichmentResult,
-)
-from dataraum_context.enrichment.semantic import enrich_semantic
 
 
 @pytest.mark.asyncio
-async def test_enrich_semantic_stores_annotations(db_session):
+async def test_enrich_semantic_stores_annotations(async_session):
     """Test that semantic enrichment stores annotations in database."""
     # Create mock semantic agent
     agent = MagicMock()
@@ -32,8 +32,8 @@ async def test_enrich_semantic_stores_annotations(db_session):
     from dataraum_context.storage import Column, Source, Table
 
     source = Source(name="test_source", source_type="csv")
-    db_session.add(source)
-    await db_session.flush()
+    async_session.add(source)
+    await async_session.flush()
 
     table = Table(
         source_id=source.source_id,
@@ -41,8 +41,8 @@ async def test_enrich_semantic_stores_annotations(db_session):
         layer="raw",
         row_count=100,
     )
-    db_session.add(table)
-    await db_session.flush()
+    async_session.add(table)
+    await async_session.flush()
 
     col1 = Column(
         table_id=table.table_id,
@@ -56,9 +56,9 @@ async def test_enrich_semantic_stores_annotations(db_session):
         column_position=1,
         raw_type="VARCHAR",
     )
-    db_session.add(col1)
-    db_session.add(col2)
-    await db_session.commit()
+    async_session.add(col1)
+    async_session.add(col2)
+    await async_session.commit()
 
     # Mock LLM response
     mock_result = SemanticEnrichmentResult(
@@ -107,7 +107,7 @@ async def test_enrich_semantic_stores_annotations(db_session):
 
     # Run enrichment
     result = await enrich_semantic(
-        session=db_session,
+        session=async_session,
         agent=agent,
         table_ids=[table.table_id],
         ontology="general",
@@ -115,16 +115,17 @@ async def test_enrich_semantic_stores_annotations(db_session):
 
     # Verify result
     assert result.success, f"Enrichment failed: {result.error}"
+    assert result.value is not None
     assert len(result.value.annotations) == 2
     assert len(result.value.entity_detections) == 1
 
     # Verify annotations stored in database
     from sqlalchemy import select
 
-    from dataraum_context.enrichment.db_models import SemanticAnnotation as AnnotationModel
+    from dataraum_context.analysis.semantic import SemanticAnnotationDB
 
-    stmt = select(AnnotationModel)
-    db_result = await db_session.execute(stmt)
+    stmt = select(SemanticAnnotationDB)
+    db_result = await async_session.execute(stmt)
     annotations = db_result.scalars().all()
 
     assert len(annotations) == 2
@@ -134,10 +135,10 @@ async def test_enrich_semantic_stores_annotations(db_session):
     assert annotations[1].business_name == "Revenue"
 
     # Verify entity detection stored
-    from dataraum_context.enrichment.db_models import TableEntity
+    from dataraum_context.analysis.semantic import TableEntity
 
     stmt = select(TableEntity)
-    db_result = await db_session.execute(stmt)
+    db_result = await async_session.execute(stmt)
     entities = db_result.scalars().all()
 
     assert len(entities) == 1
@@ -146,7 +147,7 @@ async def test_enrich_semantic_stores_annotations(db_session):
 
 
 @pytest.mark.asyncio
-async def test_enrich_semantic_handles_missing_columns(db_session):
+async def test_enrich_semantic_handles_missing_columns(async_session):
     """Test that enrichment handles references to non-existent columns gracefully."""
     agent = MagicMock()
     agent.analyze = AsyncMock()
@@ -155,8 +156,8 @@ async def test_enrich_semantic_handles_missing_columns(db_session):
     from dataraum_context.storage import Column, Source, Table
 
     source = Source(name="test_source", source_type="csv")
-    db_session.add(source)
-    await db_session.flush()
+    async_session.add(source)
+    await async_session.flush()
 
     table = Table(
         source_id=source.source_id,
@@ -164,8 +165,8 @@ async def test_enrich_semantic_handles_missing_columns(db_session):
         layer="raw",
         row_count=50,
     )
-    db_session.add(table)
-    await db_session.flush()
+    async_session.add(table)
+    await async_session.flush()
 
     col1 = Column(
         table_id=table.table_id,
@@ -173,8 +174,8 @@ async def test_enrich_semantic_handles_missing_columns(db_session):
         column_position=0,
         raw_type="VARCHAR",
     )
-    db_session.add(col1)
-    await db_session.commit()
+    async_session.add(col1)
+    await async_session.commit()
 
     # Mock LLM response with reference to non-existent column
     mock_result = SemanticEnrichmentResult(
@@ -200,7 +201,7 @@ async def test_enrich_semantic_handles_missing_columns(db_session):
 
     # Run enrichment - should not fail
     result = await enrich_semantic(
-        session=db_session,
+        session=async_session,
         agent=agent,
         table_ids=[table.table_id],
         ontology="general",
@@ -212,17 +213,17 @@ async def test_enrich_semantic_handles_missing_columns(db_session):
     # Verify no annotations stored
     from sqlalchemy import select
 
-    from dataraum_context.enrichment.db_models import SemanticAnnotation as AnnotationModel
+    from dataraum_context.analysis.semantic import SemanticAnnotationDB
 
-    stmt = select(AnnotationModel)
-    db_result = await db_session.execute(stmt)
+    stmt = select(SemanticAnnotationDB)
+    db_result = await async_session.execute(stmt)
     annotations = db_result.scalars().all()
 
     assert len(annotations) == 0
 
 
 @pytest.mark.asyncio
-async def test_enrich_semantic_stores_relationships(db_session):
+async def test_enrich_semantic_stores_relationships(async_session):
     """Test that enrichment stores detected relationships."""
     agent = MagicMock()
     agent.analyze = AsyncMock()
@@ -231,8 +232,8 @@ async def test_enrich_semantic_stores_relationships(db_session):
     from dataraum_context.storage import Column, Source, Table
 
     source = Source(name="test_source", source_type="csv")
-    db_session.add(source)
-    await db_session.flush()
+    async_session.add(source)
+    await async_session.flush()
 
     customers_table = Table(
         source_id=source.source_id,
@@ -246,8 +247,8 @@ async def test_enrich_semantic_stores_relationships(db_session):
         layer="raw",
         row_count=500,
     )
-    db_session.add_all([customers_table, orders_table])
-    await db_session.flush()
+    async_session.add_all([customers_table, orders_table])
+    await async_session.flush()
 
     cust_id_col = Column(
         table_id=customers_table.table_id,
@@ -259,8 +260,8 @@ async def test_enrich_semantic_stores_relationships(db_session):
         column_name="customer_id",
         column_position=1,
     )
-    db_session.add_all([cust_id_col, order_cust_col])
-    await db_session.commit()
+    async_session.add_all([cust_id_col, order_cust_col])
+    await async_session.commit()
 
     # Mock LLM response with relationship
     mock_result = SemanticEnrichmentResult(
@@ -287,7 +288,7 @@ async def test_enrich_semantic_stores_relationships(db_session):
 
     # Run enrichment
     result = await enrich_semantic(
-        session=db_session,
+        session=async_session,
         agent=agent,
         table_ids=[customers_table.table_id, orders_table.table_id],
         ontology="general",
@@ -298,10 +299,10 @@ async def test_enrich_semantic_stores_relationships(db_session):
     # Verify relationship stored
     from sqlalchemy import select
 
-    from dataraum_context.enrichment.db_models import Relationship as RelationshipModel
+    from dataraum_context.analysis.relationships import Relationship as RelationshipModel
 
     stmt = select(RelationshipModel)
-    db_result = await db_session.execute(stmt)
+    db_result = await async_session.execute(stmt)
     relationships = db_result.scalars().all()
 
     assert len(relationships) == 1

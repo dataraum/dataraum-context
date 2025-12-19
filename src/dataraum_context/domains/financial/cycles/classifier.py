@@ -12,7 +12,7 @@ import yaml
 from dataraum_context.analysis.topology.models import CycleDetection
 from dataraum_context.core.models.base import Result
 from dataraum_context.domains.financial.config import load_financial_config
-from dataraum_context.enrichment.relationships import EnrichedRelationship
+from dataraum_context.domains.financial.cycles.relationships import EnrichedRelationship
 from dataraum_context.llm.providers.base import LLMProvider, LLMRequest
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dataraum_context.enrichment.tda.topology_extractor import TableTopologyExtractor
+from dataraum_context.analysis.topology.tda import TableTopologyExtractor
 
 
 @pytest.fixture

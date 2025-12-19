@@ -28,17 +28,15 @@ from dataraum_context.core.models.base import Result
 from dataraum_context.domains.financial import analyze_financial_quality
 from dataraum_context.domains.financial.config import load_financial_config
 from dataraum_context.domains.financial.cycles import (
+    analyze_relationship_graph,
     assess_fiscal_stability,
     classify_cross_table_cycle_with_llm,
     classify_financial_cycle_with_llm,
     detect_financial_anomalies,
+    gather_relationships,
     interpret_financial_quality_with_llm,
 )
 from dataraum_context.enrichment.db_models import SemanticAnnotation
-from dataraum_context.enrichment.relationships import (
-    analyze_relationship_graph,
-    gather_relationships,
-)
 from dataraum_context.llm.providers.base import LLMProvider, LLMRequest
 from dataraum_context.storage import Column, Table
 

@@ -20,9 +20,9 @@ from dataraum_context.domains.financial import (
     analyze_complete_financial_dataset_quality,
     classify_cross_table_cycle_with_llm,
 )
+from dataraum_context.domains.financial.cycles import analyze_relationship_graph
 from dataraum_context.enrichment.db_models import Relationship
-from dataraum_context.enrichment.relationships import analyze_relationship_graph
-from dataraum_context.storage import Base, Column, Source, Table
+from dataraum_context.storage import Column, Source, Table, init_database
 
 
 @pytest.fixture
@@ -30,8 +30,8 @@ async def multi_table_db_session():
     """Create an in-memory SQLite session with multiple related tables."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Use init_database to properly register all SQLAlchemy models
+    await init_database(engine)
 
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -235,7 +235,7 @@ async def multi_table_with_star_schema(multi_table_db_session):
         relationship_type=RelationshipType.FOREIGN_KEY.value,
         cardinality=Cardinality.ONE_TO_MANY.value,
         confidence=0.9,
-        detection_method="semantic",
+        detection_method="llm",
         evidence={"column_match": "customer_name"},
     )
     session.add(rel1)
@@ -251,7 +251,7 @@ async def multi_table_with_star_schema(multi_table_db_session):
         relationship_type=RelationshipType.FOREIGN_KEY.value,
         cardinality=Cardinality.ONE_TO_MANY.value,
         confidence=0.85,
-        detection_method="semantic",
+        detection_method="llm",
         evidence={"column_match": "vendor_name"},
     )
     session.add(rel2)
@@ -267,7 +267,7 @@ async def multi_table_with_star_schema(multi_table_db_session):
         relationship_type=RelationshipType.FOREIGN_KEY.value,
         cardinality=Cardinality.ONE_TO_MANY.value,
         confidence=0.8,
-        detection_method="semantic",
+        detection_method="llm",
         evidence={"column_match": "product_service"},
     )
     session.add(rel3)
@@ -327,7 +327,7 @@ async def multi_table_with_cycle(multi_table_db_session):
         relationship_type=RelationshipType.FOREIGN_KEY.value,
         cardinality=Cardinality.ONE_TO_MANY.value,
         confidence=0.9,
-        detection_method="semantic",
+        detection_method="llm",
         evidence={"column_match": "customer_name"},
     )
     session.add(rel1)
@@ -343,7 +343,7 @@ async def multi_table_with_cycle(multi_table_db_session):
         relationship_type=RelationshipType.FOREIGN_KEY.value,
         cardinality=Cardinality.ONE_TO_MANY.value,
         confidence=0.85,
-        detection_method="semantic",
+        detection_method="llm",
         evidence={"column_match": "preferred_vendor"},
     )
     session.add(rel2)
@@ -360,7 +360,7 @@ async def multi_table_with_cycle(multi_table_db_session):
         relationship_type=RelationshipType.FOREIGN_KEY.value,
         cardinality=Cardinality.ONE_TO_MANY.value,
         confidence=0.8,
-        detection_method="semantic",
+        detection_method="llm",
         evidence={"column_match": "transaction_id"},
     )
     session.add(rel3)
@@ -825,7 +825,7 @@ class TestClassifyCrossTableCycleWithLLM:
                 relationship_type=RelationshipType.FOREIGN_KEY,
                 cardinality=Cardinality.ONE_TO_MANY,
                 confidence=0.9,
-                detection_method="semantic",
+                detection_method="llm",
                 evidence={},
             )
         ]

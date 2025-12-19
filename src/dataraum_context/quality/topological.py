@@ -24,11 +24,6 @@ from dataraum_context.analysis.topology.stability import (
     get_previous_topology,
 )
 
-# Re-export from relationships package (was already a re-export)
-from dataraum_context.enrichment.relationships.graph_analysis import (
-    analyze_relationship_graph,
-)
-
 __all__ = [
     # Analysis functions
     "analyze_topological_quality",
@@ -43,6 +38,4 @@ __all__ = [
     "compute_bottleneck_distance",
     "compute_historical_complexity",
     "get_previous_topology",
-    # Relationship analysis (from relationships package)
-    "analyze_relationship_graph",
 ]
