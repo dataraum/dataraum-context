@@ -1,14 +1,23 @@
 """Anthropic Claude provider implementation."""
 
 import os
-from typing import cast
+from typing import Any, cast
 
 import anthropic
-from anthropic.types import MessageParam
+from anthropic.types import MessageParam, ToolParam, ToolResultBlockParam, ToolUseBlockParam
 from pydantic import BaseModel
 
 from dataraum_context.core.models.base import Result
-from dataraum_context.llm.providers.base import LLMProvider, LLMRequest, LLMResponse
+from dataraum_context.llm.providers.base import (
+    ConversationRequest,
+    ConversationResponse,
+    LLMProvider,
+    LLMRequest,
+    LLMResponse,
+    Message,
+    ToolCall,
+    ToolResult,
+)
 
 
 class AnthropicConfig(BaseModel):
@@ -139,3 +148,145 @@ class AnthropicProvider(LLMProvider):
             Model name (e.g., 'claude-sonnet-4-20250514')
         """
         return self.config.models.get(tier, self.config.default_model)
+
+    async def converse(self, request: ConversationRequest) -> Result[ConversationResponse]:
+        """Send a conversation request with optional tool use.
+
+        Supports multi-turn conversations and tool use with Claude.
+
+        Args:
+            request: Conversation request with messages, tools, etc.
+
+        Returns:
+            Result containing ConversationResponse or error message
+        """
+        try:
+            model = request.model or self.config.default_model
+
+            # Convert our messages to Anthropic format
+            messages = self._convert_messages(request.messages)
+
+            # Convert tools to Anthropic format
+            tools: list[ToolParam] | None = None
+            if request.tools:
+                tools = [
+                    cast(
+                        ToolParam,
+                        {
+                            "name": t.name,
+                            "description": t.description,
+                            "input_schema": t.input_schema,
+                        },
+                    )
+                    for t in request.tools
+                ]
+
+            # Make API call
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "max_tokens": request.max_tokens,
+                "temperature": request.temperature,
+                "messages": messages,
+            }
+
+            if request.system:
+                kwargs["system"] = request.system
+
+            if tools:
+                kwargs["tools"] = tools
+
+            response = await self.client.messages.create(**kwargs)
+
+            # Extract content and tool calls from response
+            text_content = ""
+            tool_calls: list[ToolCall] = []
+
+            for block in response.content:
+                if block.type == "text":
+                    text_content += block.text
+                elif block.type == "tool_use":
+                    tool_calls.append(
+                        ToolCall(
+                            id=block.id,
+                            name=block.name,
+                            input=dict(block.input) if block.input else {},
+                        )
+                    )
+
+            return Result.ok(
+                ConversationResponse(
+                    content=text_content,
+                    tool_calls=tool_calls,
+                    stop_reason=response.stop_reason or "end_turn",
+                    model=response.model,
+                    input_tokens=response.usage.input_tokens,
+                    output_tokens=response.usage.output_tokens,
+                )
+            )
+
+        except anthropic.APIError as e:
+            return Result.fail(f"Anthropic API error: {e}")
+        except Exception as e:
+            return Result.fail(f"Unexpected error calling Anthropic: {e}")
+
+    def _convert_messages(self, messages: list[Message]) -> list[MessageParam]:
+        """Convert our Message format to Anthropic's MessageParam format.
+
+        Args:
+            messages: List of our Message objects
+
+        Returns:
+            List of Anthropic MessageParam objects
+        """
+        result: list[MessageParam] = []
+
+        for msg in messages:
+            if msg.role == "user":
+                # User message - could be text or tool results
+                if isinstance(msg.content, list):
+                    # Tool results - msg.content is list[ToolResult]
+                    tool_results: list[ToolResult] = msg.content
+                    content: list[ToolResultBlockParam] = [
+                        cast(
+                            ToolResultBlockParam,
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tr.tool_use_id,
+                                "content": tr.content,
+                                "is_error": tr.is_error,
+                            },
+                        )
+                        for tr in tool_results
+                    ]
+                    result.append(cast(MessageParam, {"role": "user", "content": content}))
+                else:
+                    # Plain text
+                    result.append(cast(MessageParam, {"role": "user", "content": msg.content}))
+
+            elif msg.role == "assistant":
+                # Assistant message - could have text and/or tool calls
+                content_blocks: list[Any] = []
+
+                if msg.content and isinstance(msg.content, str):
+                    content_blocks.append({"type": "text", "text": msg.content})
+
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        content_blocks.append(
+                            cast(
+                                ToolUseBlockParam,
+                                {
+                                    "type": "tool_use",
+                                    "id": tc.id,
+                                    "name": tc.name,
+                                    "input": tc.input,
+                                },
+                            )
+                        )
+
+                if content_blocks:
+                    result.append(
+                        cast(MessageParam, {"role": "assistant", "content": content_blocks})
+                    )
+
+        return result
