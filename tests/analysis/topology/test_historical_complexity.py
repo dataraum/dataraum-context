@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from dataraum_context.enrichment.db_models import TopologicalQualityMetrics
+from dataraum_context.analysis.topology.db_models import TopologicalQualityMetrics
 from dataraum_context.quality.topological import compute_historical_complexity
 from dataraum_context.storage import Source, Table
 

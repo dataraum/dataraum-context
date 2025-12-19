@@ -2,7 +2,7 @@
 
 import pytest
 
-from dataraum_context.enrichment.db_models import MultiTableTopologyMetrics
+from dataraum_context.analysis.topology.db_models import MultiTableTopologyMetrics
 from dataraum_context.quality.topological import analyze_topological_quality_multi_table
 from dataraum_context.storage import (
     Column,

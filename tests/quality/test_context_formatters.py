@@ -12,9 +12,7 @@ from dataraum_context.analysis.statistics.db_models import (
     StatisticalQualityMetrics,
 )
 from dataraum_context.analysis.temporal import TemporalColumnProfile
-from dataraum_context.enrichment.db_models import (
-    TopologicalQualityMetrics,
-)
+from dataraum_context.analysis.topology.db_models import TopologicalQualityMetrics
 from dataraum_context.quality.context import (
     _generate_column_flags,
     _generate_table_flags,

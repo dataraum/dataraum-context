@@ -30,11 +30,11 @@ from dataraum_context.analysis.statistics.db_models import (
     StatisticalQualityMetrics,
 )
 from dataraum_context.analysis.temporal import TemporalColumnProfile as TemporalQualityMetrics
-from dataraum_context.domains.db_models import DomainQualityMetrics
-from dataraum_context.enrichment.db_models import (
+from dataraum_context.analysis.topology.db_models import (
     MultiTableTopologyMetrics,
     TopologicalQualityMetrics,
 )
+from dataraum_context.domains.db_models import DomainQualityMetrics
 from dataraum_context.quality.models import (
     QualityDimension,
     QualitySynthesisIssue,

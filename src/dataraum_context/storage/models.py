@@ -16,6 +16,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from dataraum_context.storage.base import Base
 
 if TYPE_CHECKING:
+    from dataraum_context.analysis.relationships.db_models import Relationship
+    from dataraum_context.analysis.semantic.db_models import (
+        SemanticAnnotation,
+        TableEntity,
+    )
     from dataraum_context.analysis.statistics.db_models import (
         StatisticalProfile,
         StatisticalQualityMetrics,
@@ -26,11 +31,6 @@ if TYPE_CHECKING:
     )
     from dataraum_context.domains.db_models import DomainQualityMetrics
     from dataraum_context.domains.financial.db_models import FinancialQualityMetrics
-    from dataraum_context.enrichment.db_models import (
-        Relationship,
-        SemanticAnnotation,
-        TableEntity,
-    )
     from dataraum_context.quality.db_models import QualityRule
 
 

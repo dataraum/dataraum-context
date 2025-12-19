@@ -88,13 +88,17 @@ async def init_database(engine: AsyncEngine) -> None:
     from dataraum_context.analysis.quality_summary import (
         db_models as _quality_summary_models,  # noqa: F401
     )
+    from dataraum_context.analysis.relationships import (
+        db_models as _relationships_models,  # noqa: F401
+    )
+    from dataraum_context.analysis.semantic import db_models as _semantic_models  # noqa: F401
     from dataraum_context.analysis.slicing import db_models as _slicing_models  # noqa: F401
     from dataraum_context.analysis.statistics import db_models as _statistics_models  # noqa: F401
     from dataraum_context.analysis.temporal import db_models as _temporal_models  # noqa: F401
+    from dataraum_context.analysis.topology import db_models as _topology_models  # noqa: F401
     from dataraum_context.analysis.typing import db_models as _typing_models  # noqa: F401
     from dataraum_context.domains import db_models as _domain_quality_models  # noqa: F401
     from dataraum_context.domains.financial import db_models as _financial_models  # noqa: F401
-    from dataraum_context.enrichment import db_models as _enrichment_models  # noqa: F401
     from dataraum_context.graphs import db_models as _graphs_models  # noqa: F401
     from dataraum_context.llm import db_models as _llm_models  # noqa: F401
     from dataraum_context.quality import db_models as _quality_models  # noqa: F401
@@ -118,13 +122,17 @@ async def reset_database(engine: AsyncEngine) -> None:
     from dataraum_context.analysis.quality_summary import (
         db_models as _quality_summary_models,  # noqa: F401
     )
+    from dataraum_context.analysis.relationships import (
+        db_models as _relationships_models,  # noqa: F401
+    )
+    from dataraum_context.analysis.semantic import db_models as _semantic_models  # noqa: F401
     from dataraum_context.analysis.slicing import db_models as _slicing_models  # noqa: F401
     from dataraum_context.analysis.statistics import db_models as _statistics_models  # noqa: F401
     from dataraum_context.analysis.temporal import db_models as _temporal_models  # noqa: F401
+    from dataraum_context.analysis.topology import db_models as _topology_models  # noqa: F401
     from dataraum_context.analysis.typing import db_models as _typing_models  # noqa: F401
     from dataraum_context.domains import db_models as _domain_quality_models  # noqa: F401
     from dataraum_context.domains.financial import db_models as _financial_models  # noqa: F401
-    from dataraum_context.enrichment import db_models as _enrichment_models  # noqa: F401
     from dataraum_context.graphs import db_models as _graphs_models  # noqa: F401
     from dataraum_context.llm import db_models as _llm_models  # noqa: F401
     from dataraum_context.quality import db_models as _quality_models  # noqa: F401
