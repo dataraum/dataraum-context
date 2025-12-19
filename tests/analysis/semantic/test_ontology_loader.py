@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from dataraum_context.enrichment.ontology import OntologyLoader
+from dataraum_context.analysis.semantic import OntologyLoader
 
 
 class TestOntologyLoader:
@@ -77,7 +77,7 @@ class TestOntologyLoader:
         # Different objects after cache clear
         assert ontology1 is not ontology2
 
-    def test_custom_ontologies_dir(self, tmp_path: Path):
+    def test_custom_ontologies_dir(self, tmp_path: Path) -> None:
         """Test using a custom ontologies directory."""
         # Create a test ontology file
         ontology_file = tmp_path / "test_ontology.yaml"

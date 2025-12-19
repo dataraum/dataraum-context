@@ -1,6 +1,7 @@
 """Financial cycle analysis module.
 
 This module provides:
+- Relationship gathering and graph analysis for cycle detection
 - Fiscal stability rules (deterministic, auditable)
 - Anomaly detection for financial data
 - LLM cycle classification
@@ -8,8 +9,14 @@ This module provides:
 
 Usage:
     from dataraum_context.domains.financial.cycles import (
+        # Relationship analysis
+        gather_relationships,
+        analyze_relationship_graph,
+        EnrichedRelationship,
+        # Fiscal rules
         assess_fiscal_stability,
         detect_financial_anomalies,
+        # LLM classification
         classify_financial_cycle_with_llm,
         classify_cross_table_cycle_with_llm,
         interpret_financial_quality_with_llm,
@@ -24,11 +31,30 @@ from dataraum_context.domains.financial.cycles.detector import detect_financial_
 from dataraum_context.domains.financial.cycles.interpreter import (
     interpret_financial_quality_with_llm,
 )
+from dataraum_context.domains.financial.cycles.relationships import (
+    CONFIDENCE_THRESHOLDS,
+    EnrichedRelationship,
+    GraphAnalysisResult,
+    analyze_relationship_graph,
+    analyze_relationship_graph_detailed,
+    build_relationship_graph,
+    gather_relationships,
+)
 from dataraum_context.domains.financial.cycles.rules import assess_fiscal_stability
 
 __all__ = [
+    # Relationship analysis
+    "gather_relationships",
+    "analyze_relationship_graph",
+    "analyze_relationship_graph_detailed",
+    "build_relationship_graph",
+    "EnrichedRelationship",
+    "GraphAnalysisResult",
+    "CONFIDENCE_THRESHOLDS",
+    # Fiscal rules
     "assess_fiscal_stability",
     "detect_financial_anomalies",
+    # LLM classification
     "classify_financial_cycle_with_llm",
     "classify_cross_table_cycle_with_llm",
     "interpret_financial_quality_with_llm",

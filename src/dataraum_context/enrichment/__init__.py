@@ -1,15 +1,16 @@
 """Enrichment layer - semantic and topological metadata extraction.
 
+NOTE: Semantic enrichment has been moved to analysis/semantic/.
 NOTE: Temporal enrichment has been moved to analysis/temporal/.
-Use profile_temporal() from dataraum_context.analysis.temporal instead.
+NOTE: Topology enrichment has been removed (was using deleted TDA code).
+
+This module re-exports for backward compatibility.
 """
 
-from dataraum_context.enrichment.agent import SemanticAgent
-from dataraum_context.enrichment.semantic import enrich_semantic
-from dataraum_context.enrichment.topology import enrich_topology
+# Re-export from canonical locations
+from dataraum_context.analysis.semantic import SemanticAgent, enrich_semantic
 
 __all__ = [
     "enrich_semantic",
-    "enrich_topology",
     "SemanticAgent",
 ]
