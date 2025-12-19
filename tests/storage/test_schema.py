@@ -26,7 +26,6 @@ class TestSchemaInitialization:
             "semantic_annotations",
             "table_entities",
             "relationships",
-            "join_paths",
             "temporal_column_profiles",
             "quality_rules",
             "quality_results",

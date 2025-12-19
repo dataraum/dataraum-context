@@ -5,6 +5,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.relationships.db_models import Relationship
+from dataraum_context.analysis.semantic.db_models import (
+    SemanticAnnotation,
+    TableEntity,
+)
 from dataraum_context.analysis.statistics.db_models import (
     StatisticalProfile,
 )
@@ -12,12 +17,6 @@ from dataraum_context.analysis.temporal import TemporalColumnProfile
 from dataraum_context.analysis.typing.db_models import (
     TypeCandidate,
     TypeDecision,
-)
-from dataraum_context.enrichment.db_models import (
-    JoinPath,
-    Relationship,
-    SemanticAnnotation,
-    TableEntity,
 )
 from dataraum_context.llm.db_models import LLMCache
 from dataraum_context.quality.db_models import QualityResult, QualityRule
@@ -281,29 +280,6 @@ class TestTopologicalModels:
         assert saved.relationship_type == "foreign_key"
         assert saved.cardinality == "n:1"
         assert saved.confidence == 0.95
-
-    async def test_create_join_path(self, session: AsyncSession):
-        source = Source(name="test_source", source_type="csv")
-        table1 = Table(source=source, table_name="sales", layer="raw")
-        table2 = Table(source=source, table_name="customers", layer="raw")
-        session.add_all([source, table1, table2])
-        await session.flush()
-
-        join_path = JoinPath(
-            from_table_id=table1.table_id,
-            to_table_id=table2.table_id,
-            path_steps=[{"from_col": "customer_id", "to_table": "customers", "to_col": "id"}],
-            path_length=1,
-            total_confidence=0.95,
-        )
-        session.add(join_path)
-        await session.commit()
-
-        result = await session.execute(select(JoinPath))
-        saved = result.scalar_one()
-
-        assert saved.path_length == 1
-        assert saved.total_confidence == 0.95
 
 
 class TestTemporalModels:

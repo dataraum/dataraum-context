@@ -24,6 +24,7 @@ from dataraum_context.analysis.correlation.db_models import (
     DerivedColumn,
     FunctionalDependency,
 )
+from dataraum_context.analysis.semantic.db_models import SemanticAnnotation, TableEntity
 
 # NOTE: CrossTableMulticollinearityMetrics removed - being replaced with per-relationship evaluation
 from dataraum_context.analysis.statistics.db_models import (
@@ -31,17 +32,13 @@ from dataraum_context.analysis.statistics.db_models import (
     StatisticalQualityMetrics,
 )
 from dataraum_context.analysis.temporal import TemporalColumnProfile as TemporalQualityMetrics
+from dataraum_context.analysis.topology.db_models import TopologicalQualityMetrics
 from dataraum_context.analysis.typing.db_models import (
     TypeCandidate,
     TypeDecision,
 )
 from dataraum_context.domains.db_models import DomainQualityMetrics
 from dataraum_context.domains.financial.cycles import gather_relationships
-from dataraum_context.enrichment.db_models import (
-    SemanticAnnotation,
-    TableEntity,
-    TopologicalQualityMetrics,
-)
 from dataraum_context.quality.models import (
     ColumnQualityContext,
     DatasetQualityContext,

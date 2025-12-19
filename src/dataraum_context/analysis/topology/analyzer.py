@@ -14,6 +14,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.relationships.db_models import Relationship as RelationshipModel
 from dataraum_context.analysis.topology.extraction import (
     compute_persistent_entropy,
     detect_persistent_cycles,
@@ -32,7 +33,6 @@ from dataraum_context.analysis.topology.stability import (
 )
 from dataraum_context.analysis.topology.tda.extractor import TableTopologyExtractor
 from dataraum_context.core.models.base import Result
-from dataraum_context.enrichment.db_models import Relationship as RelationshipModel
 from dataraum_context.storage import Table
 
 logger = logging.getLogger(__name__)

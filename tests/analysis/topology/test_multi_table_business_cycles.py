@@ -15,13 +15,13 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
+from dataraum_context.analysis.relationships.db_models import Relationship
 from dataraum_context.core.models.base import Cardinality, RelationshipType, Result
 from dataraum_context.domains.financial import (
     analyze_complete_financial_dataset_quality,
     classify_cross_table_cycle_with_llm,
 )
 from dataraum_context.domains.financial.cycles import analyze_relationship_graph
-from dataraum_context.enrichment.db_models import Relationship
 from dataraum_context.storage import Column, Source, Table, init_database
 
 

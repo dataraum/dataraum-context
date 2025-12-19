@@ -19,6 +19,7 @@ import duckdb
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.semantic.db_models import SemanticAnnotation
 from dataraum_context.analysis.topology import analyze_topological_quality
 from dataraum_context.analysis.topology.db_models import (
     BusinessCycleClassification,
@@ -36,7 +37,6 @@ from dataraum_context.domains.financial.cycles import (
     gather_relationships,
     interpret_financial_quality_with_llm,
 )
-from dataraum_context.enrichment.db_models import SemanticAnnotation
 from dataraum_context.llm.providers.base import LLMProvider, LLMRequest
 from dataraum_context.storage import Column, Table
 
