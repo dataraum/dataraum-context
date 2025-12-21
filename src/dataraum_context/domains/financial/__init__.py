@@ -6,11 +6,6 @@ Provides financial accounting-specific quality checks:
 - Sign convention validation
 - Fiscal period integrity
 
-Also provides cycle analysis with LLM interpretation:
-- Cross-table business cycle detection
-- LLM cycle classification
-- Fiscal stability rules
-
 Usage:
     # Using the analyzer (recommended)
     from dataraum_context.domains.financial import FinancialDomainAnalyzer
@@ -24,25 +19,15 @@ Usage:
 
     result = await analyze_financial_quality(table_id, conn, session)
 
-    # Complete analysis with LLM
-    from dataraum_context.domains.financial import (
-        analyze_complete_financial_quality,
-        analyze_complete_financial_dataset_quality,
-    )
-
     # Using individual checks
     from dataraum_context.domains.financial.checks import (
         check_double_entry_balance,
         check_trial_balance,
     )
 
-    # Using cycle analysis
-    from dataraum_context.domains.financial.cycles import (
-        assess_fiscal_stability,
-        detect_financial_anomalies,
-        classify_business_cycle_with_llm,
-        classify_financial_cycle_with_llm,
-    )
+Note:
+    Business cycle detection has been moved to dataraum_context.analysis.cycles
+    which provides a generic, LLM-powered approach without hardcoded patterns.
 """
 
 from dataraum_context.domains.financial.analyzer import (
@@ -58,13 +43,6 @@ from dataraum_context.domains.financial.checks import (
 from dataraum_context.domains.financial.config import (
     clear_config_cache,
     load_financial_config,
-)
-from dataraum_context.domains.financial.cycles import (
-    assess_fiscal_stability,
-    classify_business_cycle_with_llm,
-    classify_financial_cycle_with_llm,
-    detect_financial_anomalies,
-    interpret_financial_quality_with_llm,
 )
 from dataraum_context.domains.financial.db_models import (
     DoubleEntryCheck,
@@ -85,18 +63,11 @@ from dataraum_context.domains.financial.models import (
 from dataraum_context.domains.financial.models import (
     SignConventionViolation as SignConventionViolationModel,
 )
-from dataraum_context.domains.financial.orchestrator import (
-    analyze_complete_financial_dataset_quality,
-    analyze_complete_financial_quality,
-)
 
 __all__ = [
     # Analyzer
     "FinancialDomainAnalyzer",
     "analyze_financial_quality",
-    # Orchestrator (complete analysis with LLM)
-    "analyze_complete_financial_quality",
-    "analyze_complete_financial_dataset_quality",
     # Config
     "load_financial_config",
     "clear_config_cache",
@@ -105,12 +76,6 @@ __all__ = [
     "check_trial_balance",
     "check_sign_conventions",
     "check_fiscal_period_integrity",
-    # Cycle functions
-    "assess_fiscal_stability",
-    "detect_financial_anomalies",
-    "classify_business_cycle_with_llm",
-    "classify_financial_cycle_with_llm",
-    "interpret_financial_quality_with_llm",
     # DB Models
     "FinancialQualityMetrics",
     "DoubleEntryCheck",

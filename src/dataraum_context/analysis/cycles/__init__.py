@@ -5,6 +5,10 @@ without hardcoded pattern matching.
 """
 
 from dataraum_context.analysis.cycles.agent import BusinessCycleAgent
+from dataraum_context.analysis.cycles.db_models import (
+    BusinessCycleAnalysisRun,
+    DetectedBusinessCycle,
+)
 from dataraum_context.analysis.cycles.models import (
     BusinessCycleAnalysis,
     CycleStage,
@@ -13,9 +17,14 @@ from dataraum_context.analysis.cycles.models import (
 )
 
 __all__ = [
+    # Agent
     "BusinessCycleAgent",
+    # Pydantic models
     "BusinessCycleAnalysis",
     "DetectedCycle",
     "CycleStage",
     "EntityFlow",
+    # DB models
+    "BusinessCycleAnalysisRun",
+    "DetectedBusinessCycle",
 ]

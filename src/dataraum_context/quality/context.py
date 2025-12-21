@@ -24,6 +24,7 @@ from dataraum_context.analysis.correlation.db_models import (
     DerivedColumn,
     FunctionalDependency,
 )
+from dataraum_context.analysis.relationships.utils import gather_relationships
 from dataraum_context.analysis.semantic.db_models import SemanticAnnotation, TableEntity
 
 # NOTE: CrossTableMulticollinearityMetrics removed - being replaced with per-relationship evaluation
@@ -38,7 +39,6 @@ from dataraum_context.analysis.typing.db_models import (
     TypeDecision,
 )
 from dataraum_context.domains.db_models import DomainQualityMetrics
-from dataraum_context.domains.financial.cycles import gather_relationships
 from dataraum_context.quality.models import (
     ColumnQualityContext,
     DatasetQualityContext,
@@ -470,10 +470,10 @@ async def format_dataset_quality_context(
                     from_column=rel.from_column,
                     to_table=rel.to_table,
                     to_column=rel.to_column,
-                    relationship_type=rel.relationship_type.value,
-                    cardinality=rel.cardinality.value if rel.cardinality else None,
+                    relationship_type=rel.relationship_type,
+                    cardinality=rel.cardinality,
                     confidence=rel.confidence,
-                    detection_method=rel.detection_method,
+                    detection_method="llm",
                 )
             )
 

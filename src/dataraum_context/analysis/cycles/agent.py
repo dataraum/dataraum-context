@@ -19,6 +19,10 @@ from dataraum_context.analysis.cycles.context import (
     build_cycle_detection_context,
     format_context_for_prompt,
 )
+from dataraum_context.analysis.cycles.db_models import (
+    BusinessCycleAnalysisRun,
+    DetectedBusinessCycle,
+)
 from dataraum_context.analysis.cycles.models import (
     BusinessCycleAnalysis,
     CycleStage,
@@ -295,6 +299,9 @@ class BusinessCycleAgent:
                 start_time,
             )
 
+            # 7. Persist to database
+            await self._persist_results(session, analysis, table_ids)
+
             return Result.ok(analysis)
 
         except Exception as e:
@@ -446,3 +453,63 @@ class BusinessCycleAgent:
                 analysis.overall_cycle_health = sum(completion_rates) / len(completion_rates)
 
         return analysis
+
+    async def _persist_results(
+        self,
+        session: AsyncSession,
+        analysis: BusinessCycleAnalysis,
+        table_ids: list[str],
+    ) -> None:
+        """Persist analysis results to database.
+
+        Args:
+            session: SQLAlchemy async session
+            analysis: The analysis results to persist
+            table_ids: Table IDs that were analyzed
+        """
+        from datetime import UTC, datetime
+
+        # Create analysis run record
+        run = BusinessCycleAnalysisRun(
+            analysis_id=analysis.analysis_id,
+            table_ids=table_ids,
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+            duration_seconds=analysis.analysis_duration_seconds,
+            total_cycles_detected=analysis.total_cycles_detected,
+            high_value_cycles=analysis.high_value_cycles,
+            overall_cycle_health=analysis.overall_cycle_health,
+            llm_model=analysis.llm_model,
+            tool_calls_count=len(analysis.tool_calls_made),
+            business_summary=analysis.business_summary,
+            detected_processes=analysis.detected_processes,
+            data_quality_observations=analysis.data_quality_observations,
+            recommendations=analysis.recommendations,
+            context_summary=analysis.context_provided,
+        )
+        session.add(run)
+
+        # Create detected cycle records
+        for cycle in analysis.cycles:
+            db_cycle = DetectedBusinessCycle(
+                cycle_id=cycle.cycle_id,
+                analysis_id=analysis.analysis_id,
+                cycle_name=cycle.cycle_name,
+                cycle_type=cycle.cycle_type,
+                description=cycle.description,
+                business_value=cycle.business_value,
+                confidence=cycle.confidence,
+                tables_involved=cycle.tables_involved,
+                stages=[s.model_dump() for s in cycle.stages],
+                entity_flows=[ef.model_dump() for ef in cycle.entity_flows],
+                status_table=cycle.status_table,
+                status_column=cycle.status_column,
+                completion_value=cycle.completion_value,
+                total_records=cycle.total_records,
+                completed_cycles=cycle.completed_cycles,
+                completion_rate=cycle.completion_rate,
+                evidence=cycle.evidence,
+            )
+            session.add(db_cycle)
+
+        await session.commit()

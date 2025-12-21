@@ -5,6 +5,14 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
+from dataraum_context.analysis.topology.analyzer import analyze_topological_quality
+from dataraum_context.analysis.topology.extraction import (
+    compute_persistent_entropy,
+    detect_persistent_cycles,
+    extract_betti_numbers,
+    process_persistence_diagrams,
+)
+from dataraum_context.analysis.topology.stability import assess_homological_stability
 from dataraum_context.quality.models import (
     BettiNumbers,
     CycleDetection,
@@ -12,14 +20,6 @@ from dataraum_context.quality.models import (
     PersistencePoint,
     StabilityAnalysis,
     TopologicalQualityResult,
-)
-from dataraum_context.quality.topological import (
-    analyze_topological_quality,
-    assess_homological_stability,
-    compute_persistent_entropy,
-    detect_persistent_cycles,
-    extract_betti_numbers,
-    process_persistence_diagrams,
 )
 from dataraum_context.storage import Column, Source, Table
 
