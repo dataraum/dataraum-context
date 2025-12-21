@@ -1,0 +1,60 @@
+# Sign Convention Validation
+# Checks if account balances follow expected sign conventions
+
+validation_id: sign_conventions
+name: Sign Convention Compliance
+description: >
+  Validates that account balances follow standard accounting sign conventions.
+  Assets and Expenses normally have debit (positive) balances.
+  Liabilities, Equity, and Revenue normally have credit (negative or positive) balances.
+  Violations may indicate data entry errors or contra accounts.
+
+category: financial
+severity: warning
+version: "1.0"
+
+tags:
+  - accounting
+  - sign-convention
+  - data-quality
+
+check_type: constraint
+
+column_requirements:
+  amount:
+    semantic_role: measure
+    entity_type: amount
+    name_patterns: ["amount", "balance", "value"]
+    required: true
+
+  account_type:
+    entity_type: account_type
+    name_patterns: ["account_type", "account_category", "type"]
+    required: true
+
+  account_identifier:
+    entity_type: account
+    name_patterns: ["account_name", "account_code", "account", "name", "code"]
+    required: false
+
+parameters:
+  # Expected signs for each account type (debit = positive typically)
+  debit_normal_types: ["asset", "assets", "expense", "expenses"]
+  credit_normal_types: ["liability", "liabilities", "equity", "revenue", "income"]
+
+sql_hints: >
+  Find records where the sign convention is violated:
+  - Asset/Expense accounts with negative amounts
+  - Liability/Equity/Revenue accounts with unexpected signs
+
+  Return violating rows with: account_identifier, account_type, amount,
+  expected_sign, actual_sign.
+
+  Note: Some violations may be valid (contra accounts, adjustments).
+  Return all potential violations for review.
+
+expected_outcome: >
+  Ideally returns 0 rows (no violations).
+  Any returned rows represent potential sign convention violations
+  that may need review. A small number of violations may be acceptable
+  for contra accounts.
