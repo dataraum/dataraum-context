@@ -8,16 +8,16 @@ Domain models live in their respective packages:
 - analysis/typing/models.py     → Type inference models
 - analysis/statistics/models.py → Statistical profiling models + quality (Benford, outliers)
 - analysis/correlation/models.py → Correlation analysis models
+- analysis/validation/models.py → Generic validation models
 - enrichment/models.py          → Enrichment models (topological, temporal, semantic)
 - quality/models.py             → Quality synthesis models (issues, context output)
-- domains/financial/            → Financial domain quality models
 - sources/csv/models.py         → CSV staging models
 
 Import domain models directly from their packages:
     from dataraum_context.analysis.statistics.models import ColumnProfile, NumericStats
     from dataraum_context.analysis.statistics import BenfordAnalysis, StatisticalQualityResult
     from dataraum_context.analysis.correlation.models import NumericCorrelation
-    from dataraum_context.domains.financial import FinancialQualityConfig
+    from dataraum_context.analysis.validation import ValidationAgent
     from dataraum_context.sources.csv.models import StagedTable
 """
 

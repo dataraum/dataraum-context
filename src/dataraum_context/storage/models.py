@@ -29,8 +29,6 @@ if TYPE_CHECKING:
         TypeCandidate,
         TypeDecision,
     )
-    from dataraum_context.domains.db_models import DomainQualityMetrics
-    from dataraum_context.domains.financial.db_models import FinancialQualityMetrics
     from dataraum_context.quality.db_models import QualityRule
 
 
@@ -89,14 +87,6 @@ class Table(Base):
     # Relationships
     source: Mapped[Source] = relationship(back_populates="tables")
     columns: Mapped[list[Column]] = relationship(
-        back_populates="table", cascade="all, delete-orphan"
-    )
-
-    # Quality context relationships
-    domain_quality_metrics: Mapped[list[DomainQualityMetrics]] = relationship(
-        back_populates="table", cascade="all, delete-orphan"
-    )
-    financial_quality_metrics: Mapped[list[FinancialQualityMetrics]] = relationship(
         back_populates="table", cascade="all, delete-orphan"
     )
 

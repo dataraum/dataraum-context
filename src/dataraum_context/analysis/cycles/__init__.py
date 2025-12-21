@@ -10,6 +10,7 @@ from dataraum_context.analysis.cycles.config import (
     get_cycle_types,
     get_cycles_config,
     get_domain_config,
+    map_to_canonical_type,
 )
 from dataraum_context.analysis.cycles.db_models import (
     BusinessCycleAnalysisRun,
@@ -30,6 +31,7 @@ __all__ = [
     "get_cycle_types",
     "get_domain_config",
     "format_cycle_vocabulary_for_context",
+    "map_to_canonical_type",
     # Pydantic models
     "BusinessCycleAnalysis",
     "DetectedCycle",

@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -91,7 +92,11 @@ class DetectedBusinessCycle(Base):
 
     # Classification
     cycle_name: Mapped[str] = mapped_column(String, nullable=False)
-    cycle_type: Mapped[str] = mapped_column(String, nullable=False)
+    cycle_type: Mapped[str] = mapped_column(String, nullable=False)  # Raw LLM output
+    canonical_type: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # Mapped to vocabulary
+    is_known_type: Mapped[bool] = mapped_column(Boolean, default=False)  # True if in vocabulary
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     business_value: Mapped[str] = mapped_column(String, default="medium")
     confidence: Mapped[float] = mapped_column(Float, default=0.0)

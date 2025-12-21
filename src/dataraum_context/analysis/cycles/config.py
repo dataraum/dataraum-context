@@ -113,6 +113,42 @@ def get_analysis_hints() -> dict[str, list[str]]:
     return result
 
 
+def map_to_canonical_type(cycle_type: str) -> tuple[str | None, bool]:
+    """Map an LLM-returned cycle_type to a canonical vocabulary type.
+
+    Handles aliases (e.g., "ar_cycle" -> "accounts_receivable") and
+    case-insensitive matching.
+
+    Args:
+        cycle_type: The cycle type string from LLM output
+
+    Returns:
+        Tuple of (canonical_type, is_known_type):
+        - canonical_type: The vocabulary key if matched, None otherwise
+        - is_known_type: True if the type matches vocabulary
+    """
+    if not cycle_type:
+        return None, False
+
+    cycle_types = get_cycle_types()
+    cycle_type_lower = cycle_type.lower().strip()
+
+    # Direct match (case-insensitive)
+    for canonical in cycle_types:
+        if cycle_type_lower == canonical.lower():
+            return canonical, True
+
+    # Check aliases
+    for canonical, config in cycle_types.items():
+        aliases = config.get("aliases", [])
+        for alias in aliases:
+            if cycle_type_lower == alias.lower():
+                return canonical, True
+
+    # No match found
+    return None, False
+
+
 def format_cycle_vocabulary_for_context(domain: str | None = None) -> str:
     """Format cycle vocabulary as readable context for the LLM.
 

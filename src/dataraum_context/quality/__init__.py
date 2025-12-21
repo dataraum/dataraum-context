@@ -6,17 +6,13 @@ The quality module synthesizes quality metrics from all other pillars:
 - Semantic quality (Pillar 3)
 - Temporal quality (Pillar 4) - in analysis/temporal
 
-Plus domain-specific quality rules in dataraum_context.domains.
-
 Architecture:
     analysis/
       statistics/      # Statistical quality metrics (Benford, outliers)
       temporal/        # Temporal quality metrics
       topology/        # Topological quality metrics
       cycles/          # Business cycle detection (LLM agent)
-
-    domains/
-      financial/       # Financial accounting quality rules
+      validation/      # Generic validation checks (LLM-powered)
 
     quality/
       synthesis.py     # Aggregate quality from all pillars
@@ -45,9 +41,10 @@ Usage:
         BusinessCycleAnalysis,
     )
 
-    # Domain-specific quality (financial)
-    from dataraum_context.domains.financial import (
-        analyze_financial_quality,
+    # Generic validation (replaces domain-specific checks)
+    from dataraum_context.analysis.validation import (
+        ValidationAgent,
+        load_all_validation_specs,
     )
 
     # Multi-pillar quality synthesis
