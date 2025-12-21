@@ -34,7 +34,6 @@ from dataraum_context.analysis.topology.db_models import (
     MultiTableTopologyMetrics,
     TopologicalQualityMetrics,
 )
-from dataraum_context.domains.db_models import DomainQualityMetrics
 from dataraum_context.quality.models import (
     QualityDimension,
     QualitySynthesisIssue,
@@ -452,68 +451,6 @@ def aggregate_categorical_association_issues(
     return issues
 
 
-def aggregate_domain_issues(
-    domain_quality: DomainQualityMetrics | None,
-    table_id: str | None = None,
-    column_id: str | None = None,
-    column_name: str | None = None,
-) -> list[QualitySynthesisIssue]:
-    """Extract quality issues from domain quality metrics.
-
-    Domain quality is typically table-level, so column_id/column_name may be None.
-
-    Args:
-        domain_quality: Domain quality metrics from DB
-        table_id: Table ID (optional, extracted from domain_quality if not provided)
-        column_id: Column ID (optional)
-        column_name: Column name (optional)
-
-    Returns:
-        List of QualitySynthesisIssue for domain rule violations
-    """
-    if not domain_quality or not domain_quality.violations:
-        return []
-
-    # Handle both list and dict formats
-    violations_list = domain_quality.violations
-    if isinstance(violations_list, dict):
-        violations_list = violations_list.get("violations", [])
-
-    # Get table_id from domain_quality if not provided
-    effective_table_id = table_id or str(domain_quality.table_id)
-
-    issues = []
-    for violation in violations_list[:5]:  # Top 5
-        severity_map = {
-            "critical": QualitySynthesisSeverity.CRITICAL,
-            "high": QualitySynthesisSeverity.ERROR,
-            "medium": QualitySynthesisSeverity.WARNING,
-            "low": QualitySynthesisSeverity.INFO,
-        }
-        severity = severity_map.get(
-            violation.get("severity", "medium"), QualitySynthesisSeverity.WARNING
-        )
-
-        issue = QualitySynthesisIssue(
-            issue_id=str(uuid4()),
-            issue_type="domain_rule_violation",
-            severity=severity,
-            dimension=QualityDimension.ACCURACY,
-            table_id=effective_table_id,
-            column_id=column_id,
-            column_name=column_name,
-            description=violation.get("description", "Domain rule violation"),
-            recommendation=violation.get("recommendation"),
-            evidence=violation.get("evidence", {}),
-            source_pillar=5,  # Quality (domain quality)
-            source_module="domain_quality",
-            detected_at=domain_quality.computed_at,
-        )
-        issues.append(issue)
-
-    return issues
-
-
 def aggregate_profile_anomaly_issues(
     profile: StatisticalProfile | None,
     column_id: str,
@@ -731,4 +668,3 @@ _aggregate_correlation_issues = aggregate_correlation_issues
 _aggregate_categorical_association_issues = aggregate_categorical_association_issues
 _aggregate_profile_anomaly_issues = aggregate_profile_anomaly_issues
 _aggregate_cross_table_topology_issues = aggregate_cross_table_topology_issues
-_aggregate_domain_quality_issues = aggregate_domain_issues

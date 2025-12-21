@@ -46,7 +46,11 @@ class DetectedCycle(BaseModel):
 
     cycle_id: str
     cycle_name: str  # e.g., "Accounts Receivable Cycle", "Order-to-Cash"
-    cycle_type: str  # e.g., "ar_cycle", "ap_cycle", "revenue_cycle"
+    cycle_type: str  # e.g., "ar_cycle", "ap_cycle", "revenue_cycle" (LLM output)
+
+    # Canonical mapping to vocabulary
+    canonical_type: str | None = None  # Mapped to vocabulary key (e.g., "accounts_receivable")
+    is_known_type: bool = False  # True if cycle_type matches vocabulary
 
     description: str  # LLM-generated description of what this cycle represents
     business_value: str = "medium"  # "high", "medium", "low"

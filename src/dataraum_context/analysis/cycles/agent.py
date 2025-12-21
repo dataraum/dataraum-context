@@ -15,6 +15,7 @@ import time
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from dataraum_context.analysis.cycles.config import map_to_canonical_type
 from dataraum_context.analysis.cycles.context import (
     build_cycle_detection_context,
     format_context_for_prompt,
@@ -414,10 +415,16 @@ class BusinessCycleAgent:
                 for s in cycle_data.get("stages", [])
             ]
 
+            # Map cycle_type to canonical vocabulary
+            raw_cycle_type = cycle_data.get("cycle_type", "unknown")
+            canonical_type, is_known_type = map_to_canonical_type(raw_cycle_type)
+
             cycle = DetectedCycle(
                 cycle_id=str(uuid4()),
                 cycle_name=cycle_data.get("cycle_name", "Unknown Cycle"),
-                cycle_type=cycle_data.get("cycle_type", "unknown"),
+                cycle_type=raw_cycle_type,
+                canonical_type=canonical_type,
+                is_known_type=is_known_type,
                 description=cycle_data.get("description", ""),
                 business_value=cycle_data.get("business_value", "medium"),
                 stages=stages,
@@ -502,6 +509,8 @@ class BusinessCycleAgent:
                 analysis_id=analysis.analysis_id,
                 cycle_name=cycle.cycle_name,
                 cycle_type=cycle.cycle_type,
+                canonical_type=cycle.canonical_type,
+                is_known_type=cycle.is_known_type,
                 description=cycle.description,
                 business_value=cycle.business_value,
                 confidence=cycle.confidence,

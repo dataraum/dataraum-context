@@ -38,7 +38,6 @@ from dataraum_context.analysis.typing.db_models import (
     TypeCandidate,
     TypeDecision,
 )
-from dataraum_context.domains.db_models import DomainQualityMetrics
 from dataraum_context.quality.models import (
     ColumnQualityContext,
     DatasetQualityContext,
@@ -48,7 +47,6 @@ from dataraum_context.quality.models import (
 )
 from dataraum_context.quality.synthesis import (
     aggregate_correlation_issues,
-    aggregate_domain_issues,
     aggregate_statistical_issues,
     aggregate_temporal_issues,
     aggregate_topological_issues,
@@ -362,15 +360,6 @@ async def format_table_quality_context(
     )
     topo_quality = (await session.execute(topo_stmt)).scalar_one_or_none()
 
-    # Fetch domain quality
-    domain_stmt = (
-        select(DomainQualityMetrics)
-        .where(DomainQualityMetrics.table_id == table_id)
-        .order_by(DomainQualityMetrics.computed_at.desc())
-        .limit(1)
-    )
-    domain_quality = (await session.execute(domain_stmt)).scalar_one_or_none()
-
     # NOTE: Per-table multicollinearity has been removed.
     # Cross-table multicollinearity is computed in relationships module.
 
@@ -394,22 +383,10 @@ async def format_table_quality_context(
     # Aggregate table-level issues
     table_issues: list[QualitySynthesisIssue] = []
     table_issues.extend(aggregate_topological_issues(topo_quality, table_id, table.table_name))
-    table_issues.extend(aggregate_domain_issues(domain_quality, table_id))
-
-    # Count domain anomalies
-    domain_anomaly_count = 0
-    if domain_quality and domain_quality.violations:
-        violations = domain_quality.violations
-        if isinstance(violations, list):
-            domain_anomaly_count = len(violations)
-        elif isinstance(violations, dict):
-            domain_anomaly_count = len(violations.get("violations", []))
 
     # Generate flags
     all_issues = table_issues + [issue for col in column_contexts for issue in col.issues]
-    flags = _generate_table_flags(
-        betti_0, orphaned_components, domain_anomaly_count, len(all_issues)
-    )
+    flags = _generate_table_flags(betti_0, orphaned_components, 0, len(all_issues))
 
     return TableQualityContext(
         table_id=table_id,
@@ -424,7 +401,6 @@ async def format_table_quality_context(
         detected_entity_type=detected_entity_type,
         is_fact_table=is_fact_table,
         is_dimension_table=is_dimension_table,
-        domain_anomaly_count=domain_anomaly_count,
         fiscal_stability=None,  # Set by financial orchestrator if applicable
         multicollinearity=None,  # Per-table multicollinearity removed; use cross-table
         problematic_relationships=[],
