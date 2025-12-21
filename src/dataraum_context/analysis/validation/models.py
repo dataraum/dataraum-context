@@ -5,11 +5,16 @@ Contains data structures for validation specs and results.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+def _utc_now() -> datetime:
+    """Return current UTC time (timezone-aware)."""
+    return datetime.now(UTC)
 
 
 class ValidationSeverity(str, Enum):
@@ -66,7 +71,7 @@ class GeneratedSQL(BaseModel):
     columns_used: list[str] = Field(default_factory=list)  # Columns identified by LLM
 
     # Generation metadata
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=_utc_now)
     model_used: str | None = None
 
     # Validation info
@@ -85,7 +90,7 @@ class ValidationResult(BaseModel):
     # Execution details
     table_id: str
     table_name: str
-    executed_at: datetime = Field(default_factory=datetime.utcnow)
+    executed_at: datetime = Field(default_factory=_utc_now)
 
     # Results
     passed: bool = False
@@ -105,7 +110,7 @@ class ValidationRunResult(BaseModel):
     run_id: str
     table_id: str
     table_name: str
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
 
     # Results
