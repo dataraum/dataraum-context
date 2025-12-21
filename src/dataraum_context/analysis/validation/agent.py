@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -146,7 +146,7 @@ class ValidationAgent(LLMFeature):
             Result containing ValidationRunResult
         """
         run_id = str(uuid4())
-        started_at = datetime.utcnow()
+        started_at = datetime.now(UTC)
         results: list[ValidationResult] = []
 
         # Get table schema
@@ -166,7 +166,7 @@ class ValidationAgent(LLMFeature):
                     table_id=table_id,
                     table_name=table_name,
                     started_at=started_at,
-                    completed_at=datetime.utcnow(),
+                    completed_at=datetime.now(UTC),
                     total_checks=0,
                 )
             )
@@ -201,7 +201,7 @@ class ValidationAgent(LLMFeature):
             table_id=table_id,
             table_name=table_name,
             started_at=started_at,
-            completed_at=datetime.utcnow(),
+            completed_at=datetime.now(UTC),
             results=results,
             total_checks=len(results),
             passed_checks=passed,
@@ -400,7 +400,7 @@ class ValidationAgent(LLMFeature):
                 sql_query=sql or "",
                 explanation=explanation,
                 columns_used=columns_used,
-                generated_at=datetime.utcnow(),
+                generated_at=datetime.now(UTC),
                 model_used=model,
                 is_valid=can_validate and sql is not None,
                 validation_error=skip_reason,
