@@ -73,15 +73,23 @@ async def main() -> int:
 
         # Check for slice definitions
         slice_def_stmt = select(SliceDefinition).order_by(SliceDefinition.slice_priority)
-        slice_defs = (await session.execute(slice_def_stmt)).scalars().all()
+        all_slice_defs = (await session.execute(slice_def_stmt)).scalars().all()
 
-        if not slice_defs:
+        if not all_slice_defs:
             print("   ERROR: No slice definitions found!")
             print("   Please run run_phase7_slicing.py first.")
             await cleanup_connections()
             return 1
 
-        print(f"   Found {len(slice_defs)} slice definitions")
+        # Deduplicate by column_id (keep first/highest priority per column)
+        seen_columns: set[str] = set()
+        slice_defs: list[SliceDefinition] = []
+        for sd in all_slice_defs:
+            if sd.column_id not in seen_columns:
+                seen_columns.add(sd.column_id)
+                slice_defs.append(sd)
+
+        print(f"   Found {len(all_slice_defs)} slice definitions ({len(slice_defs)} unique columns)")
 
         # Check for slice tables
         slice_tables_stmt = select(Table).where(Table.layer == "slice")

@@ -2,6 +2,8 @@
 
 Orchestrates quality summary analysis: aggregates slice results and
 calls the LLM agent to generate summaries per column.
+
+Supports batching multiple columns per LLM call and skipping existing reports.
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ from dataraum_context.storage import Column, Table
 if TYPE_CHECKING:
     from dataraum_context.analysis.quality_summary.agent import QualitySummaryAgent
 
+# Maximum columns per LLM batch call
+BATCH_SIZE = 10
 
 async def aggregate_slice_results(
     session: AsyncSession,
@@ -215,13 +219,18 @@ async def summarize_quality(
     session: AsyncSession,
     agent: QualitySummaryAgent,
     slice_definition: SliceDefinition,
+    skip_existing: bool = True,
 ) -> Result[QualitySummaryResult]:
     """Generate quality summaries for all columns across slices.
+
+    Uses batching to process multiple columns per LLM call for efficiency.
+    Skips columns that already have reports (unless skip_existing=False).
 
     Args:
         session: Database session
         agent: Quality summary agent
         slice_definition: The slice definition to summarize
+        skip_existing: Whether to skip columns with existing reports
 
     Returns:
         Result containing QualitySummaryResult
@@ -257,49 +266,93 @@ async def summarize_quality(
             return Result.fail(agg_result.error or "Aggregation failed")
 
         aggregated_columns = agg_result.unwrap()
-        run.columns_analyzed = len(aggregated_columns)
 
-        # Generate summary for each column
+        # Filter out columns with no slice data
+        columns_to_process = [c for c in aggregated_columns if c.slice_data]
+
+        # Skip columns with existing reports if requested
+        if skip_existing:
+            existing_stmt = select(ColumnQualityReport.source_column_id).where(
+                ColumnQualityReport.slice_column_id == slice_column.column_id
+            )
+            existing_result = await session.execute(existing_stmt)
+            existing_column_ids = set(existing_result.scalars().all())
+
+            columns_to_process = [
+                c for c in columns_to_process if c.column_id not in existing_column_ids
+            ]
+
+        run.columns_analyzed = len(columns_to_process)
+
+        if not columns_to_process:
+            # All columns already have reports
+            run.reports_generated = 0
+            run.status = "completed"
+            run.completed_at = datetime.now(UTC)
+            run.duration_seconds = (run.completed_at - started_at).total_seconds()
+            await session.commit()
+            return Result.ok(
+                QualitySummaryResult(
+                    source_table_id=source_table.table_id,
+                    source_table_name=source_table.table_name,
+                    slice_column_name=slice_column.column_name,
+                    slice_count=len(slice_definition.distinct_values or []),
+                    column_summaries=[],
+                    duration_seconds=run.duration_seconds,
+                )
+            )
+
+        # Process columns in batches
         column_summaries = []
         reports_generated = 0
 
-        for col_data in aggregated_columns:
-            # Skip columns with no slice data
-            if not col_data.slice_data:
-                continue
+        for i in range(0, len(columns_to_process), BATCH_SIZE):
+            batch = columns_to_process[i : i + BATCH_SIZE]
 
-            # Call LLM for summary
-            summary_result = await agent.summarize_column(session, col_data)
-
-            if not summary_result.success:
-                # Log but continue with other columns
-                continue
-
-            summary = summary_result.unwrap()
-            column_summaries.append(summary)
-
-            # Store report in database
-            report = ColumnQualityReport(
-                source_column_id=col_data.column_id,
-                slice_column_id=slice_column.column_id,
-                column_name=col_data.column_name,
-                source_table_name=col_data.source_table_name,
-                slice_column_name=col_data.slice_column_name,
-                slice_count=len(col_data.slice_data),
-                overall_quality_score=summary.overall_quality_score,
-                quality_grade=summary.quality_grade,
-                summary=summary.summary,
-                report_data={
-                    "key_findings": summary.key_findings,
-                    "quality_issues": [qi.model_dump() for qi in summary.quality_issues],
-                    "slice_comparisons": [sc.model_dump() for sc in summary.slice_comparisons],
-                    "recommendations": summary.recommendations,
-                    "slice_metrics": [sm.model_dump() for sm in summary.slice_metrics],
-                },
-                investigation_views=summary.investigation_views,
+            # Call LLM for batch summary
+            batch_result = await agent.summarize_columns_batch(
+                session=session,
+                columns_data=batch,
+                source_table_name=source_table.table_name,
+                slice_column_name=slice_column.column_name,
+                total_slices=len(slice_definition.distinct_values or []),
             )
-            session.add(report)
-            reports_generated += 1
+
+            if not batch_result.success:
+                # Log but continue with other batches
+                continue
+
+            summaries = batch_result.unwrap()
+
+            # Build column_id lookup for batch
+            col_id_map = {c.column_name: c.column_id for c in batch}
+
+            for summary in summaries:
+                column_summaries.append(summary)
+                col_id = col_id_map.get(summary.column_name)
+
+                # Store report in database
+                report = ColumnQualityReport(
+                    source_column_id=col_id,
+                    slice_column_id=slice_column.column_id,
+                    column_name=summary.column_name,
+                    source_table_name=summary.source_table_name,
+                    slice_column_name=summary.slice_column_name,
+                    slice_count=summary.total_slices,
+                    overall_quality_score=summary.overall_quality_score,
+                    quality_grade=summary.quality_grade,
+                    summary=summary.summary,
+                    report_data={
+                        "key_findings": summary.key_findings,
+                        "quality_issues": [qi.model_dump() for qi in summary.quality_issues],
+                        "slice_comparisons": [sc.model_dump() for sc in summary.slice_comparisons],
+                        "recommendations": summary.recommendations,
+                        "slice_metrics": [sm.model_dump() for sm in summary.slice_metrics],
+                    },
+                    investigation_views=summary.investigation_views,
+                )
+                session.add(report)
+                reports_generated += 1
 
         # Update run record
         run.reports_generated = reports_generated
