@@ -6,6 +6,7 @@ This script runs Phases 3, 3b, and 5 on all slice tables created by Phase 7:
 - Runs statistical profiling (Phase 3)
 - Runs statistical quality assessment (Phase 3b)
 - Runs semantic analysis (Phase 5)
+- Optionally runs temporal analysis (4 levels)
 
 Prerequisites:
     - Phase 7 must be completed with --execute flag (run_phase7_slicing.py --execute)
@@ -13,14 +14,22 @@ Prerequisites:
 
 Usage:
     uv run python scripts/run_phase8_slice_analysis.py [--skip-semantic]
+    uv run python scripts/run_phase8_slice_analysis.py --temporal --time-column Buchungsdatum
 
 Options:
     --skip-semantic    Skip semantic analysis (faster, no LLM calls)
+    --temporal         Enable temporal analysis
+    --time-column      Name of the temporal column (required with --temporal)
+    --period-start     Start date YYYY-MM-DD (default: auto-detect)
+    --period-end       End date YYYY-MM-DD (default: auto-detect)
+    --time-grain       Time granularity: daily, weekly, monthly (default: monthly)
 """
 
+import argparse
 import asyncio
 import os
 import sys
+from datetime import date, timedelta
 from typing import Any
 
 from dotenv import load_dotenv
@@ -37,11 +46,23 @@ from sqlalchemy import func, select
 load_dotenv()
 
 
-async def main(skip_semantic: bool = False) -> int:
+async def main(
+    skip_semantic: bool = False,
+    run_temporal: bool = False,
+    time_column: str | None = None,
+    period_start: date | None = None,
+    period_end: date | None = None,
+    time_grain: str = "monthly",
+) -> int:
     """Run Phase 8: Slice Analysis.
 
     Args:
         skip_semantic: Whether to skip semantic analysis
+        run_temporal: Whether to run temporal analysis
+        time_column: Name of temporal column for temporal analysis
+        period_start: Start date for temporal analysis
+        period_end: End date for temporal analysis
+        time_grain: Time granularity (daily, weekly, monthly)
 
     Returns:
         Exit code (0 = success, 1 = error)
@@ -233,6 +254,79 @@ async def main(skip_semantic: bool = False) -> int:
             await cleanup_connections()
             return 1
 
+        # Run temporal analysis if enabled
+        if run_temporal and time_column:
+            step_num += 1
+            print(f"\n{step_num}. Running temporal analysis on slice tables...")
+            print("-" * 50)
+
+            from dataraum_context.analysis.slicing.slice_runner import (
+                run_temporal_analysis_on_slices,
+            )
+
+            # Auto-detect date range if not specified
+            actual_period_start = period_start
+            actual_period_end = period_end
+
+            if not actual_period_start or not actual_period_end:
+                # Try to detect date range from a slice table
+                if slice_infos:
+                    sample_table = slice_infos[0].slice_table_name
+                    try:
+                        range_sql = f"""
+                            SELECT
+                                MIN(CAST("{time_column}" AS DATE)),
+                                MAX(CAST("{time_column}" AS DATE))
+                            FROM "{sample_table}"
+                        """
+                        range_result = duckdb_conn.execute(range_sql).fetchone()
+                        if range_result:
+                            if not actual_period_start:
+                                actual_period_start = range_result[0]
+                            if not actual_period_end:
+                                actual_period_end = range_result[1] + timedelta(days=1)
+                    except Exception as e:
+                        print(f"   WARNING: Could not auto-detect date range: {e}")
+
+            if not actual_period_start or not actual_period_end:
+                print("   ERROR: Could not determine date range for temporal analysis")
+                print("   Please specify --period-start and --period-end")
+            else:
+                print(f"   Time column: {time_column}")
+                print(f"   Period: {actual_period_start} to {actual_period_end}")
+                print(f"   Granularity: {time_grain}")
+
+                try:
+                    temporal_result = await run_temporal_analysis_on_slices(
+                        session=session,
+                        duckdb_conn=duckdb_conn,
+                        slice_infos=slice_infos,
+                        time_column=time_column,
+                        period_start=actual_period_start,
+                        period_end=actual_period_end,
+                        time_grain=time_grain,
+                    )
+
+                    print("\n   Temporal analysis complete!")
+                    print(f"   Slices analyzed: {temporal_result.slices_analyzed}")
+                    print(f"   Periods analyzed: {temporal_result.periods_analyzed}")
+                    print(f"   Incomplete periods: {temporal_result.incomplete_periods}")
+                    print(f"   Volume anomalies: {temporal_result.anomalies_detected}")
+                    print(f"   Drift detected in: {temporal_result.drift_detected_count} slices")
+
+                    if temporal_result.errors:
+                        print(f"\n   Temporal errors ({len(temporal_result.errors)}):")
+                        for err in temporal_result.errors[:3]:
+                            print(f"      - {err}")
+                        if len(temporal_result.errors) > 3:
+                            print(f"      ... and {len(temporal_result.errors) - 3} more")
+
+                except Exception as e:
+                    print(f"   ERROR in temporal analysis: {e}")
+                    import traceback
+
+                    traceback.print_exc()
+
         # Summary
         await _print_slice_analysis_summary(session, duckdb_conn)
         await print_database_summary(session, duckdb_conn)
@@ -296,8 +390,65 @@ async def _print_slice_analysis_summary(session: Any, duckdb_conn: Any) -> None:
 
 
 if __name__ == "__main__":
-    # Check for flags
-    skip_sem = "--skip-semantic" in sys.argv
+    parser = argparse.ArgumentParser(
+        description="Phase 8: Run analysis on slice tables"
+    )
+    parser.add_argument(
+        "--skip-semantic",
+        action="store_true",
+        help="Skip semantic analysis (faster, no LLM calls)",
+    )
+    parser.add_argument(
+        "--temporal",
+        action="store_true",
+        help="Enable temporal analysis",
+    )
+    parser.add_argument(
+        "--time-column",
+        type=str,
+        help="Name of the temporal column (required with --temporal)",
+    )
+    parser.add_argument(
+        "--period-start",
+        type=str,
+        help="Start date YYYY-MM-DD (auto-detect if not specified)",
+    )
+    parser.add_argument(
+        "--period-end",
+        type=str,
+        help="End date YYYY-MM-DD (auto-detect if not specified)",
+    )
+    parser.add_argument(
+        "--time-grain",
+        type=str,
+        choices=["daily", "weekly", "monthly"],
+        default="monthly",
+        help="Time granularity (default: monthly)",
+    )
 
-    exit_code = asyncio.run(main(skip_semantic=skip_sem))
+    args = parser.parse_args()
+
+    # Validate temporal args
+    if args.temporal and not args.time_column:
+        print("ERROR: --time-column is required when using --temporal")
+        sys.exit(1)
+
+    # Parse dates
+    period_start = None
+    period_end = None
+    if args.period_start:
+        period_start = date.fromisoformat(args.period_start)
+    if args.period_end:
+        period_end = date.fromisoformat(args.period_end)
+
+    exit_code = asyncio.run(
+        main(
+            skip_semantic=args.skip_semantic,
+            run_temporal=args.temporal,
+            time_column=args.time_column,
+            period_start=period_start,
+            period_end=period_end,
+            time_grain=args.time_grain,
+        )
+    )
     sys.exit(exit_code)

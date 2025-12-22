@@ -32,9 +32,19 @@ prompt: |
   - Benford's Law violations: {benford_violations} slices
   - Slices with outliers: {outlier_slices}
 
+  **Temporal Analysis** (if available):
+  - Incomplete periods: {incomplete_periods}
+  - Volume anomalies: {volume_anomalies}
+  - Slices with distribution drift: {drift_detected_count}
+  - Temporal issues: {temporal_issues}
+
   ## Slice-by-Slice Data
 
   {slice_data_json}
+
+  ## Temporal Analysis Data (if available)
+
+  {temporal_data_json}
 
   ## Your Task
 
@@ -109,6 +119,8 @@ prompt: |
   - Highlight slices that deviate significantly from the norm
   - For numeric columns, compare statistical distributions
   - For Benford violations, consider if they indicate data anomalies
+  - For temporal issues, highlight incomplete periods, volume anomalies, and distribution drift
+  - Consider temporal patterns when assessing overall quality (missing data periods are significant)
   - Make SQL queries DuckDB-compatible
   - Be specific about which slices have issues
 
@@ -167,6 +179,31 @@ inputs:
     required: false
     default: "0"
 
+  incomplete_periods:
+    description: Number of incomplete time periods across all slices
+    required: false
+    default: "0"
+
+  volume_anomalies:
+    description: Number of periods with volume anomalies across all slices
+    required: false
+    default: "0"
+
+  drift_detected_count:
+    description: Number of slices with significant distribution drift
+    required: false
+    default: "0"
+
+  temporal_issues:
+    description: List of temporal issues found
+    required: false
+    default: "None detected"
+
+  temporal_data_json:
+    description: JSON array of temporal analysis per slice
+    required: false
+    default: "[]"
+
 # Expected output schema
 output_schema:
   type: object
@@ -199,4 +236,5 @@ output_schema:
 
 # Validation rules
 validation:
-  output_type: json
+  output_type:
+    - json
