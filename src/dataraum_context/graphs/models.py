@@ -67,9 +67,41 @@ class OutputType(str, Enum):
     TABLE = "table"  # Multi-column result
 
 
+class MetricScope(str, Enum):
+    """Scope at which a metric can be computed.
+
+    - GLOBAL: Computed once for the entire dataset
+    - SLICE: Computed once per slice value (requires slice dimension)
+    - BOTH: Computed at both global and per-slice levels
+    """
+
+    GLOBAL = "global"
+    SLICE = "slice"
+    BOTH = "both"
+
+
 # =============================================================================
 # Graph Definition Models
 # =============================================================================
+
+
+@dataclass
+class AppliesTo:
+    """Criteria for when a filter graph applies to a column.
+
+    Used by rule-based filters to auto-match columns based on:
+    - semantic_role: key, timestamp, measure, foreign_key
+    - data_type: DOUBLE, DATE, VARCHAR, etc.
+    - column_pattern: regex pattern for column names
+    - column_pairs: patterns for cross-column rules
+    - has_profile: whether statistical profile exists
+    """
+
+    semantic_role: str | None = None
+    data_type: str | None = None
+    column_pattern: str | None = None
+    column_pairs: dict[str, str] | None = None
+    has_profile: bool | None = None
 
 
 @dataclass
@@ -83,6 +115,7 @@ class GraphMetadata:
     created_by: str | None = None
     created_at: str | None = None
     tags: list[str] = field(default_factory=list)
+    applies_to: AppliesTo | None = None  # For rule-based filters
 
 
 @dataclass
@@ -212,6 +245,10 @@ class TransformationGraph:
     parameters: list[ParameterDef] = field(default_factory=list)
     requires_filters: list[FilterRequirement] = field(default_factory=list)
     interpretation: Interpretation | None = None
+
+    # Scope for metrics (global vs per-slice)
+    scope: MetricScope = MetricScope.GLOBAL
+    slice_dimension: str | None = None  # Column to slice by (for SLICE or BOTH scope)
 
     def get_execution_order(self) -> list[tuple[int, list[GraphStep]]]:
         """Get steps grouped by level for ordered execution."""

@@ -39,10 +39,19 @@ from dataraum_context.graphs.db_models import (
 )
 
 from .agent import ExecutionContext, GeneratedCode, GraphAgent, TableSchema
+from .context import (
+    ColumnContext,
+    GraphExecutionContext,
+    RelationshipContext,
+    TableContext,
+    build_execution_context,
+    format_context_for_prompt,
+)
 from .export import export_graph_definition, export_to_react_flow
 from .loader import GraphLoader, GraphLoadError
 from .models import (
     AggregationDefinition,
+    AppliesTo,
     Classification,
     ClassificationSummary,
     ColumnMapping,
@@ -55,6 +64,7 @@ from .models import (
     GraphType,
     Interpretation,
     InterpretationRange,
+    MetricScope,
     OutputDef,
     OutputType,
     ParameterDef,
@@ -76,15 +86,24 @@ __all__ = [
     "ExecutionContext",
     "GeneratedCode",
     "TableSchema",
+    # Context builder
+    "GraphExecutionContext",
+    "TableContext",
+    "ColumnContext",
+    "RelationshipContext",
+    "build_execution_context",
+    "format_context_for_prompt",
     # Enums
     "GraphType",
     "GraphSource",
     "StepType",
     "Classification",
     "OutputType",
+    "MetricScope",
     # Graph definition models
     "TransformationGraph",
     "GraphMetadata",
+    "AppliesTo",
     "GraphStep",
     "StepSource",
     "StepValidation",
