@@ -363,8 +363,8 @@ async def _load_quality_metrics(
 
         # Extract relevant data from quality_data JSON
         quality_data = qm.quality_data or {}
-        benford_data = quality_data.get("benford_analysis", {})
-        outlier_data = quality_data.get("outlier_analysis", {})
+        benford_data = quality_data.get("benford_analysis") or {}
+        outlier_data = quality_data.get("outlier_analysis") or {}
 
         result.append(
             {

@@ -54,11 +54,16 @@ def _sanitize_name(value: str) -> str:
 
 
 def _get_slice_table_name(source_table_name: str, column_name: str, value: str) -> str:
-    """Generate slice table name from components."""
-    safe_source = _sanitize_name(source_table_name)
+    """Generate slice table name from components.
+
+    Note: The source_table_name parameter is kept for API compatibility but not used
+    in the table name. The naming convention matches the SlicingAgent output.
+    """
+    # Note: source_table_name kept for signature compatibility but not used
+    _ = source_table_name  # Suppress unused warning
     safe_column = _sanitize_name(column_name)
     safe_value = _sanitize_name(value)
-    return f"slice_{safe_source}_{safe_column}_{safe_value}"
+    return f"slice_{safe_column}_{safe_value}"
 
 
 async def register_slice_tables(
