@@ -108,19 +108,24 @@ class GraphLoader:
         return self.graphs
 
     def _load_directory(self, directory: Path, expected_type: GraphType) -> None:
-        """Recursively load graphs from a directory."""
+        """Recursively load graphs from a directory.
+
+        Supports multi-document YAML files (separated by ---).
+        """
         for yaml_file in directory.rglob("*.yaml"):
             try:
-                graph = self.load_graph(yaml_file)
-                if graph.graph_type != expected_type:
-                    self._load_errors.append(
-                        GraphLoadError(
-                            yaml_file,
-                            f"Expected {expected_type.value} graph, got {graph.graph_type.value}",
+                graphs = self.load_graphs_from_file(yaml_file)
+                for graph in graphs:
+                    if graph.graph_type != expected_type:
+                        self._load_errors.append(
+                            GraphLoadError(
+                                yaml_file,
+                                f"Expected {expected_type.value} graph '{graph.graph_id}', "
+                                f"got {graph.graph_type.value}",
+                            )
                         )
-                    )
-                    continue
-                self.graphs[graph.graph_id] = graph
+                        continue
+                    self.graphs[graph.graph_id] = graph
             except GraphLoadError as e:
                 self._load_errors.append(e)
             except Exception as e:
@@ -133,18 +138,39 @@ class GraphLoader:
             yaml_path: Path to the YAML file
 
         Returns:
-            TransformationGraph instance
+            TransformationGraph instance (first document only)
+
+        Raises:
+            GraphLoadError: If the YAML is invalid or missing required fields
+        """
+        graphs = self.load_graphs_from_file(yaml_path)
+        if not graphs:
+            raise GraphLoadError(yaml_path, "Empty YAML file")
+        return graphs[0]
+
+    def load_graphs_from_file(self, yaml_path: Path) -> list[TransformationGraph]:
+        """Load all transformation graphs from a YAML file.
+
+        Supports multi-document YAML files (separated by ---).
+
+        Args:
+            yaml_path: Path to the YAML file
+
+        Returns:
+            List of TransformationGraph instances
 
         Raises:
             GraphLoadError: If the YAML is invalid or missing required fields
         """
         with open(yaml_path) as f:
-            data = yaml.safe_load(f)
+            documents = list(yaml.safe_load_all(f))
 
-        if not data:
-            raise GraphLoadError(yaml_path, "Empty YAML file")
+        graphs = []
+        for doc in documents:
+            if doc:  # Skip empty documents
+                graphs.append(self._parse_graph(yaml_path, doc))
 
-        return self._parse_graph(yaml_path, data)
+        return graphs
 
     def _parse_graph(self, path: Path, data: dict[str, Any]) -> TransformationGraph:
         """Parse a graph from YAML data."""
@@ -253,9 +279,29 @@ class GraphLoader:
             decimal_places=data.get("decimal_places"),
         )
 
-    def _parse_parameters(self, data: dict[str, Any]) -> list[ParameterDef]:
-        """Parse parameter definitions."""
+    def _parse_parameters(self, data: dict[str, Any] | list[Any]) -> list[ParameterDef]:
+        """Parse parameter definitions.
+
+        Supports both dict format (name as key) and list format (name as field).
+        """
         parameters = []
+
+        # Handle list format: [{name: "x", param_type: "int", ...}, ...]
+        if isinstance(data, list):
+            for param_data in data:
+                if isinstance(param_data, dict) and "name" in param_data:
+                    parameters.append(
+                        ParameterDef(
+                            name=param_data["name"],
+                            param_type=param_data.get("param_type", "string"),
+                            default=param_data.get("default"),
+                            description=param_data.get("description"),
+                            options=param_data.get("options"),
+                        )
+                    )
+            return parameters
+
+        # Handle dict format: {name: {type: "int", ...}, ...}
         for name, param_data in data.items():
             if isinstance(param_data, dict):
                 parameters.append(
@@ -576,3 +622,86 @@ class GraphLoader:
             for graph in self.get_filter_graphs()
             if graph.metadata.applies_to and graph.metadata.applies_to.column_pairs
         ]
+
+    def get_filters_for_dataset(
+        self,
+        columns: list[dict[str, Any]],
+    ) -> dict[str, list[TransformationGraph]]:
+        """Get all applicable filters for each column in a dataset.
+
+        This is the main integration point for auto-applying quality rules
+        during analysis phases.
+
+        Args:
+            columns: List of column metadata dicts, each with:
+                - column_name: str (required)
+                - semantic_role: str | None (from semantic analysis)
+                - data_type: str | None (resolved type)
+                - has_profile: bool (whether statistical profile exists)
+
+        Returns:
+            Dict mapping column_name to list of applicable filter graphs
+
+        Example:
+            >>> loader = GraphLoader()
+            >>> loader.load_all()
+            >>> columns = [
+            ...     {"column_name": "id", "semantic_role": "key", "data_type": "BIGINT"},
+            ...     {"column_name": "amount", "semantic_role": "measure", "data_type": "DOUBLE"},
+            ...     {"column_name": "email", "data_type": "VARCHAR"},
+            ... ]
+            >>> filters = loader.get_filters_for_dataset(columns)
+            >>> filters["id"]  # Returns key column filters
+            >>> filters["amount"]  # Returns measure + double filters
+            >>> filters["email"]  # Returns email pattern filter
+        """
+        result: dict[str, list[TransformationGraph]] = {}
+
+        for col in columns:
+            column_name = col.get("column_name", "")
+            if not column_name:
+                continue
+
+            filters = self.get_applicable_filters(
+                column_name=column_name,
+                semantic_role=col.get("semantic_role"),
+                data_type=col.get("data_type"),
+                has_profile=col.get("has_profile", False),
+            )
+            result[column_name] = filters
+
+        return result
+
+    def get_quality_filter_summary(
+        self,
+        columns: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Get a summary of quality filters applicable to a dataset.
+
+        Useful for displaying which quality checks will be applied.
+
+        Args:
+            columns: List of column metadata dicts
+
+        Returns:
+            Summary dict with:
+                - total_filters: Total unique filters that apply
+                - filters_by_column: Count of filters per column
+                - filter_coverage: Columns with filters / total columns
+                - filter_ids: List of all unique filter graph IDs
+        """
+        filters_by_column = self.get_filters_for_dataset(columns)
+
+        all_filter_ids: set[str] = set()
+        for col_filters in filters_by_column.values():
+            for f in col_filters:
+                all_filter_ids.add(f.graph_id)
+
+        columns_with_filters = sum(1 for f in filters_by_column.values() if f)
+
+        return {
+            "total_filters": len(all_filter_ids),
+            "filters_by_column": {col: len(filters) for col, filters in filters_by_column.items()},
+            "filter_coverage": columns_with_filters / len(columns) if columns else 0,
+            "filter_ids": sorted(all_filter_ids),
+        }
