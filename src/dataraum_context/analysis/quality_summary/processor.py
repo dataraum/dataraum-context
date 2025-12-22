@@ -73,16 +73,15 @@ async def aggregate_slice_results(
         slice_tables = []
         for value in slice_values:
             # Generate expected slice table name
+            # Note: naming convention matches SlicingAgent (without source table name)
             import re
 
-            safe_source = re.sub(r"[^a-zA-Z0-9]", "_", source_table.table_name)
-            safe_source = re.sub(r"_+", "_", safe_source).strip("_").lower()
             safe_column = re.sub(r"[^a-zA-Z0-9]", "_", slice_column.column_name)
             safe_column = re.sub(r"_+", "_", safe_column).strip("_").lower()
             safe_value = re.sub(r"[^a-zA-Z0-9]", "_", str(value))
             safe_value = re.sub(r"_+", "_", safe_value).strip("_").lower()
 
-            slice_table_name = f"slice_{safe_source}_{safe_column}_{safe_value}"
+            slice_table_name = f"slice_{safe_column}_{safe_value}"
 
             # Find in database
             slice_table_stmt = select(Table).where(
@@ -141,9 +140,11 @@ async def aggregate_slice_results(
                     "row_count": slice_table.row_count or 0,
                 }
 
-                # Get statistical profile
-                profile_stmt = select(StatisticalProfile).where(
-                    StatisticalProfile.column_id == slice_col.column_id
+                # Get statistical profile (use limit(1) in case of duplicates)
+                profile_stmt = (
+                    select(StatisticalProfile)
+                    .where(StatisticalProfile.column_id == slice_col.column_id)
+                    .limit(1)
                 )
                 profile_result = await session.execute(profile_stmt)
                 profile = profile_result.scalar_one_or_none()
@@ -164,9 +165,11 @@ async def aggregate_slice_results(
                         slice_data["mean_value"] = pd.get("mean_value")
                         slice_data["stddev"] = pd.get("stddev")
 
-                # Get quality metrics
-                quality_stmt = select(StatisticalQualityMetrics).where(
-                    StatisticalQualityMetrics.column_id == slice_col.column_id
+                # Get quality metrics (use limit(1) in case of duplicates)
+                quality_stmt = (
+                    select(StatisticalQualityMetrics)
+                    .where(StatisticalQualityMetrics.column_id == slice_col.column_id)
+                    .limit(1)
                 )
                 quality_result = await session.execute(quality_stmt)
                 quality = quality_result.scalar_one_or_none()
@@ -178,7 +181,7 @@ async def aggregate_slice_results(
 
                     if quality.quality_data:
                         qd = quality.quality_data
-                        benford = qd.get("benford_analysis", {})
+                        benford = qd.get("benford_analysis") or {}
                         slice_data["benford_p_value"] = benford.get("p_value")
 
                     # Update aggregation counts
