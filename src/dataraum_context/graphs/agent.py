@@ -77,6 +77,55 @@ class ExecutionContext:
     is_period_final: bool = False
     filter_execution_id: str | None = None
 
+    # Rich metadata context (optional)
+    # When provided, gives the LLM additional information about:
+    # - Column semantics (roles, entity types)
+    # - Statistical profiles (null ratios, outliers)
+    # - Table relationships and topology
+    # - Quality flags
+    rich_context: Any | None = None  # GraphExecutionContext from graphs.context
+
+    @classmethod
+    async def with_rich_context(
+        cls,
+        session: Any,  # AsyncSession
+        duckdb_conn: duckdb.DuckDBPyConnection,
+        table_name: str,
+        table_ids: list[str],
+        **kwargs: Any,
+    ) -> ExecutionContext:
+        """Create ExecutionContext with rich metadata loaded from analysis modules.
+
+        This is the recommended way to create an ExecutionContext when you want
+        the LLM to have access to semantic, statistical, and relational metadata.
+
+        Args:
+            session: SQLAlchemy async session
+            duckdb_conn: DuckDB connection for queries
+            table_name: Primary table name for execution
+            table_ids: List of table IDs to include in context
+            **kwargs: Additional ExecutionContext arguments
+
+        Returns:
+            ExecutionContext with rich_context populated
+        """
+        from dataraum_context.graphs.context import build_execution_context
+
+        rich_context = await build_execution_context(
+            session=session,
+            table_ids=table_ids,
+            duckdb_conn=duckdb_conn,
+            slice_column=kwargs.pop("slice_column", None),
+            slice_value=kwargs.pop("slice_value", None),
+        )
+
+        return cls(
+            duckdb_conn=duckdb_conn,
+            table_name=table_name,
+            rich_context=rich_context,
+            **kwargs,
+        )
+
 
 @dataclass
 class TableSchema:
@@ -205,6 +254,14 @@ class GraphAgent(LLMFeature):
             ),
             "parameters": json.dumps(parameters, indent=2),
         }
+
+        # Add rich context if available (provides semantic, statistical, relational metadata)
+        if context.rich_context is not None:
+            from dataraum_context.graphs.context import format_context_for_prompt
+
+            prompt_context["rich_context"] = format_context_for_prompt(context.rich_context)
+        else:
+            prompt_context["rich_context"] = ""
 
         # Render prompt
         try:
