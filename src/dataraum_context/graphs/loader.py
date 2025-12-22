@@ -27,6 +27,7 @@ from typing import Any
 import yaml
 
 from .models import (
+    AppliesTo,
     Classification,
     FilterRequirement,
     GraphMetadata,
@@ -205,6 +206,18 @@ class GraphLoader:
         except ValueError as e:
             raise GraphLoadError(path, f"Invalid source: {source_str}") from e
 
+        # Parse applies_to criteria
+        applies_to = None
+        applies_to_data = data.get("applies_to")
+        if applies_to_data and isinstance(applies_to_data, dict):
+            applies_to = AppliesTo(
+                semantic_role=applies_to_data.get("semantic_role"),
+                data_type=applies_to_data.get("data_type"),
+                column_pattern=applies_to_data.get("column_pattern"),
+                column_pairs=applies_to_data.get("column_pairs"),
+                has_profile=applies_to_data.get("has_profile"),
+            )
+
         return GraphMetadata(
             name=name,
             description=data.get("description", ""),
@@ -213,6 +226,7 @@ class GraphLoader:
             created_by=data.get("created_by"),
             created_at=data.get("created_at"),
             tags=data.get("tags", []),
+            applies_to=applies_to,
         )
 
     def _parse_output(self, path: Path, data: dict[str, Any], graph_type: GraphType) -> OutputDef:
@@ -482,3 +496,83 @@ class GraphLoader:
                     pass
 
         return errors
+
+    def get_applicable_filters(
+        self,
+        column_name: str,
+        semantic_role: str | None = None,
+        data_type: str | None = None,
+        has_profile: bool = False,
+    ) -> list[TransformationGraph]:
+        """Get filter graphs that apply to a column based on its metadata.
+
+        Matches filters based on:
+        - semantic_role: key, timestamp, measure, foreign_key
+        - data_type: DOUBLE, DATE, VARCHAR, etc.
+        - column_pattern: regex pattern matching column name
+        - has_profile: whether statistical profile exists
+
+        Args:
+            column_name: The column name to match against patterns
+            semantic_role: The semantic role of the column (from semantic analysis)
+            data_type: The resolved data type of the column
+            has_profile: Whether the column has a statistical profile
+
+        Returns:
+            List of filter graphs that apply to this column
+        """
+        import re
+
+        applicable = []
+
+        for graph in self.get_filter_graphs():
+            applies_to = graph.metadata.applies_to
+            if not applies_to:
+                continue
+
+            # Check semantic role match
+            if applies_to.semantic_role:
+                if semantic_role != applies_to.semantic_role:
+                    continue
+
+            # Check data type match
+            if applies_to.data_type:
+                if data_type != applies_to.data_type:
+                    continue
+
+            # Check column pattern match
+            if applies_to.column_pattern:
+                try:
+                    if not re.match(applies_to.column_pattern, column_name, re.IGNORECASE):
+                        continue
+                except re.error:
+                    # Invalid regex, skip this filter
+                    continue
+
+            # Check has_profile requirement
+            if applies_to.has_profile is not None:
+                if has_profile != applies_to.has_profile:
+                    continue
+
+            # Skip column_pairs for now - these require cross-column matching
+            if applies_to.column_pairs:
+                continue
+
+            applicable.append(graph)
+
+        return applicable
+
+    def get_cross_column_filters(self) -> list[TransformationGraph]:
+        """Get filter graphs that require cross-column matching.
+
+        These are filters with column_pairs defined in applies_to,
+        requiring special handling to match start/end date pairs, etc.
+
+        Returns:
+            List of filter graphs with column_pairs criteria
+        """
+        return [
+            graph
+            for graph in self.get_filter_graphs()
+            if graph.metadata.applies_to and graph.metadata.applies_to.column_pairs
+        ]

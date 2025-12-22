@@ -1,3 +1,16 @@
+# DEPRECATED: This file is deprecated.
+# Rules have been migrated to config/graphs/filters/rules/ as graph-based filters.
+#
+# See:
+#   - config/graphs/filters/rules/role_based.yaml
+#   - config/graphs/filters/rules/type_based.yaml
+#   - config/graphs/filters/rules/pattern_based.yaml
+#   - config/graphs/filters/rules/consistency.yaml
+#
+# This file is kept for backward compatibility during the migration period.
+#
+# ---
+# Original documentation:
 # Default Quality Rules Configuration
 #
 # Rules are auto-applied based on detected column types and patterns.
