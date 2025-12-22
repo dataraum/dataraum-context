@@ -14,6 +14,10 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dataraum_context.analysis.relationships.graph_topology import (
+    analyze_graph_topology,
+    format_graph_structure_for_context,
+)
 from dataraum_context.analysis.semantic.models import (
     EntityDetection,
     Relationship,
@@ -140,6 +144,25 @@ class SemanticAgent(LLMFeature):
         tables_json = self._build_tables_json(profiles, samples)
         ontology_def = self._ontology_loader.load(ontology)
 
+        # Compute graph topology from relationship candidates
+        graph_topology_context = ""
+        if relationship_candidates:
+            # Extract table names from candidates
+            table_names_from_candidates = set()
+            for cand in relationship_candidates:
+                if cand.get("table1"):
+                    table_names_from_candidates.add(cand["table1"])
+                if cand.get("table2"):
+                    table_names_from_candidates.add(cand["table2"])
+
+            if table_names_from_candidates:
+                # Use table names as IDs since candidates use names
+                graph_structure = analyze_graph_topology(
+                    table_ids=list(table_names_from_candidates),
+                    relationships=relationship_candidates,
+                )
+                graph_topology_context = format_graph_structure_for_context(graph_structure)
+
         context = {
             "tables_json": json.dumps(tables_json, indent=2),
             "ontology_name": ontology,
@@ -148,6 +171,7 @@ class SemanticAgent(LLMFeature):
                 relationship_candidates
             ),
             "within_table_correlations": self._format_correlations(correlations),
+            "graph_topology": graph_topology_context,
         }
 
         # Render prompt

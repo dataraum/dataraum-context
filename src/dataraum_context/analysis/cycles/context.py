@@ -12,6 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dataraum_context.analysis.cycles.config import format_cycle_vocabulary_for_context
+from dataraum_context.analysis.relationships.graph_topology import (
+    analyze_graph_topology,
+    format_graph_structure_for_context,
+)
 
 if TYPE_CHECKING:
     import duckdb
@@ -202,7 +206,19 @@ async def build_cycle_detection_context(
 
     context["relationships"] = rel_list
 
-    # 5. Summary statistics
+    # 5. Graph topology analysis
+    # Build table name mapping from loaded tables
+    table_name_map = {t.table_id: t.table_name for t in tables}
+
+    # Analyze graph structure from relationships
+    graph_structure = analyze_graph_topology(
+        table_ids=table_ids,
+        relationships=rel_list,
+        table_names=table_name_map,
+    )
+    context["graph_topology"] = graph_structure
+
+    # 6. Summary statistics
     context["summary"] = {
         "total_tables": len(tables),
         "total_columns": sum(len(cols) for cols in semantic_by_table.values()),
@@ -212,9 +228,12 @@ async def build_cycle_detection_context(
         "dimension_tables": sum(
             1 for e in context["entity_classifications"] if e["is_dimension_table"]
         ),
+        "graph_pattern": graph_structure.pattern,
+        "hub_tables": len(graph_structure.hub_tables),
+        "schema_cycles": len(graph_structure.schema_cycles),
     }
 
-    # 6. Domain vocabulary (cycle types, completion indicators, hints)
+    # 7. Domain vocabulary (cycle types, completion indicators, hints)
     vocabulary = format_cycle_vocabulary_for_context(domain)
     context["domain_vocabulary"] = vocabulary
     context["domain"] = domain
@@ -254,7 +273,16 @@ def format_context_for_prompt(context: dict[str, Any]) -> str:
     lines.append(f"- Fact tables: {summary.get('fact_tables', 0)}")
     lines.append(f"- Dimension tables: {summary.get('dimension_tables', 0)}")
     lines.append(f"- Status/state columns detected: {summary.get('status_columns_found', 0)}")
+    lines.append(f"- Graph pattern: {summary.get('graph_pattern', 'unknown')}")
+    lines.append(f"- Hub tables: {summary.get('hub_tables', 0)}")
+    lines.append(f"- Schema cycles: {summary.get('schema_cycles', 0)}")
     lines.append("")
+
+    # Graph topology (if available)
+    graph_topology = context.get("graph_topology")
+    if graph_topology:
+        lines.append(format_graph_structure_for_context(graph_topology))
+        lines.append("")
 
     # Entity classifications
     lines.append("## TABLE CLASSIFICATIONS")
