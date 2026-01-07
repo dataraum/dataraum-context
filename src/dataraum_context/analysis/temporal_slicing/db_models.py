@@ -24,9 +24,7 @@ class TemporalSliceRun(Base):
     time_grain: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Run metadata
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Summary stats
     total_periods: Mapped[int] = mapped_column(Integer, nullable=True)

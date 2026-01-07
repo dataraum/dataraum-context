@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import distinct as sql_distinct
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,6 @@ from dataraum_context.analysis.quality_summary.models import (
 )
 from dataraum_context.analysis.semantic.db_models import SemanticAnnotation
 from dataraum_context.analysis.slicing.db_models import SliceDefinition
-from sqlalchemy import distinct as sql_distinct
 from dataraum_context.analysis.statistics.db_models import (
     StatisticalProfile,
     StatisticalQualityMetrics,
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 # Maximum columns per LLM batch call
 BATCH_SIZE = 10
+
 
 async def aggregate_slice_results(
     session: AsyncSession,

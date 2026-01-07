@@ -323,15 +323,15 @@ async def run_semantic_on_slices(
 
     # Load semantic annotations from parent table
     parent_columns = await session.execute(
-        select(Column.column_id, Column.column_name)
-        .where(Column.table_id == parent_table_id)
+        select(Column.column_id, Column.column_name).where(Column.table_id == parent_table_id)
     )
     parent_col_map = {row.column_name: row.column_id for row in parent_columns}
 
     # Load existing annotations for parent columns
     parent_annotations = await session.execute(
-        select(SemanticAnnotation)
-        .where(SemanticAnnotation.column_id.in_(list(parent_col_map.values())))
+        select(SemanticAnnotation).where(
+            SemanticAnnotation.column_id.in_(list(parent_col_map.values()))
+        )
     )
     annotation_by_name: dict[str, SemanticAnnotation] = {}
     for ann in parent_annotations.scalars():
@@ -350,8 +350,9 @@ async def run_semantic_on_slices(
     for slice_info in slice_infos:
         # Load slice columns
         slice_columns = await session.execute(
-            select(Column.column_id, Column.column_name)
-            .where(Column.table_id == slice_info.slice_table_id)
+            select(Column.column_id, Column.column_name).where(
+                Column.table_id == slice_info.slice_table_id
+            )
         )
 
         for row in slice_columns:
@@ -504,19 +505,13 @@ async def run_temporal_analysis_on_slices(
             persist=True,
         )
 
-        if result.success:
+        if result.success and result.value is not None:
             slices_analyzed += 1
             analysis = result.value
             total_periods = max(total_periods, analysis.total_periods)
-            total_incomplete += len(
-                [c for c in analysis.completeness_results if not c.is_complete]
-            )
-            total_anomalies += len(
-                [v for v in analysis.volume_anomalies if v.is_anomaly]
-            )
-            total_drift += len(
-                [d for d in analysis.drift_results if d.has_significant_drift]
-            )
+            total_incomplete += len([c for c in analysis.completeness_results if not c.is_complete])
+            total_anomalies += len([v for v in analysis.volume_anomalies if v.is_anomaly])
+            total_drift += len([d for d in analysis.drift_results if d.has_significant_drift])
         else:
             errors.append(f"{slice_info.slice_table_name}: {result.error}")
 

@@ -8,8 +8,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any
+from datetime import date, timedelta
 
 import duckdb
 from sqlalchemy import select
@@ -182,7 +181,11 @@ class TemporalSliceAnalyzer:
             ):
                 # Find matching volume anomaly
                 volume_anomaly = next(
-                    (v for v in result.volume_anomalies if v.period_label == period_metric.period_label),
+                    (
+                        v
+                        for v in result.volume_anomalies
+                        if v.period_label == period_metric.period_label
+                    ),
                     None,
                 )
 
@@ -206,8 +209,11 @@ class TemporalSliceAnalyzer:
                     rolling_std=volume_anomaly.rolling_std if volume_anomaly else None,
                     is_volume_anomaly=volume_anomaly.is_anomaly if volume_anomaly else False,
                     anomaly_type=volume_anomaly.anomaly_type if volume_anomaly else None,
-                    period_over_period_change=volume_anomaly.period_over_period_change if volume_anomaly else None,
-                    issues_json=completeness.issues + (volume_anomaly.issues if volume_anomaly else []),
+                    period_over_period_change=volume_anomaly.period_over_period_change
+                    if volume_anomaly
+                    else None,
+                    issues_json=completeness.issues
+                    + (volume_anomaly.issues if volume_anomaly else []),
                 )
                 self.session.add(analysis)
 
@@ -230,8 +236,8 @@ class TemporalSliceAnalyzer:
 
             # Persist slice-time matrix
             if result.slice_time_matrix:
-                for slice_value, periods in result.slice_time_matrix.data.items():
-                    for period_label, cell in periods.items():
+                for _slice_value, periods in result.slice_time_matrix.data.items():
+                    for _period_label, cell in periods.items():
                         entry = SliceTimeMatrixEntry(
                             run_id=run_id,
                             slice_table_name=result.slice_table_name,
@@ -265,9 +271,7 @@ class TemporalSliceAnalyzer:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    def _generate_periods(
-        self, config: TemporalSliceConfig
-    ) -> list[tuple[date, date, str]]:
+    def _generate_periods(self, config: TemporalSliceConfig) -> list[tuple[date, date, str]]:
         """Generate period boundaries based on time grain.
 
         Returns:
@@ -385,16 +389,20 @@ class TemporalSliceAnalyzer:
                 volumes = [pm.row_count for pm in window]
                 if volumes:
                     avg = sum(volumes) / len(volumes)
-                    std = math.sqrt(sum((v - avg) ** 2 for v in volumes) / len(volumes)) if len(volumes) > 1 else 0
+                    std = (
+                        math.sqrt(sum((v - avg) ** 2 for v in volumes) / len(volumes))
+                        if len(volumes) > 1
+                        else 0
+                    )
                     m.volume_rolling_avg = avg
                     m.volume_rolling_std = std
                     m.z_score = (m.row_count - avg) / std if std > 0 else 0
 
             # Period-over-period change
             if i > 0 and metrics[i - 1].row_count > 0:
-                m.period_over_period_change = (
-                    (m.row_count - metrics[i - 1].row_count) / metrics[i - 1].row_count
-                )
+                m.period_over_period_change = (m.row_count - metrics[i - 1].row_count) / metrics[
+                    i - 1
+                ].row_count
 
         return metrics
 
@@ -428,9 +436,7 @@ class TemporalSliceAnalyzer:
             # Check for volume dropoff on last day
             if m.last_day_ratio is not None and m.last_day_ratio < config.last_day_ratio_threshold:
                 has_volume_dropoff = True
-                issues.append(
-                    f"Last day volume drop: {m.last_day_ratio:.1%} of average"
-                )
+                issues.append(f"Last day volume drop: {m.last_day_ratio:.1%} of average")
 
             results.append(
                 CompletenessResult(
@@ -606,7 +612,7 @@ class TemporalSliceAnalyzer:
 
         # Compute period-over-period changes per slice
         period_labels = [p[2] for p in periods]
-        for slice_val, periods_data in data.items():
+        for _slice_val, periods_data in data.items():
             for i, label in enumerate(period_labels):
                 if i > 0 and label in periods_data:
                     prev_label = period_labels[i - 1]
@@ -615,8 +621,8 @@ class TemporalSliceAnalyzer:
                         if prev_count > 0:
                             curr_count = periods_data[label].row_count
                             periods_data[label].period_over_period_change = (
-                                (curr_count - prev_count) / prev_count
-                            )
+                                curr_count - prev_count
+                            ) / prev_count
 
         # Compute slice trends (overall growth/decline)
         slice_trends = {}
@@ -626,8 +632,8 @@ class TemporalSliceAnalyzer:
                 last_period = list(data[slice_val].values())[-1] if data[slice_val] else None
                 if first_period and last_period and first_period.row_count > 0:
                     slice_trends[slice_val] = (
-                        (last_period.row_count - first_period.row_count) / first_period.row_count
-                    )
+                        last_period.row_count - first_period.row_count
+                    ) / first_period.row_count
                 else:
                     slice_trends[slice_val] = 0.0
 
@@ -653,8 +659,8 @@ class TemporalSliceAnalyzer:
                         f"{len(declining)} declining"
                     )
                     # Find compensating pairs
-                    for g_sv, g_trend in growing[:3]:
-                        for d_sv, d_trend in declining[:3]:
+                    for g_sv, _g_trend in growing[:3]:
+                        for d_sv, _d_trend in declining[:3]:
                             compensating_slices.append((g_sv, d_sv))
 
         return SliceTimeMatrix(
@@ -731,9 +737,10 @@ class TemporalSliceAnalyzer:
         incomplete = [c for c in completeness_results if not c.is_complete]
         if incomplete:
             period = incomplete[0]
-            queries.append({
-                "description": f"Investigate incomplete period: {period.period_label}",
-                "sql": f"""
+            queries.append(
+                {
+                    "description": f"Investigate incomplete period: {period.period_label}",
+                    "sql": f"""
 SELECT
     CAST("{time_column}" AS DATE) as day,
     COUNT(*) as row_count
@@ -742,15 +749,17 @@ WHERE CAST("{time_column}" AS DATE) >= '{period.period_label}'  -- Adjust based 
 GROUP BY 1
 ORDER BY 1
 """.strip(),
-            })
+                }
+            )
 
         # Query for anomalies
         anomalies = [v for v in volume_anomalies if v.is_anomaly]
         if anomalies:
             anomaly = anomalies[0]
-            queries.append({
-                "description": f"Investigate {anomaly.anomaly_type} anomaly: {anomaly.period_label}",
-                "sql": f"""
+            queries.append(
+                {
+                    "description": f"Investigate {anomaly.anomaly_type} anomaly: {anomaly.period_label}",
+                    "sql": f"""
 SELECT
     CAST("{time_column}" AS DATE) as day,
     COUNT(*) as row_count
@@ -759,7 +768,8 @@ WHERE CAST("{time_column}" AS DATE) >= '{anomaly.period_label}'  -- Adjust based
 GROUP BY 1
 ORDER BY 1
 """.strip(),
-            })
+                }
+            )
 
         return queries
 
@@ -790,10 +800,10 @@ async def analyze_temporal_slices(
     analyzer = TemporalSliceAnalyzer(duckdb_conn, session)
     result = await analyzer.analyze(slice_table_name, config, slice_column_name)
 
-    if result.success and persist:
+    if result.success and result.value is not None and persist:
         persist_result = await analyzer.persist_results(result.value)
         if not persist_result.success:
-            return Result.fail(persist_result.error)
+            return Result.fail(persist_result.error or "Failed to persist results")
 
     return result
 
@@ -854,7 +864,9 @@ def aggregate_temporal_data(
         gap_periods=[v.period_label for v in gaps],
         declining_slices=declining[:5],
         growing_slices=growing[:5],
-        hidden_trend_insights=result.slice_time_matrix.hidden_trends if result.slice_time_matrix else [],
+        hidden_trend_insights=result.slice_time_matrix.hidden_trends
+        if result.slice_time_matrix
+        else [],
     )
 
 
