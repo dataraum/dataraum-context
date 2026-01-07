@@ -94,7 +94,9 @@ async def main(regenerate: bool = False) -> int:
                 seen_columns.add(sd.column_id)
                 slice_defs.append(sd)
 
-        print(f"   Found {len(all_slice_defs)} slice definitions ({len(slice_defs)} unique columns)")
+        print(
+            f"   Found {len(all_slice_defs)} slice definitions ({len(slice_defs)} unique columns)"
+        )
 
         # Check for slice tables
         slice_tables_stmt = select(Table).where(Table.layer == "slice")
@@ -186,7 +188,9 @@ async def main(regenerate: bool = False) -> int:
         all_matrices = []
 
         if report_count > 0 and not regenerate:
-            print(f"\n   NOTE: {report_count} existing reports found. Use --regenerate to recreate.")
+            print(
+                f"\n   NOTE: {report_count} existing reports found. Use --regenerate to recreate."
+            )
 
         for slice_def in slice_defs:
             # Get info for display

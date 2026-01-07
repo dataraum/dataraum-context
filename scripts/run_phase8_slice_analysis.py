@@ -390,9 +390,7 @@ async def _print_slice_analysis_summary(session: Any, duckdb_conn: Any) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Phase 8: Run analysis on slice tables"
-    )
+    parser = argparse.ArgumentParser(description="Phase 8: Run analysis on slice tables")
     parser.add_argument(
         "--skip-semantic",
         action="store_true",
