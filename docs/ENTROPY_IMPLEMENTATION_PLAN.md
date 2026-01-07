@@ -587,6 +587,176 @@ else:
 
 ---
 
+## Part 8: Session Tracking Strategy
+
+### Recommended Approach: Markdown-Based Tracking
+
+For Claude Code, **markdown files in the repository** are the most effective tracking method because:
+
+1. **Persistence**: Files persist across sessions automatically
+2. **Direct Access**: Claude Code can read/update them without external tools
+3. **Version Control**: Changes are tracked in git history
+4. **No Context Switching**: No need to navigate to external tools
+
+### Tracking Files Structure
+
+```
+docs/
+├── ENTROPY_IMPLEMENTATION_PLAN.md    # This document (the "what")
+├── PROGRESS.md                        # Progress log (the "done")
+└── BACKLOG.md                         # Prioritized backlog (the "next")
+```
+
+### PROGRESS.md Format
+
+```markdown
+# Progress Log
+
+## Current Sprint
+- [ ] Task in progress
+- [x] Completed task (2024-01-07)
+
+## Session Log
+### 2024-01-07
+- Created entropy implementation plan
+- Fixed lint/type errors in temporal_slicing
+
+### 2024-01-06
+- ...
+```
+
+### BACKLOG.md Format
+
+```markdown
+# Backlog
+
+## Priority 1 (Current Focus)
+- [ ] Create entropy core models
+- [ ] Implement TypeFidelity detector
+
+## Priority 2 (Next)
+- [ ] Extend semantic agent for entropy enrichment
+- [ ] Cleanup quality module
+
+## Priority 3 (Later)
+- [ ] UI migration from npm to bun
+- [ ] MCP server implementation
+
+## Blocked/Waiting
+- [ ] Query entropy (waiting for query agent)
+```
+
+### Why Not GitHub Projects
+
+While GitHub Projects works well for team coordination, for Claude Code sessions:
+- External API calls add latency
+- Context switching breaks flow
+- Markdown is more flexible for detailed notes
+- Git history provides natural audit trail
+
+---
+
+## Part 9: Additional Considerations (User Feedback)
+
+### 9.1 Topology Module Clarification
+
+The codebase has **two topology-related components**:
+
+| Component | Location | Purpose | Keep? |
+|-----------|----------|---------|-------|
+| Graph topology | `analysis/relationships/graph_topology.py` | NetworkX-based table graph analysis (hub/spoke, star schema) | **KEEP** - Used by context builder |
+| TDA topology | `analysis/topology/` | Persistence diagrams, Betti numbers, homology | **SIMPLIFY** - Keep core metrics, remove unused complexity |
+
+**Action**: The `analysis/topology/` module should be simplified to extract useful structural complexity metrics without full TDA overhead. The simpler graph structure analysis stays in `relationships/`.
+
+### 9.2 Semantic Agent Extension
+
+The existing semantic agent (`analysis/semantic/agent.py`) can be extended to enrich:
+
+| Entropy Dimension | Current | Extension Opportunity |
+|-------------------|---------|----------------------|
+| Structural.Schema.naming_clarity | ❌ | Add abbreviation detection, naming analysis |
+| Structural.Types.type_consistency | ⚠️ | Cross-table type comparison in semantic pass |
+| Semantic.Units.scale_clarity | ❌ | Detect magnitude (thousands, millions) |
+| Semantic.Categorical.hierarchy | ❌ | Infer hierarchies from dimension tables |
+| Semantic.Temporal.accumulation_type | ⚠️ | Stock vs flow classification |
+
+**Action**: Create entropy-enrichment prompts for the semantic agent to populate entropy-related fields during its analysis pass. This is more efficient than separate entropy detection.
+
+### 9.3 Config Folder Evaluation
+
+Current config structure:
+
+```
+config/
+├── null_values.yaml              # Null value variants (KEEP - core)
+├── patterns/default.yaml         # Type detection patterns (KEEP - core)
+├── llm.yaml                      # LLM provider config (KEEP - core)
+├── prompts/                      # LLM prompts (KEEP - extend for entropy)
+│   ├── semantic_analysis.yaml
+│   ├── quality_summary.yaml
+│   ├── slicing_analysis.yaml
+│   └── graph_sql_generation.yaml
+├── ontologies/                   # Domain ontologies (KEEP - extend)
+│   └── financial_reporting.yaml
+├── validations/financial/        # Validation specs (KEEP - feeds entropy)
+│   ├── double_entry.yaml
+│   ├── trial_balance.yaml
+│   └── ...
+├── cycles/                       # Business cycle vocab (KEEP)
+│   └── cycle_vocabulary.yaml
+├── graphs/                       # Graph configs (KEEP - core)
+│   ├── metrics/                  # Metric definitions
+│   └── filters/rules/            # Column filtering rules
+└── formatter_thresholds/         # Threshold configs (EVALUATE)
+    ├── defaults.yaml
+    └── financial.yaml
+```
+
+**Actions**:
+1. **Keep**: null_values, patterns, llm, prompts, ontologies, validations, cycles, graphs
+2. **Extend**: prompts/ with entropy-related prompts
+3. **Evaluate**: formatter_thresholds/ - may move to entropy/config/ if useful for entropy scoring
+
+### 9.4 Quality Formatting Utilities
+
+The `quality/formatting/` module contains **useful utilities** that should be preserved:
+
+| File | Purpose | Recommendation |
+|------|---------|----------------|
+| `base.py` | SeverityLevel enum, ThresholdConfig, interpretation templates | **KEEP** - Move to `core/formatting/` |
+| `config.py` | Threshold config loading from YAML | **KEEP** - Move to `core/formatting/` |
+| `statistical.py` | Stats-specific formatting | **EVALUATE** - May integrate with entropy |
+| `temporal.py` | Temporal formatting | **EVALUATE** |
+| `topological.py` | Topology formatting | **EVALUATE** |
+| `domain.py` | Domain-specific formatting | **EVALUATE** |
+| `business_cycles.py` | Cycle formatting | **EVALUATE** |
+
+**Action**: Move `base.py` and `config.py` to `core/formatting/`. Other formatters need evaluation - they may be useful for entropy context generation or obsolete.
+
+### 9.5 UI Prototype Migration
+
+The UI prototype in `prototypes/calculation-graphs/web_visualizer/` is a **Vite + npm** project that should be:
+
+1. **Migrated** to a new location: `ui/` at project root
+2. **Converted** from npm to bun
+3. **Extended** to support entropy visualization
+
+Current stack:
+- Vite (build tool)
+- Tailwind CSS (styling)
+- npm (package manager) → migrate to **bun**
+
+**Migration Steps**:
+1. Create `ui/` directory
+2. Copy web_visualizer source files
+3. Convert `package.json` for bun compatibility
+4. Run `bun install`
+5. Update import paths as needed
+6. Add entropy dashboard components
+
+---
+
 ## Appendix B: File Changes Summary
 
 ### New Files
