@@ -2,90 +2,187 @@
 
 Prioritized backlog for the dataraum-context project. Items are organized by priority and dependency.
 
+**Related Documentation:**
+- [ENTROPY_IMPLEMENTATION_PLAN.md](./ENTROPY_IMPLEMENTATION_PLAN.md) - Implementation roadmap
+- [ENTROPY_MODELS.md](./ENTROPY_MODELS.md) - Data model specifications
+- [ENTROPY_CONTRACTS.md](./ENTROPY_CONTRACTS.md) - Data readiness thresholds
+- [ENTROPY_QUERY_BEHAVIOR.md](./ENTROPY_QUERY_BEHAVIOR.md) - Agent response policies
+- [PROGRESS.md](./PROGRESS.md) - Completed work log
+
 ---
 
-## Priority 1: Entropy Core (Current Focus)
+## Priority 1: Phase 1 Foundation (Current Focus)
 
-Foundation work that everything else depends on.
+### Step 1.1: File Migrations (Do First)
+- [ ] Move `quality/formatting/base.py` → `core/formatting/base.py`
+- [ ] Move `quality/formatting/config.py` → `core/formatting/config.py`
+- [ ] Create `core/formatting/__init__.py` with exports
+- [ ] Update all imports referencing moved files
+- [ ] Run tests to verify no breakage
 
-- [ ] Create `entropy/models.py` with EntropyObject, ResolutionOption, EntropyContext
+### Step 1.2: Core Models and Storage
+- [ ] Create `entropy/__init__.py` with public API
+- [ ] Create `entropy/models.py` per [ENTROPY_MODELS.md](./ENTROPY_MODELS.md)
+  - [ ] EntropyObject dataclass
+  - [ ] ResolutionOption dataclass
+  - [ ] LLMContext and HumanContext dataclasses
+  - [ ] ColumnEntropyProfile dataclass
+  - [ ] TableEntropyProfile dataclass
+  - [ ] CompoundRisk dataclass
+  - [ ] EntropyContext dataclass
 - [ ] Create `entropy/db_models.py` with SQLAlchemy models
+  - [ ] EntropyObjectRecord
+  - [ ] CompoundRiskRecord
 - [ ] Create database migration for entropy tables
+- [ ] Create `entropy/compound_risk.py` for dangerous combination detection
+- [ ] Create `entropy/resolution.py` for cascade tracking
+
+### Step 1.3: Detector Infrastructure
+- [ ] Create `entropy/detectors/__init__.py`
 - [ ] Create `entropy/detectors/base.py` with EntropyDetector ABC
-- [ ] Implement TypeFidelityDetector (from typing module data)
-- [ ] Implement NullSemanticsDetector (from statistics module data)
-- [ ] Implement OutlierRateDetector (from statistics module data)
-- [ ] Implement BusinessMeaningDetector (from semantic module data)
-- [ ] Implement DerivedValueDetector (from correlation module data)
-- [ ] Implement JoinPathDeterminismDetector (from relationships module data)
+- [ ] Create `DetectorRegistry` for detector discovery
+- [ ] Create `entropy/processor.py` for running all detectors
+- [ ] Create test fixtures in `tests/entropy/fixtures/`
+  - [ ] `high_entropy_dataset/` with known high-entropy characteristics
+  - [ ] `low_entropy_dataset/` with clean data
+  - [ ] `compound_risk_dataset/` with dangerous combinations
+
+### Step 1.4: High-Priority Detectors
+- [ ] `TypeFidelityDetector` (structural/types.py)
+  - Source: `typing/TypeCandidate.parse_success_rate`
+  - Formula: `entropy = 1.0 - parse_success_rate`
+- [ ] `NullRatioDetector` (value/null_semantics.py)
+  - Source: `statistics/ColumnProfile.null_ratio`
+  - Formula: `entropy = min(1.0, null_ratio * 2)`
+- [ ] `OutlierRateDetector` (value/outliers.py)
+  - Source: `statistics/quality.iqr_outlier_ratio`
+  - Formula: `entropy = min(1.0, outlier_ratio * 10)`
+- [ ] `BusinessMeaningDetector` (semantic/business_meaning.py)
+  - Source: `semantic/SemanticAnnotation.business_description`
+  - Formula: `entropy = 1.0 if empty, 0.7 if brief, 0.2 if substantial`
+- [ ] `DerivedValueDetector` (computational/derived_values.py)
+  - Source: `correlation/DerivedColumn.formula, match_rate`
+  - Formula: `entropy = 1.0 - match_rate` (or 1.0 if no formula)
+- [ ] `JoinPathDeterminismDetector` (structural/relations.py)
+  - Source: `relationships` + graph_topology analysis
+  - Formula: `entropy = 0.7 if multiple paths, 0.9 if no path, 0.1 if single path`
+
+### Step 1.5: Medium-Priority Detectors
+- [ ] `PatternConsistencyDetector` (value/patterns.py)
+- [ ] `UnitDeclaredDetector` (semantic/units.py)
+- [ ] `TemporalClarityDetector` (semantic/temporal.py)
+- [ ] `RangeBoundsDetector` (value/ranges.py)
+- [ ] `FreshnessDetector` (semantic/temporal.py) - uses existing `is_stale`
+
+### Step 1.6: Compound Risk Detection
+- [ ] Create `config/entropy/compound_risks.yaml` with risk definitions
+- [ ] Implement detection for critical: Units + Aggregations
+- [ ] Implement detection for high: Relations + Filters
+- [ ] Implement detection for high: Nulls + Aggregations
+- [ ] Implement detection for medium: Temporal + Ranges
+- [ ] Create compound risk scoring with multipliers
+
+### Step 1.7: Aggregation and Scoring
+- [ ] Create `entropy/aggregation.py`
+  - [ ] Dimension-level aggregation
+  - [ ] Column-level composite scoring (weighted average)
+  - [ ] Table-level rollup (avg and max)
+- [ ] Create `entropy/scoring.py`
+  - [ ] Implement formula from plan (0.25 structural, 0.30 semantic, 0.30 value, 0.15 computational)
+  - [ ] Apply compound risk multipliers
+  - [ ] Generate readiness classification (ready/investigate/blocked)
 
 ---
 
-## Priority 2: Cleanup & Integration
+## Priority 2: Phase 2 Context Integration
 
-Can be done in parallel with Priority 1.
+### Step 2.1: Entropy Context Builder
+- [ ] Create `entropy/context.py` with `build_entropy_context()`
+- [ ] Add `entropy_scores` field to `graphs/context.py:ColumnContext`
+- [ ] Add `resolution_hints` field to `ColumnContext`
+- [ ] Add `table_entropy` field to `TableContext`
+- [ ] Add `readiness_for_use` field to `TableContext`
+- [ ] Add `relationship_entropy` field to `RelationshipContext`
+- [ ] Modify `build_execution_context()` to call entropy builder
 
-### Cleanup
-- [ ] Move `quality/formatting/base.py` to `core/formatting/`
-- [ ] Move `quality/formatting/config.py` to `core/formatting/`
-- [ ] Evaluate remaining quality/formatting/* files
-- [ ] Remove `quality/synthesis.py` (superseded by quality_summary)
-- [ ] Remove `quality/db_models.py` and `quality/models.py`
-- [ ] Delete quality/ module after migration complete
-- [ ] Simplify `analysis/topology/` - keep core metrics only
-
-### Context Integration
-- [ ] Add entropy scores to `graphs/context.py` GraphExecutionContext
-- [ ] Create `entropy/context.py` for entropy context building
+### Step 2.2: Prompt Formatting
 - [ ] Create `format_entropy_for_prompt()` function
-- [ ] Update graph agent to consume entropy context
+- [ ] Create entropy summary section template
+- [ ] Create dangerous combination warning template
+- [ ] Create assumption disclosure template
+- [ ] Integrate into `format_context_for_prompt()`
+
+### Step 2.3: Contract Evaluation
+- [ ] Create `entropy/contracts.py` per [ENTROPY_CONTRACTS.md](./ENTROPY_CONTRACTS.md)
+- [ ] Create `config/entropy/contracts.yaml` with 5 standard profiles
+- [ ] Implement `evaluate_contract()` function
+- [ ] Implement `get_path_to_compliance()` function
+- [ ] Add contract compliance to EntropyContext
+
+### Step 2.4: Graph Agent Enhancement
+- [ ] Update `graphs/agent.py` to read entropy context
+- [ ] Add entropy warnings to SQL comments
+- [ ] Implement query-time behavior per [ENTROPY_QUERY_BEHAVIOR.md](./ENTROPY_QUERY_BEHAVIOR.md)
+- [ ] Track assumptions in execution metadata
+- [ ] Create `QueryAssumption` model for assumption logging
 
 ---
 
-## Priority 3: Semantic Agent Extension
+## Priority 3: Phase 3 Cleanup and API
 
-Extend semantic agent to enrich entropy-related fields.
+### Step 3.1: Quality Module Cleanup
+- [ ] Verify no remaining usage of `quality/synthesis.py`
+- [ ] Remove `quality/synthesis.py`
+- [ ] Remove `quality/db_models.py`
+- [ ] Remove `quality/models.py`
+- [ ] Remove `quality/__init__.py`
+- [ ] Update all imports throughout codebase
+- [ ] Run full test suite
 
-- [ ] Add naming_clarity analysis to semantic prompts
-- [ ] Add scale_clarity detection (thousands, millions)
-- [ ] Add hierarchy inference for dimension tables
-- [ ] Add stock vs flow classification for temporal columns
-- [ ] Add cross-table type consistency check
+### Step 3.2: Topology Module Simplification
+- [ ] Document which outputs feed entropy detection
+- [ ] Keep: β₁ (Betti-1), stability metrics, connectivity
+- [ ] Remove: Full persistence diagrams, β₂, complex homology
+- [ ] Update tests for simplified interface
 
----
-
-## Priority 4: Graph Agent Completion
-
-Finish the graph agent with entropy awareness.
-
-- [ ] Complete field mapping (business concept → column)
-- [ ] Handle ambiguous mappings using entropy scores
-- [ ] Support multi-table graph execution
-- [ ] Add graph validation with entropy-based warnings
-- [ ] Track assumptions when entropy is high
-
----
-
-## Priority 5: API & MCP Server
-
-Expose functionality via HTTP and MCP.
-
+### Step 3.3: API Endpoints
 - [ ] Create `api/routes/entropy.py`
-- [ ] Create `api/routes/graphs.py`
-- [ ] Create `api/routes/context.py`
-- [ ] Implement MCP server in `mcp/`
-- [ ] Implement `get_entropy_context` MCP tool
-- [ ] Implement `get_resolution_hints` MCP tool
-- [ ] Implement `execute_graph` MCP tool
+- [ ] Implement `GET /entropy/table/{table_id}`
+- [ ] Implement `GET /entropy/column/{table_id}/{column_name}`
+- [ ] Implement `GET /entropy/contracts`
+- [ ] Implement `GET /entropy/contracts/{contract_name}/evaluate`
+- [ ] Implement `GET /entropy/resolution-hints`
+
+### Step 3.4: MCP Server
+- [ ] Create MCP tool: `get_entropy_context`
+- [ ] Create MCP tool: `get_resolution_hints`
+- [ ] Create MCP tool: `accept_assumption`
+- [ ] Create MCP resource: `entropy://table/{table_name}`
+- [ ] Create MCP resource: `entropy://column/{table}.{column}`
+- [ ] Create MCP resource: `entropy://contract/{use_case}`
 
 ---
 
-## Priority 6: UI Foundation
+## Priority 4: Phase 4 Graph Agent Completion + UI
 
-Migrate and extend the UI prototype.
+### Step 4.1: Field Mapping with Entropy
+- [ ] Modify field mapping to prefer lower-entropy columns
+- [ ] Generate warnings for high-entropy field resolutions
+- [ ] Add entropy score to ColumnCandidate
 
+### Step 4.2: Multi-Table Graph Execution
+- [ ] Validate join entropy before execution
+- [ ] Flag non-deterministic joins in generated SQL
+- [ ] Track join assumptions in execution metadata
+
+### Step 4.3: Graph Validation
+- [ ] Add entropy validation to generated SQL
+- [ ] Flag high-uncertainty calculations
+- [ ] Include entropy context in GraphExecution results
+
+### Step 4.4: UI Foundation
 - [ ] Create `ui/` directory at project root
-- [ ] Migrate web_visualizer from prototypes/calculation-graphs/
+- [ ] Migrate web_visualizer from `prototypes/calculation-graphs/`
 - [ ] Convert from npm to bun
 - [ ] Create entropy dashboard component
 - [ ] Create resolution workflow component
@@ -93,13 +190,30 @@ Migrate and extend the UI prototype.
 
 ---
 
+## Priority 5: Semantic Agent Extension
+
+Extend semantic agent to enrich entropy-related fields during analysis.
+
+- [ ] Create `config/prompts/entropy_enrichment.yaml`
+- [ ] Add `naming_clarity_score` field to semantic output
+- [ ] Add `scale_indicator` field (raw, thousands, millions, percent)
+- [ ] Add `accumulation_type` field (period, ytd, all_time)
+- [ ] Add `suggested_aggregation` field (sum, avg, count, min, max, none)
+- [ ] Add `null_interpretation` field (not_applicable, unknown, not_yet_set)
+- [ ] Modify semantic agent to use enrichment prompt
+
+---
+
 ## Blocked/Waiting
 
 Items that depend on external work or decisions.
 
+- [ ] Source.Physical entropy (waiting for encoding detection infrastructure)
+- [ ] Source.Provenance entropy (waiting for lineage tracking infrastructure)
+- [ ] Source.AccessRights entropy (waiting for RBAC infrastructure)
 - [ ] Query entropy layer (waiting for query agent implementation)
-- [ ] Source entropy layer (waiting for provenance infrastructure)
 - [ ] Schema stability tracking (waiting for schema versioning)
+- [ ] Entropy history/trending (waiting for snapshot infrastructure)
 
 ---
 
@@ -107,17 +221,30 @@ Items that depend on external work or decisions.
 
 Items that should be addressed when time permits.
 
-- [ ] Consolidate phase scripts (phase 4b vs phase 6 overlap)
-- [ ] Clarify temporal vs temporal_slicing module responsibilities
-- [ ] Review formatter_thresholds/ config usage
-- [ ] Add tests for entropy detectors
+- [ ] Review and potentially migrate remaining `quality/formatting/*.py` files
+- [ ] Add property-based tests for entropy score normalization (always 0-1)
 - [ ] Add integration tests for entropy + graph agent
+- [ ] Create benchmark for entropy computation performance
+- [ ] Document detector development guide
 
 ---
 
 ## Notes
 
-- Items with [ ] are not started
-- Items with [~] are in progress
-- Items with [x] are completed (move to PROGRESS.md)
+- Items with `[ ]` are not started
+- Items with `[~]` are in progress
+- Items with `[x]` are completed (move to PROGRESS.md)
 - Dependencies are indicated by item ordering within each priority
+- Phase 1 must complete before Phase 2 can begin
+- Steps within a phase can often be parallelized
+
+---
+
+## Quick Reference
+
+| Phase | Goal | Key Deliverables |
+|-------|------|------------------|
+| 1 | Foundation | Models, detectors, compound risks, scoring |
+| 2 | Integration | Context builder, prompt formatting, contracts |
+| 3 | API | Cleanup, endpoints, MCP server |
+| 4 | Completion | Field mapping, multi-table, UI |
