@@ -55,6 +55,11 @@ from dataraum_context.entropy.models import (
     ResolutionOption,
     TableEntropyProfile,
 )
+from dataraum_context.entropy.query_refinement import (
+    QueryRefinementResult,
+    find_columns_in_query,
+    refine_interpretations_for_query,
+)
 
 __all__ = [
     # Configuration
@@ -89,4 +94,8 @@ __all__ = [
     "Assumption",
     "ResolutionAction",
     "create_fallback_interpretation",
+    # Query-time refinement
+    "QueryRefinementResult",
+    "find_columns_in_query",
+    "refine_interpretations_for_query",
 ]
