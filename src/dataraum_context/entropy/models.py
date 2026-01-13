@@ -12,7 +12,7 @@ Key models:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -118,7 +118,7 @@ class EntropyObject:
     human_context: HumanContext = field(default_factory=HumanContext)
 
     # Metadata
-    computed_at: datetime = field(default_factory=datetime.utcnow)
+    computed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     source_analysis_ids: list[str] = field(default_factory=list)  # Links to source analyses
     detector_id: str = ""  # Which detector produced this
 
@@ -355,7 +355,7 @@ class CompoundRisk:
     mitigation_options: list[ResolutionOption] = field(default_factory=list)
 
     # Metadata
-    computed_at: datetime = field(default_factory=datetime.utcnow)
+    computed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
     def from_scores(
@@ -474,7 +474,7 @@ class EntropyContext:
     # Key: use_case name, Value: whether compliant
 
     # Computed timestamp
-    computed_at: datetime = field(default_factory=datetime.utcnow)
+    computed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def get_column_entropy(self, table: str, column: str) -> ColumnEntropyProfile | None:
         """Get entropy profile for a specific column."""
