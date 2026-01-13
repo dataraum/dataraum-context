@@ -108,9 +108,6 @@ class InterpretationInput:
     # Compound risks
     compound_risks: list[CompoundRisk]
 
-    # Optional query context for query-time refinement
-    query_context: str | None = None
-
     @classmethod
     def from_profile(
         cls,
@@ -118,7 +115,6 @@ class InterpretationInput:
         detected_type: str = "unknown",
         business_description: str | None = None,
         raw_metrics: dict[str, Any] | None = None,
-        query_context: str | None = None,
     ) -> InterpretationInput:
         """Create input from a ColumnEntropyProfile.
 
@@ -127,7 +123,6 @@ class InterpretationInput:
             detected_type: Detected data type
             business_description: Business description if available
             raw_metrics: Raw metrics from detectors
-            query_context: Optional query context
 
         Returns:
             InterpretationInput ready for LLM
@@ -146,7 +141,6 @@ class InterpretationInput:
             raw_metrics=raw_metrics or {},
             high_entropy_dimensions=profile.high_entropy_dimensions,
             compound_risks=profile.compound_risks,
-            query_context=query_context,
         )
 
 
@@ -180,38 +174,86 @@ class EntropyInterpreter:
         self.renderer = prompt_renderer
         self.cache = cache
 
-    async def interpret(
+    async def interpret_batch(
         self,
         session: AsyncSession,
-        input_data: InterpretationInput,
-    ) -> Result[EntropyInterpretation]:
-        """Interpret entropy metrics for a column.
+        inputs: list[InterpretationInput],
+        query: str | None = None,
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Interpret entropy for multiple columns in a single LLM call.
+
+        Makes a single batch LLM call for all columns. If a query is provided,
+        the model considers how columns interact in that query context.
 
         Args:
             session: Database session
-            input_data: Interpretation input with entropy metrics
+            inputs: List of InterpretationInput for each column
+            query: Optional SQL or natural language query for context
 
         Returns:
-            Result containing EntropyInterpretation
+            Result containing dict mapping column keys to interpretations
         """
-        # Check if feature is enabled
-        feature_config = self.config.features.entropy_interpretation
-        if not feature_config or not feature_config.enabled:
-            return Result.fail("Entropy interpretation is disabled in config")
+        if not inputs:
+            return Result.ok({})
 
-        # Build context for prompt
-        context = self._build_prompt_context(input_data)
+        # Choose feature and prompt based on whether query is provided
+        if query is not None:
+            feature_config = self.config.features.entropy_query_interpretation
+            feature_name = "entropy_query_interpretation"
+            prompt_name = "entropy_query_interpretation"
+        else:
+            feature_config = self.config.features.entropy_interpretation
+            feature_name = "entropy_interpretation"
+            prompt_name = "entropy_interpretation"
+
+        if not feature_config or not feature_config.enabled:
+            return Result.fail(f"{feature_name} is disabled in config")
+
+        # Build columns JSON for prompt
+        columns_data = []
+        for inp in inputs:
+            columns_data.append(
+                {
+                    "key": f"{inp.table_name}.{inp.column_name}",
+                    "table_name": inp.table_name,
+                    "column_name": inp.column_name,
+                    "detected_type": inp.detected_type,
+                    "business_description": inp.business_description or "Not documented",
+                    "composite_score": inp.composite_score,
+                    "readiness": inp.readiness,
+                    "structural_entropy": inp.structural_entropy,
+                    "semantic_entropy": inp.semantic_entropy,
+                    "value_entropy": inp.value_entropy,
+                    "computational_entropy": inp.computational_entropy,
+                    "high_entropy_dimensions": inp.high_entropy_dimensions,
+                    "raw_metrics": inp.raw_metrics,
+                    "compound_risks": [
+                        {
+                            "dimensions": r.dimensions,
+                            "risk_level": r.risk_level,
+                            "impact": r.impact,
+                        }
+                        for r in inp.compound_risks
+                    ],
+                }
+            )
+
+        context: dict[str, str] = {
+            "columns_json": json.dumps(columns_data, indent=2),
+        }
+        if query is not None:
+            context["query"] = query
 
         # Render prompt
         try:
-            prompt, temperature = self.renderer.render("entropy_interpretation", context)
+            prompt, temperature = self.renderer.render(prompt_name, context)
         except Exception as e:
             return Result.fail(f"Failed to render prompt: {e}")
 
-        # Call LLM with caching
+        # Call LLM
         response_result = await self._call_llm(
             session=session,
-            feature_name="entropy_interpretation",
+            feature_name=feature_name,
             prompt=prompt,
             temperature=temperature,
             model_tier=feature_config.model_tier,
@@ -222,79 +264,84 @@ class EntropyInterpreter:
 
         response = response_result.unwrap()
 
-        # Parse response
-        return self._parse_response(input_data, response.content)
+        # Parse batch response
+        return self._parse_batch_response(inputs, response.content)
 
-    async def interpret_for_query(
+    def _parse_batch_response(
         self,
-        session: AsyncSession,
-        input_data: InterpretationInput,
-        query: str,
-        aggregations: list[str] | None = None,
-        joins: list[str] | None = None,
-    ) -> Result[EntropyInterpretation]:
-        """Interpret entropy with query-specific context.
-
-        Refines the interpretation based on how the column will be used
-        in a specific query.
+        inputs: list[InterpretationInput],
+        response_content: str,
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Parse batch LLM response into multiple interpretations.
 
         Args:
-            session: Database session
-            input_data: Interpretation input
-            query: The SQL query or natural language query
-            aggregations: Aggregation operations being performed
-            joins: Join operations being performed
+            inputs: Original input data for each column
+            response_content: Raw LLM response
 
         Returns:
-            Result containing query-specific EntropyInterpretation
+            Result containing dict mapping column keys to interpretations
         """
-        # Build query context
-        query_context_parts = [f"Query: {query}"]
-        if aggregations:
-            query_context_parts.append(f"Aggregations: {', '.join(aggregations)}")
-        if joins:
-            query_context_parts.append(f"Joins: {', '.join(joins)}")
+        try:
+            # Extract JSON from response
+            json_match = re.search(r"\{[\s\S]*\}", response_content)
+            if not json_match:
+                return Result.fail("No JSON found in response")
 
-        input_data.query_context = "\n".join(query_context_parts)
+            parsed = json.loads(json_match.group())
+            columns_data = parsed.get("columns", {})
 
-        return await self.interpret(session, input_data)
+            # Build lookup for inputs
+            inputs_by_key = {f"{inp.table_name}.{inp.column_name}": inp for inp in inputs}
 
-    def _build_prompt_context(self, input_data: InterpretationInput) -> dict[str, str]:
-        """Build context dictionary for prompt rendering."""
-        # Format compound risks
-        compound_risks_text = "None"
-        if input_data.compound_risks:
-            risk_lines = []
-            for risk in input_data.compound_risks:
-                risk_lines.append(
-                    f"- {risk.risk_level.upper()}: {' + '.join(risk.dimensions)}\n"
-                    f"  Impact: {risk.impact}\n"
-                    f"  Combined score: {risk.combined_score:.2f}"
+            interpretations: dict[str, EntropyInterpretation] = {}
+
+            for key, col_data in columns_data.items():
+                inp = inputs_by_key.get(key)
+                if not inp:
+                    continue
+
+                # Parse assumptions
+                assumptions = []
+                for assumption in col_data.get("assumptions", []):
+                    assumptions.append(
+                        Assumption(
+                            dimension=assumption.get("dimension", "unknown"),
+                            assumption_text=assumption.get("assumption_text", ""),
+                            confidence=assumption.get("confidence", "medium"),
+                            impact=assumption.get("impact", ""),
+                            basis="inferred",
+                        )
+                    )
+
+                # Parse resolution actions
+                resolution_actions = []
+                for action in col_data.get("resolution_actions", []):
+                    resolution_actions.append(
+                        ResolutionAction(
+                            action=action.get("action", ""),
+                            description=action.get("description", ""),
+                            priority=action.get("priority", "medium"),
+                            effort=action.get("effort", "medium"),
+                            expected_impact=action.get("expected_impact", ""),
+                        )
+                    )
+
+                interpretations[key] = EntropyInterpretation(
+                    column_name=inp.column_name,
+                    table_name=inp.table_name,
+                    assumptions=assumptions,
+                    resolution_actions=resolution_actions,
+                    explanation=col_data.get("explanation", "No explanation provided"),
+                    composite_score=inp.composite_score,
+                    readiness=inp.readiness,
                 )
-            compound_risks_text = "\n".join(risk_lines)
 
-        # Format high entropy dimensions
-        high_dims_text = "None"
-        if input_data.high_entropy_dimensions:
-            high_dims_text = "\n".join(f"- {dim}" for dim in input_data.high_entropy_dimensions)
+            return Result.ok(interpretations)
 
-        return {
-            "table_name": input_data.table_name,
-            "column_name": input_data.column_name,
-            "detected_type": input_data.detected_type,
-            "business_description": input_data.business_description or "Not documented",
-            "composite_score": f"{input_data.composite_score:.2f}",
-            "readiness": input_data.readiness,
-            "structural_entropy": f"{input_data.structural_entropy:.2f}",
-            "semantic_entropy": f"{input_data.semantic_entropy:.2f}",
-            "value_entropy": f"{input_data.value_entropy:.2f}",
-            "computational_entropy": f"{input_data.computational_entropy:.2f}",
-            "raw_metrics_json": json.dumps(input_data.raw_metrics, indent=2, default=str),
-            "high_entropy_dimensions": high_dims_text,
-            "compound_risks": compound_risks_text,
-            "query_context": input_data.query_context
-            or "Analysis-time baseline (no specific query context)",
-        }
+        except json.JSONDecodeError as e:
+            return Result.fail(f"Failed to parse JSON: {e}")
+        except Exception as e:
+            return Result.fail(f"Failed to parse batch response: {e}")
 
     async def _call_llm(
         self,
@@ -350,72 +397,6 @@ class EntropyInterpreter:
         )
 
         return result
-
-    def _parse_response(
-        self,
-        input_data: InterpretationInput,
-        response_content: str,
-    ) -> Result[EntropyInterpretation]:
-        """Parse LLM response into EntropyInterpretation.
-
-        Args:
-            input_data: Original input data
-            response_content: Raw LLM response
-
-        Returns:
-            Result containing parsed EntropyInterpretation
-        """
-        try:
-            # Extract JSON from response
-            json_match = re.search(r"\{[\s\S]*\}", response_content)
-            if not json_match:
-                return Result.fail("No JSON found in response")
-
-            parsed = json.loads(json_match.group())
-
-            # Parse assumptions
-            assumptions = []
-            for assumption in parsed.get("assumptions", []):
-                assumptions.append(
-                    Assumption(
-                        dimension=assumption.get("dimension", "unknown"),
-                        assumption_text=assumption.get("assumption_text", ""),
-                        confidence=assumption.get("confidence", "medium"),
-                        impact=assumption.get("impact", ""),
-                        basis=assumption.get("basis", "inferred"),
-                    )
-                )
-
-            # Parse resolution actions
-            resolution_actions = []
-            for action in parsed.get("resolution_actions", []):
-                resolution_actions.append(
-                    ResolutionAction(
-                        action=action.get("action", ""),
-                        description=action.get("description", ""),
-                        priority=action.get("priority", "medium"),
-                        effort=action.get("effort", "medium"),
-                        expected_impact=action.get("expected_impact", ""),
-                        parameters=action.get("parameters", {}),
-                    )
-                )
-
-            interpretation = EntropyInterpretation(
-                column_name=input_data.column_name,
-                table_name=input_data.table_name,
-                assumptions=assumptions,
-                resolution_actions=resolution_actions,
-                explanation=parsed.get("explanation", "No explanation provided"),
-                composite_score=input_data.composite_score,
-                readiness=input_data.readiness,
-            )
-
-            return Result.ok(interpretation)
-
-        except json.JSONDecodeError as e:
-            return Result.fail(f"Failed to parse JSON: {e}")
-        except Exception as e:
-            return Result.fail(f"Failed to parse response: {e}")
 
 
 def create_fallback_interpretation(

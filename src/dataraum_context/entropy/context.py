@@ -440,7 +440,7 @@ async def _build_interpretations(
     interpreter: EntropyInterpreter | None,
     use_fallback: bool,
 ) -> None:
-    """Build LLM interpretations for all column profiles.
+    """Build LLM interpretations for all column profiles in a single batch.
 
     Args:
         session: SQLAlchemy async session
@@ -458,7 +458,10 @@ async def _build_interpretations(
             key = f"{table_name}.{col_name}"
             column_analysis[key] = col_data.get("analysis_results", {})
 
-    # Process each column profile
+    # Build all interpretation inputs
+    inputs: list[InterpretationInput] = []
+    input_keys: list[str] = []
+
     for key, profile in entropy_context.column_profiles.items():
         # Get additional metadata from analysis
         analysis = column_analysis.get(key, {})
@@ -485,19 +488,24 @@ async def _build_interpretations(
             business_description=business_description,
             raw_metrics=raw_metrics,
         )
+        inputs.append(input_data)
+        input_keys.append(key)
 
-        # Try LLM interpretation first
-        interpretation = None
-        if interpreter is not None:
-            result = await interpreter.interpret(session, input_data)
-            if result.success and result.value:
-                interpretation = result.value
-            elif result.error:
-                logger.warning(
-                    "LLM interpretation failed for %s: %s",
-                    key,
-                    result.error,
-                )
+    if not inputs:
+        return
+
+    # Try batch LLM interpretation
+    interpretations: dict[str, Any] = {}
+    if interpreter is not None:
+        result = await interpreter.interpret_batch(session, inputs)
+        if result.success and result.value:
+            interpretations = result.value
+        elif result.error:
+            logger.warning("Batch LLM interpretation failed: %s", result.error)
+
+    # Apply interpretations to profiles, using fallback where needed
+    for key, input_data in zip(input_keys, inputs, strict=True):
+        interpretation = interpretations.get(key)
 
         # Fall back to basic interpretation if needed
         if interpretation is None and use_fallback:
@@ -505,5 +513,6 @@ async def _build_interpretations(
 
         # Store interpretation
         if interpretation is not None:
+            profile = entropy_context.column_profiles[key]
             profile.interpretation = interpretation
             entropy_context.column_interpretations[key] = interpretation

@@ -197,7 +197,6 @@ class TestInterpretationInput:
         assert input_data.detected_type == "unknown"
         assert input_data.business_description is None
         assert input_data.raw_metrics == {}
-        assert input_data.query_context is None
 
     def test_from_profile_with_compound_risks(self):
         """Test creating input from profile with compound risks."""
@@ -316,14 +315,11 @@ class TestCreateFallbackInterpretation:
         assert "1" in interpretation.explanation  # 1 compound risk
 
 
-class TestPromptContextBuilding:
-    """Tests for prompt context building functionality."""
+class TestInterpretationInputFields:
+    """Tests for InterpretationInput field access and serialization."""
 
-    def test_context_includes_all_fields(self):
-        """Test that prompt context includes all required fields."""
-        # Import the interpreter to test context building
-
-        # Create input data
+    def test_input_fields_accessible_for_batch_prompt(self):
+        """Test that InterpretationInput fields can be serialized for batch prompt."""
         input_data = InterpretationInput(
             table_name="orders",
             column_name="amount",
@@ -340,27 +336,32 @@ class TestPromptContextBuilding:
             compound_risks=[],
         )
 
-        # Create a mock interpreter just to test context building
-        # We can't instantiate EntropyInterpreter without LLM dependencies,
-        # but we can test the context building method
-        context = {
+        # Build the batch column data structure (as done in interpret_batch)
+        column_data = {
+            "key": f"{input_data.table_name}.{input_data.column_name}",
             "table_name": input_data.table_name,
             "column_name": input_data.column_name,
             "detected_type": input_data.detected_type,
             "business_description": input_data.business_description or "Not documented",
-            "composite_score": f"{input_data.composite_score:.2f}",
+            "composite_score": input_data.composite_score,
             "readiness": input_data.readiness,
-            "structural_entropy": f"{input_data.structural_entropy:.2f}",
-            "semantic_entropy": f"{input_data.semantic_entropy:.2f}",
-            "value_entropy": f"{input_data.value_entropy:.2f}",
-            "computational_entropy": f"{input_data.computational_entropy:.2f}",
-            "raw_metrics_json": json.dumps(input_data.raw_metrics, indent=2),
+            "structural_entropy": input_data.structural_entropy,
+            "semantic_entropy": input_data.semantic_entropy,
+            "value_entropy": input_data.value_entropy,
+            "computational_entropy": input_data.computational_entropy,
+            "high_entropy_dimensions": input_data.high_entropy_dimensions,
+            "raw_metrics": input_data.raw_metrics,
         }
 
-        assert context["table_name"] == "orders"
-        assert context["column_name"] == "amount"
-        assert context["detected_type"] == "DECIMAL"
-        assert context["business_description"] == "Total order amount in USD"
-        assert context["composite_score"] == "0.45"
-        assert context["readiness"] == "investigate"
-        assert "null_ratio" in context["raw_metrics_json"]
+        assert column_data["key"] == "orders.amount"
+        assert column_data["table_name"] == "orders"
+        assert column_data["column_name"] == "amount"
+        assert column_data["detected_type"] == "DECIMAL"
+        assert column_data["business_description"] == "Total order amount in USD"
+        assert column_data["composite_score"] == 0.45
+        assert column_data["readiness"] == "investigate"
+        assert "null_ratio" in column_data["raw_metrics"]
+
+        # Verify it can be JSON serialized
+        json_str = json.dumps(column_data)
+        assert "orders.amount" in json_str
