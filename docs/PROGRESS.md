@@ -14,9 +14,10 @@ This file tracks completed work and session notes for the dataraum-context proje
 ## Current Sprint: Entropy Layer Foundation
 
 ### In Progress
-- [ ] Phase 1.3: Detector Infrastructure
+- [ ] Phase 1.4: High-Priority Detectors
 
 ### Completed
+- [x] Phase 1.3: Detector Infrastructure (2025-01-13)
 - [x] Phase 1.2: Core Models and Storage (2025-01-13)
 - [x] Phase 1.1: File migrations (2025-01-13)
 - [x] Staff engineer review of entropy implementation plan (2025-01-07)
@@ -136,6 +137,72 @@ This file tracks completed work and session notes for the dataraum-context proje
 **Next Steps:**
 - Phase 1.3: Create detector infrastructure (EntropyDetector ABC, registry)
 - Phase 1.4: Implement high-priority detectors (TypeFidelity, NullRatio, etc.)
+
+---
+
+### 2025-01-13 (Session 3)
+
+**Focus:** Phase 1.3 - Detector Infrastructure
+
+**Completed:**
+1. Created `entropy/detectors/__init__.py` with public API exports
+2. Created `entropy/detectors/base.py` with:
+   - DetectorContext dataclass (holds source/table/column IDs and analysis results)
+   - EntropyDetector ABC with `detect()` async method and `can_run()` check
+   - DetectorRegistry for registering and discovering detectors
+   - get_default_registry() singleton function
+3. Created `entropy/processor.py` with:
+   - ProcessorConfig dataclass (layer weights, thresholds, settings)
+   - EntropyProcessor class that orchestrates detection
+   - process_column() - runs detectors, aggregates to ColumnEntropyProfile
+   - process_table() - processes all columns, creates TableEntropyProfile
+   - build_entropy_context() - assembles complete EntropyContext
+   - Convenience functions: process_column_entropy(), process_table_entropy()
+4. Created test fixtures in `tests/entropy/conftest.py`:
+   - empty_registry, sample_detector_context, high_entropy_context, low_entropy_context
+   - sample_entropy_object, sample_column_profile, high_entropy_column_profile
+5. Created `tests/entropy/test_detectors.py` (17 tests):
+   - TestDetectorContext: target_ref, get_analysis
+   - TestDetectorRegistry: register, unregister, get_detectors_for_layer, get_runnable_detectors
+   - TestEntropyDetector: can_run, dimension_path, detect, create_entropy_object
+   - TestDefaultRegistry: singleton behavior
+6. Created `tests/entropy/test_models.py` (16 tests):
+   - TestEntropyObject: is_high_entropy, is_critical, dimension_path
+   - TestResolutionOption: priority_score calculation
+   - TestColumnEntropyProfile: calculate_composite, update_high_entropy_dimensions, update_readiness
+   - TestTableEntropyProfile: calculate_aggregates, identify_blocked_columns
+   - TestCompoundRisk: from_scores factory
+   - TestResolutionCascade: calculate_priority
+   - TestEntropyContext: get_column_entropy, get_high_entropy_columns, has_critical_risks
+7. Created `tests/entropy/test_processor.py` (10 tests):
+   - TestEntropyProcessor: process_column, high/low entropy scenarios, process_table, build_entropy_context
+   - TestProcessorConfig: default_weights, default_thresholds
+   - TestConvenienceFunctions: process_column_entropy
+8. Fixed datetime deprecation warnings (datetime.utcnow() → datetime.now(UTC))
+9. All 43 entropy tests pass
+10. All lint checks pass
+
+**Files Created:**
+- `src/dataraum_context/entropy/detectors/__init__.py`
+- `src/dataraum_context/entropy/detectors/base.py`
+- `src/dataraum_context/entropy/processor.py`
+- `tests/entropy/__init__.py`
+- `tests/entropy/conftest.py`
+- `tests/entropy/test_detectors.py`
+- `tests/entropy/test_models.py`
+- `tests/entropy/test_processor.py`
+
+**Key Design Decisions:**
+- DetectorContext holds analysis_results dict keyed by module name (typing, statistics, semantic)
+- Detectors declare required_analyses and only run if those analyses are available
+- DetectorRegistry singleton via get_default_registry() for global detector registration
+- EntropyProcessor uses registry to find and run applicable detectors
+- Aggregation happens in processor: layer scores averaged, then weighted composite calculated
+- Compound risk detection and resolution finding integrated into process_column flow
+- Mock detectors used in tests to validate infrastructure without real detectors
+
+**Next Steps:**
+- Phase 1.4: Implement high-priority detectors (TypeFidelityDetector, NullRatioDetector, etc.)
 
 ---
 
