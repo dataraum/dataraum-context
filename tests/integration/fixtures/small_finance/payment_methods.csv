@@ -1,0 +1,11 @@
+Business Id,Payment method,Credit card
+1,Visa,Yes
+2,Mastercard,Yes
+3,American Express,Yes
+1,Discover,No
+2,Check,No
+3,Wire Transfer,No
+1,ACH,No
+2,Cash,No
+3,PayPal,No
+1,Debit Card,No

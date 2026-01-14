@@ -1,0 +1,501 @@
+Business Id,Transaction ID,Transaction date,Transaction type,Amount,Created date,Created user,Account,A/R paid,A/P paid,Due date,Open balance,Customer name,Vendor name,Product_Service,Quantity,Rate,Credit,Debit,Payment method
+2,1000,2024-07-05,Payment,4321.28,2024-06-17,Staff,Accounts Receivable (A/R),Unpaid,Paid,2024-08-04,1155.82,Barbara Williams,--,--,--,--,4321.28,--,Mastercard
+3,1001,2024-07-08,Bill,574.38,2024-03-27,Manager,Bank Account,Paid,Paid,2024-08-17,268.13,--,Quality Supplies Inc,--,--,--,--,574.38,American Express
+3,1002,2024-08-08,Credit Card Credit,213.56,2024-04-19,Manager,Accounts Receivable (A/R),Paid,Unpaid,2024-08-20,188.44,--,--,--,--,--,--,--,Check
+3,1003,2024-06-25,Payment,2729.78,2024-07-12,Admin,Expenses,Paid,--,2024-09-07,989.61,Patricia Smith,--,Hardware Support,10,23.97,2729.78,--,Wire Transfer
+3,1004,2024-10-04,Credit Card Credit,3845.58,2024-03-04,Manager,Bank Account,Unpaid,--,2024-06-25,554.79,--,--,Data Analytics,20,106.73,--,--,Wire Transfer
+2,1005,2024-09-15,Invoice,321.99,2024-03-20,Staff,Accounts Payable (A/P),Unpaid,--,2024-06-06,126.53,John Miller,--,--,--,--,321.99,--,Wire Transfer
+3,1006,2024-08-23,Payment,3009.25,2024-10-10,Manager,Accounts Receivable (A/R),Unpaid,Unpaid,2024-11-04,2948.76,Barbara Jones,--,--,--,--,3009.25,--,Wire Transfer
+3,1007,2024-01-20,Payment,4004.10,2024-08-09,Staff,Accounts Payable (A/P),--,Paid,2024-10-16,682.75,Barbara Smith,--,--,--,--,4004.10,--,Wire Transfer
+3,1008,2024-12-04,Credit Card Credit,824.10,2024-04-01,Manager,Bank Account,Unpaid,Paid,2024-07-23,168.03,--,--,Consulting Services,17,157.24,--,--,Check
+3,1009,2024-08-17,Invoice,3558.30,2024-07-11,Admin,Expenses,--,Unpaid,2024-09-12,2404.94,William Rodriguez,--,Hardware Support,9,125.91,3558.30,--,Mastercard
+2,1010,2024-12-07,Bill,1467.13,2024-12-23,Manager,Bank Account,Unpaid,Unpaid,2024-09-26,1058.78,--,Quality Supplies Inc,Hardware Support,10,33.16,--,1467.13,Wire Transfer
+1,1011,2024-05-02,Credit Card Credit,4489.23,2024-05-23,Admin,Bank Account,Unpaid,--,2024-05-24,2150.70,--,--,Hardware Support,7,167.31,--,--,American Express
+3,1012,2024-04-08,Expense,3511.24,2024-01-22,Staff,Accounts Payable (A/P),--,Paid,2024-01-04,1451.20,--,Professional Industries Inc,Technical Support,16,29.10,--,3511.24,Mastercard
+2,1013,2024-11-07,Invoice,4826.14,2024-05-11,Manager,Accounts Receivable (A/R),Paid,--,2024-10-08,2582.72,William Garcia,--,Cloud Storage,2,183.51,4826.14,--,Mastercard
+2,1014,2024-08-06,Credit Card Credit,4423.00,2024-12-28,Manager,Accounts Receivable (A/R),Paid,Unpaid,2024-10-20,474.59,--,--,Consulting Services,11,64.07,--,--,Wire Transfer
+2,1015,2024-05-07,Expense,2520.17,2024-02-11,Admin,Expenses,--,Unpaid,2024-12-06,35.49,--,Professional Industries Inc,--,--,--,--,2520.17,American Express
+3,1016,2024-07-27,Payment,2882.13,2024-07-17,Manager,Accounts Receivable (A/R),Unpaid,--,2024-02-06,2829.34,Michael Rodriguez,--,Data Analytics,16,71.48,2882.13,--,Mastercard
+2,1017,2024-05-19,Invoice,1377.85,2024-12-19,Admin,Bank Account,--,Unpaid,2024-12-08,85.60,William Brown,--,Hardware Support,4,98.43,1377.85,--,Mastercard
+3,1018,2024-05-23,Credit Card Credit,3461.76,2024-02-21,Manager,Bank Account,--,Paid,2024-04-05,1655.35,--,--,--,--,--,--,--,Check
+3,1019,2024-11-27,Expense,1930.76,2024-04-25,Admin,Accounts Receivable (A/R),--,Unpaid,2024-09-23,698.52,--,Premier Partners Inc,Cloud Storage,19,31.32,--,1930.76,Wire Transfer
+3,1020,2024-08-04,Expense,1090.57,2024-11-07,Staff,Expenses,Paid,--,2024-08-26,60.67,--,Premier Partners Inc,Hardware Support,5,107.52,--,1090.57,Check
+3,1021,2024-01-13,Expense,382.91,2024-05-27,Admin,Accounts Payable (A/P),--,Paid,2024-01-14,131.92,--,Professional Partners Inc,Hardware Support,3,112.82,--,382.91,Visa
+1,1022,2024-03-25,Invoice,4932.07,2024-11-24,Staff,Expenses,Unpaid,Unpaid,2024-08-28,4523.28,Linda Johnson,--,Cloud Storage,13,81.37,4932.07,--,Wire Transfer
+2,1023,2024-09-05,Bill,3302.32,2024-12-08,Admin,Accounts Receivable (A/R),Unpaid,Unpaid,2024-11-24,1797.93,--,Premier Services Inc,Data Analytics,18,82.06,--,3302.32,Mastercard
+1,1024,2024-01-26,Bill,2357.06,2024-11-14,Staff,Accounts Receivable (A/R),Paid,Paid,2024-02-04,1399.96,--,Professional Partners Inc,Technical Support,15,123.58,--,2357.06,Visa
+1,1025,2024-01-05,Bill,3728.65,2024-09-10,Admin,Bank Account,--,--,2024-11-27,1195.65,--,Standard Solutions Inc,Data Analytics,10,176.49,--,3728.65,Wire Transfer
+3,1026,2024-03-21,Bill,2126.45,2024-11-14,Staff,Expenses,Paid,Unpaid,2024-11-22,810.50,--,Standard Supplies Inc,Data Analytics,17,70.56,--,2126.45,Check
+2,1027,2024-04-28,Credit Card Credit,831.17,2024-04-10,Staff,Accounts Payable (A/P),Unpaid,Paid,2024-09-14,804.39,--,--,Data Analytics,18,110.70,--,--,Check
+2,1028,2024-02-18,Bill,1349.48,2024-12-27,Admin,Accounts Receivable (A/R),Unpaid,Unpaid,2024-11-20,813.63,--,Acme Supplies Inc,Cloud Storage,3,45.75,--,1349.48,Wire Transfer
+2,1029,2024-05-01,Expense,1163.38,2024-04-07,Staff,Accounts Receivable (A/R),--,Unpaid,2024-04-23,703.15,--,Global Services Inc,--,--,--,--,1163.38,Mastercard
+2,1030,2024-08-18,Credit Card Credit,4584.12,2024-11-12,Manager,Bank Account,Unpaid,--,2024-08-15,452.03,--,--,Hardware Support,16,154.71,--,--,American Express
+3,1031,2024-03-01,Bill,1916.45,2024-05-18,Staff,Expenses,Unpaid,Paid,2024-04-11,440.82,--,Quality Supplies Inc,Software License,19,168.34,--,1916.45,Check
+3,1032,2024-11-24,Expense,3307.58,2024-08-15,Admin,Bank Account,Paid,Paid,2024-12-18,1615.14,--,Global Supplies Inc,Cloud Storage,18,198.16,--,3307.58,Visa
+3,1033,2024-01-25,Expense,265.74,2024-01-14,Admin,Accounts Payable (A/P),Paid,--,2024-03-01,58.12,--,Quality Industries Inc,--,--,--,--,265.74,Check
+2,1034,2024-11-16,Payment,396.21,2024-01-01,Staff,Expenses,Paid,Paid,2024-09-24,108.85,David Garcia,--,Data Analytics,10,13.26,396.21,--,Check
+1,1035,2024-10-17,Bill,624.38,2024-05-27,Manager,Bank Account,Unpaid,Paid,2024-06-13,286.59,--,Standard Industries Inc,Software License,8,198.14,--,624.38,Mastercard
+1,1036,2024-02-13,Payment,3451.80,2024-07-13,Staff,Expenses,Paid,--,2024-01-23,591.58,John Rodriguez,--,Technical Support,16,170.61,3451.80,--,American Express
+1,1037,2024-04-07,Expense,4888.91,2024-12-19,Manager,Bank Account,Paid,Paid,2024-11-09,4396.66,--,Standard Industries Inc,--,--,--,--,4888.91,Wire Transfer
+3,1038,2024-03-25,Invoice,978.84,2024-12-27,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-10-08,554.70,Barbara Williams,--,Software License,13,138.64,978.84,--,Wire Transfer
+3,1039,2024-02-17,Payment,1980.85,2024-12-12,Admin,Accounts Receivable (A/R),Unpaid,Paid,2024-02-11,1198.75,William Johnson,--,Technical Support,20,191.42,1980.85,--,Check
+2,1040,2024-08-08,Payment,245.17,2024-06-18,Manager,Expenses,Paid,--,2024-10-22,93.18,Michael Martinez,--,--,--,--,245.17,--,Wire Transfer
+1,1041,2024-07-23,Payment,4010.47,2024-11-05,Staff,Expenses,Unpaid,Unpaid,2024-02-03,20.84,Elizabeth Jones,--,Hardware Support,10,94.50,4010.47,--,American Express
+3,1042,2024-09-14,Invoice,749.28,2024-02-01,Admin,Bank Account,--,Paid,2024-10-20,587.77,Mary Rodriguez,--,Data Analytics,13,12.34,749.28,--,Check
+3,1043,2024-04-19,Credit Card Credit,3917.93,2024-09-06,Staff,Expenses,Paid,Paid,2024-05-10,1051.60,--,--,--,--,--,--,--,Mastercard
+1,1044,2024-06-09,Invoice,919.32,2024-04-24,Staff,Expenses,--,--,2024-04-15,98.34,Patricia Johnson,--,Cloud Storage,10,11.29,919.32,--,Check
+2,1045,2024-08-11,Payment,4223.91,2024-07-27,Staff,Accounts Payable (A/P),Unpaid,Unpaid,2024-10-23,848.38,William Brown,--,--,--,--,4223.91,--,American Express
+3,1046,2024-08-19,Bill,4826.42,2024-04-11,Manager,Bank Account,Unpaid,Unpaid,2024-02-19,964.32,--,Global Services Inc,Technical Support,18,44.19,--,4826.42,Wire Transfer
+1,1047,2024-08-26,Invoice,4769.72,2024-05-27,Staff,Accounts Receivable (A/R),Unpaid,--,2024-08-05,3020.84,David Martinez,--,--,--,--,4769.72,--,Mastercard
+1,1048,2024-08-20,Payment,3327.45,2024-08-19,Manager,Expenses,--,Paid,2024-06-23,2979.74,Elizabeth Jones,--,Cloud Storage,18,122.83,3327.45,--,Visa
+3,1049,2024-10-02,Invoice,3867.87,2024-10-21,Staff,Expenses,Unpaid,Unpaid,2024-02-01,381.40,Barbara Johnson,--,Software License,8,107.03,3867.87,--,Wire Transfer
+2,1050,2024-08-25,Expense,2944.54,2024-11-19,Staff,Accounts Payable (A/P),Unpaid,Paid,2024-08-04,869.91,--,Premier Industries Inc,Hardware Support,3,32.05,--,2944.54,Mastercard
+3,1051,2024-08-12,Payment,1628.26,2024-08-04,Manager,Expenses,Unpaid,Paid,2024-05-02,1319.20,Michael Jones,--,--,--,--,1628.26,--,Visa
+3,1052,2024-04-17,Invoice,4260.98,2024-03-18,Admin,Bank Account,--,Unpaid,2024-08-08,3399.22,John Martinez,--,Software License,6,45.41,4260.98,--,Check
+2,1053,2024-10-14,Credit Card Credit,243.04,2024-07-01,Staff,Accounts Payable (A/P),Paid,Unpaid,2024-12-26,193.46,--,--,Software License,19,29.33,--,--,Wire Transfer
+3,1054,2024-08-17,Bill,1892.39,2024-11-11,Staff,Expenses,--,Unpaid,2024-10-04,658.41,--,Standard Industries Inc,Hardware Support,15,127.30,--,1892.39,American Express
+1,1055,2024-05-04,Expense,2991.82,2024-03-12,Staff,Accounts Payable (A/P),--,Unpaid,2024-07-20,412.47,--,Global Supplies Inc,Consulting Services,13,90.38,--,2991.82,Check
+1,1056,2024-09-06,Expense,3497.82,2024-08-10,Admin,Accounts Payable (A/P),Unpaid,Unpaid,2024-10-02,3027.44,--,Quality Services Inc,--,--,--,--,3497.82,Visa
+3,1057,2024-09-21,Credit Card Credit,769.02,2024-08-14,Staff,Expenses,Unpaid,--,2024-08-16,128.62,--,--,--,--,--,--,--,Wire Transfer
+1,1058,2024-09-10,Invoice,3999.82,2024-03-25,Manager,Expenses,--,--,2024-02-19,456.81,Robert Johnson,--,Hardware Support,18,166.42,3999.82,--,American Express
+2,1059,2024-09-07,Expense,4130.79,2024-07-04,Staff,Accounts Payable (A/P),Unpaid,Paid,2024-08-09,1439.90,--,Premier Industries Inc,--,--,--,--,4130.79,Visa
+1,1060,2024-12-19,Credit Card Credit,4339.92,2024-12-12,Staff,Expenses,Paid,--,2024-03-26,896.71,--,--,Software License,7,163.03,--,--,Wire Transfer
+3,1061,2024-05-10,Payment,2708.18,2024-10-09,Staff,Accounts Receivable (A/R),Paid,Unpaid,2024-01-09,2348.12,John Rodriguez,--,Hardware Support,5,143.27,2708.18,--,Mastercard
+3,1062,2024-07-16,Bill,816.59,2024-03-19,Staff,Bank Account,--,Unpaid,2024-07-15,61.67,--,Global Services Inc,--,--,--,--,816.59,Visa
+2,1063,2024-08-11,Credit Card Credit,2626.51,2024-10-01,Staff,Accounts Receivable (A/R),--,Unpaid,2024-11-22,1831.43,--,--,Hardware Support,3,161.18,--,--,Check
+2,1064,2024-06-18,Bill,4843.83,2024-10-05,Staff,Expenses,Unpaid,--,2024-01-02,482.32,--,Global Services Inc,Hardware Support,15,13.09,--,4843.83,Mastercard
+2,1065,2024-04-23,Credit Card Credit,2336.94,2024-03-21,Manager,Accounts Payable (A/P),Unpaid,Paid,2024-11-12,585.14,--,--,--,--,--,--,--,American Express
+1,1066,2024-07-21,Bill,353.76,2024-02-23,Admin,Accounts Receivable (A/R),Paid,Unpaid,2024-02-05,210.02,--,Premier Partners Inc,Technical Support,17,139.20,--,353.76,Visa
+2,1067,2024-12-05,Invoice,3508.43,2024-08-03,Admin,Expenses,Paid,--,2024-02-04,1099.37,David Johnson,--,--,--,--,3508.43,--,American Express
+3,1068,2024-11-05,Bill,1975.33,2024-02-17,Staff,Accounts Receivable (A/R),--,--,2024-03-15,693.71,--,Global Solutions Inc,--,--,--,--,1975.33,Mastercard
+1,1069,2024-02-05,Bill,4607.48,2024-02-19,Staff,Expenses,Unpaid,Unpaid,2024-06-26,644.26,--,Global Supplies Inc,Software License,9,132.48,--,4607.48,Mastercard
+1,1070,2024-11-10,Expense,3044.90,2024-04-17,Staff,Accounts Payable (A/P),--,Unpaid,2024-05-21,166.16,--,Acme Partners Inc,Technical Support,8,104.03,--,3044.90,Visa
+2,1071,2024-06-05,Bill,2547.95,2024-07-28,Staff,Expenses,Unpaid,--,2024-11-06,1943.39,--,Quality Supplies Inc,Consulting Services,3,13.17,--,2547.95,Visa
+2,1072,2024-09-10,Invoice,1384.71,2024-11-23,Staff,Expenses,Unpaid,--,2024-07-03,886.96,Mary Martinez,--,--,--,--,1384.71,--,Wire Transfer
+1,1073,2024-03-18,Expense,848.13,2024-06-13,Staff,Accounts Receivable (A/R),Unpaid,--,2024-07-24,808.63,--,Premier Supplies Inc,Data Analytics,8,21.00,--,848.13,Visa
+2,1074,2024-11-24,Credit Card Credit,668.33,2024-11-24,Admin,Accounts Receivable (A/R),Paid,--,2024-03-23,7.59,--,--,Consulting Services,16,191.07,--,--,Wire Transfer
+1,1075,2024-12-25,Expense,3936.64,2024-05-24,Admin,Accounts Receivable (A/R),Unpaid,Unpaid,2024-05-17,251.44,--,Acme Partners Inc,Hardware Support,19,129.23,--,3936.64,Check
+1,1076,2024-06-06,Credit Card Credit,2602.83,2024-05-25,Admin,Accounts Receivable (A/R),Paid,--,2024-09-01,114.62,--,--,Data Analytics,1,56.46,--,--,Check
+3,1077,2024-12-24,Payment,1976.60,2024-11-14,Admin,Bank Account,Paid,Unpaid,2024-12-11,536.17,John Johnson,--,Consulting Services,3,118.59,1976.60,--,Visa
+1,1078,2024-07-03,Expense,3399.30,2024-08-28,Manager,Bank Account,Unpaid,Paid,2024-09-15,27.09,--,Acme Supplies Inc,Data Analytics,7,65.40,--,3399.30,American Express
+1,1079,2024-12-18,Expense,1288.66,2024-04-05,Admin,Expenses,Paid,Paid,2024-09-12,819.51,--,Acme Partners Inc,Cloud Storage,1,190.69,--,1288.66,Visa
+1,1080,2024-04-17,Credit Card Credit,4260.13,2024-04-14,Manager,Accounts Receivable (A/R),Paid,--,2024-05-03,187.02,--,--,--,--,--,--,--,Mastercard
+1,1081,2024-10-04,Expense,2123.98,2024-09-05,Staff,Expenses,Paid,--,2024-10-02,923.89,--,Acme Partners Inc,Technical Support,5,54.99,--,2123.98,American Express
+3,1082,2024-06-11,Payment,4637.61,2024-08-09,Admin,Accounts Receivable (A/R),Paid,Paid,2024-10-04,720.73,Barbara Davis,--,--,--,--,4637.61,--,Mastercard
+2,1083,2024-04-15,Credit Card Credit,2383.67,2024-05-15,Manager,Accounts Receivable (A/R),Paid,Paid,2024-11-10,1969.83,--,--,Data Analytics,20,17.66,--,--,American Express
+2,1084,2024-09-02,Bill,546.94,2024-11-10,Manager,Accounts Payable (A/P),Paid,Unpaid,2024-08-18,409.16,--,Quality Services Inc,--,--,--,--,546.94,Mastercard
+1,1085,2024-03-07,Invoice,2364.01,2024-07-12,Staff,Accounts Receivable (A/R),--,--,2024-05-27,177.27,John Miller,--,Consulting Services,3,47.57,2364.01,--,Check
+1,1086,2024-03-19,Bill,550.70,2024-07-27,Staff,Expenses,Unpaid,Paid,2024-07-22,234.96,--,Acme Supplies Inc,Cloud Storage,12,50.80,--,550.70,Mastercard
+3,1087,2024-04-21,Payment,1471.29,2024-05-16,Manager,Expenses,Paid,Paid,2024-05-13,201.91,John Johnson,--,Data Analytics,7,132.10,1471.29,--,Wire Transfer
+2,1088,2024-12-12,Bill,3190.70,2024-08-18,Manager,Bank Account,--,--,2024-06-13,862.88,--,Premier Partners Inc,--,--,--,--,3190.70,Visa
+2,1089,2024-01-26,Payment,3025.87,2024-08-17,Manager,Accounts Payable (A/P),Paid,Paid,2024-04-22,729.70,William Johnson,--,--,--,--,3025.87,--,Wire Transfer
+2,1090,2024-03-06,Invoice,3843.84,2024-04-19,Manager,Bank Account,--,Paid,2024-12-23,1351.81,Robert Johnson,--,Cloud Storage,19,117.09,3843.84,--,Wire Transfer
+2,1091,2024-01-03,Bill,4199.81,2024-01-08,Staff,Accounts Payable (A/P),Paid,--,2024-08-01,1393.22,--,Professional Solutions Inc,Software License,20,48.28,--,4199.81,Mastercard
+3,1092,2024-12-05,Payment,3612.99,2024-02-28,Staff,Bank Account,Paid,Unpaid,2024-12-22,1429.28,Linda Williams,--,Software License,4,73.95,3612.99,--,American Express
+3,1093,2024-08-21,Bill,4881.72,2024-06-06,Staff,Bank Account,Paid,--,2024-10-27,856.02,--,Acme Partners Inc,--,--,--,--,4881.72,American Express
+3,1094,2024-07-28,Payment,724.01,2024-10-02,Admin,Bank Account,--,Paid,2024-11-19,75.38,Mary Smith,--,Technical Support,16,36.72,724.01,--,Visa
+3,1095,2024-11-21,Bill,1799.37,2024-12-11,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-04-23,121.99,--,Global Services Inc,Consulting Services,9,159.53,--,1799.37,Visa
+2,1096,2024-08-13,Invoice,1991.09,2024-06-18,Manager,Accounts Receivable (A/R),Unpaid,--,2024-11-25,1368.20,Mary Smith,--,Software License,6,95.74,1991.09,--,Visa
+1,1097,2024-06-06,Payment,198.38,2024-07-06,Staff,Accounts Receivable (A/R),--,Paid,2024-06-20,195.46,David Martinez,--,--,--,--,198.38,--,Check
+1,1098,2024-01-04,Invoice,2213.48,2024-06-07,Admin,Expenses,--,--,2024-12-24,1195.56,John Johnson,--,Cloud Storage,10,66.51,2213.48,--,Visa
+1,1099,2024-01-12,Invoice,2025.22,2024-01-14,Admin,Bank Account,--,--,2024-10-16,404.39,Mary Davis,--,--,--,--,2025.22,--,Visa
+2,1100,2024-02-10,Bill,937.08,2024-07-16,Manager,Bank Account,Paid,--,2024-09-13,173.25,--,Quality Supplies Inc,--,--,--,--,937.08,Check
+2,1101,2024-04-27,Payment,1014.26,2024-05-19,Admin,Accounts Payable (A/P),--,--,2024-02-03,677.67,Mary Martinez,--,Cloud Storage,18,88.66,1014.26,--,Wire Transfer
+2,1102,2024-09-22,Bill,2812.65,2024-08-19,Admin,Expenses,Unpaid,Paid,2024-07-28,2009.09,--,Quality Supplies Inc,--,--,--,--,2812.65,Wire Transfer
+1,1103,2024-02-25,Expense,4512.23,2024-08-06,Admin,Accounts Payable (A/P),Paid,Paid,2024-01-14,353.62,--,Premier Industries Inc,Data Analytics,14,48.36,--,4512.23,Mastercard
+1,1104,2024-02-13,Expense,1363.64,2024-09-13,Staff,Bank Account,Unpaid,--,2024-08-28,16.86,--,Acme Partners Inc,--,--,--,--,1363.64,Wire Transfer
+1,1105,2024-10-19,Expense,2660.55,2024-10-25,Admin,Accounts Receivable (A/R),--,Paid,2024-05-28,1425.08,--,Quality Supplies Inc,Software License,12,176.80,--,2660.55,American Express
+1,1106,2024-03-09,Credit Card Credit,3308.46,2024-07-05,Staff,Expenses,Paid,Unpaid,2024-06-23,786.02,--,--,Cloud Storage,16,184.96,--,--,American Express
+3,1107,2024-11-04,Invoice,1755.54,2024-04-05,Manager,Expenses,Unpaid,Unpaid,2024-12-14,1062.07,Linda Miller,--,Cloud Storage,3,45.71,1755.54,--,Mastercard
+2,1108,2024-01-17,Credit Card Credit,3730.63,2024-03-03,Manager,Expenses,Paid,--,2024-10-01,648.15,--,--,--,--,--,--,--,Mastercard
+3,1109,2024-04-09,Invoice,1322.50,2024-06-27,Manager,Expenses,--,Paid,2024-11-01,319.96,Michael Jones,--,Hardware Support,16,122.87,1322.50,--,Mastercard
+2,1110,2024-12-27,Credit Card Credit,2975.71,2024-12-03,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-03-28,1702.88,--,--,Software License,7,172.85,--,--,Mastercard
+1,1111,2024-08-05,Bill,1418.51,2024-11-06,Staff,Accounts Receivable (A/R),Paid,Unpaid,2024-10-26,1337.66,--,Quality Supplies Inc,Technical Support,9,90.52,--,1418.51,Check
+3,1112,2024-10-13,Payment,2349.09,2024-10-04,Admin,Bank Account,--,--,2024-10-20,664.03,Robert Williams,--,Technical Support,4,101.53,2349.09,--,American Express
+3,1113,2024-05-07,Payment,3238.91,2024-03-17,Admin,Accounts Receivable (A/R),--,Unpaid,2024-11-11,2204.91,Patricia Johnson,--,Technical Support,1,134.53,3238.91,--,American Express
+3,1114,2024-12-19,Payment,4543.87,2024-04-11,Staff,Accounts Payable (A/P),--,--,2024-11-26,2161.68,Elizabeth Rodriguez,--,Consulting Services,12,106.39,4543.87,--,Mastercard
+2,1115,2024-12-26,Expense,987.57,2024-09-25,Admin,Bank Account,--,Paid,2024-04-12,220.55,--,Standard Industries Inc,Technical Support,10,89.89,--,987.57,American Express
+2,1116,2024-01-28,Payment,1376.74,2024-11-19,Staff,Accounts Receivable (A/R),Unpaid,Paid,2024-09-04,1194.32,Jennifer Garcia,--,Consulting Services,13,110.67,1376.74,--,Check
+2,1117,2024-07-19,Invoice,4367.16,2024-08-05,Manager,Accounts Payable (A/P),Paid,Unpaid,2024-06-21,4308.82,John Johnson,--,Software License,11,130.55,4367.16,--,Visa
+1,1118,2024-10-25,Credit Card Credit,1440.29,2024-03-16,Admin,Accounts Payable (A/P),--,Unpaid,2024-11-14,581.00,--,--,--,--,--,--,--,Check
+2,1119,2024-01-11,Credit Card Credit,122.88,2024-09-07,Admin,Accounts Receivable (A/R),--,--,2024-04-08,85.22,--,--,Technical Support,12,69.30,--,--,Visa
+1,1120,2024-05-10,Credit Card Credit,2566.35,2024-08-24,Staff,Bank Account,Unpaid,--,2024-03-11,2556.44,--,--,Consulting Services,16,78.26,--,--,Mastercard
+3,1121,2024-03-07,Bill,4745.61,2024-12-01,Staff,Accounts Payable (A/P),Paid,Unpaid,2024-12-21,3759.13,--,Standard Solutions Inc,Software License,13,176.54,--,4745.61,American Express
+3,1122,2024-02-21,Expense,3153.36,2024-01-02,Staff,Accounts Receivable (A/R),Unpaid,Unpaid,2024-07-04,1725.78,--,Quality Supplies Inc,--,--,--,--,3153.36,Check
+2,1123,2024-11-04,Bill,1106.93,2024-11-17,Manager,Accounts Payable (A/P),Unpaid,Paid,2024-09-24,683.75,--,Global Supplies Inc,Hardware Support,10,31.66,--,1106.93,Visa
+3,1124,2024-04-12,Credit Card Credit,1073.37,2024-12-14,Manager,Accounts Payable (A/P),Paid,--,2024-08-07,738.70,--,--,Hardware Support,16,72.81,--,--,Visa
+3,1125,2024-08-05,Invoice,3391.00,2024-02-25,Staff,Accounts Receivable (A/R),--,--,2024-02-09,2184.95,Barbara Martinez,--,--,--,--,3391.00,--,Check
+1,1126,2024-05-12,Payment,1394.21,2024-11-11,Manager,Accounts Receivable (A/R),Paid,Paid,2024-01-28,192.95,James Brown,--,Software License,6,72.45,1394.21,--,Check
+1,1127,2024-02-13,Expense,1414.72,2024-07-15,Manager,Expenses,--,Unpaid,2024-07-21,1253.61,--,Acme Partners Inc,Hardware Support,6,31.48,--,1414.72,Visa
+3,1128,2024-08-06,Bill,608.19,2024-10-13,Manager,Accounts Receivable (A/R),--,--,2024-03-16,559.78,--,Global Solutions Inc,Data Analytics,4,178.64,--,608.19,Check
+3,1129,2024-09-25,Invoice,410.35,2024-12-19,Staff,Accounts Payable (A/P),--,Unpaid,2024-09-17,282.42,John Johnson,--,Technical Support,20,28.10,410.35,--,Mastercard
+1,1130,2024-09-20,Credit Card Credit,1794.17,2024-01-01,Staff,Accounts Payable (A/P),--,Unpaid,2024-08-28,296.76,--,--,Cloud Storage,16,70.92,--,--,American Express
+2,1131,2024-04-03,Payment,346.72,2024-08-15,Staff,Expenses,Paid,Unpaid,2024-08-11,41.16,Robert Johnson,--,Cloud Storage,16,151.60,346.72,--,Visa
+1,1132,2024-10-20,Invoice,2076.85,2024-11-10,Staff,Accounts Payable (A/P),--,--,2024-08-11,754.61,Robert Johnson,--,Consulting Services,2,165.15,2076.85,--,Check
+3,1133,2024-06-23,Payment,2844.74,2024-08-04,Admin,Accounts Payable (A/P),Paid,Unpaid,2024-06-27,1802.60,James Smith,--,Technical Support,10,114.06,2844.74,--,American Express
+3,1134,2024-12-14,Invoice,324.31,2024-02-09,Staff,Accounts Payable (A/P),Paid,Paid,2024-07-07,148.23,James Davis,--,Technical Support,7,146.19,324.31,--,Visa
+3,1135,2024-02-25,Credit Card Credit,327.85,2024-08-15,Staff,Accounts Payable (A/P),Unpaid,Paid,2024-09-24,15.92,--,--,Technical Support,14,169.38,--,--,Check
+3,1136,2024-03-04,Expense,3927.30,2024-07-22,Staff,Bank Account,--,Unpaid,2024-07-20,3597.05,--,Global Services Inc,Software License,8,61.98,--,3927.30,American Express
+3,1137,2024-12-17,Payment,2318.94,2024-05-27,Staff,Bank Account,--,--,2024-09-21,504.01,John Miller,--,Data Analytics,7,128.59,2318.94,--,American Express
+3,1138,2024-03-17,Payment,4613.84,2024-09-23,Staff,Bank Account,--,Paid,2024-06-18,2216.35,Mary Davis,--,--,--,--,4613.84,--,Wire Transfer
+3,1139,2024-05-28,Credit Card Credit,3403.79,2024-07-26,Admin,Accounts Receivable (A/R),Paid,Unpaid,2024-03-02,2281.41,--,--,--,--,--,--,--,Mastercard
+3,1140,2024-05-05,Payment,3775.91,2024-01-23,Manager,Accounts Payable (A/P),--,Paid,2024-06-27,1708.95,William Garcia,--,--,--,--,3775.91,--,Wire Transfer
+1,1141,2024-09-26,Expense,4337.72,2024-12-10,Staff,Accounts Receivable (A/R),Unpaid,Unpaid,2024-07-26,4232.85,--,Standard Services Inc,Cloud Storage,11,193.51,--,4337.72,Visa
+1,1142,2024-11-23,Invoice,3743.98,2024-12-21,Manager,Accounts Payable (A/P),--,Paid,2024-05-15,664.28,Jennifer Martinez,--,Cloud Storage,3,45.53,3743.98,--,Mastercard
+2,1143,2024-03-06,Expense,684.83,2024-10-28,Manager,Accounts Receivable (A/R),Unpaid,Unpaid,2024-12-05,27.35,--,Premier Industries Inc,Data Analytics,11,123.41,--,684.83,Wire Transfer
+3,1144,2024-06-17,Payment,2503.70,2024-04-06,Staff,Accounts Receivable (A/R),--,Paid,2024-07-18,1344.58,Michael Davis,--,Consulting Services,3,76.39,2503.70,--,Mastercard
+3,1145,2024-08-18,Payment,1722.23,2024-11-01,Admin,Bank Account,Unpaid,Paid,2024-11-20,1582.05,Jennifer Garcia,--,Data Analytics,8,192.19,1722.23,--,American Express
+2,1146,2024-05-18,Credit Card Credit,4588.07,2024-12-10,Admin,Bank Account,--,--,2024-08-16,201.19,--,--,--,--,--,--,--,Mastercard
+3,1147,2024-01-21,Payment,2618.08,2024-02-07,Staff,Accounts Payable (A/P),--,Unpaid,2024-02-07,1407.89,Barbara Jones,--,Data Analytics,14,132.85,2618.08,--,Visa
+1,1148,2024-01-06,Bill,216.39,2024-05-18,Admin,Accounts Payable (A/P),Unpaid,Unpaid,2024-07-15,136.37,--,Professional Partners Inc,Consulting Services,14,70.12,--,216.39,Check
+1,1149,2024-12-19,Invoice,2720.69,2024-01-23,Admin,Bank Account,--,Paid,2024-05-26,1866.06,John Martinez,--,--,--,--,2720.69,--,Wire Transfer
+1,1150,2024-08-06,Invoice,1479.44,2024-09-08,Admin,Expenses,--,Unpaid,2024-11-05,440.96,Linda Jones,--,Technical Support,12,191.90,1479.44,--,Visa
+3,1151,2024-10-13,Expense,4386.36,2024-09-18,Admin,Bank Account,Paid,--,2024-12-24,1508.26,--,Professional Partners Inc,Consulting Services,14,182.07,--,4386.36,Wire Transfer
+1,1152,2024-02-06,Bill,888.68,2024-11-26,Staff,Accounts Receivable (A/R),--,Unpaid,2024-11-18,65.00,--,Professional Services Inc,Hardware Support,3,57.63,--,888.68,Mastercard
+3,1153,2024-04-04,Expense,2487.23,2024-05-20,Admin,Accounts Payable (A/P),Unpaid,Unpaid,2024-08-11,1532.99,--,Acme Supplies Inc,Technical Support,10,141.76,--,2487.23,Mastercard
+1,1154,2024-01-11,Expense,2877.62,2024-04-26,Admin,Expenses,Unpaid,Unpaid,2024-03-22,2109.22,--,Global Services Inc,--,--,--,--,2877.62,Check
+2,1155,2024-09-04,Credit Card Credit,2282.25,2024-03-21,Staff,Accounts Receivable (A/R),Unpaid,Paid,2024-09-07,600.77,--,--,--,--,--,--,--,Visa
+3,1156,2024-07-25,Invoice,4471.32,2024-10-07,Admin,Bank Account,--,--,2024-08-21,3466.15,Barbara Jones,--,Data Analytics,12,84.57,4471.32,--,Wire Transfer
+2,1157,2024-09-01,Payment,756.02,2024-11-08,Staff,Accounts Payable (A/P),--,Paid,2024-08-06,135.44,Barbara Jones,--,Cloud Storage,19,135.29,756.02,--,Mastercard
+1,1158,2024-02-09,Credit Card Credit,4701.96,2024-06-08,Admin,Accounts Payable (A/P),--,Unpaid,2024-07-16,4315.94,--,--,Cloud Storage,2,17.58,--,--,American Express
+3,1159,2024-05-19,Invoice,3548.31,2024-09-19,Admin,Expenses,--,Unpaid,2024-06-19,2318.24,William Rodriguez,--,Hardware Support,3,108.17,3548.31,--,Check
+2,1160,2024-08-26,Bill,2630.22,2024-08-20,Admin,Accounts Payable (A/P),Unpaid,Paid,2024-04-03,1353.36,--,Premier Services Inc,--,--,--,--,2630.22,American Express
+1,1161,2024-11-08,Bill,836.18,2024-07-26,Manager,Accounts Receivable (A/R),Unpaid,--,2024-08-16,176.19,--,Premier Services Inc,Technical Support,6,132.98,--,836.18,Check
+1,1162,2024-11-17,Invoice,1293.98,2024-01-19,Admin,Accounts Receivable (A/R),Paid,Unpaid,2024-03-17,1239.95,Mary Davis,--,Software License,20,194.16,1293.98,--,Visa
+2,1163,2024-03-08,Payment,4741.54,2024-07-20,Admin,Accounts Payable (A/P),--,--,2024-09-09,795.26,Robert Williams,--,Cloud Storage,11,185.25,4741.54,--,Wire Transfer
+1,1164,2024-04-17,Expense,437.33,2024-09-22,Manager,Accounts Payable (A/P),--,Paid,2024-03-16,394.30,--,Quality Supplies Inc,Consulting Services,20,17.42,--,437.33,Wire Transfer
+3,1165,2024-09-27,Expense,3786.68,2024-01-25,Staff,Expenses,--,Unpaid,2024-06-28,164.49,--,Premier Supplies Inc,Software License,17,91.50,--,3786.68,Check
+3,1166,2024-10-04,Credit Card Credit,1817.54,2024-07-05,Manager,Expenses,Paid,Paid,2024-05-20,1593.56,--,--,--,--,--,--,--,Check
+1,1167,2024-10-17,Payment,1026.20,2024-02-17,Admin,Expenses,--,Paid,2024-12-26,324.18,David Davis,--,--,--,--,1026.20,--,American Express
+3,1168,2024-07-19,Invoice,858.42,2024-06-20,Manager,Expenses,Paid,Unpaid,2024-09-26,478.62,John Johnson,--,Hardware Support,6,80.34,858.42,--,Wire Transfer
+3,1169,2024-07-24,Credit Card Credit,1343.51,2024-03-28,Staff,Accounts Receivable (A/R),--,Paid,2024-08-26,939.53,--,--,Hardware Support,6,29.05,--,--,Wire Transfer
+3,1170,2024-12-22,Credit Card Credit,3951.80,2024-12-02,Admin,Expenses,--,Paid,2024-02-27,574.31,--,--,--,--,--,--,--,Wire Transfer
+1,1171,2024-10-02,Credit Card Credit,531.89,2024-12-13,Manager,Bank Account,--,--,2024-01-25,436.27,--,--,Hardware Support,16,93.40,--,--,Mastercard
+3,1172,2024-09-23,Expense,1501.43,2024-04-20,Admin,Accounts Receivable (A/R),Unpaid,Paid,2024-11-01,1464.87,--,Premier Industries Inc,--,--,--,--,1501.43,Visa
+3,1173,2024-04-17,Payment,3920.40,2024-01-24,Staff,Accounts Receivable (A/R),Paid,--,2024-05-24,3253.01,Michael Garcia,--,Cloud Storage,19,76.14,3920.40,--,American Express
+3,1174,2024-01-09,Bill,3071.18,2024-03-14,Staff,Accounts Receivable (A/R),--,Paid,2024-09-10,1044.10,--,Standard Industries Inc,Cloud Storage,4,162.56,--,3071.18,American Express
+2,1175,2024-10-16,Expense,4084.42,2024-04-25,Manager,Expenses,--,Unpaid,2024-10-28,111.71,--,Premier Industries Inc,Cloud Storage,4,58.99,--,4084.42,Check
+2,1176,2024-06-17,Bill,3416.87,2024-09-01,Staff,Bank Account,Paid,Unpaid,2024-02-13,2301.94,--,Professional Services Inc,--,--,--,--,3416.87,American Express
+1,1177,2024-10-09,Invoice,2817.30,2024-03-24,Staff,Accounts Payable (A/P),Unpaid,--,2024-04-08,2071.93,Linda Rodriguez,--,Hardware Support,9,49.29,2817.30,--,Mastercard
+1,1178,2024-02-22,Bill,4198.04,2024-11-16,Staff,Accounts Receivable (A/R),--,Paid,2024-08-12,2605.59,--,Premier Services Inc,Consulting Services,16,180.64,--,4198.04,Wire Transfer
+2,1179,2024-07-08,Payment,2504.95,2024-10-05,Admin,Expenses,Unpaid,--,2024-01-17,869.94,Elizabeth Miller,--,--,--,--,2504.95,--,Mastercard
+2,1180,2024-12-01,Credit Card Credit,4884.89,2024-01-22,Admin,Expenses,--,Paid,2024-06-12,2993.35,--,--,Cloud Storage,9,45.56,--,--,American Express
+2,1181,2024-07-07,Bill,1420.10,2024-07-23,Manager,Bank Account,Unpaid,Unpaid,2024-08-06,811.46,--,Global Supplies Inc,Software License,19,140.34,--,1420.10,Visa
+1,1182,2024-03-26,Payment,4040.03,2024-12-05,Manager,Accounts Receivable (A/R),Paid,Unpaid,2024-08-05,4022.10,John Williams,--,Cloud Storage,17,111.46,4040.03,--,American Express
+1,1183,2024-07-04,Credit Card Credit,1570.17,2024-12-06,Admin,Accounts Payable (A/P),Unpaid,Unpaid,2024-11-04,706.35,--,--,Data Analytics,11,59.36,--,--,American Express
+1,1184,2024-06-28,Expense,2831.71,2024-11-20,Admin,Accounts Payable (A/P),Unpaid,Unpaid,2024-06-22,1445.43,--,Standard Partners Inc,Cloud Storage,15,179.03,--,2831.71,Check
+1,1185,2024-11-26,Expense,1503.97,2024-06-14,Staff,Expenses,Paid,Paid,2024-03-11,343.23,--,Premier Partners Inc,--,--,--,--,1503.97,American Express
+2,1186,2024-06-24,Payment,3581.12,2024-10-17,Manager,Expenses,Paid,Paid,2024-01-05,2606.24,Patricia Miller,--,Hardware Support,9,188.68,3581.12,--,Visa
+3,1187,2024-01-01,Bill,917.86,2024-07-17,Admin,Accounts Receivable (A/R),Unpaid,--,2024-03-03,601.05,--,Standard Industries Inc,Cloud Storage,13,68.78,--,917.86,Mastercard
+1,1188,2024-01-22,Payment,2271.49,2024-06-28,Manager,Expenses,Unpaid,--,2024-05-18,1010.46,Mary Davis,--,Software License,18,43.64,2271.49,--,Wire Transfer
+2,1189,2024-09-21,Credit Card Credit,3192.13,2024-11-18,Manager,Bank Account,Unpaid,--,2024-04-26,285.87,--,--,Data Analytics,10,79.50,--,--,American Express
+2,1190,2024-05-16,Bill,1587.51,2024-09-01,Staff,Expenses,Unpaid,Unpaid,2024-01-25,683.32,--,Quality Industries Inc,Software License,10,123.43,--,1587.51,Visa
+2,1191,2024-07-08,Expense,1930.85,2024-03-23,Staff,Expenses,Unpaid,Paid,2024-05-03,815.28,--,Quality Supplies Inc,--,--,--,--,1930.85,Mastercard
+3,1192,2024-05-10,Expense,3846.24,2024-11-24,Staff,Bank Account,Unpaid,Paid,2024-02-06,525.49,--,Global Supplies Inc,--,--,--,--,3846.24,Visa
+2,1193,2024-04-11,Credit Card Credit,3126.87,2024-01-05,Admin,Accounts Receivable (A/R),Paid,Paid,2024-05-09,390.98,--,--,Data Analytics,15,148.15,--,--,Mastercard
+2,1194,2024-08-12,Invoice,838.35,2024-08-23,Admin,Bank Account,Paid,Paid,2024-01-09,650.27,David Martinez,--,Cloud Storage,3,113.21,838.35,--,Mastercard
+1,1195,2024-02-25,Bill,4488.92,2024-12-08,Manager,Expenses,Paid,--,2024-01-07,2068.65,--,Standard Partners Inc,--,--,--,--,4488.92,Visa
+2,1196,2024-06-06,Expense,3363.44,2024-11-24,Admin,Accounts Receivable (A/R),Unpaid,Unpaid,2024-11-10,668.39,--,Global Services Inc,Technical Support,2,174.09,--,3363.44,Mastercard
+2,1197,2024-10-04,Invoice,1256.23,2024-07-26,Admin,Accounts Receivable (A/R),Paid,--,2024-12-16,864.80,Barbara Johnson,--,Software License,5,80.57,1256.23,--,Visa
+3,1198,2024-01-02,Bill,872.72,2024-06-21,Admin,Accounts Receivable (A/R),Paid,Unpaid,2024-04-11,856.73,--,Premier Supplies Inc,Hardware Support,12,163.05,--,872.72,Check
+2,1199,2024-01-16,Bill,204.63,2024-12-15,Staff,Bank Account,--,--,2024-08-07,115.96,--,Quality Supplies Inc,Software License,18,76.06,--,204.63,Check
+3,1200,2024-03-03,Payment,4351.54,2024-09-05,Manager,Bank Account,Unpaid,--,2024-06-15,3.13,John Rodriguez,--,--,--,--,4351.54,--,Wire Transfer
+3,1201,2024-06-25,Credit Card Credit,3694.92,2024-10-08,Manager,Accounts Receivable (A/R),--,--,2024-07-07,1936.40,--,--,--,--,--,--,--,Check
+2,1202,2024-02-04,Expense,855.24,2024-09-22,Admin,Accounts Receivable (A/R),Paid,Paid,2024-01-07,91.56,--,Quality Supplies Inc,Technical Support,7,28.76,--,855.24,Wire Transfer
+3,1203,2024-05-02,Credit Card Credit,3323.81,2024-06-08,Staff,Accounts Receivable (A/R),Paid,Paid,2024-11-16,3085.84,--,--,Technical Support,3,98.93,--,--,Visa
+3,1204,2024-01-27,Payment,2834.30,2024-10-09,Staff,Accounts Receivable (A/R),--,Paid,2024-05-03,2677.29,James Jones,--,--,--,--,2834.30,--,Wire Transfer
+1,1205,2024-09-22,Invoice,596.00,2024-04-19,Staff,Accounts Payable (A/P),--,--,2024-09-14,444.68,Mary Martinez,--,Software License,19,78.01,596.00,--,Check
+3,1206,2024-07-17,Credit Card Credit,4425.84,2024-06-22,Admin,Expenses,Unpaid,Unpaid,2024-09-11,3739.19,--,--,Software License,14,155.20,--,--,Check
+3,1207,2024-12-09,Payment,3081.23,2024-06-15,Manager,Expenses,Paid,--,2024-01-10,1835.68,Robert Smith,--,Cloud Storage,17,35.67,3081.23,--,American Express
+1,1208,2024-12-27,Invoice,1571.64,2024-05-18,Staff,Accounts Payable (A/P),Paid,Paid,2024-08-12,245.34,Robert Johnson,--,Hardware Support,9,79.75,1571.64,--,Wire Transfer
+3,1209,2024-04-24,Bill,1241.67,2024-02-24,Manager,Expenses,Paid,Unpaid,2024-12-23,715.49,--,Quality Supplies Inc,Cloud Storage,4,123.09,--,1241.67,American Express
+2,1210,2024-06-27,Invoice,3680.87,2024-07-14,Admin,Accounts Payable (A/P),--,--,2024-10-01,2333.25,Michael Davis,--,Consulting Services,13,20.28,3680.87,--,Wire Transfer
+3,1211,2024-04-05,Invoice,1664.65,2024-01-22,Staff,Expenses,Unpaid,--,2024-10-17,149.96,Robert Smith,--,Data Analytics,14,65.06,1664.65,--,Check
+1,1212,2024-09-13,Bill,747.73,2024-05-03,Manager,Expenses,--,Paid,2024-03-16,418.20,--,Premier Supplies Inc,Technical Support,16,85.11,--,747.73,Wire Transfer
+1,1213,2024-05-25,Bill,2849.72,2024-07-11,Staff,Accounts Receivable (A/R),Paid,--,2024-07-14,1040.91,--,Standard Services Inc,Software License,7,70.94,--,2849.72,Wire Transfer
+3,1214,2024-08-20,Invoice,3871.44,2024-03-15,Admin,Accounts Payable (A/P),Paid,--,2024-06-05,2933.52,James Davis,--,--,--,--,3871.44,--,Visa
+1,1215,2024-05-01,Invoice,3723.95,2024-06-23,Admin,Bank Account,Unpaid,Unpaid,2024-01-11,778.34,Robert Rodriguez,--,--,--,--,3723.95,--,Wire Transfer
+3,1216,2024-08-20,Bill,1098.63,2024-12-05,Staff,Accounts Receivable (A/R),Unpaid,--,2024-11-17,47.77,--,Standard Services Inc,--,--,--,--,1098.63,Mastercard
+2,1217,2024-11-01,Invoice,1491.67,2024-02-13,Staff,Bank Account,--,--,2024-06-28,160.94,William Rodriguez,--,Consulting Services,10,174.81,1491.67,--,Check
+1,1218,2024-06-16,Bill,4900.98,2024-10-18,Admin,Accounts Payable (A/P),Paid,--,2024-08-18,4540.03,--,Global Partners Inc,--,--,--,--,4900.98,Visa
+2,1219,2024-12-06,Invoice,1312.22,2024-01-12,Staff,Bank Account,Unpaid,--,2024-05-08,1306.97,Michael Miller,--,Cloud Storage,17,62.42,1312.22,--,Visa
+2,1220,2024-04-05,Payment,4405.52,2024-06-13,Staff,Accounts Payable (A/P),Paid,--,2024-07-17,4231.97,William Johnson,--,--,--,--,4405.52,--,Wire Transfer
+3,1221,2024-06-15,Bill,2144.93,2024-09-05,Admin,Accounts Payable (A/P),--,--,2024-11-26,433.94,--,Premier Industries Inc,Hardware Support,5,68.71,--,2144.93,Wire Transfer
+1,1222,2024-06-03,Bill,2207.32,2024-09-18,Staff,Accounts Receivable (A/R),Paid,Unpaid,2024-03-24,65.08,--,Premier Services Inc,Data Analytics,11,177.23,--,2207.32,Check
+3,1223,2024-12-09,Credit Card Credit,1586.41,2024-03-25,Admin,Accounts Receivable (A/R),Paid,Paid,2024-01-25,1564.13,--,--,--,--,--,--,--,Wire Transfer
+1,1224,2024-11-01,Payment,3067.46,2024-06-03,Staff,Expenses,Paid,--,2024-10-16,2184.09,Mary Brown,--,Software License,12,44.96,3067.46,--,Check
+1,1225,2024-07-25,Credit Card Credit,2421.85,2024-01-09,Manager,Accounts Payable (A/P),--,--,2024-04-25,495.42,--,--,Software License,6,186.15,--,--,Check
+1,1226,2024-07-13,Expense,2500.72,2024-01-20,Staff,Expenses,--,Unpaid,2024-07-20,2348.52,--,Global Services Inc,--,--,--,--,2500.72,Wire Transfer
+1,1227,2024-09-04,Expense,2727.18,2024-08-15,Admin,Accounts Payable (A/P),--,--,2024-07-24,107.05,--,Quality Services Inc,--,--,--,--,2727.18,Check
+2,1228,2024-05-25,Expense,3849.28,2024-05-15,Admin,Expenses,Unpaid,--,2024-01-23,1989.96,--,Acme Supplies Inc,Cloud Storage,5,98.08,--,3849.28,Check
+3,1229,2024-09-05,Invoice,3640.97,2024-07-14,Manager,Expenses,Paid,Paid,2024-08-19,3264.56,Barbara Martinez,--,Data Analytics,7,177.68,3640.97,--,Visa
+1,1230,2024-12-24,Payment,1687.97,2024-02-03,Admin,Expenses,--,Unpaid,2024-02-17,1193.86,John Johnson,--,--,--,--,1687.97,--,Wire Transfer
+1,1231,2024-06-19,Expense,4753.79,2024-11-28,Admin,Accounts Payable (A/P),Paid,Paid,2024-12-02,1994.60,--,Quality Supplies Inc,Consulting Services,10,148.73,--,4753.79,Check
+1,1232,2024-01-20,Payment,3169.62,2024-05-01,Manager,Expenses,Unpaid,--,2024-01-20,2797.83,David Johnson,--,--,--,--,3169.62,--,Mastercard
+1,1233,2024-10-20,Bill,2985.43,2024-01-08,Staff,Bank Account,--,--,2024-09-27,2463.73,--,Standard Partners Inc,Cloud Storage,2,45.12,--,2985.43,Visa
+2,1234,2024-06-03,Payment,279.93,2024-01-04,Manager,Accounts Payable (A/P),Paid,--,2024-05-20,185.01,Robert Johnson,--,Data Analytics,20,118.73,279.93,--,Wire Transfer
+1,1235,2024-05-11,Bill,4834.84,2024-06-13,Admin,Expenses,--,Paid,2024-05-16,650.51,--,Standard Services Inc,Consulting Services,9,72.55,--,4834.84,Check
+3,1236,2024-12-21,Expense,1128.24,2024-09-03,Manager,Bank Account,Unpaid,--,2024-06-09,592.77,--,Global Services Inc,Consulting Services,20,77.23,--,1128.24,Mastercard
+2,1237,2024-08-26,Expense,2856.91,2024-03-20,Admin,Bank Account,Paid,Paid,2024-02-01,1328.14,--,Standard Services Inc,--,--,--,--,2856.91,Visa
+2,1238,2024-09-26,Bill,4017.87,2024-11-07,Admin,Accounts Payable (A/P),--,Unpaid,2024-05-26,272.56,--,Quality Supplies Inc,Hardware Support,10,106.27,--,4017.87,American Express
+3,1239,2024-10-01,Invoice,657.80,2024-03-07,Manager,Bank Account,--,Unpaid,2024-08-26,23.39,James Garcia,--,Technical Support,5,101.48,657.80,--,Check
+2,1240,2024-12-02,Expense,4490.05,2024-09-10,Staff,Bank Account,--,--,2024-01-07,2592.54,--,Professional Partners Inc,--,--,--,--,4490.05,American Express
+2,1241,2024-07-21,Payment,424.44,2024-09-27,Admin,Expenses,Paid,--,2024-02-28,332.06,John Johnson,--,Consulting Services,10,144.00,424.44,--,American Express
+2,1242,2024-08-27,Invoice,1430.34,2024-05-07,Staff,Bank Account,Paid,Paid,2024-06-26,53.49,Linda Johnson,--,Software License,7,183.54,1430.34,--,Check
+1,1243,2024-04-11,Expense,222.18,2024-08-24,Staff,Bank Account,Unpaid,Paid,2024-02-27,218.24,--,Standard Partners Inc,--,--,--,--,222.18,Wire Transfer
+3,1244,2024-02-01,Bill,1105.42,2024-05-02,Staff,Accounts Receivable (A/R),Unpaid,Unpaid,2024-01-04,575.46,--,Premier Industries Inc,Technical Support,10,14.27,--,1105.42,American Express
+2,1245,2024-08-22,Bill,1672.31,2024-02-09,Admin,Accounts Payable (A/P),Unpaid,Paid,2024-01-20,935.87,--,Standard Industries Inc,Data Analytics,4,49.25,--,1672.31,American Express
+2,1246,2024-10-08,Expense,1660.58,2024-03-03,Manager,Bank Account,--,Unpaid,2024-01-05,48.14,--,Professional Partners Inc,--,--,--,--,1660.58,Visa
+3,1247,2024-10-19,Invoice,1979.64,2024-11-27,Staff,Expenses,--,Unpaid,2024-05-11,1618.24,Linda Johnson,--,Software License,18,24.92,1979.64,--,Check
+2,1248,2024-11-21,Expense,745.80,2024-12-25,Manager,Expenses,Paid,Paid,2024-03-28,668.01,--,Premier Partners Inc,Cloud Storage,9,183.44,--,745.80,Check
+2,1249,2024-08-01,Bill,3528.11,2024-02-16,Admin,Bank Account,Unpaid,Unpaid,2024-03-10,2709.38,--,Premier Solutions Inc,Hardware Support,20,119.19,--,3528.11,Wire Transfer
+2,1250,2024-09-21,Invoice,2087.86,2024-02-26,Manager,Expenses,Unpaid,--,2024-07-08,1296.30,Elizabeth Jones,--,--,--,--,2087.86,--,Wire Transfer
+3,1251,2024-10-14,Bill,4872.07,2024-07-19,Manager,Accounts Payable (A/P),Paid,--,2024-11-03,3602.25,--,Quality Supplies Inc,Software License,19,168.98,--,4872.07,Visa
+1,1252,2024-05-13,Expense,3020.77,2024-02-20,Admin,Expenses,Unpaid,Unpaid,2024-11-22,185.72,--,Global Services Inc,Cloud Storage,7,165.24,--,3020.77,Wire Transfer
+2,1253,2024-07-20,Invoice,3809.68,2024-10-15,Admin,Accounts Payable (A/P),--,Unpaid,2024-05-19,3026.21,Barbara Johnson,--,Data Analytics,10,184.52,3809.68,--,Check
+2,1254,2024-03-28,Payment,4952.42,2024-05-02,Manager,Accounts Receivable (A/R),Paid,--,2024-09-27,4846.91,Barbara Smith,--,Data Analytics,4,173.64,4952.42,--,Visa
+3,1255,2024-07-13,Bill,2215.41,2024-07-14,Staff,Accounts Payable (A/P),--,Paid,2024-08-05,417.00,--,Global Solutions Inc,Hardware Support,13,170.23,--,2215.41,American Express
+3,1256,2024-03-05,Credit Card Credit,855.91,2024-01-03,Staff,Accounts Receivable (A/R),Paid,--,2024-08-22,373.81,--,--,--,--,--,--,--,Mastercard
+3,1257,2024-10-14,Invoice,772.38,2024-10-06,Manager,Expenses,--,Unpaid,2024-07-12,174.36,James Jones,--,--,--,--,772.38,--,Check
+1,1258,2024-12-17,Expense,136.41,2024-05-14,Staff,Bank Account,Paid,Paid,2024-10-16,96.15,--,Professional Solutions Inc,--,--,--,--,136.41,Visa
+3,1259,2024-09-28,Expense,2459.51,2024-05-15,Staff,Accounts Receivable (A/R),--,--,2024-02-08,1162.00,--,Premier Partners Inc,Technical Support,3,139.97,--,2459.51,Wire Transfer
+3,1260,2024-01-16,Expense,1631.25,2024-08-17,Manager,Bank Account,Unpaid,Unpaid,2024-05-10,273.25,--,Acme Supplies Inc,--,--,--,--,1631.25,Wire Transfer
+2,1261,2024-10-06,Payment,3662.16,2024-10-02,Staff,Bank Account,--,--,2024-01-10,1775.27,Robert Smith,--,Technical Support,5,106.06,3662.16,--,American Express
+1,1262,2024-12-04,Payment,749.44,2024-10-06,Staff,Accounts Payable (A/P),--,Unpaid,2024-06-26,131.45,Patricia Johnson,--,Hardware Support,8,102.13,749.44,--,Wire Transfer
+3,1263,2024-03-27,Invoice,1779.96,2024-08-25,Manager,Expenses,Paid,--,2024-08-24,1134.85,John Rodriguez,--,--,--,--,1779.96,--,Mastercard
+1,1264,2024-01-06,Expense,3698.37,2024-08-13,Manager,Bank Account,Unpaid,--,2024-09-08,1404.64,--,Premier Services Inc,Hardware Support,13,100.17,--,3698.37,Mastercard
+2,1265,2024-11-11,Expense,4364.36,2024-09-22,Admin,Accounts Receivable (A/R),--,--,2024-06-28,1884.47,--,Quality Industries Inc,Cloud Storage,9,73.64,--,4364.36,American Express
+3,1266,2024-04-24,Invoice,1351.19,2024-11-19,Admin,Bank Account,--,--,2024-03-11,739.93,Barbara Smith,--,Technical Support,1,168.02,1351.19,--,Visa
+2,1267,2024-04-24,Credit Card Credit,578.72,2024-05-09,Admin,Accounts Receivable (A/R),Paid,--,2024-02-02,543.14,--,--,Cloud Storage,7,190.59,--,--,Visa
+3,1268,2024-10-26,Invoice,523.29,2024-03-04,Staff,Accounts Payable (A/P),Unpaid,Unpaid,2024-08-22,489.90,Patricia Miller,--,Technical Support,15,185.31,523.29,--,American Express
+2,1269,2024-03-25,Credit Card Credit,3491.89,2024-02-09,Admin,Expenses,Unpaid,Unpaid,2024-01-09,3336.87,--,--,Hardware Support,9,43.81,--,--,Visa
+1,1270,2024-11-16,Credit Card Credit,4899.17,2024-02-05,Staff,Expenses,Paid,--,2024-11-04,4471.03,--,--,Cloud Storage,9,29.62,--,--,Visa
+1,1271,2024-08-05,Invoice,2899.59,2024-11-21,Admin,Accounts Receivable (A/R),--,Unpaid,2024-05-05,2029.87,Patricia Miller,--,--,--,--,2899.59,--,Check
+2,1272,2024-08-14,Expense,118.15,2024-07-28,Staff,Accounts Receivable (A/R),--,Paid,2024-01-13,112.73,--,Professional Partners Inc,--,--,--,--,118.15,Check
+2,1273,2024-01-21,Invoice,2879.50,2024-11-03,Manager,Bank Account,Paid,Unpaid,2024-05-21,584.88,Michael Garcia,--,Hardware Support,18,17.47,2879.50,--,Check
+3,1274,2024-12-12,Bill,1564.46,2024-08-03,Staff,Expenses,--,Paid,2024-03-02,302.09,--,Quality Supplies Inc,--,--,--,--,1564.46,Wire Transfer
+3,1275,2024-05-16,Bill,2497.24,2024-09-27,Manager,Accounts Receivable (A/R),Paid,Unpaid,2024-01-11,1967.27,--,Quality Industries Inc,--,--,--,--,2497.24,Visa
+3,1276,2024-09-15,Credit Card Credit,679.12,2024-11-28,Staff,Accounts Payable (A/P),--,--,2024-04-03,25.04,--,--,--,--,--,--,--,Mastercard
+1,1277,2024-04-23,Credit Card Credit,3303.77,2024-11-05,Admin,Accounts Payable (A/P),--,Paid,2024-05-27,2622.20,--,--,Data Analytics,15,126.13,--,--,Wire Transfer
+3,1278,2024-04-03,Invoice,4107.22,2024-04-14,Manager,Expenses,Unpaid,Paid,2024-11-19,2242.07,Patricia Smith,--,Data Analytics,11,168.92,4107.22,--,Mastercard
+1,1279,2024-07-06,Invoice,3006.12,2024-12-12,Staff,Accounts Payable (A/P),Unpaid,Paid,2024-10-02,400.93,James Garcia,--,Hardware Support,20,81.46,3006.12,--,Mastercard
+1,1280,2024-12-21,Invoice,4410.17,2024-10-10,Manager,Expenses,--,Paid,2024-04-05,2821.74,John Rodriguez,--,Software License,17,95.58,4410.17,--,Mastercard
+2,1281,2024-10-03,Bill,3091.64,2024-11-27,Manager,Bank Account,Unpaid,Paid,2024-09-08,593.29,--,Premier Industries Inc,Technical Support,17,195.59,--,3091.64,Wire Transfer
+3,1282,2024-11-07,Payment,4327.38,2024-05-02,Admin,Accounts Receivable (A/R),Paid,--,2024-08-16,763.02,Jennifer Davis,--,Cloud Storage,2,20.27,4327.38,--,American Express
+1,1283,2024-02-24,Payment,1126.99,2024-01-18,Admin,Accounts Payable (A/P),Paid,Unpaid,2024-09-04,79.86,Patricia Miller,--,Cloud Storage,8,147.07,1126.99,--,Wire Transfer
+2,1284,2024-04-25,Expense,1697.26,2024-02-11,Admin,Accounts Receivable (A/R),Paid,--,2024-07-28,339.38,--,Standard Industries Inc,--,--,--,--,1697.26,Mastercard
+1,1285,2024-04-20,Invoice,2407.85,2024-08-06,Manager,Bank Account,Paid,Unpaid,2024-12-07,1521.81,William Garcia,--,Cloud Storage,9,48.42,2407.85,--,Mastercard
+2,1286,2024-08-14,Invoice,3491.83,2024-03-25,Manager,Accounts Payable (A/P),Unpaid,--,2024-03-26,2774.49,Patricia Rodriguez,--,Consulting Services,20,182.06,3491.83,--,Wire Transfer
+2,1287,2024-04-19,Expense,4289.52,2024-08-27,Manager,Bank Account,Paid,--,2024-07-24,3743.03,--,Premier Supplies Inc,Data Analytics,8,72.19,--,4289.52,Wire Transfer
+3,1288,2024-01-14,Bill,4469.93,2024-01-02,Manager,Accounts Receivable (A/R),Unpaid,--,2024-07-16,3619.38,--,Global Solutions Inc,--,--,--,--,4469.93,Visa
+3,1289,2024-12-14,Credit Card Credit,2526.90,2024-04-05,Manager,Bank Account,Paid,--,2024-02-01,1212.36,--,--,Consulting Services,10,40.74,--,--,Check
+2,1290,2024-03-28,Expense,3761.70,2024-12-13,Admin,Bank Account,--,Unpaid,2024-12-21,5.13,--,Premier Services Inc,--,--,--,--,3761.70,Visa
+2,1291,2024-07-25,Credit Card Credit,4477.83,2024-05-23,Staff,Accounts Payable (A/P),--,Paid,2024-10-11,3294.61,--,--,Consulting Services,2,107.80,--,--,American Express
+2,1292,2024-06-06,Invoice,643.74,2024-11-18,Staff,Accounts Receivable (A/R),--,--,2024-04-05,631.67,David Jones,--,Consulting Services,8,112.53,643.74,--,Check
+1,1293,2024-06-12,Expense,4368.54,2024-05-17,Staff,Expenses,Unpaid,Paid,2024-02-12,1508.14,--,Premier Partners Inc,Technical Support,16,105.28,--,4368.54,Visa
+2,1294,2024-08-20,Credit Card Credit,3578.14,2024-06-26,Staff,Accounts Receivable (A/R),Paid,Unpaid,2024-02-03,1397.92,--,--,Data Analytics,6,64.79,--,--,Visa
+1,1295,2024-04-17,Invoice,907.35,2024-11-01,Manager,Expenses,--,--,2024-03-16,314.58,Barbara Martinez,--,Cloud Storage,15,150.16,907.35,--,Visa
+1,1296,2024-09-21,Payment,1026.40,2024-06-14,Staff,Bank Account,--,--,2024-06-16,609.02,John Miller,--,--,--,--,1026.40,--,Wire Transfer
+1,1297,2024-05-08,Expense,2281.76,2024-08-12,Manager,Accounts Receivable (A/R),Paid,Unpaid,2024-05-15,2181.85,--,Quality Supplies Inc,Hardware Support,20,185.59,--,2281.76,Wire Transfer
+3,1298,2024-11-26,Payment,993.17,2024-03-06,Admin,Accounts Receivable (A/R),Paid,Unpaid,2024-10-05,437.88,Linda Rodriguez,--,--,--,--,993.17,--,American Express
+2,1299,2024-03-12,Bill,1105.26,2024-08-18,Admin,Bank Account,Paid,Paid,2024-07-16,849.41,--,Professional Partners Inc,Hardware Support,15,186.28,--,1105.26,Mastercard
+2,1300,2024-11-23,Invoice,4853.74,2024-05-16,Manager,Accounts Payable (A/P),--,--,2024-08-11,3344.94,Jennifer Davis,--,--,--,--,4853.74,--,Check
+2,1301,2024-10-27,Invoice,783.17,2024-04-15,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-10-21,152.84,Mary Davis,--,Consulting Services,17,52.21,783.17,--,American Express
+3,1302,2024-11-03,Bill,210.49,2024-09-13,Admin,Expenses,Unpaid,--,2024-10-17,198.58,--,Premier Partners Inc,--,--,--,--,210.49,American Express
+2,1303,2024-07-12,Credit Card Credit,824.94,2024-01-10,Manager,Bank Account,Unpaid,Unpaid,2024-09-03,177.93,--,--,--,--,--,--,--,Check
+2,1304,2024-12-14,Credit Card Credit,4038.06,2024-03-27,Staff,Accounts Receivable (A/R),Paid,Paid,2024-05-16,3991.15,--,--,Technical Support,17,197.46,--,--,Visa
+2,1305,2024-07-06,Expense,3804.96,2024-09-15,Staff,Accounts Payable (A/P),Paid,Paid,2024-07-10,2107.44,--,Premier Supplies Inc,Technical Support,2,166.33,--,3804.96,American Express
+1,1306,2024-01-26,Expense,1589.18,2024-01-05,Manager,Bank Account,--,--,2024-08-04,1039.03,--,Premier Industries Inc,--,--,--,--,1589.18,American Express
+3,1307,2024-04-01,Credit Card Credit,978.92,2024-02-25,Manager,Expenses,Paid,--,2024-12-12,568.82,--,--,--,--,--,--,--,Wire Transfer
+3,1308,2024-02-12,Credit Card Credit,4354.89,2024-09-24,Staff,Accounts Receivable (A/R),Unpaid,Paid,2024-10-02,636.41,--,--,Cloud Storage,15,176.88,--,--,Mastercard
+2,1309,2024-01-10,Payment,900.21,2024-05-17,Staff,Accounts Receivable (A/R),--,Paid,2024-11-06,688.38,Michael Martinez,--,Technical Support,20,153.00,900.21,--,Wire Transfer
+2,1310,2024-11-23,Payment,4374.97,2024-12-12,Admin,Bank Account,Paid,Paid,2024-03-17,1231.19,Barbara Johnson,--,--,--,--,4374.97,--,Check
+1,1311,2024-04-05,Credit Card Credit,1767.53,2024-09-08,Admin,Accounts Receivable (A/R),Unpaid,Unpaid,2024-02-04,1447.34,--,--,--,--,--,--,--,Visa
+2,1312,2024-10-17,Credit Card Credit,1806.23,2024-06-06,Staff,Bank Account,Paid,--,2024-02-08,232.49,--,--,Software License,5,140.73,--,--,American Express
+1,1313,2024-01-25,Bill,1128.22,2024-08-25,Manager,Accounts Receivable (A/R),Paid,Paid,2024-01-26,744.39,--,Premier Supplies Inc,Consulting Services,19,21.26,--,1128.22,Visa
+1,1314,2024-10-07,Payment,312.08,2024-10-07,Admin,Bank Account,Paid,Paid,2024-03-28,232.87,Linda Miller,--,Consulting Services,9,190.27,312.08,--,American Express
+3,1315,2024-04-17,Payment,886.73,2024-10-03,Admin,Accounts Receivable (A/R),--,Paid,2024-12-07,855.04,Barbara Jones,--,--,--,--,886.73,--,Mastercard
+3,1316,2024-12-16,Expense,121.21,2024-06-23,Staff,Accounts Payable (A/P),Unpaid,--,2024-02-06,101.18,--,Acme Partners Inc,Software License,13,90.58,--,121.21,Wire Transfer
+1,1317,2024-08-04,Bill,2097.13,2024-09-05,Manager,Bank Account,--,Unpaid,2024-09-24,85.16,--,Global Solutions Inc,--,--,--,--,2097.13,American Express
+3,1318,2024-05-22,Credit Card Credit,667.04,2024-08-08,Staff,Expenses,Unpaid,Unpaid,2024-04-28,46.43,--,--,Data Analytics,16,188.43,--,--,American Express
+2,1319,2024-08-17,Bill,162.65,2024-11-22,Admin,Accounts Receivable (A/R),Paid,Unpaid,2024-07-23,96.05,--,Global Supplies Inc,Consulting Services,4,150.87,--,162.65,Mastercard
+2,1320,2024-02-08,Invoice,1882.18,2024-07-24,Manager,Bank Account,--,--,2024-10-09,1423.50,Jennifer Martinez,--,Data Analytics,13,77.66,1882.18,--,Wire Transfer
+2,1321,2024-02-04,Credit Card Credit,4938.86,2024-05-16,Manager,Accounts Payable (A/P),--,Paid,2024-01-04,3643.89,--,--,Software License,3,104.65,--,--,Visa
+3,1322,2024-10-04,Bill,1974.90,2024-02-22,Staff,Expenses,Unpaid,Paid,2024-05-22,983.30,--,Global Supplies Inc,Hardware Support,17,59.72,--,1974.90,American Express
+1,1323,2024-07-15,Expense,2778.44,2024-06-28,Manager,Expenses,Unpaid,Paid,2024-01-06,1546.66,--,Global Solutions Inc,Cloud Storage,10,178.09,--,2778.44,Mastercard
+2,1324,2024-02-19,Credit Card Credit,2210.34,2024-11-16,Staff,Expenses,Unpaid,--,2024-03-17,123.20,--,--,Cloud Storage,9,103.99,--,--,Check
+2,1325,2024-01-01,Expense,3414.79,2024-10-02,Admin,Bank Account,Unpaid,--,2024-10-01,2612.98,--,Premier Services Inc,--,--,--,--,3414.79,American Express
+2,1326,2024-06-02,Credit Card Credit,577.02,2024-11-08,Admin,Accounts Payable (A/P),--,Unpaid,2024-10-03,525.31,--,--,Hardware Support,3,175.10,--,--,Visa
+3,1327,2024-07-19,Payment,931.92,2024-09-14,Manager,Accounts Receivable (A/R),--,Unpaid,2024-10-01,918.65,John Miller,--,Cloud Storage,13,118.37,931.92,--,American Express
+1,1328,2024-06-16,Expense,578.86,2024-09-26,Staff,Bank Account,Paid,--,2024-05-12,561.16,--,Professional Solutions Inc,Technical Support,7,104.42,--,578.86,Visa
+2,1329,2024-04-20,Expense,1148.99,2024-12-03,Staff,Accounts Receivable (A/R),--,Unpaid,2024-05-03,650.82,--,Standard Partners Inc,Data Analytics,17,100.30,--,1148.99,Mastercard
+3,1330,2024-05-14,Payment,3998.69,2024-11-18,Manager,Accounts Payable (A/P),Unpaid,Unpaid,2024-05-20,2060.80,John Johnson,--,--,--,--,3998.69,--,Wire Transfer
+1,1331,2024-10-16,Bill,4416.39,2024-04-22,Staff,Expenses,Unpaid,--,2024-09-26,2713.53,--,Premier Partners Inc,--,--,--,--,4416.39,Check
+2,1332,2024-03-08,Expense,3660.41,2024-03-24,Staff,Bank Account,Unpaid,Unpaid,2024-06-28,3038.93,--,Acme Supplies Inc,Hardware Support,3,130.45,--,3660.41,Check
+3,1333,2024-04-13,Payment,4136.18,2024-04-04,Admin,Accounts Payable (A/P),Paid,Paid,2024-05-15,2007.63,John Martinez,--,Technical Support,14,90.18,4136.18,--,Visa
+3,1334,2024-09-06,Bill,880.86,2024-11-28,Admin,Expenses,Paid,Paid,2024-02-11,529.92,--,Professional Industries Inc,Hardware Support,3,181.11,--,880.86,Check
+1,1335,2024-04-04,Payment,3391.19,2024-10-24,Staff,Accounts Receivable (A/R),--,--,2024-10-25,3159.09,Linda Johnson,--,Technical Support,9,104.33,3391.19,--,Visa
+2,1336,2024-10-24,Bill,3039.12,2024-07-26,Staff,Accounts Payable (A/P),Unpaid,Paid,2024-03-04,532.32,--,Premier Services Inc,--,--,--,--,3039.12,American Express
+1,1337,2024-08-18,Credit Card Credit,2101.04,2024-06-23,Admin,Bank Account,--,Unpaid,2024-08-22,517.58,--,--,--,--,--,--,--,American Express
+1,1338,2024-11-20,Bill,1878.69,2024-01-27,Staff,Accounts Receivable (A/R),--,--,2024-04-09,1038.40,--,Professional Partners Inc,Hardware Support,10,131.40,--,1878.69,American Express
+2,1339,2024-01-13,Invoice,2721.06,2024-05-10,Admin,Accounts Payable (A/P),Unpaid,Paid,2024-03-15,1717.95,William Brown,--,--,--,--,2721.06,--,Check
+2,1340,2024-08-24,Invoice,1442.78,2024-07-27,Manager,Expenses,Paid,Paid,2024-12-09,730.53,John Rodriguez,--,--,--,--,1442.78,--,American Express
+3,1341,2024-06-15,Credit Card Credit,3050.37,2024-12-01,Admin,Accounts Payable (A/P),--,Unpaid,2024-11-05,9.38,--,--,--,--,--,--,--,Mastercard
+3,1342,2024-12-25,Payment,1637.24,2024-11-25,Admin,Expenses,Unpaid,Unpaid,2024-08-28,1203.65,John Rodriguez,--,Software License,9,42.96,1637.24,--,Wire Transfer
+1,1343,2024-07-13,Payment,4017.69,2024-10-08,Admin,Accounts Receivable (A/R),--,--,2024-10-21,918.87,Jennifer Martinez,--,Hardware Support,3,195.08,4017.69,--,Mastercard
+2,1344,2024-10-09,Payment,3536.18,2024-03-03,Manager,Accounts Payable (A/P),--,Paid,2024-01-23,1859.46,James Davis,--,Data Analytics,15,167.18,3536.18,--,Check
+2,1345,2024-12-16,Invoice,1199.97,2024-07-05,Manager,Accounts Payable (A/P),--,Paid,2024-05-24,812.61,William Miller,--,Hardware Support,14,44.27,1199.97,--,Mastercard
+1,1346,2024-06-19,Invoice,1521.95,2024-11-21,Manager,Accounts Receivable (A/R),Paid,Unpaid,2024-03-28,491.96,David Martinez,--,Cloud Storage,13,140.50,1521.95,--,Check
+3,1347,2024-01-02,Credit Card Credit,3706.91,2024-06-08,Manager,Bank Account,--,--,2024-10-23,2773.67,--,--,Consulting Services,2,11.02,--,--,Wire Transfer
+3,1348,2024-01-19,Expense,1966.59,2024-03-09,Admin,Expenses,Unpaid,Unpaid,2024-03-03,624.03,--,Standard Solutions Inc,Software License,17,92.26,--,1966.59,American Express
+3,1349,2024-06-14,Invoice,1635.02,2024-05-09,Staff,Bank Account,--,Unpaid,2024-07-06,515.92,Mary Davis,--,Hardware Support,16,155.10,1635.02,--,Mastercard
+1,1350,2024-04-05,Expense,4279.86,2024-01-08,Admin,Accounts Receivable (A/R),Unpaid,Unpaid,2024-03-23,1999.27,--,Premier Solutions Inc,Cloud Storage,4,199.09,--,4279.86,Check
+2,1351,2024-02-28,Invoice,2263.45,2024-12-28,Admin,Accounts Receivable (A/R),Unpaid,Paid,2024-04-28,643.08,David Davis,--,Cloud Storage,6,152.49,2263.45,--,American Express
+3,1352,2024-10-06,Expense,4465.38,2024-07-03,Admin,Expenses,--,Paid,2024-06-01,1269.42,--,Global Solutions Inc,Consulting Services,4,84.89,--,4465.38,Wire Transfer
+3,1353,2024-11-16,Invoice,4201.19,2024-08-21,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-11-20,3994.89,John Johnson,--,Cloud Storage,11,190.01,4201.19,--,Wire Transfer
+2,1354,2024-06-26,Bill,1135.70,2024-01-24,Admin,Expenses,Paid,Unpaid,2024-05-06,272.66,--,Acme Supplies Inc,--,--,--,--,1135.70,Check
+2,1355,2024-11-25,Invoice,200.51,2024-11-05,Admin,Bank Account,Unpaid,Unpaid,2024-12-26,184.81,William Miller,--,Cloud Storage,20,34.94,200.51,--,Visa
+2,1356,2024-05-19,Payment,2612.00,2024-10-14,Admin,Expenses,Unpaid,--,2024-03-14,1647.35,William Garcia,--,Cloud Storage,3,17.68,2612.00,--,American Express
+1,1357,2024-08-17,Credit Card Credit,3414.56,2024-11-21,Staff,Accounts Receivable (A/R),Unpaid,Unpaid,2024-07-03,3097.71,--,--,Technical Support,16,67.07,--,--,Mastercard
+1,1358,2024-09-03,Payment,4223.54,2024-01-17,Admin,Expenses,Unpaid,Paid,2024-08-22,3042.26,William Rodriguez,--,Data Analytics,9,77.54,4223.54,--,Wire Transfer
+2,1359,2024-03-26,Invoice,3866.37,2024-03-27,Manager,Accounts Receivable (A/R),Paid,Unpaid,2024-12-10,1213.83,John Miller,--,Technical Support,15,153.90,3866.37,--,Check
+1,1360,2024-04-06,Expense,4058.39,2024-02-24,Staff,Bank Account,--,Paid,2024-07-18,72.71,--,Acme Supplies Inc,--,--,--,--,4058.39,Check
+2,1361,2024-11-24,Invoice,165.19,2024-10-24,Manager,Bank Account,--,--,2024-06-23,111.31,John Johnson,--,Technical Support,13,162.88,165.19,--,Visa
+3,1362,2024-04-28,Bill,762.06,2024-01-07,Manager,Accounts Payable (A/P),--,Paid,2024-07-27,477.09,--,Standard Industries Inc,Consulting Services,18,46.27,--,762.06,American Express
+1,1363,2024-03-24,Credit Card Credit,826.01,2024-12-15,Manager,Expenses,Paid,Unpaid,2024-10-08,166.31,--,--,Consulting Services,19,167.60,--,--,Check
+2,1364,2024-07-28,Invoice,1735.87,2024-08-24,Staff,Bank Account,Paid,Unpaid,2024-07-16,891.12,Patricia Smith,--,Technical Support,20,187.70,1735.87,--,Check
+2,1365,2024-09-03,Bill,3600.02,2024-05-21,Manager,Expenses,Paid,Unpaid,2024-10-21,1248.36,--,Standard Services Inc,Data Analytics,14,13.95,--,3600.02,American Express
+3,1366,2024-11-11,Bill,2399.28,2024-10-28,Staff,Expenses,Paid,Unpaid,2024-12-23,936.61,--,Professional Services Inc,Software License,14,168.29,--,2399.28,American Express
+3,1367,2024-04-10,Credit Card Credit,4018.80,2024-12-24,Admin,Expenses,Paid,Paid,2024-04-06,2434.38,--,--,--,--,--,--,--,Visa
+1,1368,2024-09-02,Credit Card Credit,4720.97,2024-01-12,Manager,Bank Account,--,Paid,2024-03-27,4057.49,--,--,Software License,17,16.07,--,--,Visa
+1,1369,2024-08-09,Payment,2210.04,2024-06-26,Manager,Accounts Receivable (A/R),--,Unpaid,2024-03-28,1525.23,James Smith,--,Data Analytics,17,124.82,2210.04,--,Visa
+1,1370,2024-02-26,Invoice,4640.50,2024-10-20,Admin,Accounts Receivable (A/R),--,Paid,2024-03-21,547.85,Linda Jones,--,--,--,--,4640.50,--,Mastercard
+3,1371,2024-08-24,Payment,869.46,2024-02-05,Staff,Bank Account,Unpaid,Paid,2024-02-28,175.54,Jennifer Garcia,--,--,--,--,869.46,--,Check
+1,1372,2024-02-09,Invoice,1302.05,2024-06-23,Manager,Bank Account,--,--,2024-04-05,980.71,Linda Johnson,--,Data Analytics,17,90.13,1302.05,--,Mastercard
+2,1373,2024-09-26,Bill,4028.67,2024-11-12,Admin,Expenses,Paid,Paid,2024-12-26,2084.23,--,Quality Supplies Inc,--,--,--,--,4028.67,Visa
+1,1374,2024-07-02,Invoice,1757.69,2024-07-25,Admin,Accounts Payable (A/P),--,Paid,2024-11-23,1404.52,Elizabeth Rodriguez,--,--,--,--,1757.69,--,Wire Transfer
+2,1375,2024-12-24,Payment,2154.60,2024-06-12,Admin,Bank Account,--,--,2024-03-23,870.32,Barbara Johnson,--,--,--,--,2154.60,--,Mastercard
+2,1376,2024-11-13,Expense,3159.36,2024-04-10,Admin,Accounts Receivable (A/R),--,Unpaid,2024-07-24,2271.20,--,Global Supplies Inc,Technical Support,5,108.89,--,3159.36,Wire Transfer
+2,1377,2024-11-06,Payment,1147.30,2024-01-01,Staff,Bank Account,Paid,Unpaid,2024-12-14,1132.33,Mary Jones,--,Data Analytics,4,149.08,1147.30,--,American Express
+1,1378,2024-08-10,Payment,3172.25,2024-10-24,Admin,Expenses,Unpaid,Paid,2024-12-19,1794.22,Michael Garcia,--,Technical Support,18,170.45,3172.25,--,Mastercard
+3,1379,2024-10-22,Payment,1566.09,2024-03-23,Manager,Accounts Payable (A/P),Paid,Unpaid,2024-09-19,301.56,James Smith,--,--,--,--,1566.09,--,American Express
+2,1380,2024-02-03,Credit Card Credit,580.14,2024-01-14,Admin,Expenses,Paid,Unpaid,2024-02-12,392.65,--,--,--,--,--,--,--,Check
+3,1381,2024-08-21,Expense,2838.95,2024-07-15,Staff,Expenses,--,Unpaid,2024-03-05,1435.90,--,Premier Services Inc,Hardware Support,16,145.12,--,2838.95,Mastercard
+2,1382,2024-01-24,Expense,4330.03,2024-03-18,Manager,Accounts Receivable (A/R),--,Unpaid,2024-02-04,1600.32,--,Standard Supplies Inc,Cloud Storage,10,17.65,--,4330.03,Mastercard
+1,1383,2024-03-05,Invoice,1920.19,2024-10-14,Admin,Bank Account,Unpaid,Paid,2024-03-27,1420.29,David Miller,--,Cloud Storage,1,33.24,1920.19,--,American Express
+3,1384,2024-08-11,Invoice,4365.09,2024-07-16,Staff,Accounts Payable (A/P),Paid,--,2024-11-15,3324.80,James Jones,--,Hardware Support,15,38.31,4365.09,--,American Express
+1,1385,2024-07-11,Invoice,4019.08,2024-09-02,Staff,Expenses,--,Unpaid,2024-11-03,3480.33,James Smith,--,Cloud Storage,1,118.68,4019.08,--,American Express
+3,1386,2024-09-19,Expense,3261.28,2024-01-19,Staff,Accounts Payable (A/P),Unpaid,--,2024-01-04,2146.75,--,Quality Services Inc,Software License,18,44.15,--,3261.28,Visa
+3,1387,2024-08-03,Payment,3955.11,2024-09-20,Manager,Expenses,--,Paid,2024-08-28,3693.47,Robert Rodriguez,--,--,--,--,3955.11,--,American Express
+2,1388,2024-07-09,Credit Card Credit,984.49,2024-02-04,Admin,Accounts Payable (A/P),Unpaid,Paid,2024-03-09,756.39,--,--,Data Analytics,5,68.29,--,--,Check
+1,1389,2024-05-13,Bill,388.68,2024-02-11,Admin,Expenses,Unpaid,Unpaid,2024-07-27,349.62,--,Global Services Inc,Technical Support,2,48.49,--,388.68,Wire Transfer
+2,1390,2024-02-09,Expense,1258.81,2024-01-11,Manager,Expenses,Paid,Unpaid,2024-01-14,797.51,--,Global Partners Inc,--,--,--,--,1258.81,Visa
+3,1391,2024-11-26,Payment,2814.97,2024-03-10,Staff,Expenses,Unpaid,Paid,2024-11-17,572.72,John Johnson,--,Software License,5,80.93,2814.97,--,Mastercard
+3,1392,2024-08-02,Bill,2733.92,2024-01-27,Manager,Bank Account,--,Paid,2024-01-02,2552.14,--,Global Supplies Inc,--,--,--,--,2733.92,Check
+3,1393,2024-04-19,Payment,3029.55,2024-09-10,Admin,Accounts Payable (A/P),--,--,2024-10-03,910.80,Barbara Johnson,--,Hardware Support,13,142.70,3029.55,--,Mastercard
+2,1394,2024-11-11,Expense,4994.22,2024-11-09,Staff,Expenses,Unpaid,Paid,2024-11-11,1706.18,--,Global Supplies Inc,Data Analytics,15,192.21,--,4994.22,American Express
+3,1395,2024-08-01,Invoice,4578.69,2024-01-22,Admin,Expenses,--,--,2024-12-16,3491.09,John Miller,--,Consulting Services,18,25.42,4578.69,--,Visa
+2,1396,2024-07-27,Expense,251.64,2024-10-12,Manager,Accounts Payable (A/P),--,Paid,2024-02-15,93.23,--,Premier Solutions Inc,Consulting Services,7,94.47,--,251.64,Mastercard
+2,1397,2024-04-03,Invoice,3816.26,2024-10-21,Manager,Accounts Payable (A/P),Paid,Unpaid,2024-06-02,1071.44,Barbara Johnson,--,--,--,--,3816.26,--,Wire Transfer
+3,1398,2024-09-16,Bill,134.96,2024-03-18,Admin,Accounts Payable (A/P),Paid,--,2024-03-24,8.78,--,Premier Partners Inc,Hardware Support,9,187.38,--,134.96,Mastercard
+1,1399,2024-12-22,Expense,3671.60,2024-09-20,Manager,Expenses,Paid,Unpaid,2024-11-22,3462.60,--,Standard Supplies Inc,Technical Support,2,172.23,--,3671.60,American Express
+3,1400,2024-09-15,Credit Card Credit,4237.27,2024-08-12,Staff,Accounts Receivable (A/R),--,Paid,2024-01-09,3891.48,--,--,Consulting Services,18,95.28,--,--,Visa
+1,1401,2024-12-08,Credit Card Credit,1053.58,2024-12-14,Admin,Accounts Payable (A/P),Paid,Paid,2024-06-10,66.21,--,--,Data Analytics,4,15.30,--,--,Check
+2,1402,2024-04-04,Invoice,3003.40,2024-08-08,Manager,Accounts Receivable (A/R),Unpaid,--,2024-04-03,2329.89,Michael Johnson,--,--,--,--,3003.40,--,Wire Transfer
+1,1403,2024-02-02,Credit Card Credit,3844.08,2024-01-13,Manager,Accounts Receivable (A/R),Paid,Paid,2024-08-02,1158.88,--,--,Data Analytics,14,22.50,--,--,Visa
+2,1404,2024-04-28,Expense,355.80,2024-10-26,Staff,Accounts Receivable (A/R),Unpaid,Unpaid,2024-08-26,152.32,--,Quality Supplies Inc,Data Analytics,20,127.65,--,355.80,American Express
+1,1405,2024-01-20,Invoice,2324.98,2024-12-03,Staff,Accounts Payable (A/P),--,Paid,2024-11-17,595.86,James Garcia,--,Consulting Services,14,101.47,2324.98,--,Wire Transfer
+1,1406,2024-03-10,Credit Card Credit,1011.02,2024-10-14,Staff,Bank Account,Unpaid,--,2024-09-25,147.23,--,--,Consulting Services,16,68.65,--,--,American Express
+3,1407,2024-03-02,Payment,1907.27,2024-04-17,Staff,Accounts Receivable (A/R),Unpaid,Unpaid,2024-04-07,1221.71,Patricia Brown,--,Technical Support,7,159.20,1907.27,--,American Express
+3,1408,2024-12-11,Bill,3372.51,2024-10-19,Manager,Bank Account,Unpaid,Unpaid,2024-03-04,1532.14,--,Premier Partners Inc,Cloud Storage,2,104.23,--,3372.51,Visa
+2,1409,2024-12-25,Bill,3496.78,2024-06-26,Staff,Expenses,Paid,Unpaid,2024-03-27,3461.39,--,Professional Partners Inc,Software License,12,11.88,--,3496.78,American Express
+3,1410,2024-10-25,Invoice,2817.99,2024-06-02,Admin,Accounts Payable (A/P),Paid,Unpaid,2024-03-08,2495.00,James Martinez,--,Software License,6,74.57,2817.99,--,Wire Transfer
+1,1411,2024-01-27,Bill,974.85,2024-11-05,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-05-15,234.11,--,Premier Services Inc,Hardware Support,12,135.57,--,974.85,Wire Transfer
+1,1412,2024-04-07,Expense,4420.15,2024-09-13,Staff,Bank Account,Unpaid,--,2024-07-21,1080.95,--,Professional Partners Inc,Software License,2,154.99,--,4420.15,Wire Transfer
+2,1413,2024-04-02,Bill,4286.73,2024-11-26,Manager,Accounts Payable (A/P),--,--,2024-08-07,3117.74,--,Quality Supplies Inc,--,--,--,--,4286.73,Check
+3,1414,2024-06-16,Expense,417.88,2024-09-15,Admin,Bank Account,--,Unpaid,2024-09-23,201.96,--,Global Partners Inc,Technical Support,16,100.01,--,417.88,Wire Transfer
+3,1415,2024-01-07,Credit Card Credit,3226.72,2024-04-07,Manager,Accounts Payable (A/P),Unpaid,Paid,2024-05-14,2867.61,--,--,--,--,--,--,--,Wire Transfer
+1,1416,2024-02-10,Bill,4683.94,2024-08-17,Manager,Accounts Payable (A/P),--,Paid,2024-08-17,2909.32,--,Acme Partners Inc,Consulting Services,14,95.72,--,4683.94,Check
+2,1417,2024-01-06,Credit Card Credit,1900.81,2024-08-08,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-05-27,953.76,--,--,Hardware Support,18,132.29,--,--,American Express
+1,1418,2024-06-07,Bill,582.20,2024-11-11,Manager,Bank Account,--,--,2024-05-07,410.83,--,Quality Industries Inc,Data Analytics,5,199.70,--,582.20,Wire Transfer
+2,1419,2024-07-27,Payment,141.82,2024-10-25,Staff,Accounts Receivable (A/R),Unpaid,--,2024-09-25,134.94,Linda Miller,--,Hardware Support,13,53.24,141.82,--,Mastercard
+2,1420,2024-12-27,Credit Card Credit,1245.24,2024-08-11,Admin,Bank Account,Paid,Unpaid,2024-12-14,260.98,--,--,Data Analytics,15,172.06,--,--,Visa
+1,1421,2024-08-26,Payment,780.86,2024-11-27,Manager,Bank Account,Paid,Unpaid,2024-07-22,587.69,Mary Davis,--,Technical Support,18,66.93,780.86,--,Wire Transfer
+1,1422,2024-06-19,Invoice,2881.13,2024-11-26,Staff,Expenses,Unpaid,Paid,2024-07-03,1539.94,Robert Johnson,--,--,--,--,2881.13,--,Mastercard
+3,1423,2024-05-03,Credit Card Credit,632.33,2024-03-04,Staff,Accounts Payable (A/P),Paid,--,2024-10-16,16.97,--,--,Cloud Storage,7,23.20,--,--,Check
+2,1424,2024-01-12,Payment,1108.87,2024-09-01,Admin,Bank Account,Unpaid,Unpaid,2024-03-04,143.20,Jennifer Garcia,--,Consulting Services,14,100.87,1108.87,--,Visa
+1,1425,2024-04-10,Credit Card Credit,4779.97,2024-07-27,Staff,Expenses,Paid,--,2024-10-10,2808.20,--,--,--,--,--,--,--,Wire Transfer
+2,1426,2024-02-27,Credit Card Credit,1449.66,2024-07-20,Admin,Bank Account,--,Unpaid,2024-08-15,835.20,--,--,Software License,3,64.70,--,--,Check
+2,1427,2024-10-27,Payment,3531.55,2024-03-14,Admin,Accounts Payable (A/P),--,--,2024-07-15,1358.46,Elizabeth Jones,--,--,--,--,3531.55,--,Mastercard
+1,1428,2024-03-09,Expense,568.12,2024-11-18,Manager,Accounts Receivable (A/R),--,--,2024-12-07,516.27,--,Premier Partners Inc,--,--,--,--,568.12,Check
+3,1429,2024-06-14,Expense,694.03,2024-08-06,Manager,Accounts Payable (A/P),--,Paid,2024-08-01,50.80,--,Acme Partners Inc,Consulting Services,15,82.42,--,694.03,Check
+1,1430,2024-06-22,Bill,2043.70,2024-12-15,Manager,Expenses,Paid,Paid,2024-09-22,495.18,--,Quality Industries Inc,Technical Support,15,36.65,--,2043.70,American Express
+2,1431,2024-02-18,Bill,935.89,2024-12-13,Admin,Accounts Receivable (A/R),--,Paid,2024-11-09,143.66,--,Premier Services Inc,Software License,12,43.81,--,935.89,Visa
+3,1432,2024-11-22,Expense,1159.22,2024-12-22,Admin,Expenses,--,Unpaid,2024-08-02,693.45,--,Premier Partners Inc,Technical Support,2,156.76,--,1159.22,Mastercard
+2,1433,2024-01-01,Bill,1935.76,2024-06-27,Admin,Accounts Receivable (A/R),Paid,Paid,2024-11-06,1401.51,--,Quality Services Inc,Consulting Services,2,88.98,--,1935.76,Visa
+3,1434,2024-07-14,Payment,1681.13,2024-02-08,Admin,Accounts Receivable (A/R),Unpaid,Unpaid,2024-03-01,676.05,Michael Johnson,--,Software License,11,12.28,1681.13,--,Mastercard
+3,1435,2024-10-12,Credit Card Credit,1178.47,2024-01-03,Admin,Expenses,Unpaid,--,2024-08-04,839.70,--,--,Hardware Support,19,42.58,--,--,Visa
+3,1436,2024-03-11,Expense,1689.34,2024-03-21,Staff,Bank Account,--,Unpaid,2024-02-11,29.81,--,Premier Partners Inc,Technical Support,19,95.29,--,1689.34,Wire Transfer
+1,1437,2024-01-20,Bill,2566.76,2024-02-10,Admin,Expenses,Paid,--,2024-02-02,353.07,--,Professional Partners Inc,--,--,--,--,2566.76,Check
+1,1438,2024-12-20,Payment,1089.86,2024-08-24,Manager,Accounts Payable (A/P),Unpaid,Unpaid,2024-11-26,828.83,William Brown,--,Consulting Services,17,160.44,1089.86,--,Check
+2,1439,2024-06-08,Payment,3777.70,2024-04-18,Admin,Accounts Payable (A/P),--,--,2024-12-08,2297.08,Mary Martinez,--,--,--,--,3777.70,--,Check
+2,1440,2024-02-07,Expense,1676.02,2024-01-21,Admin,Accounts Payable (A/P),Paid,Paid,2024-03-19,919.88,--,Professional Services Inc,Consulting Services,7,54.90,--,1676.02,Visa
+1,1441,2024-04-14,Credit Card Credit,3652.45,2024-03-20,Admin,Bank Account,Unpaid,--,2024-08-21,735.61,--,--,Technical Support,16,25.20,--,--,American Express
+3,1442,2024-10-24,Credit Card Credit,1950.82,2024-07-25,Admin,Expenses,Paid,Unpaid,2024-07-28,162.37,--,--,Cloud Storage,10,123.08,--,--,Mastercard
+2,1443,2024-05-13,Expense,3660.58,2024-09-20,Manager,Accounts Receivable (A/R),Unpaid,Paid,2024-12-16,716.43,--,Standard Partners Inc,Hardware Support,7,10.79,--,3660.58,Wire Transfer
+3,1444,2024-06-13,Payment,2508.12,2024-08-10,Staff,Accounts Receivable (A/R),Unpaid,Paid,2024-02-13,2337.90,James Jones,--,--,--,--,2508.12,--,Mastercard
+3,1445,2024-06-17,Bill,3838.46,2024-12-16,Staff,Bank Account,--,Paid,2024-11-13,3556.40,--,Standard Partners Inc,--,--,--,--,3838.46,Mastercard
+1,1446,2024-12-22,Bill,2440.86,2024-11-05,Manager,Expenses,--,Paid,2024-05-08,1469.76,--,Acme Partners Inc,Technical Support,6,12.34,--,2440.86,Visa
+3,1447,2024-04-14,Credit Card Credit,2048.57,2024-03-27,Manager,Bank Account,--,Unpaid,2024-09-18,1348.95,--,--,Consulting Services,13,121.36,--,--,Check
+2,1448,2024-03-09,Invoice,635.44,2024-12-07,Staff,Expenses,--,Unpaid,2024-01-06,518.77,Michael Davis,--,--,--,--,635.44,--,Visa
+3,1449,2024-05-24,Invoice,442.22,2024-07-06,Admin,Bank Account,Paid,--,2024-03-07,215.13,William Rodriguez,--,Cloud Storage,17,190.21,442.22,--,Check
+1,1450,2024-04-09,Expense,4090.42,2024-07-15,Staff,Accounts Receivable (A/R),--,Paid,2024-02-10,350.58,--,Global Services Inc,Technical Support,4,62.58,--,4090.42,American Express
+1,1451,2024-01-09,Invoice,2969.67,2024-01-22,Staff,Accounts Receivable (A/R),Paid,Paid,2024-09-26,21.57,William Smith,--,Consulting Services,20,108.81,2969.67,--,American Express
+2,1452,2024-06-22,Credit Card Credit,2418.84,2024-06-11,Admin,Bank Account,--,Unpaid,2024-07-20,138.46,--,--,Cloud Storage,12,175.88,--,--,Visa
+1,1453,2024-10-04,Invoice,2338.90,2024-09-09,Staff,Accounts Payable (A/P),Unpaid,Unpaid,2024-10-22,1541.05,William Rodriguez,--,Software License,16,107.83,2338.90,--,Mastercard
+1,1454,2024-12-11,Invoice,4932.29,2024-11-15,Admin,Expenses,Unpaid,--,2024-10-26,401.34,Linda Williams,--,Hardware Support,14,188.43,4932.29,--,Check
+1,1455,2024-09-19,Invoice,3697.96,2024-12-17,Admin,Accounts Payable (A/P),Unpaid,Paid,2024-05-27,2488.96,Jennifer Garcia,--,Technical Support,18,197.57,3697.96,--,Check
+1,1456,2024-04-07,Bill,4492.40,2024-03-25,Staff,Accounts Receivable (A/R),Paid,Unpaid,2024-12-01,719.84,--,Standard Supplies Inc,Data Analytics,11,181.50,--,4492.40,American Express
+1,1457,2024-11-05,Bill,3623.96,2024-09-21,Staff,Expenses,Paid,--,2024-06-28,811.06,--,Premier Solutions Inc,Technical Support,19,155.60,--,3623.96,Wire Transfer
+3,1458,2024-12-24,Invoice,3255.53,2024-07-21,Staff,Expenses,Paid,Paid,2024-05-04,947.28,William Brown,--,--,--,--,3255.53,--,Visa
+3,1459,2024-02-19,Invoice,1767.17,2024-06-05,Manager,Expenses,--,--,2024-01-10,109.36,John Johnson,--,--,--,--,1767.17,--,Wire Transfer
+3,1460,2024-03-17,Bill,4250.88,2024-11-20,Staff,Accounts Payable (A/P),Paid,Unpaid,2024-01-18,3623.29,--,Global Supplies Inc,Hardware Support,11,37.49,--,4250.88,American Express
+1,1461,2024-12-22,Bill,2549.18,2024-12-02,Staff,Bank Account,Unpaid,--,2024-12-04,697.08,--,Professional Partners Inc,Hardware Support,19,100.87,--,2549.18,Mastercard
+1,1462,2024-06-05,Credit Card Credit,1528.33,2024-12-07,Staff,Accounts Payable (A/P),--,--,2024-01-28,1186.04,--,--,--,--,--,--,--,Check
+1,1463,2024-01-18,Credit Card Credit,1565.60,2024-07-11,Manager,Expenses,Unpaid,Unpaid,2024-07-03,826.39,--,--,--,--,--,--,--,American Express
+3,1464,2024-07-04,Payment,3512.24,2024-03-11,Staff,Accounts Receivable (A/R),--,Unpaid,2024-08-21,574.93,James Smith,--,--,--,--,3512.24,--,Mastercard
+1,1465,2024-04-26,Credit Card Credit,3510.18,2024-12-07,Staff,Accounts Receivable (A/R),Unpaid,--,2024-10-04,2381.02,--,--,Software License,5,81.55,--,--,Check
+1,1466,2024-01-04,Bill,4637.33,2024-09-21,Manager,Expenses,Paid,--,2024-12-13,1136.15,--,Standard Industries Inc,Cloud Storage,4,55.76,--,4637.33,Check
+3,1467,2024-11-22,Payment,3471.12,2024-02-25,Manager,Expenses,Unpaid,--,2024-11-15,1275.02,Linda Rodriguez,--,Cloud Storage,4,32.16,3471.12,--,Visa
+1,1468,2024-01-19,Credit Card Credit,3242.91,2024-10-19,Manager,Bank Account,--,--,2024-02-26,1922.65,--,--,--,--,--,--,--,Check
+2,1469,2024-10-05,Credit Card Credit,4999.78,2024-02-11,Admin,Accounts Payable (A/P),Unpaid,--,2024-01-13,2780.18,--,--,--,--,--,--,--,Wire Transfer
+3,1470,2024-12-27,Expense,2493.96,2024-11-04,Admin,Accounts Receivable (A/R),Paid,--,2024-12-06,13.28,--,Standard Services Inc,--,--,--,--,2493.96,Check
+1,1471,2024-02-18,Payment,702.92,2024-05-28,Admin,Accounts Receivable (A/R),Paid,--,2024-05-12,679.22,Mary Davis,--,Technical Support,6,90.38,702.92,--,Visa
+2,1472,2024-11-18,Bill,1572.94,2024-08-05,Staff,Expenses,--,Unpaid,2024-09-12,953.47,--,Standard Services Inc,--,--,--,--,1572.94,Wire Transfer
+1,1473,2024-01-07,Bill,3470.86,2024-03-10,Admin,Accounts Payable (A/P),--,--,2024-04-19,1246.26,--,Premier Solutions Inc,--,--,--,--,3470.86,Mastercard
+3,1474,2024-03-13,Expense,2167.87,2024-08-03,Manager,Expenses,--,Paid,2024-09-07,152.96,--,Premier Industries Inc,Cloud Storage,9,199.12,--,2167.87,Mastercard
+3,1475,2024-03-14,Payment,2861.85,2024-03-11,Manager,Expenses,Paid,--,2024-04-03,773.06,John Martinez,--,--,--,--,2861.85,--,Wire Transfer
+1,1476,2024-06-11,Invoice,3451.50,2024-05-05,Admin,Bank Account,Paid,Paid,2024-07-08,1306.85,James Rodriguez,--,Technical Support,4,158.72,3451.50,--,Visa
+1,1477,2024-09-12,Bill,2679.73,2024-12-19,Manager,Bank Account,--,Paid,2024-01-06,852.14,--,Quality Supplies Inc,Cloud Storage,13,44.33,--,2679.73,Wire Transfer
+2,1478,2024-01-22,Expense,3013.62,2024-09-23,Admin,Accounts Payable (A/P),Paid,Unpaid,2024-10-24,805.75,--,Standard Solutions Inc,Software License,12,144.43,--,3013.62,Mastercard
+2,1479,2024-09-10,Expense,2149.39,2024-05-14,Staff,Accounts Payable (A/P),Unpaid,--,2024-02-10,873.76,--,Professional Partners Inc,Hardware Support,11,170.60,--,2149.39,Visa
+1,1480,2024-12-10,Invoice,3676.77,2024-09-16,Admin,Expenses,--,--,2024-12-05,1763.58,Linda Johnson,--,Consulting Services,17,140.17,3676.77,--,Wire Transfer
+1,1481,2024-12-14,Invoice,2086.81,2024-12-18,Staff,Bank Account,Paid,--,2024-11-27,2085.07,Mary Brown,--,Technical Support,17,139.97,2086.81,--,Visa
+1,1482,2024-03-03,Expense,2298.40,2024-06-27,Admin,Bank Account,Paid,Unpaid,2024-08-13,391.84,--,Premier Services Inc,Data Analytics,4,74.21,--,2298.40,Mastercard
+2,1483,2024-05-07,Expense,4268.81,2024-01-24,Staff,Expenses,Paid,Unpaid,2024-11-17,3524.87,--,Standard Supplies Inc,Cloud Storage,2,187.73,--,4268.81,Wire Transfer
+2,1484,2024-05-12,Credit Card Credit,381.73,2024-02-01,Manager,Accounts Payable (A/P),Unpaid,Unpaid,2024-01-04,164.45,--,--,Cloud Storage,7,26.10,--,--,Wire Transfer
+2,1485,2024-04-16,Bill,2112.52,2024-07-12,Manager,Bank Account,Unpaid,Paid,2024-09-26,569.29,--,Professional Solutions Inc,Technical Support,15,134.69,--,2112.52,Check
+3,1486,2024-04-04,Bill,785.38,2024-04-10,Admin,Accounts Payable (A/P),Unpaid,Unpaid,2024-12-11,707.63,--,Standard Services Inc,Hardware Support,6,136.58,--,785.38,Check
+3,1487,2024-03-11,Payment,682.08,2024-07-17,Staff,Expenses,Paid,Paid,2024-02-26,14.43,William Garcia,--,Technical Support,5,75.38,682.08,--,Visa
+3,1488,2024-01-14,Bill,355.00,2024-08-10,Manager,Expenses,Paid,Unpaid,2024-04-20,54.14,--,Acme Supplies Inc,Data Analytics,17,45.50,--,355.00,American Express
+1,1489,2024-08-23,Invoice,4334.42,2024-02-23,Staff,Accounts Payable (A/P),Paid,--,2024-11-21,644.64,William Rodriguez,--,Cloud Storage,4,35.14,4334.42,--,Visa
+1,1490,2024-02-28,Payment,4952.95,2024-01-13,Manager,Bank Account,--,--,2024-04-08,1665.07,James Martinez,--,Data Analytics,16,21.66,4952.95,--,Check
+3,1491,2024-07-08,Invoice,1591.02,2024-06-02,Admin,Accounts Receivable (A/R),Paid,Paid,2024-11-24,511.74,Michael Martinez,--,Hardware Support,10,99.69,1591.02,--,Wire Transfer
+2,1492,2024-06-10,Invoice,2211.45,2024-02-04,Staff,Accounts Receivable (A/R),--,--,2024-03-11,797.38,Patricia Miller,--,--,--,--,2211.45,--,American Express
+1,1493,2024-10-13,Expense,2691.42,2024-02-04,Admin,Accounts Receivable (A/R),Paid,--,2024-11-27,512.54,--,Acme Partners Inc,Hardware Support,15,185.85,--,2691.42,Visa
+1,1494,2024-09-24,Expense,3133.15,2024-03-02,Admin,Accounts Payable (A/P),Unpaid,--,2024-12-09,2793.48,--,Quality Supplies Inc,--,--,--,--,3133.15,Wire Transfer
+2,1495,2024-02-16,Payment,4485.07,2024-07-17,Staff,Accounts Receivable (A/R),Paid,--,2024-05-23,4339.25,David Williams,--,Consulting Services,10,18.63,4485.07,--,Wire Transfer
+2,1496,2024-11-18,Invoice,3992.51,2024-09-03,Admin,Expenses,--,Unpaid,2024-09-25,1558.07,Jennifer Jones,--,Cloud Storage,20,61.58,3992.51,--,Mastercard
+3,1497,2024-08-17,Invoice,884.01,2024-12-24,Staff,Bank Account,Unpaid,Paid,2024-05-23,237.37,Robert Williams,--,Consulting Services,4,42.51,884.01,--,Visa
+1,1498,2024-05-28,Expense,1267.26,2024-01-21,Admin,Accounts Payable (A/P),--,Paid,2024-01-21,440.33,--,Premier Industries Inc,Hardware Support,20,194.72,--,1267.26,American Express
+2,1499,2024-10-10,Invoice,4737.50,2024-06-02,Staff,Accounts Receivable (A/R),Unpaid,Paid,2024-12-09,837.28,Mary Davis,--,Software License,1,112.10,4737.50,--,Wire Transfer
