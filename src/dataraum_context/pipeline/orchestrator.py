@@ -333,9 +333,9 @@ def get_pipeline() -> Pipeline:
 
 def _register_builtin_phases(pipeline: Pipeline) -> None:
     """Register all built-in phase implementations."""
-    # Import and register phases
-    # TODO: Add phase implementations as they are created
-    pass
+    from dataraum_context.pipeline.phases import ImportPhase
+
+    pipeline.register(ImportPhase())
 
 
 async def run_pipeline(

@@ -1,0 +1,197 @@
+"""Smoke tests for pipeline phases.
+
+These tests verify that each phase completes successfully against real data.
+They don't validate specific outputs - just that phases run without errors.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from dataraum_context.pipeline.base import PhaseStatus
+
+from .conftest import FINANCE_JUNK_COLUMNS, PipelineTestHarness
+
+pytestmark = pytest.mark.integration
+
+
+class TestImportPhaseSmoke:
+    """Smoke tests for the import phase."""
+
+    @pytest.mark.asyncio
+    async def test_import_small_finance_directory(
+        self,
+        harness: PipelineTestHarness,
+        small_finance_path: Path,
+    ):
+        """Import the small finance fixture directory."""
+        result = await harness.run_import(
+            source_path=small_finance_path,
+            source_name="small_finance",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        assert result.status == PhaseStatus.COMPLETED, f"Import failed: {result.error}"
+        assert "raw_tables" in result.outputs
+        assert len(result.outputs["raw_tables"]) == 5  # 5 CSV files
+        assert result.records_created == 5
+
+    @pytest.mark.asyncio
+    async def test_import_creates_duckdb_tables(
+        self,
+        harness: PipelineTestHarness,
+        small_finance_path: Path,
+    ):
+        """Verify DuckDB tables are created after import."""
+        await harness.run_import(
+            source_path=small_finance_path,
+            source_name="small_finance",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        tables = harness.get_duckdb_tables()
+        assert len(tables) == 5
+
+        # All tables should have raw_ prefix
+        for table in tables:
+            assert table.startswith("raw_")
+
+    @pytest.mark.asyncio
+    async def test_import_creates_metadata_records(
+        self,
+        harness: PipelineTestHarness,
+        small_finance_path: Path,
+    ):
+        """Verify SQLAlchemy metadata records are created."""
+        await harness.run_import(
+            source_path=small_finance_path,
+            source_name="small_finance",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        table_count = await harness.get_table_count()
+        column_count = await harness.get_column_count()
+
+        assert table_count == 5
+        assert column_count > 0  # Each table has columns
+
+    @pytest.mark.asyncio
+    async def test_import_single_csv(
+        self,
+        harness: PipelineTestHarness,
+        small_finance_path: Path,
+    ):
+        """Import a single CSV file."""
+        csv_file = small_finance_path / "customers.csv"
+
+        result = await harness.run_import(
+            source_path=csv_file,
+            source_name="customers_only",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        assert result.status == PhaseStatus.COMPLETED
+        assert len(result.outputs["raw_tables"]) == 1
+        assert result.records_processed == 100  # 100 rows in synthetic fixture
+
+    @pytest.mark.asyncio
+    async def test_import_preserves_data(
+        self,
+        harness: PipelineTestHarness,
+        small_finance_path: Path,
+    ):
+        """Verify imported data matches source."""
+        await harness.run_import(
+            source_path=small_finance_path,
+            source_name="small_finance",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        # Check row counts match synthetic fixtures
+        for table_name, expected_rows in [
+            ("raw_customers", 100),
+            ("raw_vendors", 50),
+            ("raw_products", 30),
+            ("raw_payment_methods", 10),
+            ("raw_transactions", 500),
+        ]:
+            result = harness.query_duckdb(f"SELECT COUNT(*) FROM {table_name}")
+            actual_rows = result[0][0]
+            assert actual_rows == expected_rows, (
+                f"{table_name}: expected {expected_rows}, got {actual_rows}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_import_drops_junk_columns(
+        self,
+        harness: PipelineTestHarness,
+        small_finance_path: Path,
+    ):
+        """Verify junk columns are dropped."""
+        await harness.run_import(
+            source_path=small_finance_path,
+            source_name="small_finance",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        # Get columns for transactions table (which has Unnamed columns)
+        result = harness.query_duckdb("DESCRIBE raw_transactions")
+        columns = [row[0] for row in result]
+
+        # None of the junk columns should be present
+        for junk in FINANCE_JUNK_COLUMNS:
+            assert junk not in columns, f"Junk column '{junk}' was not dropped"
+
+
+class TestImportPhaseRealData:
+    """Tests against real finance data (larger, slower).
+
+    These tests use the full example data instead of fixtures.
+    They're marked as slow and can be skipped in CI.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.slow
+    async def test_import_real_finance_data(
+        self,
+        harness: PipelineTestHarness,
+        real_finance_path: Path,
+    ):
+        """Import the full finance example data."""
+        if not real_finance_path.exists():
+            pytest.skip("Real finance data not available")
+
+        result = await harness.run_import(
+            source_path=real_finance_path,
+            source_name="finance_example",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        assert result.status == PhaseStatus.COMPLETED
+        assert len(result.outputs["raw_tables"]) >= 5
+
+        # Check we loaded significant data
+        assert result.records_processed > 1000
+
+    @pytest.mark.asyncio
+    @pytest.mark.slow
+    async def test_real_data_master_table_size(
+        self,
+        harness: PipelineTestHarness,
+        real_finance_path: Path,
+    ):
+        """Verify the master transaction table has expected scale."""
+        if not real_finance_path.exists():
+            pytest.skip("Real finance data not available")
+
+        await harness.run_import(
+            source_path=real_finance_path,
+            source_name="finance_example",
+            junk_columns=FINANCE_JUNK_COLUMNS,
+        )
+
+        result = harness.query_duckdb("SELECT COUNT(*) FROM raw_master_txn_table")
+        row_count = result[0][0]
+
+        # The master table should have many thousands of rows
+        assert row_count > 10000
