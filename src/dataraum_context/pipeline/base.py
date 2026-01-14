@@ -1,0 +1,316 @@
+"""Pipeline base types and protocols.
+
+Defines the Phase protocol and related data structures used by the orchestrator.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    import duckdb
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class PhaseStatus(str, Enum):
+    """Status of a pipeline phase."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+@dataclass
+class PhaseContext:
+    """Context passed to each phase.
+
+    Contains database connections, source information, and any
+    outputs from previous phases.
+    """
+
+    session: AsyncSession
+    duckdb_conn: duckdb.DuckDBPyConnection
+    source_id: str
+    table_ids: list[str] = field(default_factory=list)
+
+    # Outputs from previous phases (keyed by phase name)
+    previous_outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    # Configuration overrides
+    config: dict[str, Any] = field(default_factory=dict)
+
+    def get_output(self, phase_name: str, key: str, default: Any = None) -> Any:
+        """Get an output from a previous phase."""
+        return self.previous_outputs.get(phase_name, {}).get(key, default)
+
+
+@dataclass
+class PhaseResult:
+    """Result from a phase execution."""
+
+    status: PhaseStatus
+    outputs: dict[str, Any] = field(default_factory=dict)
+    duration_seconds: float = 0.0
+    error: str | None = None
+    warnings: list[str] = field(default_factory=list)
+
+    # Metrics for observability
+    records_processed: int = 0
+    records_created: int = 0
+
+    @classmethod
+    def success(
+        cls,
+        outputs: dict[str, Any] | None = None,
+        duration: float = 0.0,
+        records_processed: int = 0,
+        records_created: int = 0,
+        warnings: list[str] | None = None,
+    ) -> PhaseResult:
+        """Create a successful result."""
+        return cls(
+            status=PhaseStatus.COMPLETED,
+            outputs=outputs or {},
+            duration_seconds=duration,
+            records_processed=records_processed,
+            records_created=records_created,
+            warnings=warnings or [],
+        )
+
+    @classmethod
+    def failed(cls, error: str, duration: float = 0.0) -> PhaseResult:
+        """Create a failed result."""
+        return cls(
+            status=PhaseStatus.FAILED,
+            error=error,
+            duration_seconds=duration,
+        )
+
+    @classmethod
+    def skipped(cls, reason: str) -> PhaseResult:
+        """Create a skipped result."""
+        return cls(
+            status=PhaseStatus.SKIPPED,
+            error=reason,
+        )
+
+
+class Phase(Protocol):
+    """Protocol for pipeline phases.
+
+    Each phase is a callable that takes a PhaseContext and returns a PhaseResult.
+    Phases declare their dependencies and what they produce.
+    """
+
+    @property
+    def name(self) -> str:
+        """Unique identifier for this phase."""
+        ...
+
+    @property
+    def description(self) -> str:
+        """Human-readable description."""
+        ...
+
+    @property
+    def dependencies(self) -> list[str]:
+        """List of phase names that must complete before this phase."""
+        ...
+
+    @property
+    def outputs(self) -> list[str]:
+        """List of output keys this phase produces."""
+        ...
+
+    async def run(self, ctx: PhaseContext) -> PhaseResult:
+        """Execute the phase.
+
+        Args:
+            ctx: Phase context with connections and previous outputs
+
+        Returns:
+            PhaseResult with status and outputs
+        """
+        ...
+
+    async def should_skip(self, ctx: PhaseContext) -> str | None:
+        """Check if this phase should be skipped.
+
+        Returns:
+            None if phase should run, or a reason string if it should be skipped.
+        """
+        ...
+
+
+@dataclass
+class PhaseDefinition:
+    """Static definition of a phase for the DAG."""
+
+    name: str
+    description: str
+    dependencies: list[str]
+    outputs: list[str]
+    requires_llm: bool = False
+    parallel_group: str | None = None  # Phases in same group can run in parallel
+
+
+# Pipeline DAG definition
+# This defines the structure; actual Phase implementations are in phases/
+PIPELINE_DAG: list[PhaseDefinition] = [
+    # Phase 1: Import
+    PhaseDefinition(
+        name="import",
+        description="Load CSV files into raw tables",
+        dependencies=[],
+        outputs=["raw_tables"],
+    ),
+    # Phase 2: Typing
+    PhaseDefinition(
+        name="typing",
+        description="Type inference and resolution",
+        dependencies=["import"],
+        outputs=["typed_tables", "type_decisions"],
+    ),
+    # Phase 3: Statistics (can run in parallel with temporal, topology)
+    PhaseDefinition(
+        name="statistics",
+        description="Statistical profiling",
+        dependencies=["typing"],
+        outputs=["statistical_profiles"],
+        parallel_group="post_typing",
+    ),
+    PhaseDefinition(
+        name="statistical_quality",
+        description="Benford's Law and outlier detection",
+        dependencies=["statistics"],
+        outputs=["quality_metrics"],
+    ),
+    # Phase 4: Relationships
+    PhaseDefinition(
+        name="relationships",
+        description="Cross-table relationship detection",
+        dependencies=["statistics"],
+        outputs=["relationship_candidates"],
+    ),
+    PhaseDefinition(
+        name="correlations",
+        description="Within-table correlation analysis",
+        dependencies=["statistics"],
+        outputs=["correlations", "derived_columns"],
+    ),
+    # Phase 5: Semantic (LLM)
+    PhaseDefinition(
+        name="semantic",
+        description="LLM semantic enrichment",
+        dependencies=["relationships", "correlations"],
+        outputs=["semantic_annotations", "confirmed_relationships"],
+        requires_llm=True,
+    ),
+    # Phase 6: Cross-table quality
+    PhaseDefinition(
+        name="cross_table_quality",
+        description="Cross-table correlation analysis",
+        dependencies=["semantic"],
+        outputs=["cross_table_correlations"],
+        requires_llm=True,
+    ),
+    # Phase 7: Temporal (can run in parallel with statistics)
+    PhaseDefinition(
+        name="temporal",
+        description="Temporal column analysis",
+        dependencies=["typing"],
+        outputs=["temporal_profiles"],
+        parallel_group="post_typing",
+    ),
+    # Phase 7B-9: Slicing
+    PhaseDefinition(
+        name="slicing",
+        description="LLM-powered data slicing",
+        dependencies=["statistics", "temporal"],
+        outputs=["slice_definitions"],
+        requires_llm=True,
+    ),
+    PhaseDefinition(
+        name="slice_analysis",
+        description="Analysis on slice tables",
+        dependencies=["slicing"],
+        outputs=["slice_profiles"],
+        requires_llm=True,
+    ),
+    PhaseDefinition(
+        name="quality_summary",
+        description="LLM quality report generation",
+        dependencies=["slice_analysis"],
+        outputs=["quality_reports"],
+        requires_llm=True,
+    ),
+    # Phase 10: Topology (can run in parallel)
+    PhaseDefinition(
+        name="topology",
+        description="TDA topological analysis",
+        dependencies=["typing"],
+        outputs=["topology_metrics"],
+        parallel_group="post_typing",
+    ),
+    # Phase 11-12: Business analysis (LLM)
+    PhaseDefinition(
+        name="business_cycles",
+        description="Expert LLM cycle detection",
+        dependencies=["semantic", "temporal"],
+        outputs=["cycle_analysis"],
+        requires_llm=True,
+    ),
+    PhaseDefinition(
+        name="validation",
+        description="LLM-powered validation checks",
+        dependencies=["semantic"],
+        outputs=["validation_results"],
+        requires_llm=True,
+    ),
+    # NEW: Entropy detection
+    PhaseDefinition(
+        name="entropy",
+        description="Entropy detection across all dimensions",
+        dependencies=["statistics", "semantic", "relationships", "correlations"],
+        outputs=["entropy_profiles", "compound_risks"],
+    ),
+    # NEW: Entropy interpretation (LLM)
+    PhaseDefinition(
+        name="entropy_interpretation",
+        description="LLM interpretation of entropy metrics",
+        dependencies=["entropy"],
+        outputs=["entropy_interpretations"],
+        requires_llm=True,
+    ),
+    # Final: Context building
+    PhaseDefinition(
+        name="context",
+        description="Build execution context for graph agent",
+        dependencies=["entropy_interpretation", "quality_summary"],
+        outputs=["execution_context"],
+    ),
+]
+
+
+def get_phase_definition(name: str) -> PhaseDefinition | None:
+    """Get a phase definition by name."""
+    for phase in PIPELINE_DAG:
+        if phase.name == name:
+            return phase
+    return None
+
+
+def get_all_dependencies(phase_name: str) -> set[str]:
+    """Get all transitive dependencies for a phase."""
+    phase = get_phase_definition(phase_name)
+    if not phase:
+        return set()
+
+    deps = set(phase.dependencies)
+    for dep in phase.dependencies:
+        deps |= get_all_dependencies(dep)
+    return deps
