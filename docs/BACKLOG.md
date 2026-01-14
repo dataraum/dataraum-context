@@ -166,55 +166,52 @@ Prioritized backlog for the dataraum-context project. Items are organized by pri
 - Layer 2: LLM interpretation (assumptions, resolutions, explanations)
 - Layer 3: Structured output for Graph Agent and Dashboards
 
-**Step 2.5.1: Configuration Extraction**
+**Step 2.5.1: Configuration Extraction** ⏸️ DEFERRED
 - [ ] Create `config/entropy/thresholds.yaml` with all scoring parameters
 - [ ] Extract detector multipliers (null_ratio * 2, outlier_ratio * 10, etc.)
 - [ ] Extract composite score weights (structural, semantic, value, computational)
 - [ ] Extract readiness thresholds (0.3, 0.6, 0.8)
 - [ ] Update detectors to read from config
 
-**Step 2.5.2: Code Cleanup**
-- [ ] Remove `_get_default_assumption_for_dimension()` from agent.py
-- [ ] Remove `_create_assumptions_from_entropy()` hardcoded logic
-- [ ] Simplify `BusinessMeaningDetector` to collect raw data (remove char counting scores)
-- [ ] Remove hardcoded impact descriptions from compound_risk.py
-- [ ] Add `raw_metrics` field to detector output (separate from computed score)
+> Deferred: Current hardcoded values work. Will extract to YAML when we need configurability.
 
-**Step 2.5.3: LLM Entropy Interpretation Feature**
-- [ ] Create `entropy/interpretation.py` with LLM feature
-- [ ] Create prompt template `config/prompts/entropy_interpretation.yaml`
-- [ ] Input: raw metrics, computed confidence, column/table context
-- [ ] Output: assumptions, resolution_actions, explanation (structured JSON)
-- [ ] Cache interpretations with column profile
+**Step 2.5.2: Code Cleanup** ✅ PARTIALLY COMPLETED 2025-01-14
+- [x] Removed dead `core/formatting/` module (unused after quality/ removal)
+- [x] Removed `config/formatter_thresholds/` (unused configs)
+- [x] Removed `sf-hamilton` dependency (never imported)
+- [ ] Remaining: Extract hardcoded entropy thresholds (deferred with 2.5.1)
 
-**Step 2.5.4: Analysis-Time Baseline**
-- [ ] Integrate LLM interpretation into `build_entropy_context()`
-- [ ] Store cached interpretations in database
-- [ ] Add `EntropyInterpretation` model with assumptions, actions, explanation
+**Step 2.5.3: LLM Entropy Interpretation Feature** ✅ COMPLETED 2025-01-14
+- [x] Created `entropy/interpretation.py` with `EntropyInterpreter` class
+- [x] Created prompt templates (entropy_interpretation, entropy_query_interpretation)
+- [x] Batch interpretation support (single LLM call for multiple columns)
+- [x] `create_fallback_interpretation()` for when LLM is unavailable
 
-**Step 2.5.5: Query-Time Refinement**
-- [ ] Create `refine_entropy_interpretation()` for query context
-- [ ] Input: baseline interpretation + query + columns used + aggregation type
-- [ ] Output: query-specific assumptions, caveats, SQL comments
-- [ ] Integrate into GraphAgent execution flow
+**Step 2.5.4: Analysis-Time Baseline** ✅ COMPLETED 2025-01-14
+- [x] Integrated interpretation into `build_entropy_context()`
+- [x] `InterpretationInput.from_profile()` factory method
+- [x] Interpretation stored in `ColumnEntropyProfile.interpretation`
 
-**Step 2.5.6: Dashboard Models**
-- [ ] Add `explanation: str` field to entropy context models
-- [ ] Add `resolution_actions: list[ResolutionAction]` with LLM-generated descriptions
-- [ ] Create dashboard-friendly serialization format
+**Step 2.5.5: Query-Time Refinement** ✅ COMPLETED 2025-01-14
+- [x] `interpret_batch()` accepts query context for query-specific interpretation
+- [x] `_create_assumptions_from_entropy()` in GraphAgent uses interpretations
+- [x] Assumptions flow into `GraphExecution.assumptions`
+
+**Step 2.5.6: Dashboard Models** ✅ COMPLETED 2025-01-14
+- [x] `EntropyInterpretation.to_dashboard_dict()` method
+- [x] `EntropyContext.to_dashboard_dict()` method
+- [x] Dashboard-friendly JSON with column_key, explanation, actions
 
 ---
 
-## Priority 3: Phase 3 Cleanup and API
+## Priority 3: Phase 3 Cleanup, API, and Pipeline
 
-### Step 3.1: Quality Module Cleanup
-- [ ] Verify no remaining usage of `quality/synthesis.py`
-- [ ] Remove `quality/synthesis.py`
-- [ ] Remove `quality/db_models.py`
-- [ ] Remove `quality/models.py`
-- [ ] Remove `quality/__init__.py`
-- [ ] Update all imports throughout codebase
-- [ ] Run full test suite
+### Step 3.1: Quality Module Cleanup ✅ COMPLETED 2025-01-14
+- [x] Removed `quality/db_models.py` (unused QualityRule/QualityResult)
+- [x] Removed entire `quality/` module (deprecated, replaced by graphs/)
+- [x] Removed `tests/quality/` (166 tests of deprecated code)
+- [x] Updated imports (scripts/infra.py, test_topological_quality.py)
+- [x] Kept `core/formatting/` (reusable threshold/config infrastructure)
 
 ### Step 3.2: Topology Module Simplification
 - [ ] Document which outputs feed entropy detection
@@ -237,6 +234,59 @@ Prioritized backlog for the dataraum-context project. Items are organized by pri
 - [ ] Create MCP resource: `entropy://table/{table_name}`
 - [ ] Create MCP resource: `entropy://column/{table}.{column}`
 - [ ] Create MCP resource: `entropy://contract/{use_case}`
+
+### Step 3.5: Pipeline Orchestrator (NEW)
+
+> **Rationale**: Replace 17 ad-hoc scripts with a testable, parallel DAG orchestrator.
+> See [ORCHESTRATOR_PLAN.md](./ORCHESTRATOR_PLAN.md) for full design.
+
+**Step 3.5.1: Core Infrastructure**
+- [ ] Create `pipeline/` module structure
+- [ ] Define `Phase` protocol and `PhaseContext` dataclass
+- [ ] Create `PipelineCheckpoint` SQLAlchemy model
+- [ ] Create `PipelineRun` model for tracking executions
+
+**Step 3.5.2: Orchestrator**
+- [ ] Build `Orchestrator` class with dependency resolution
+- [ ] Implement parallel execution (asyncio.gather)
+- [ ] Implement checkpoint-based resume
+- [ ] Add input hash for invalidation detection
+
+**Step 3.5.3: Phase Migration**
+- [ ] Migrate `run_phase1_import.py` → `phases/import_csv.py`
+- [ ] Migrate `run_phase2_typing.py` → `phases/typing.py`
+- [ ] Migrate `run_phase3_statistics.py` → `phases/statistics.py`
+- [ ] Migrate remaining phases (12 more)
+- [ ] Delete old scripts after migration complete
+
+**Step 3.5.4: CLI and API**
+- [ ] Create `python -m dataraum_context.pipeline` CLI
+- [ ] Add `run`, `status`, `reset`, `graph` subcommands
+- [ ] Create `api/routes/pipeline.py` endpoints
+- [ ] Add WebSocket for live progress updates
+
+---
+
+## Parallel Work Streams
+
+The following can be worked on **in parallel**:
+
+| Stream | Items | Dependencies |
+|--------|-------|--------------|
+| **A: Pipeline** | 3.5.1 → 3.5.2 → 3.5.3 → 3.5.4 | None |
+| **B: API** | 3.3 → 3.4 | None |
+| **C: Config** | 2.5.1 → 2.5.2 | None |
+| **D: UI** | 4.4 | Needs 3.3 (API) |
+
+Recommended parallel execution:
+```
+Stream A: Pipeline orchestrator foundation
+Stream B: API endpoints
+Stream C: Configuration extraction
+─────────────────────────────────────────
+         ↓ (API ready)
+Stream D: UI foundation
+```
 
 ---
 
