@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides a detailed implementation plan for the 8 remaining pipeline phases plus 1 identified gap (temporal slice analysis).
+This document provides a detailed implementation plan for the 8 remaining pipeline phases.
 
 ## Current State
 
@@ -18,60 +18,27 @@ This document provides a detailed implementation plan for the 8 remaining pipeli
 9. `slicing` - LLM-powered data slicing
 10. `slice_analysis` - Analysis on slice tables
 
-**Not Implemented (9):**
-1. `topology` - TDA topological analysis (non-LLM)
-2. `cross_table_quality` - Cross-table correlation analysis (LLM)
-3. `quality_summary` - LLM quality report generation
-4. `business_cycles` - Expert LLM cycle detection
-5. `validation` - LLM-powered validation checks
-6. `entropy` - Entropy detection across all dimensions (non-LLM)
-7. `entropy_interpretation` - LLM interpretation of entropy
-8. `context` - Build execution context for graph agent (non-LLM)
-9. `temporal_slice_analysis` - Temporal + topology analysis on slices (non-LLM)
+**Not Implemented (8):**
+1. `cross_table_quality` - Cross-table correlation analysis (LLM)
+2. `quality_summary` - LLM quality report generation
+3. `business_cycles` - Expert LLM cycle detection
+4. `validation` - LLM-powered validation checks
+5. `entropy` - Entropy detection across all dimensions (non-LLM)
+6. `entropy_interpretation` - LLM interpretation of entropy
+7. `context` - Build execution context for graph agent (non-LLM)
+8. `temporal_slice_analysis` - Temporal + topology analysis on slices (non-LLM)
+
+**Removed from Plan:**
+- `topology` - TDA topological analysis is now integrated into slice phases:
+  - `slice_analysis` runs `run_topology_on_slices()` for dimensional comparison
+  - `temporal_slice_analysis` runs `analyze_temporal_topology()` with bottleneck distance
+  - Standalone topology metrics are meaningless without comparison context
 
 ---
 
 ## Phase Implementation Details
 
-### 1. TopologyPhase (Non-LLM)
-
-**File:** `src/dataraum_context/pipeline/phases/topology_phase.py`
-
-**Dependencies:** `["typing"]`
-**Parallel Group:** `post_typing`
-
-**Infrastructure:**
-- Module: `src/dataraum_context/analysis/topology/`
-- Main function: `analyze_topological_quality_multi_table()`
-- DB Models: `TopologicalQualityMetrics`, `MultiTableTopologyMetrics`
-
-**API Signature:**
-```python
-async def analyze_topological_quality_multi_table(
-    table_ids: list[str],
-    duckdb_conn: duckdb.DuckDBPyConnection,
-    session: AsyncSession,
-    min_persistence: float = 0.1,
-    stability_threshold: float = 0.1,
-) -> Result[dict[str, Any]]
-```
-
-**Implementation Steps:**
-1. Get all table_ids for the source
-2. Call `analyze_topological_quality_multi_table()`
-3. Results are auto-persisted to `multi_table_topology_metrics` table
-4. Return success with analysis summary
-
-**Outputs:** Betti numbers, persistence diagrams, cycles, stability analysis, anomalies
-
-**Architecture Note:** The topology module is the single source of truth for TDA computation. Both slice and temporal analyses delegate to it:
-- `run_topology_on_slices()` calls `analyze_topological_quality()` per slice
-- `analyze_temporal_topology()` calls the same TDA per time period
-- Full persistence diagrams and entropy everywhere (not correlation-based approximations)
-
----
-
-### 2. EntropyPhase (Non-LLM)
+### 1. EntropyPhase (Non-LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/entropy_phase.py`
 
@@ -136,7 +103,7 @@ async def build_entropy_context(
 
 ---
 
-### 3. EntropyInterpretationPhase (LLM)
+### 2. EntropyInterpretationPhase (LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/entropy_interpretation_phase.py`
 
@@ -190,7 +157,7 @@ def from_profile(
 
 ---
 
-### 4. QualitySummaryPhase (LLM)
+### 3. QualitySummaryPhase (LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/quality_summary_phase.py`
 
@@ -232,7 +199,7 @@ async def summarize_quality(
 
 ---
 
-### 5. ValidationPhase (LLM)
+### 4. ValidationPhase (LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/validation_phase.py`
 
@@ -282,7 +249,7 @@ def load_all_validation_specs() -> dict[str, ValidationSpec]
 
 ---
 
-### 6. BusinessCyclesPhase (LLM)
+### 5. BusinessCyclesPhase (LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/business_cycles_phase.py`
 
@@ -326,7 +293,7 @@ async def analyze(
 
 ---
 
-### 7. CrossTableQualityPhase (LLM)
+### 6. CrossTableQualityPhase (LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/cross_table_quality_phase.py`
 
@@ -371,7 +338,7 @@ async def analyze_cross_table_quality(
 
 ---
 
-### 8. ContextPhase (Non-LLM)
+### 7. ContextPhase (Non-LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/context_phase.py`
 
@@ -408,7 +375,7 @@ async def build_execution_context(
 
 ---
 
-### 9. TemporalSliceAnalysisPhase (Non-LLM)
+### 8. TemporalSliceAnalysisPhase (Non-LLM)
 
 **File:** `src/dataraum_context/pipeline/phases/temporal_slice_analysis_phase.py`
 
@@ -441,15 +408,16 @@ async def run_topology_on_slices(
     correlation_threshold: float = 0.5,
 ) -> TopologySlicesResult
 
-# Temporal topology drift analysis
-async def analyze_temporal_topology(
-    duckdb_conn: duckdb.DuckDBPyConnection,
-    session: AsyncSession,
+# Temporal topology drift analysis (uses TDA + bottleneck distance)
+def analyze_temporal_topology(
+    duck_conn: duckdb.DuckDBPyConnection,
     table_name: str,
     time_column: str,
-    time_grain: TimeGrain = TimeGrain.MONTHLY,
-    correlation_threshold: float = 0.5,
-) -> Result[TemporalTopologyResult]
+    numeric_columns: list[str] | None = None,
+    period: str = "month",
+    min_samples: int = 10,
+    bottleneck_threshold: float = 0.5,
+) -> TemporalTopologyResult
 
 # Configuration
 class TemporalSliceConfig(BaseModel):
@@ -485,10 +453,14 @@ class TemporalSliceConfig(BaseModel):
 - Volume anomaly detection
 - Per-slice topology (full TDA: Betti numbers, persistence diagrams, entropy)
 - Cross-slice topology drift (via persistent entropy comparison)
+- Temporal topology drift (via bottleneck distance between periods)
 - Temporal topology trends (increasing/decreasing/stable/volatile)
-- Homological stability assessment per slice
+- Max bottleneck distance across all period transitions
 
-**Architecture Note:** Uses the topology module as single source of truth - `run_topology_on_slices()` delegates to `analyze_topological_quality()` for each slice, providing full TDA capabilities rather than simplified correlation-based metrics.
+**Architecture Note:** Uses the topology module as single source of truth:
+- `run_topology_on_slices()` delegates to `analyze_topological_quality()` for each dimensional slice
+- `analyze_temporal_topology()` uses `TableTopologyExtractor` + `compute_bottleneck_distance()` to detect structural drift between time periods
+- Full TDA with persistence diagrams everywhere (not simplified correlation-based metrics)
 
 ---
 
@@ -496,24 +468,21 @@ class TemporalSliceConfig(BaseModel):
 
 Based on dependencies, implement in this order:
 
-### Batch 1: Parallel with post-typing (no dependencies on new phases)
-1. **TopologyPhase** - Non-LLM, simple wrapper
+### Batch 1: Depends on existing phases only
+1. **EntropyPhase** - Non-LLM, core infrastructure
+2. **ValidationPhase** - LLM, depends on semantic
+3. **BusinessCyclesPhase** - LLM, depends on semantic + temporal
+4. **CrossTableQualityPhase** - LLM, depends on semantic
 
-### Batch 2: Depends on existing phases only
-2. **EntropyPhase** - Non-LLM, core infrastructure
-3. **ValidationPhase** - LLM, depends on semantic
-4. **BusinessCyclesPhase** - LLM, depends on semantic + temporal
-5. **CrossTableQualityPhase** - LLM, depends on semantic
+### Batch 2: Depends on slicing
+5. **QualitySummaryPhase** - LLM, depends on slice_analysis
+6. **TemporalSliceAnalysisPhase** - Non-LLM, depends on slice_analysis + temporal
 
-### Batch 3: Depends on slicing
-6. **QualitySummaryPhase** - LLM, depends on slice_analysis
-7. **TemporalSliceAnalysisPhase** - Non-LLM, depends on slice_analysis + temporal
+### Batch 3: Depends on entropy
+7. **EntropyInterpretationPhase** - LLM, depends on entropy
 
-### Batch 4: Depends on entropy
-8. **EntropyInterpretationPhase** - LLM, depends on entropy
-
-### Batch 5: Final aggregation
-9. **ContextPhase** - Non-LLM, depends on entropy_interpretation + quality_summary
+### Batch 4: Final aggregation
+8. **ContextPhase** - Non-LLM, depends on entropy_interpretation + quality_summary
 
 ---
 
@@ -535,7 +504,6 @@ src/dataraum_context/pipeline/phases/
 ├── semantic_phase.py              # ✓ Exists
 ├── slicing_phase.py               # ✓ Exists
 ├── slice_analysis_phase.py        # ✓ Exists
-├── topology_phase.py              # NEW
 ├── entropy_phase.py               # NEW
 ├── entropy_interpretation_phase.py # NEW
 ├── quality_summary_phase.py       # NEW
@@ -555,7 +523,6 @@ After implementing phases, update `runner.py`:
 ```python
 from dataraum_context.pipeline.phases import (
     # ... existing imports ...
-    TopologyPhase,
     EntropyPhase,
     EntropyInterpretationPhase,
     QualitySummaryPhase,
@@ -570,7 +537,6 @@ def create_pipeline(config: RunConfig) -> Pipeline:
     # ... existing setup ...
 
     # Register new phases
-    pipeline.register(TopologyPhase())
     pipeline.register(EntropyPhase())
     pipeline.register(EntropyInterpretationPhase())
     pipeline.register(QualitySummaryPhase())
