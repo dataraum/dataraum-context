@@ -43,8 +43,14 @@ from sqlalchemy.ext.asyncio import (
 from dataraum_context.pipeline.base import PhaseStatus
 from dataraum_context.pipeline.orchestrator import Pipeline, PipelineConfig
 from dataraum_context.pipeline.phases import (
+    BusinessCyclesPhase,
+    ContextPhase,
     CorrelationsPhase,
+    CrossTableQualityPhase,
+    EntropyInterpretationPhase,
+    EntropyPhase,
     ImportPhase,
+    QualitySummaryPhase,
     RelationshipsPhase,
     SemanticPhase,
     SliceAnalysisPhase,
@@ -52,7 +58,9 @@ from dataraum_context.pipeline.phases import (
     StatisticalQualityPhase,
     StatisticsPhase,
     TemporalPhase,
+    TemporalSliceAnalysisPhase,
     TypingPhase,
+    ValidationPhase,
 )
 from dataraum_context.storage import init_database
 
@@ -147,17 +155,34 @@ def create_pipeline(config: RunConfig) -> Pipeline:
 
     pipeline = Pipeline(config=pipeline_config)
 
-    # Register available phases
+    # Register available phases in dependency order
+    # Foundation phases
     pipeline.register(ImportPhase())
     pipeline.register(TypingPhase())
     pipeline.register(StatisticsPhase())
+
+    # Analysis phases
     pipeline.register(StatisticalQualityPhase())
     pipeline.register(RelationshipsPhase())
     pipeline.register(CorrelationsPhase())
     pipeline.register(TemporalPhase())
     pipeline.register(SemanticPhase())
+    pipeline.register(ValidationPhase())
+
+    # Slicing phases
     pipeline.register(SlicingPhase())
     pipeline.register(SliceAnalysisPhase())
+    pipeline.register(TemporalSliceAnalysisPhase())
+
+    # Entropy and quality phases
+    pipeline.register(EntropyPhase())
+    pipeline.register(EntropyInterpretationPhase())
+    pipeline.register(BusinessCyclesPhase())
+    pipeline.register(CrossTableQualityPhase())
+    pipeline.register(QualitySummaryPhase())
+
+    # Final context assembly
+    pipeline.register(ContextPhase())
 
     return pipeline
 

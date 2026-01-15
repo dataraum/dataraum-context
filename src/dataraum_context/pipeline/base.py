@@ -161,21 +161,24 @@ class PhaseDefinition:
 # Pipeline DAG definition
 # This defines the structure; actual Phase implementations are in phases/
 PIPELINE_DAG: list[PhaseDefinition] = [
-    # Phase 1: Import
+    # ============================================================
+    # FOUNDATION PHASES
+    # ============================================================
     PhaseDefinition(
         name="import",
         description="Load CSV files into raw tables",
         dependencies=[],
         outputs=["raw_tables"],
     ),
-    # Phase 2: Typing
     PhaseDefinition(
         name="typing",
         description="Type inference and resolution",
         dependencies=["import"],
         outputs=["typed_tables", "type_decisions"],
     ),
-    # Phase 3: Statistics (can run in parallel with temporal, topology)
+    # ============================================================
+    # ANALYSIS PHASES (can run in parallel post-typing)
+    # ============================================================
     PhaseDefinition(
         name="statistics",
         description="Statistical profiling",
@@ -184,12 +187,21 @@ PIPELINE_DAG: list[PhaseDefinition] = [
         parallel_group="post_typing",
     ),
     PhaseDefinition(
+        name="temporal",
+        description="Temporal column analysis",
+        dependencies=["typing"],
+        outputs=["temporal_profiles"],
+        parallel_group="post_typing",
+    ),
+    # ============================================================
+    # STATISTICAL ANALYSIS PHASES
+    # ============================================================
+    PhaseDefinition(
         name="statistical_quality",
         description="Benford's Law and outlier detection",
         dependencies=["statistics"],
         outputs=["quality_metrics"],
     ),
-    # Phase 4: Relationships
     PhaseDefinition(
         name="relationships",
         description="Cross-table relationship detection",
@@ -202,7 +214,9 @@ PIPELINE_DAG: list[PhaseDefinition] = [
         dependencies=["statistics"],
         outputs=["correlations", "derived_columns"],
     ),
-    # Phase 5: Semantic (LLM)
+    # ============================================================
+    # LLM SEMANTIC PHASES
+    # ============================================================
     PhaseDefinition(
         name="semantic",
         description="LLM semantic enrichment",
@@ -210,23 +224,16 @@ PIPELINE_DAG: list[PhaseDefinition] = [
         outputs=["semantic_annotations", "confirmed_relationships"],
         requires_llm=True,
     ),
-    # Phase 6: Cross-table quality
     PhaseDefinition(
-        name="cross_table_quality",
-        description="Cross-table correlation analysis",
-        dependencies=["semantic"],
-        outputs=["cross_table_correlations"],
+        name="validation",
+        description="LLM-powered validation checks",
+        dependencies=["typing"],
+        outputs=["validation_results"],
         requires_llm=True,
     ),
-    # Phase 7: Temporal (can run in parallel with statistics)
-    PhaseDefinition(
-        name="temporal",
-        description="Temporal column analysis",
-        dependencies=["typing"],
-        outputs=["temporal_profiles"],
-        parallel_group="post_typing",
-    ),
-    # Phase 7B-9: Slicing
+    # ============================================================
+    # SLICING PHASES
+    # ============================================================
     PhaseDefinition(
         name="slicing",
         description="LLM-powered data slicing",
@@ -236,57 +243,61 @@ PIPELINE_DAG: list[PhaseDefinition] = [
     ),
     PhaseDefinition(
         name="slice_analysis",
-        description="Analysis on slice tables",
+        description="Analysis on slice tables (includes TDA topology)",
         dependencies=["slicing"],
-        outputs=["slice_profiles"],
+        outputs=["slice_profiles", "slice_topology"],
         requires_llm=True,
     ),
     PhaseDefinition(
-        name="quality_summary",
-        description="LLM quality report generation",
-        dependencies=["slice_analysis"],
-        outputs=["quality_reports"],
-        requires_llm=True,
+        name="temporal_slice_analysis",
+        description="Temporal + topology analysis on slices",
+        dependencies=["slice_analysis", "temporal"],
+        outputs=["temporal_slice_profiles", "slice_topology", "topology_drift"],
     ),
-    # Phase 10: Topology (can run in parallel)
-    PhaseDefinition(
-        name="topology",
-        description="TDA topological analysis",
-        dependencies=["typing"],
-        outputs=["topology_metrics"],
-        parallel_group="post_typing",
-    ),
-    # Phase 11-12: Business analysis (LLM)
-    PhaseDefinition(
-        name="business_cycles",
-        description="Expert LLM cycle detection",
-        dependencies=["semantic", "temporal"],
-        outputs=["cycle_analysis"],
-        requires_llm=True,
-    ),
-    PhaseDefinition(
-        name="validation",
-        description="LLM-powered validation checks",
-        dependencies=["semantic"],
-        outputs=["validation_results"],
-        requires_llm=True,
-    ),
-    # NEW: Entropy detection
+    # ============================================================
+    # ENTROPY PHASES
+    # ============================================================
     PhaseDefinition(
         name="entropy",
         description="Entropy detection across all dimensions",
         dependencies=["statistics", "semantic", "relationships", "correlations"],
         outputs=["entropy_profiles", "compound_risks"],
     ),
-    # NEW: Entropy interpretation (LLM)
     PhaseDefinition(
         name="entropy_interpretation",
         description="LLM interpretation of entropy metrics",
         dependencies=["entropy"],
-        outputs=["entropy_interpretations"],
+        outputs=["entropy_interpretations", "assumptions", "resolution_actions"],
         requires_llm=True,
     ),
-    # Final: Context building
+    # ============================================================
+    # BUSINESS ANALYSIS PHASES (LLM)
+    # ============================================================
+    PhaseDefinition(
+        name="business_cycles",
+        description="Expert LLM cycle detection",
+        dependencies=["semantic", "relationships"],
+        outputs=["cycle_analysis"],
+        requires_llm=True,
+    ),
+    PhaseDefinition(
+        name="cross_table_quality",
+        description="Cross-table correlation analysis",
+        dependencies=["semantic"],
+        outputs=["cross_table_correlations", "multicollinearity_groups"],
+        # Note: Despite being in the "quality" family, this is statistical analysis
+        requires_llm=False,
+    ),
+    PhaseDefinition(
+        name="quality_summary",
+        description="LLM quality report generation",
+        dependencies=["slice_analysis"],
+        outputs=["quality_reports", "quality_grades"],
+        requires_llm=True,
+    ),
+    # ============================================================
+    # FINAL CONTEXT ASSEMBLY
+    # ============================================================
     PhaseDefinition(
         name="context",
         description="Build execution context for graph agent",
