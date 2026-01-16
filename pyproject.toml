@@ -98,7 +98,7 @@ all = [
 ]
 
 [project.scripts]
-dataraum-context = "dataraum_context.cli:app"
+dataraum = "dataraum_context.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/dataraum/dataraum-context"
@@ -138,7 +138,6 @@ markers = [
 target-version = "py314"
 line-length = 100
 extend-exclude = [
-    "scripts/",
     "prototypes/",
 ]
 

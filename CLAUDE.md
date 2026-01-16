@@ -422,6 +422,23 @@ dependencies = [
 
 ## Quick Reference
 
+### Run pipeline (CLI)
+```bash
+# Run on CSV data
+dataraum-context run /path/to/data --output ./output
+
+# Check status
+dataraum-context status ./output
+
+# Inspect graphs and context
+dataraum-context inspect ./output
+
+# List phases
+dataraum-context phases
+```
+
+See `docs/CLI.md` for full CLI documentation.
+
 ### Run tests
 ```bash
 pytest tests/ -v
