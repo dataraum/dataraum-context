@@ -324,28 +324,30 @@ class Pipeline:
             return PhaseResult.failed(f"No implementation registered for phase: {phase_name}")
 
         try:
-            # Each phase gets its own session from the pool
+            # Each phase gets its own session and DuckDB cursor
+            # Cursors are thread-safe, connections are not
             async with manager.session_scope() as session:
-                # Build context with this phase's session
-                ctx = PhaseContext(
-                    session=session,
-                    duckdb_conn=manager.duckdb_conn,
-                    source_id=source_id,
-                    table_ids=table_ids,
-                    previous_outputs=previous_outputs,
-                    config=run_config,
-                )
+                with manager.duckdb_cursor() as cursor:
+                    # Build context with this phase's session and cursor
+                    ctx = PhaseContext(
+                        session=session,
+                        duckdb_conn=cursor,
+                        source_id=source_id,
+                        table_ids=table_ids,
+                        previous_outputs=previous_outputs,
+                        config=run_config,
+                    )
 
-                # Check if should skip
-                skip_reason = await phase.should_skip(ctx)
-                if skip_reason:
-                    result = PhaseResult.skipped(skip_reason)
-                else:
-                    # Run the phase
-                    result = await phase.run(ctx)
-                    result.duration_seconds = time.time() - start_time
+                    # Check if should skip
+                    skip_reason = await phase.should_skip(ctx)
+                    if skip_reason:
+                        result = PhaseResult.skipped(skip_reason)
+                    else:
+                        # Run the phase
+                        result = await phase.run(ctx)
+                        result.duration_seconds = time.time() - start_time
 
-                # Save checkpoint
+                # Save checkpoint (outside cursor context, inside session)
                 checkpoint = PhaseCheckpoint(
                     run_id=run_id,
                     source_id=source_id,

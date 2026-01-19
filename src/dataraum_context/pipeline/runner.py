@@ -106,8 +106,7 @@ def create_pipeline(config: RunConfig) -> Pipeline:
         skip_completed=True,
         fail_fast=True,
         # Parallel execution using ThreadPoolExecutor
-        # Each phase gets its own thread with its own event loop and session
-        # With free-threaded Python (python3.14t), this enables true parallelism
+        # NullPool is used in ConnectionManager to allow AsyncEngine across event loops
         max_parallel=4,
     )
 
