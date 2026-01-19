@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from dataraum_context.storage import Base
 
@@ -187,13 +188,13 @@ class ConnectionManager:
             self.config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
             db_url = f"sqlite+aiosqlite:///{self.config.sqlite_path}"
 
+        # Use NullPool to allow the engine to work across multiple event loops
+        # (required for ThreadPoolExecutor with asyncio.run() in each thread)
+        # See: https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html#using-multiple-asyncio-event-loops
         self._engine = create_async_engine(
             db_url,
             echo=self.config.echo_sql,
-            pool_size=self.config.pool_size,
-            max_overflow=self.config.max_overflow,
-            pool_timeout=self.config.pool_timeout,
-            pool_pre_ping=True,  # Verify connections before use
+            poolclass=NullPool,
         )
 
         # Configure SQLite pragmas on each connection
