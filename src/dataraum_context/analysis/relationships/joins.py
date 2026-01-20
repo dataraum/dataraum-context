@@ -10,25 +10,27 @@ import duckdb
 
 
 def _compute_join_score_parallel(
-    db_path: str,
+    duckdb_conn: duckdb.DuckDBPyConnection,
     table1_path: str,
     table2_path: str,
     col1: str,
     col2: str,
     max_distinct: int,
 ) -> tuple[str, str, float, str]:
-    """Compute join score in a worker thread with its own DuckDB connection.
+    """Compute join score in a worker thread using a cursor.
 
+    Runs in its own thread using a cursor from the shared DuckDB connection.
+    DuckDB cursors are thread-safe for read operations.
     Returns (col1, col2, score, cardinality) tuple.
     """
-    conn = duckdb.connect(db_path, read_only=True)
+    cursor = duckdb_conn.cursor()
     try:
         score, cardinality = _compute_join_score(
-            conn, table1_path, table2_path, col1, col2, max_distinct
+            cursor, table1_path, table2_path, col1, col2, max_distinct
         )
         return (col1, col2, score, cardinality)
     finally:
-        conn.close()
+        cursor.close()
 
 
 def find_join_columns(
@@ -57,48 +59,29 @@ def find_join_columns(
     Note: topology_similarity is computed separately in finder.py where
     DataFrame access is available.
     """
-    # Get DuckDB file path for parallel connections
-    db_info = conn.execute("PRAGMA database_list").fetchall()
-    db_path = db_info[0][2] if db_info and db_info[0][2] else ""
-
     # Generate all column pairs
     pairs = [(col1, col2) for col1 in columns1 for col2 in columns2]
 
     candidates = []
 
-    # Use parallel processing for file-based DBs
-    if db_path:
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = [
-                pool.submit(
-                    _compute_join_score_parallel,
-                    db_path,
-                    table1_path,
-                    table2_path,
-                    col1,
-                    col2,
-                    max_distinct,
-                )
-                for col1, col2 in pairs
-            ]
-
-            for future in futures:
-                col1, col2, score, cardinality = future.result()
-                if score > min_score:
-                    candidates.append(
-                        {
-                            "column1": col1,
-                            "column2": col2,
-                            "join_confidence": score,
-                            "cardinality": cardinality,
-                        }
-                    )
-    else:
-        # Sequential for in-memory DBs
-        for col1, col2 in pairs:
-            score, cardinality = _compute_join_score(
-                conn, table1_path, table2_path, col1, col2, max_distinct
+    # Use parallel processing with cursors from shared connection
+    # DuckDB cursors are thread-safe for read operations
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [
+            pool.submit(
+                _compute_join_score_parallel,
+                conn,
+                table1_path,
+                table2_path,
+                col1,
+                col2,
+                max_distinct,
             )
+            for col1, col2 in pairs
+        ]
+
+        for future in futures:
+            col1, col2, score, cardinality = future.result()
             if score > min_score:
                 candidates.append(
                     {

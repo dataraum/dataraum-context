@@ -10,9 +10,12 @@ This analyzes temporal characteristics like:
 - Trends
 - Change points
 - Update frequency and staleness
+
+Uses parallel processing for large tables to speed up profiling.
 """
 
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -49,10 +52,124 @@ from dataraum_context.core.models.base import ColumnRef, Result
 from dataraum_context.storage import Column, Table
 
 
+def _profile_temporal_column_parallel(
+    duckdb_conn: duckdb.DuckDBPyConnection,
+    table_name: str,
+    table_duckdb_path: str,
+    source_id: str,
+    column_id: str,
+    column_name: str,
+    profiled_at: datetime,
+) -> TemporalAnalysisResult | None:
+    """Profile a single temporal column in a worker thread.
+
+    Runs in its own thread using a cursor from the shared DuckDB connection.
+    DuckDB cursors are thread-safe for read operations.
+    Returns TemporalAnalysisResult directly for the main thread to persist.
+    """
+    cursor = duckdb_conn.cursor()
+    try:
+        # Load time series
+        ts_result = _load_time_series(cursor, table_duckdb_path, column_name)
+        if not ts_result.success:
+            return None
+
+        time_series = ts_result.unwrap()
+
+        # Basic temporal info
+        min_timestamp = time_series.index.min().to_pydatetime()
+        max_timestamp = time_series.index.max().to_pydatetime()
+        span_days = (max_timestamp - min_timestamp).total_seconds() / 86400
+
+        # Infer granularity
+        interval: pd.Series = time_series.index.to_series().diff()
+        median_interval = interval.median()
+
+        if isinstance(median_interval, (int, float)):
+            interval_seconds = float(median_interval)
+        else:
+            interval_seconds = median_interval.total_seconds()
+
+        granularity, confidence = infer_granularity(interval_seconds)
+
+        metric_id = str(uuid4())
+
+        # Run pattern analyses
+        seasonality_result = analyze_seasonality(time_series)
+        seasonality = seasonality_result.value if seasonality_result.success else None
+
+        trend_result = analyze_trend(time_series)
+        trend = trend_result.value if trend_result.success else None
+
+        changes_result = detect_change_points(time_series)
+        change_points = changes_result.unwrap() if changes_result.success else []
+
+        frequency_result = analyze_update_frequency(time_series)
+        update_frequency = frequency_result.value if frequency_result.success else None
+
+        fiscal_result = detect_fiscal_calendar(time_series)
+        fiscal_calendar = fiscal_result.value if fiscal_result.success else None
+
+        stability_result = analyze_distribution_stability(time_series)
+        distribution_stability = stability_result.value if stability_result.success else None
+
+        # Run basic temporal analysis for completeness
+        basic_result = analyze_basic_temporal(cursor, table_duckdb_path, column_name)
+        completeness = (
+            basic_result.value.get("completeness")
+            if basic_result.success and basic_result.value
+            else None
+        )
+
+        # Detect quality issues
+        issues = _detect_quality_issues(
+            completeness=completeness,
+            update_frequency=update_frequency,
+            change_points=change_points,
+            distribution_stability=distribution_stability,
+            profiled_at=profiled_at,
+        )
+
+        # Build result
+        column_ref = ColumnRef(
+            source_id=source_id,
+            table_name=table_name,
+            column_name=column_name,
+        )
+
+        return TemporalAnalysisResult(
+            metric_id=metric_id,
+            column_id=column_id,
+            column_ref=column_ref,
+            column_name=column_name,
+            table_name=table_name,
+            computed_at=profiled_at,
+            min_timestamp=min_timestamp,
+            max_timestamp=max_timestamp,
+            span_days=span_days,
+            detected_granularity=granularity,
+            granularity_confidence=confidence,
+            completeness=completeness,
+            seasonality=seasonality,
+            trend=trend,
+            change_points=change_points,
+            update_frequency=update_frequency,
+            fiscal_calendar=fiscal_calendar,
+            distribution_stability=distribution_stability,
+            quality_issues=issues,
+            has_issues=len(issues) > 0,
+        )
+    except Exception:
+        return None
+    finally:
+        cursor.close()
+
+
 def profile_temporal(
     table_id: str,
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: Session,
+    max_workers: int = 4,
 ) -> Result[TemporalProfileResult]:
     """Profile temporal columns in a table.
 
@@ -63,12 +180,15 @@ def profile_temporal(
     3. Stores per-column profiles
     4. Computes and stores table-level summary
 
+    Uses parallel processing for file-based DBs to speed up profiling.
+
     REQUIRES table.layer == "typed". Raises error otherwise.
 
     Args:
         table_id: Table ID to profile
         duckdb_conn: DuckDB connection
         session: SQLAlchemy session
+        max_workers: Maximum parallel workers
 
     Returns:
         Result containing TemporalProfileResult with all column profiles
@@ -114,42 +234,51 @@ def profile_temporal(
 
         start_time = time.time()
 
-        # Profile each temporal column (collect results, don't add to session yet)
-        for column in columns:
-            profile_result = _profile_temporal_column(
-                table=table,
-                column=column,
-                duckdb_conn=duckdb_conn,
-                profiled_at=profiled_at,
-            )
+        # Use parallel processing with cursors from shared connection
+        # DuckDB cursors are thread-safe for read operations
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _profile_temporal_column_parallel,
+                    duckdb_conn,
+                    table.table_name,
+                    table.duckdb_path,
+                    table.source_id,
+                    column.column_id,
+                    column.column_name,
+                    profiled_at,
+                )
+                for column in columns
+            ]
 
-            if not profile_result.success:
-                continue
+            for future in futures:
+                profile = future.result()
+                if profile:
+                    profiles.append(profile)
 
-            profile = profile_result.value
-            if not profile:
-                continue
-
-            # Create DB object but don't add yet
-            db_profile = TemporalColumnProfile(
-                profile_id=profile.metric_id,
-                column_id=column.column_id,
-                profiled_at=profiled_at,
-                min_timestamp=profile.min_timestamp,
-                max_timestamp=profile.max_timestamp,
-                detected_granularity=profile.detected_granularity,
-                completeness_ratio=(
-                    profile.completeness.completeness_ratio if profile.completeness else None
-                ),
-                has_seasonality=profile.seasonality.has_seasonality
-                if profile.seasonality
-                else False,
-                has_trend=profile.trend.has_trend if profile.trend else False,
-                is_stale=profile.update_frequency.is_stale if profile.update_frequency else False,
-                profile_data=profile.model_dump(mode="json"),
-            )
-            db_profiles.append(db_profile)
-            profiles.append(profile)
+                    # Create DB object (sequential - SQLite writes)
+                    db_profile = TemporalColumnProfile(
+                        profile_id=profile.metric_id,
+                        column_id=profile.column_id,
+                        profiled_at=profiled_at,
+                        min_timestamp=profile.min_timestamp,
+                        max_timestamp=profile.max_timestamp,
+                        detected_granularity=profile.detected_granularity,
+                        completeness_ratio=(
+                            profile.completeness.completeness_ratio
+                            if profile.completeness
+                            else None
+                        ),
+                        has_seasonality=profile.seasonality.has_seasonality
+                        if profile.seasonality
+                        else False,
+                        has_trend=profile.trend.has_trend if profile.trend else False,
+                        is_stale=profile.update_frequency.is_stale
+                        if profile.update_frequency
+                        else False,
+                        profile_data=profile.model_dump(mode="json"),
+                    )
+                    db_profiles.append(db_profile)
 
         # Compute table-level summary
         table_summary = None

@@ -337,7 +337,7 @@ def detect_outliers_isolation_forest(
 
 
 def _assess_column_quality_parallel(
-    db_path: str,
+    duckdb_conn: duckdb.DuckDBPyConnection,
     table_name: str,
     table_duckdb_path: str,
     column_id: str,
@@ -346,7 +346,8 @@ def _assess_column_quality_parallel(
 ) -> tuple[str, str, BenfordAnalysis | None, OutlierDetection | None] | None:
     """Assess statistical quality for a single column in a worker thread.
 
-    Runs in its own thread with a separate read-only DuckDB connection.
+    Runs in its own thread using a cursor from the shared DuckDB connection.
+    DuckDB cursors are thread-safe for read operations.
     Returns the raw analysis results for the main thread to persist.
     """
 
@@ -365,18 +366,18 @@ def _assess_column_quality_parallel(
     table = TableProxy(table_name, table_duckdb_path)
     column = ColumnProxy(column_id, column_name, column_resolved_type)
 
-    conn = duckdb.connect(db_path, read_only=True)
+    cursor = duckdb_conn.cursor()
     try:
         # Run Benford's Law test
-        benford_result = check_benford_law(table, column, conn)  # type: ignore[arg-type]
+        benford_result = check_benford_law(table, column, cursor)  # type: ignore[arg-type]
         benford_analysis = benford_result.value if benford_result.success else None
 
         # Run IQR outlier detection
-        iqr_result = detect_outliers_iqr(table, column, conn)  # type: ignore[arg-type]
+        iqr_result = detect_outliers_iqr(table, column, cursor)  # type: ignore[arg-type]
         outlier_detection = iqr_result.value if iqr_result.success else None
 
         # Run Isolation Forest outlier detection and merge into OutlierDetection
-        iso_forest_data = detect_outliers_isolation_forest(table, column, conn)  # type: ignore[arg-type]
+        iso_forest_data = detect_outliers_isolation_forest(table, column, cursor)  # type: ignore[arg-type]
         if iso_forest_data and outlier_detection:
             avg_score, anomaly_count, anomaly_ratio, iso_samples = iso_forest_data
             outlier_detection.isolation_forest_score = avg_score
@@ -389,7 +390,7 @@ def _assess_column_quality_parallel(
     except Exception:
         return None
     finally:
-        conn.close()
+        cursor.close()
 
 
 def assess_statistical_quality(
@@ -441,85 +442,69 @@ def assess_statistical_quality(
         if not table_duckdb_path:
             return Result.fail("Table has no DuckDB path")
 
-        # Get DuckDB file path for parallel connections
-        db_info = duckdb_conn.execute("PRAGMA database_list").fetchall()
-        db_path = db_info[0][2] if db_info and db_info[0][2] else ""
-
         results: list[StatisticalQualityResult] = []
         computed_at = datetime.now(UTC)
 
-        # Use parallel processing for file-based DBs
-        if db_path:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [
-                    pool.submit(
-                        _assess_column_quality_parallel,
-                        db_path,
-                        table.table_name,
-                        table_duckdb_path,
-                        column.column_id,
-                        column.column_name,
-                        column.resolved_type or "VARCHAR",
-                    )
-                    for column in numeric_columns
-                ]
-
-                for future in futures:
-                    result = future.result()
-                    if result:
-                        column_id, column_name, benford_analysis, outlier_detection = result
-
-                        # Generate quality issues
-                        quality_issues = _generate_statistical_quality_issues(
-                            benford_analysis=benford_analysis,
-                            outlier_detection=outlier_detection,
-                        )
-
-                        # Build StatisticalQualityResult
-                        quality_result = StatisticalQualityResult(
-                            column_id=column_id,
-                            column_ref=ColumnRef(
-                                table_name=table.table_name,
-                                column_name=column_name,
-                            ),
-                            benford_analysis=benford_analysis,
-                            outlier_detection=outlier_detection,
-                            quality_issues=quality_issues,
-                        )
-                        results.append(quality_result)
-
-                        # Persist using hybrid storage (sequential - SQLite writes)
-                        db_metric = DBStatisticalQualityMetrics(
-                            metric_id=str(uuid4()),
-                            column_id=column_id,
-                            computed_at=computed_at,
-                            benford_compliant=benford_analysis.is_compliant
-                            if benford_analysis
-                            else None,
-                            has_outliers=(outlier_detection.iqr_outlier_ratio > 0.05)
-                            if outlier_detection
-                            else None,
-                            iqr_outlier_ratio=outlier_detection.iqr_outlier_ratio
-                            if outlier_detection
-                            else None,
-                            isolation_forest_anomaly_ratio=outlier_detection.isolation_forest_anomaly_ratio
-                            if outlier_detection
-                            else None,
-                            quality_data=quality_result.model_dump(mode="json"),
-                        )
-                        session.add(db_metric)
-        else:
-            # Sequential for in-memory DBs
-            for column in numeric_columns:
-                col_result = _assess_column_quality(
-                    table=table,
-                    column=column,
-                    duckdb_conn=duckdb_conn,
-                    session=session,
+        # Use parallel processing with cursors from shared connection
+        # DuckDB cursors are thread-safe for read operations
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _assess_column_quality_parallel,
+                    duckdb_conn,
+                    table.table_name,
+                    table_duckdb_path,
+                    column.column_id,
+                    column.column_name,
+                    column.resolved_type or "VARCHAR",
                 )
+                for column in numeric_columns
+            ]
 
-                if col_result.success and col_result.value:
-                    results.append(col_result.value)
+            for future in futures:
+                result = future.result()
+                if result:
+                    column_id, column_name, benford_analysis, outlier_detection = result
+
+                    # Generate quality issues
+                    quality_issues = _generate_statistical_quality_issues(
+                        benford_analysis=benford_analysis,
+                        outlier_detection=outlier_detection,
+                    )
+
+                    # Build StatisticalQualityResult
+                    quality_result = StatisticalQualityResult(
+                        column_id=column_id,
+                        column_ref=ColumnRef(
+                            table_name=table.table_name,
+                            column_name=column_name,
+                        ),
+                        benford_analysis=benford_analysis,
+                        outlier_detection=outlier_detection,
+                        quality_issues=quality_issues,
+                    )
+                    results.append(quality_result)
+
+                    # Persist using hybrid storage (sequential - SQLite writes)
+                    db_metric = DBStatisticalQualityMetrics(
+                        metric_id=str(uuid4()),
+                        column_id=column_id,
+                        computed_at=computed_at,
+                        benford_compliant=benford_analysis.is_compliant
+                        if benford_analysis
+                        else None,
+                        has_outliers=(outlier_detection.iqr_outlier_ratio > 0.05)
+                        if outlier_detection
+                        else None,
+                        iqr_outlier_ratio=outlier_detection.iqr_outlier_ratio
+                        if outlier_detection
+                        else None,
+                        isolation_forest_anomaly_ratio=outlier_detection.isolation_forest_anomaly_ratio
+                        if outlier_detection
+                        else None,
+                        quality_data=quality_result.model_dump(mode="json"),
+                    )
+                    session.add(db_metric)
 
         return Result.ok(results)
 
