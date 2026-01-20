@@ -255,20 +255,21 @@ def _check_duplicate_introduction(
 
 
 def _evaluate_relationship_candidate_parallel(
-    db_path: str,
+    duckdb_conn: duckdb.DuckDBPyConnection,
     candidate: RelationshipCandidate,
     table1_path: str,
     table2_path: str,
 ) -> RelationshipCandidate:
     """Evaluate a relationship candidate in a worker thread.
 
-    Runs in its own thread with a separate read-only DuckDB connection.
+    Runs in its own thread using a cursor from the shared DuckDB connection.
+    DuckDB cursors are thread-safe for read operations.
     """
-    conn = duckdb.connect(db_path, read_only=True)
+    cursor = duckdb_conn.cursor()
     try:
-        return evaluate_relationship_candidate(candidate, table1_path, table2_path, conn)
+        return evaluate_relationship_candidate(candidate, table1_path, table2_path, cursor)
     finally:
-        conn.close()
+        cursor.close()
 
 
 def evaluate_candidates(
@@ -290,10 +291,6 @@ def evaluate_candidates(
     Returns:
         List of RelationshipCandidate with evaluation metrics populated
     """
-    # Get DuckDB file path for parallel connections
-    db_info = duckdb_conn.execute("PRAGMA database_list").fetchall()
-    db_path = db_info[0][2] if db_info and db_info[0][2] else ""
-
     # Separate candidates into evaluable and non-evaluable
     evaluable = []
     non_evaluable = []
@@ -307,13 +304,14 @@ def evaluate_candidates(
 
     evaluated = []
 
-    # Use parallel processing for file-based DBs
-    if db_path and evaluable:
+    # Use parallel processing with cursors from shared connection
+    # DuckDB cursors are thread-safe for read operations
+    if evaluable:
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = [
                 pool.submit(
                     _evaluate_relationship_candidate_parallel,
-                    db_path,
+                    duckdb_conn,
                     candidate,
                     table1_path,
                     table2_path,
@@ -323,13 +321,6 @@ def evaluate_candidates(
 
             for future in futures:
                 evaluated.append(future.result())
-    else:
-        # Sequential for in-memory DBs
-        for candidate, table1_path, table2_path in evaluable:
-            evaluated_candidate = evaluate_relationship_candidate(
-                candidate, table1_path, table2_path, duckdb_conn
-            )
-            evaluated.append(evaluated_candidate)
 
     # Add non-evaluable candidates (missing table paths)
     evaluated.extend(non_evaluable)
