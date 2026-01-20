@@ -32,7 +32,7 @@ from dataraum_context.storage import Column, Table
 
 
 def _compute_association_pair(
-    db_path: str,
+    duckdb_conn: duckdb.DuckDBPyConnection,
     table_path: str,
     col1_id: str,
     col1_name: str,
@@ -45,9 +45,10 @@ def _compute_association_pair(
 ) -> CategoricalAssociation | None:
     """Compute Cramér's V for a single column pair.
 
-    Runs in a worker thread with its own DuckDB connection.
+    Runs in a worker thread using a cursor from the shared DuckDB connection.
+    DuckDB cursors are thread-safe for read operations.
     """
-    conn = duckdb.connect(db_path, read_only=True)
+    cursor = duckdb_conn.cursor()
     try:
         query = f"""
             SELECT "{col1_name}", "{col2_name}"
@@ -55,7 +56,7 @@ def _compute_association_pair(
             WHERE "{col1_name}" IS NOT NULL
               AND "{col2_name}" IS NOT NULL
         """
-        rows = conn.execute(query).fetchall()
+        rows = cursor.execute(query).fetchall()
 
         if len(rows) < 10:
             return None
@@ -87,7 +88,7 @@ def _compute_association_pair(
             is_significant=algo_result.is_significant,
         )
     finally:
-        conn.close()
+        cursor.close()
 
 
 def compute_categorical_associations(
@@ -141,10 +142,6 @@ def compute_categorical_associations(
         if len(categorical_columns) < 2:
             return Result.ok([])
 
-        # Get DuckDB file path
-        db_info = duckdb_conn.execute("PRAGMA database_list").fetchall()
-        db_path = db_info[0][2] if db_info and db_info[0][2] else ""
-
         # Generate all pairs
         pairs = [
             (i, col1, j, col2)
@@ -154,72 +151,30 @@ def compute_categorical_associations(
 
         associations: list[CategoricalAssociation] = []
 
-        # Use parallel processing for file-based DBs (workers need to connect to same DB)
-        if db_path:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [
-                    pool.submit(
-                        _compute_association_pair,
-                        db_path,
-                        table_path,
-                        col1.column_id,
-                        col1.column_name,
-                        col2.column_id,
-                        col2.column_name,
-                        i,
-                        j,
-                        table.table_id,
-                        min_cramers_v,
-                    )
-                    for i, col1, j, col2 in pairs
-                ]
-
-                for future in futures:
-                    assoc = future.result()
-                    if assoc:
-                        associations.append(assoc)
-        else:
-            # Sequential processing
-            computed_at = datetime.now(UTC)
-            for i, col1, j, col2 in pairs:
-                query = f"""
-                    SELECT "{col1.column_name}", "{col2.column_name}"
-                    FROM {table_path}
-                    WHERE "{col1.column_name}" IS NOT NULL
-                      AND "{col2.column_name}" IS NOT NULL
-                """
-                rows = duckdb_conn.execute(query).fetchall()
-
-                if len(rows) < 10:
-                    continue
-
-                col1_values = [row[0] for row in rows]
-                col2_values = [row[1] for row in rows]
-
-                contingency = build_contingency_table(col1_values, col2_values)
-                algo_result = compute_cramers_v(contingency, col1_idx=i, col2_idx=j)
-
-                if algo_result is None or algo_result.cramers_v < min_cramers_v:
-                    continue
-
-                associations.append(
-                    CategoricalAssociation(
-                        association_id=str(uuid4()),
-                        table_id=table.table_id,
-                        column1_id=col1.column_id,
-                        column2_id=col2.column_id,
-                        column1_name=col1.column_name,
-                        column2_name=col2.column_name,
-                        cramers_v=algo_result.cramers_v,
-                        chi_square=algo_result.chi_square,
-                        p_value=algo_result.p_value,
-                        degrees_of_freedom=algo_result.degrees_of_freedom,
-                        sample_size=algo_result.sample_size,
-                        computed_at=computed_at,
-                        association_strength=algo_result.strength,
-                        is_significant=algo_result.is_significant,
-                    )
+        # Use parallel processing with cursors from shared connection
+        # DuckDB cursors are thread-safe for read operations
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _compute_association_pair,
+                    duckdb_conn,
+                    table_path,
+                    col1.column_id,
+                    col1.column_name,
+                    col2.column_id,
+                    col2.column_name,
+                    i,
+                    j,
+                    table.table_id,
+                    min_cramers_v,
                 )
+                for i, col1, j, col2 in pairs
+            ]
+
+            for future in futures:
+                assoc = future.result()
+                if assoc:
+                    associations.append(assoc)
 
         # Store all associations in database (sequential - SQLite writes)
         for association in associations:

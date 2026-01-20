@@ -25,7 +25,7 @@ from dataraum_context.storage import Column, Table
 
 
 def _check_derived_triple(
-    db_path: str,
+    duckdb_conn: duckdb.DuckDBPyConnection,
     table_name: str,
     table_id: str,
     target_id: str,
@@ -40,9 +40,10 @@ def _check_derived_triple(
 ) -> DerivedColumn | None:
     """Check if target = col1 op col2 is a derivation.
 
-    Runs in a worker thread with its own DuckDB connection.
+    Runs in a worker thread using a cursor from the shared DuckDB connection.
+    DuckDB cursors are thread-safe for read operations.
     """
-    conn = duckdb.connect(db_path, read_only=True)
+    cursor = duckdb_conn.cursor()
     try:
         query = f"""
             WITH derivation_check AS (
@@ -62,7 +63,7 @@ def _check_derived_triple(
                 COUNT(*) as total
             FROM derivation_check
         """
-        result = conn.execute(query).fetchone()
+        result = cursor.execute(query).fetchone()
         if not result:
             return None
 
@@ -90,7 +91,7 @@ def _check_derived_triple(
             computed_at=datetime.now(UTC),
         )
     finally:
-        conn.close()
+        cursor.close()
 
 
 def detect_derived_columns(
@@ -131,10 +132,6 @@ def detect_derived_columns(
         if not table_name:
             return Result.fail("Table has no DuckDB path")
 
-        # Get DuckDB file path
-        db_info = duckdb_conn.execute("PRAGMA database_list").fetchall()
-        db_path = db_info[0][2] if db_info and db_info[0][2] else ""
-
         # Check arithmetic derivations (numeric columns only)
         numeric_cols = [
             c for c in columns if c.resolved_type in ["INTEGER", "BIGINT", "DOUBLE", "DECIMAL"]
@@ -161,82 +158,32 @@ def detect_derived_columns(
 
         derived_columns: list[DerivedColumn] = []
 
-        # Use parallel processing for file-based DBs (workers need to connect to same DB)
-        if db_path:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [
-                    pool.submit(
-                        _check_derived_triple,
-                        db_path,
-                        table_name,
-                        table.table_id,
-                        target.column_id,
-                        target.column_name,
-                        col1.column_id,
-                        col1.column_name,
-                        col2.column_id,
-                        col2.column_name,
-                        op,
-                        op_name,
-                        min_match_rate,
-                    )
-                    for target, col1, col2, op, op_name in checks
-                ]
-
-                for future in futures:
-                    derived = future.result()
-                    if derived:
-                        derived_columns.append(derived)
-        else:
-            # Sequential processing
-            for target, col1, col2, op, op_name in checks:
-                query = f"""
-                    WITH derivation_check AS (
-                        SELECT
-                            ABS(
-                                TRY_CAST("{target.column_name}" AS DOUBLE) -
-                                (TRY_CAST("{col1.column_name}" AS DOUBLE) {op} TRY_CAST("{col2.column_name}" AS DOUBLE))
-                            ) as diff
-                        FROM {table_name}
-                        WHERE
-                            "{target.column_name}" IS NOT NULL
-                            AND "{col1.column_name}" IS NOT NULL
-                            AND "{col2.column_name}" IS NOT NULL
-                    )
-                    SELECT
-                        COUNT(CASE WHEN diff < 0.01 THEN 1 END) as matches,
-                        COUNT(*) as total
-                    FROM derivation_check
-                """
-                deriv_result = duckdb_conn.execute(query).fetchone()
-                if not deriv_result:
-                    continue
-
-                matches, total = deriv_result
-                if total == 0:
-                    continue
-
-                match_rate = matches / total
-                if match_rate < min_match_rate:
-                    continue
-
-                derived_columns.append(
-                    DerivedColumn(
-                        derived_id=str(uuid4()),
-                        table_id=table.table_id,
-                        derived_column_id=target.column_id,
-                        derived_column_name=target.column_name,
-                        source_column_ids=[col1.column_id, col2.column_id],
-                        source_column_names=[col1.column_name, col2.column_name],
-                        derivation_type=op_name,
-                        formula=f"{col1.column_name} {op} {col2.column_name}",
-                        match_rate=float(match_rate),
-                        total_rows=int(total),
-                        matching_rows=int(matches),
-                        mismatch_examples=None,
-                        computed_at=datetime.now(UTC),
-                    )
+        # Use parallel processing with cursors from shared connection
+        # DuckDB cursors are thread-safe for read operations
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _check_derived_triple,
+                    duckdb_conn,
+                    table_name,
+                    table.table_id,
+                    target.column_id,
+                    target.column_name,
+                    col1.column_id,
+                    col1.column_name,
+                    col2.column_id,
+                    col2.column_name,
+                    op,
+                    op_name,
+                    min_match_rate,
                 )
+                for target, col1, col2, op, op_name in checks
+            ]
+
+            for future in futures:
+                derived = future.result()
+                if derived:
+                    derived_columns.append(derived)
 
         # Store all in database (sequential - SQLite writes)
         for derived in derived_columns:

@@ -24,7 +24,7 @@ from dataraum_context.storage import Column, Table
 
 
 def _check_fd_pair(
-    db_path: str,
+    duckdb_conn: duckdb.DuckDBPyConnection,
     table_name: str,
     col_a_name: str,
     col_a_id: str,
@@ -34,9 +34,10 @@ def _check_fd_pair(
 ) -> FunctionalDependency | None:
     """Check if col_a -> col_b is a functional dependency.
 
-    Runs in a worker thread with its own DuckDB connection.
+    Runs in a worker thread using a cursor from the shared DuckDB connection.
+    DuckDB cursors are thread-safe for read operations.
     """
-    conn = duckdb.connect(db_path, read_only=True)
+    cursor = duckdb_conn.cursor()
     try:
         query = f"""
             WITH mappings AS (
@@ -55,7 +56,7 @@ def _check_fd_pair(
                 COUNT(*) as total_unique_a
             FROM mappings
         """
-        fd_result = conn.execute(query).fetchone()
+        fd_result = cursor.execute(query).fetchone()
         if not fd_result:
             return None
 
@@ -74,7 +75,7 @@ def _check_fd_pair(
             WHERE "{col_a_name}" IS NOT NULL
             LIMIT 1
         """
-        example_row = conn.execute(example_query).fetchone()
+        example_row = cursor.execute(example_query).fetchone()
         example = (
             {
                 "determinant_values": [str(example_row[0])],
@@ -98,7 +99,7 @@ def _check_fd_pair(
             computed_at=datetime.now(UTC),
         )
     finally:
-        conn.close()
+        cursor.close()
 
 
 def detect_functional_dependencies(
@@ -140,11 +141,6 @@ def detect_functional_dependencies(
         if not table_name:
             return Result.fail("Table has no DuckDB path")
 
-        # Get DuckDB file path from the connection
-        # The duckdb_path is the table name, we need the database file path
-        db_info = duckdb_conn.execute("PRAGMA database_list").fetchall()
-        db_path = db_info[0][2] if db_info and db_info[0][2] else ""
-
         # Generate all column pairs to check
         pairs = [
             (col_a, col_b)
@@ -155,94 +151,29 @@ def detect_functional_dependencies(
 
         dependencies: list[FunctionalDependency] = []
 
-        # Use parallel processing for file-based DBs (workers need to connect to same DB)
-        if db_path:
-            # Parallel: each worker gets its own read-only DuckDB connection
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [
-                    pool.submit(
-                        _check_fd_pair,
-                        db_path,
-                        table_name,
-                        col_a.column_name,
-                        col_a.column_id,
-                        col_b.column_name,
-                        col_b.column_id,
-                        min_confidence,
-                    )
-                    for col_a, col_b in pairs
-                ]
-
-                for future in futures:
-                    fd = future.result()
-                    if fd:
-                        # Set table_id (wasn't available in worker)
-                        fd.table_id = table.table_id
-                        dependencies.append(fd)
-        else:
-            # Sequential: use the provided connection
-            for col_a, col_b in pairs:
-                query = f"""
-                    WITH mappings AS (
-                        SELECT
-                            "{col_a.column_name}",
-                            COUNT(DISTINCT "{col_b.column_name}") as distinct_b_values
-                        FROM {table_name}
-                        WHERE
-                            "{col_a.column_name}" IS NOT NULL
-                            AND "{col_b.column_name}" IS NOT NULL
-                        GROUP BY "{col_a.column_name}"
-                    )
-                    SELECT
-                        COUNT(CASE WHEN distinct_b_values = 1 THEN 1 END) as valid_mappings,
-                        COUNT(CASE WHEN distinct_b_values > 1 THEN 1 END) as violations,
-                        COUNT(*) as total_unique_a
-                    FROM mappings
-                """
-                fd_result = duckdb_conn.execute(query).fetchone()
-                if not fd_result:
-                    continue
-
-                valid_mappings, violations, total_unique_a = fd_result
-                if total_unique_a == 0:
-                    continue
-
-                confidence = valid_mappings / total_unique_a
-                if confidence < min_confidence:
-                    continue
-
-                # Get example
-                example_query = f"""
-                    SELECT "{col_a.column_name}", "{col_b.column_name}"
-                    FROM {table_name}
-                    WHERE "{col_a.column_name}" IS NOT NULL
-                    LIMIT 1
-                """
-                example_row = duckdb_conn.execute(example_query).fetchone()
-                example = (
-                    {
-                        "determinant_values": [str(example_row[0])],
-                        "dependent_value": str(example_row[1]),
-                    }
-                    if example_row
-                    else None
+        # Use parallel processing with cursors from shared connection
+        # DuckDB cursors are thread-safe for read operations
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _check_fd_pair,
+                    duckdb_conn,
+                    table_name,
+                    col_a.column_name,
+                    col_a.column_id,
+                    col_b.column_name,
+                    col_b.column_id,
+                    min_confidence,
                 )
+                for col_a, col_b in pairs
+            ]
 
-                dependencies.append(
-                    FunctionalDependency(
-                        dependency_id=str(uuid4()),
-                        table_id=table.table_id,
-                        determinant_column_ids=[col_a.column_id],
-                        determinant_column_names=[col_a.column_name],
-                        dependent_column_id=col_b.column_id,
-                        dependent_column_name=col_b.column_name,
-                        confidence=float(confidence),
-                        unique_determinant_values=int(total_unique_a),
-                        violation_count=int(violations),
-                        example=example,
-                        computed_at=datetime.now(UTC),
-                    )
-                )
+            for future in futures:
+                fd = future.result()
+                if fd:
+                    # Set table_id (wasn't available in worker)
+                    fd.table_id = table.table_id
+                    dependencies.append(fd)
 
         # Store all dependencies in database (sequential - SQLite writes)
         for dependency in dependencies:
