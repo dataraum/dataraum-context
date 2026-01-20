@@ -6,9 +6,13 @@ Evaluates relationship candidates BEFORE semantic agent confirmation:
 
 This module enriches candidates with quality metrics that help the semantic
 agent make better decisions and provide evidence for relationship quality.
+
+Uses parallel processing for large relationship sets to speed up evaluation.
 """
 
 from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
 
 import duckdb
 
@@ -250,34 +254,84 @@ def _check_duplicate_introduction(
     return False
 
 
+def _evaluate_relationship_candidate_parallel(
+    db_path: str,
+    candidate: RelationshipCandidate,
+    table1_path: str,
+    table2_path: str,
+) -> RelationshipCandidate:
+    """Evaluate a relationship candidate in a worker thread.
+
+    Runs in its own thread with a separate read-only DuckDB connection.
+    """
+    conn = duckdb.connect(db_path, read_only=True)
+    try:
+        return evaluate_relationship_candidate(candidate, table1_path, table2_path, conn)
+    finally:
+        conn.close()
+
+
 def evaluate_candidates(
     candidates: list[RelationshipCandidate],
     table_paths: dict[str, str],
     duckdb_conn: duckdb.DuckDBPyConnection,
+    max_workers: int = 4,
 ) -> list[RelationshipCandidate]:
     """Evaluate all relationship candidates with quality metrics.
+
+    Uses parallel processing for file-based DBs to speed up evaluation.
 
     Args:
         candidates: List of relationship candidates to evaluate
         table_paths: Mapping of table names to DuckDB paths
         duckdb_conn: DuckDB connection
+        max_workers: Maximum parallel workers
 
     Returns:
         List of RelationshipCandidate with evaluation metrics populated
     """
-    evaluated = []
+    # Get DuckDB file path for parallel connections
+    db_info = duckdb_conn.execute("PRAGMA database_list").fetchall()
+    db_path = db_info[0][2] if db_info and db_info[0][2] else ""
+
+    # Separate candidates into evaluable and non-evaluable
+    evaluable = []
+    non_evaluable = []
     for candidate in candidates:
         table1_path = table_paths.get(candidate.table1)
         table2_path = table_paths.get(candidate.table2)
+        if table1_path and table2_path:
+            evaluable.append((candidate, table1_path, table2_path))
+        else:
+            non_evaluable.append(candidate)
 
-        if not table1_path or not table2_path:
-            # Can't evaluate without table paths, keep as-is
-            evaluated.append(candidate)
-            continue
+    evaluated = []
 
-        evaluated_candidate = evaluate_relationship_candidate(
-            candidate, table1_path, table2_path, duckdb_conn
-        )
-        evaluated.append(evaluated_candidate)
+    # Use parallel processing for file-based DBs
+    if db_path and evaluable:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _evaluate_relationship_candidate_parallel,
+                    db_path,
+                    candidate,
+                    table1_path,
+                    table2_path,
+                )
+                for candidate, table1_path, table2_path in evaluable
+            ]
+
+            for future in futures:
+                evaluated.append(future.result())
+    else:
+        # Sequential for in-memory DBs
+        for candidate, table1_path, table2_path in evaluable:
+            evaluated_candidate = evaluate_relationship_candidate(
+                candidate, table1_path, table2_path, duckdb_conn
+            )
+            evaluated.append(evaluated_candidate)
+
+    # Add non-evaluable candidates (missing table paths)
+    evaluated.extend(non_evaluable)
 
     return evaluated

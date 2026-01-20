@@ -1,8 +1,34 @@
-"""Join column detection using value overlap."""
+"""Join column detection using value overlap.
 
+Uses parallel processing for large column comparisons to speed up detection.
+"""
+
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import duckdb
+
+
+def _compute_join_score_parallel(
+    db_path: str,
+    table1_path: str,
+    table2_path: str,
+    col1: str,
+    col2: str,
+    max_distinct: int,
+) -> tuple[str, str, float, str]:
+    """Compute join score in a worker thread with its own DuckDB connection.
+
+    Returns (col1, col2, score, cardinality) tuple.
+    """
+    conn = duckdb.connect(db_path, read_only=True)
+    try:
+        score, cardinality = _compute_join_score(
+            conn, table1_path, table2_path, col1, col2, max_distinct
+        )
+        return (col1, col2, score, cardinality)
+    finally:
+        conn.close()
 
 
 def find_join_columns(
@@ -13,12 +39,15 @@ def find_join_columns(
     columns2: list[str],
     min_score: float = 0.3,
     max_distinct: int = 100000,
+    max_workers: int = 4,
 ) -> list[dict[str, Any]]:
     """Find join columns using DuckDB for accurate distinct value comparison.
 
     Queries distinct values directly instead of sampling rows, which preserves
     the true value overlap for join detection. Returns ALL candidates above
     min_score for the LLM to evaluate.
+
+    Uses parallel processing for file-based DBs to speed up detection.
 
     Returns dicts with:
     - column1, column2: column names
@@ -28,10 +57,45 @@ def find_join_columns(
     Note: topology_similarity is computed separately in finder.py where
     DataFrame access is available.
     """
+    # Get DuckDB file path for parallel connections
+    db_info = conn.execute("PRAGMA database_list").fetchall()
+    db_path = db_info[0][2] if db_info and db_info[0][2] else ""
+
+    # Generate all column pairs
+    pairs = [(col1, col2) for col1 in columns1 for col2 in columns2]
+
     candidates = []
 
-    for col1 in columns1:
-        for col2 in columns2:
+    # Use parallel processing for file-based DBs
+    if db_path:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _compute_join_score_parallel,
+                    db_path,
+                    table1_path,
+                    table2_path,
+                    col1,
+                    col2,
+                    max_distinct,
+                )
+                for col1, col2 in pairs
+            ]
+
+            for future in futures:
+                col1, col2, score, cardinality = future.result()
+                if score > min_score:
+                    candidates.append(
+                        {
+                            "column1": col1,
+                            "column2": col2,
+                            "join_confidence": score,
+                            "cardinality": cardinality,
+                        }
+                    )
+    else:
+        # Sequential for in-memory DBs
+        for col1, col2 in pairs:
             score, cardinality = _compute_join_score(
                 conn, table1_path, table2_path, col1, col2, max_distinct
             )
