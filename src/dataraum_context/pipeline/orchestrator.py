@@ -301,6 +301,7 @@ class Pipeline:
                         table_ids=table_ids,
                         previous_outputs=previous_outputs,
                         config=run_config,
+                        session_factory=manager.session_scope,
                     )
 
                     # Check if should skip

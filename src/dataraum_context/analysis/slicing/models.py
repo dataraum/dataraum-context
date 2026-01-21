@@ -7,7 +7,9 @@ creates one slice.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 from dataraum_context.core.models.base import DecisionSource
 
@@ -31,6 +33,15 @@ class SliceRecommendation(BaseModel):
         default_factory=list,
         description="List of unique values that will become slices",
     )
+
+    @field_validator("distinct_values", mode="before")
+    @classmethod
+    def coerce_to_strings(cls, v: Any) -> list[str]:
+        """Coerce distinct values to strings (LLM may return ints)."""
+        if isinstance(v, list):
+            return [str(item) for item in v]
+        return []
+
     value_count: int = Field(description="Number of distinct values (number of slices to create)")
 
     # Analysis reasoning

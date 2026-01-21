@@ -182,7 +182,7 @@ class ImportPhase(BasePhase):
         if not table_ids:
             return PhaseResult.failed("No CSV files were successfully loaded")
 
-        ctx.session.commit()
+        # Note: commit handled by session_scope() in orchestrator
         duration = time.time() - start_time
 
         return PhaseResult.success(
@@ -224,7 +224,7 @@ class ImportPhase(BasePhase):
         if junk_columns:
             self._drop_junk_columns(ctx, [staged_table], junk_columns)
 
-        ctx.session.commit()
+        # Note: commit handled by session_scope() in orchestrator
 
         return PhaseResult.success(
             outputs={"raw_tables": [str(staged_table.table_id)]},
@@ -271,4 +271,4 @@ class ImportPhase(BasePhase):
                     # Column might not exist - that's fine
                     pass
 
-        ctx.session.commit()
+        # Note: commit handled by session_scope() in orchestrator

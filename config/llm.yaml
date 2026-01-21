@@ -53,7 +53,7 @@ features:
 
   quality_summary:
     enabled: true
-    model_tier: balanced
+    model_tier: fast
     prompt_file: prompts/quality_summary.yaml
     description: >
       Generate quality summaries per column aggregating findings

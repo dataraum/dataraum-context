@@ -5,6 +5,7 @@ Defines the Phase protocol and related data structures used by the orchestrator.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
@@ -42,6 +43,10 @@ class PhaseContext:
 
     # Configuration overrides
     config: dict[str, Any] = field(default_factory=dict)
+
+    # Session factory for parallel execution within phases
+    # Returns a context manager that yields a Session
+    session_factory: Callable[[], Any] | None = None
 
     def get_output(self, phase_name: str, key: str, default: Any = None) -> Any:
         """Get an output from a previous phase."""
