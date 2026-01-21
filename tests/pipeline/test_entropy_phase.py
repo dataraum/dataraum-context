@@ -20,7 +20,13 @@ class TestEntropyPhase:
         phase = EntropyPhase()
         assert phase.name == "entropy"
         assert phase.description == "Entropy detection across all dimensions"
-        assert phase.dependencies == ["statistics", "semantic", "relationships", "correlations"]
+        assert phase.dependencies == [
+            "typing",
+            "statistics",
+            "semantic",
+            "relationships",
+            "correlations",
+        ]
         assert phase.outputs == ["entropy_profiles", "compound_risks"]
         assert phase.is_llm_phase is False
 

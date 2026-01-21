@@ -174,7 +174,7 @@ class BusinessCycleAgent:
         session: Session,
         duckdb_conn: duckdb.DuckDBPyConnection,
         table_ids: list[str],
-        max_tool_calls: int = 10,
+        max_tool_calls: int = 15,
         *,
         domain: str | None = None,
     ) -> Result[BusinessCycleAnalysis]:
