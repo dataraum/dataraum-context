@@ -385,8 +385,22 @@ def get_tool_definitions() -> list[dict[str, Any]]:
     """Get JSON schema definitions for the tools.
 
     Returns tool definitions in the format expected by Claude's tool use.
+    Includes both exploration tools and the submit_analysis tool for final output.
     """
+    from dataraum_context.analysis.cycles.models import BusinessCycleAnalysisOutput
+
     return [
+        # Submit analysis tool - for structured final output
+        {
+            "name": "submit_analysis",
+            "description": (
+                "Submit your final business cycle analysis. Call this tool ONLY when you have "
+                "gathered enough information and are ready to present your findings. "
+                "This is a REQUIRED final step - you must call this tool to complete the analysis."
+            ),
+            "input_schema": BusinessCycleAnalysisOutput.model_json_schema(),
+        },
+        # Exploration tools
         {
             "name": "get_column_value_distribution",
             "description": "Get distinct values and their counts for a column. Useful for understanding status columns, category columns, and identifying possible cycle stages.",
