@@ -35,8 +35,15 @@ def mock_provider():
 
 @pytest.fixture
 def mock_prompt_renderer():
-    """Create a mock prompt renderer."""
-    return MagicMock()
+    """Create a mock prompt renderer that returns valid prompts."""
+    renderer = MagicMock()
+    # Configure render_split to return (system_prompt, user_prompt, temperature)
+    renderer.render_split.return_value = (
+        "You are an SQL expert.",
+        "Generate SQL for this validation.",
+        0.0,
+    )
+    return renderer
 
 
 @pytest.fixture

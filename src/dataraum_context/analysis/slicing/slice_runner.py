@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import duckdb
 from sqlalchemy import select
@@ -147,13 +148,26 @@ def register_slice_tables(
                 if slice_table_name not in slice_tables_in_duckdb:
                     continue
 
-                # Check if already registered
+                # Check if already registered (include source_id in query for correct uniqueness)
                 existing_stmt = select(Table).where(
+                    Table.source_id == source_table.source_id,
                     Table.table_name == slice_table_name,
                     Table.layer == "slice",
                 )
                 existing_result = session.execute(existing_stmt)
                 existing_table = existing_result.scalar_one_or_none()
+
+                # Also check pending objects in session (with autoflush=False, they won't be in DB yet)
+                if not existing_table:
+                    for obj in session.new:
+                        if (
+                            isinstance(obj, Table)
+                            and obj.source_id == source_table.source_id
+                            and obj.table_name == slice_table_name
+                            and obj.layer == "slice"
+                        ):
+                            existing_table = obj
+                            break
 
                 if existing_table:
                     # Already registered
@@ -181,7 +195,9 @@ def register_slice_tables(
                 row_count = count_result[0] if count_result else 0
 
                 # Create Table entry for slice
+                # Generate table_id explicitly since SQLAlchemy defaults only apply at INSERT time
                 slice_table = Table(
+                    table_id=str(uuid4()),
                     source_id=source_table.source_id,
                     table_name=slice_table_name,
                     layer="slice",
@@ -189,7 +205,6 @@ def register_slice_tables(
                     row_count=row_count,
                 )
                 session.add(slice_table)
-                # No flush needed - table_id is client-generated UUID, available immediately
 
                 # Create Column entries (copy from parent)
                 for src_col in source_columns:
