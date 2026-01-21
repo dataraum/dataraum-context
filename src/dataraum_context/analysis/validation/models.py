@@ -62,6 +62,35 @@ class ValidationSpec(BaseModel):
     source: str = "config"
 
 
+class ValidationSQLOutput(BaseModel):
+    """Pydantic model for LLM tool output - validation SQL generation.
+
+    Used as a tool definition for structured LLM output via tool use API.
+    """
+
+    sql: str | None = Field(
+        description="The DuckDB SQL query to execute. Null if validation cannot be performed."
+    )
+    explanation: str = Field(
+        description="Brief explanation of what this query validates and which tables/columns are used."
+    )
+    columns_used: list[str] = Field(
+        default_factory=list,
+        description="List of columns used in the query, in 'table.column' format.",
+    )
+    tables_used: list[str] = Field(
+        default_factory=list,
+        description="List of tables used in the query.",
+    )
+    can_validate: bool = Field(
+        description="Whether the validation can be performed with the available schema."
+    )
+    skip_reason: str | None = Field(
+        default=None,
+        description="If can_validate is false, explain why (e.g., 'Missing required columns: ...').",
+    )
+
+
 class GeneratedSQL(BaseModel):
     """LLM-generated SQL for a validation check."""
 

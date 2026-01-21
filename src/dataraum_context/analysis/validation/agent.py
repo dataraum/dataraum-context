@@ -26,8 +26,14 @@ from dataraum_context.analysis.validation.models import (
     ValidationResult,
     ValidationRunResult,
     ValidationSeverity,
+    ValidationSQLOutput,
     ValidationSpec,
     ValidationStatus,
+)
+from dataraum_context.llm.providers.base import (
+    ConversationRequest,
+    Message,
+    ToolDefinition,
 )
 from dataraum_context.analysis.validation.resolver import (
     format_multi_table_schema_for_prompt,
@@ -335,7 +341,9 @@ class ValidationAgent(LLMFeature):
         spec: ValidationSpec,
         schema: dict[str, Any],
     ) -> Result[GeneratedSQL]:
-        """Generate SQL via LLM.
+        """Generate SQL via LLM using tool-based structured output.
+
+        Uses Pydantic model as tool definition for reliable structured output.
 
         Args:
             spec: Validation spec
@@ -344,6 +352,11 @@ class ValidationAgent(LLMFeature):
         Returns:
             Result containing GeneratedSQL
         """
+        # Get feature config first
+        feature_config = self.config.features.validation
+        if not feature_config or not feature_config.enabled:
+            return Result.fail("Validation feature is disabled in config")
+
         # Format schema for prompt with emphasis on exact column names
         schema_text = format_multi_table_schema_for_prompt(schema)
 
@@ -373,52 +386,69 @@ class ValidationAgent(LLMFeature):
         except Exception as e:
             return Result.fail(f"Failed to render validation prompt: {e}")
 
-        # Get feature config
-        feature_config = self.config.features.validation
-        if not feature_config or not feature_config.enabled:
-            return Result.fail("Validation feature is disabled in config")
-
-        # Call LLM
-        from dataraum_context.llm.providers.base import LLMRequest
+        # Create tool definition from Pydantic model
+        tool = ToolDefinition(
+            name="generate_validation_sql",
+            description=(
+                "Generate a DuckDB SQL query for the validation check. "
+                "Analyze the schema to identify relevant columns and tables."
+            ),
+            input_schema=ValidationSQLOutput.model_json_schema(),
+        )
 
         model = self.provider.get_model_for_tier(feature_config.model_tier)
 
-        request = LLMRequest(
-            prompt=user_prompt,
+        # Call LLM with tool use
+        request = ConversationRequest(
+            messages=[Message(role="user", content=user_prompt)],
             system=system_prompt,
+            tools=[tool],
             max_tokens=2000,
             temperature=temperature,
-            response_format="json",
+            model=model,
         )
 
-        result = self.provider.complete(request)
+        result = self.provider.converse(request)
         if not result.success or not result.value:
             return Result.fail(result.error or "LLM call failed")
 
-        # Parse response
-        try:
-            response_data = json.loads(result.value.content)
-            sql = response_data.get("sql")
-            explanation = response_data.get("explanation", "")
-            columns_used = response_data.get("columns_used", [])
-            can_validate = response_data.get("can_validate", True)
-            skip_reason = response_data.get("skip_reason")
+        response = result.value
 
-            generated = GeneratedSQL(
-                validation_id=spec.validation_id,
-                sql_query=sql or "",
-                explanation=explanation,
-                columns_used=columns_used,
-                generated_at=datetime.now(UTC),
-                model_used=model,
-                is_valid=can_validate and sql is not None,
-                validation_error=skip_reason,
-            )
+        # Extract tool call result
+        if not response.tool_calls:
+            # LLM didn't use the tool - try to parse text as fallback
+            if response.content:
+                try:
+                    response_data = json.loads(response.content)
+                    output = ValidationSQLOutput.model_validate(response_data)
+                except Exception:
+                    return Result.fail(f"LLM did not use tool. Response: {response.content[:200]}")
+            else:
+                return Result.fail("LLM did not use the generate_validation_sql tool")
+        else:
+            # Parse tool response using Pydantic model
+            tool_call = response.tool_calls[0]
+            if tool_call.name != "generate_validation_sql":
+                return Result.fail(f"Unexpected tool call: {tool_call.name}")
 
-            return Result.ok(generated)
+            try:
+                output = ValidationSQLOutput.model_validate(tool_call.input)
+            except Exception as e:
+                return Result.fail(f"Failed to validate tool response: {e}")
 
-        except json.JSONDecodeError as e:
-            return Result.fail(f"Failed to parse LLM response: {e}")
+        # Convert to GeneratedSQL
+        generated = GeneratedSQL(
+            validation_id=spec.validation_id,
+            sql_query=output.sql or "",
+            explanation=output.explanation,
+            columns_used=output.columns_used,
+            generated_at=datetime.now(UTC),
+            model_used=model,
+            is_valid=output.can_validate and output.sql is not None,
+            validation_error=output.skip_reason,
+        )
+
+        return Result.ok(generated)
 
     def _evaluate_result(
         self,

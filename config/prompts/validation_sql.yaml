@@ -55,27 +55,7 @@ system_prompt: |
     Return descriptive column names
   </check_types>
 
-  <output_format>
-  Return ONLY a valid JSON object with this exact structure:
-  {
-    "sql": "SELECT ... FROM ... WHERE ...",
-    "explanation": "What this query validates",
-    "columns_used": ["table.column1", "table.column2"],
-    "tables_used": ["table1", "table2"],
-    "can_validate": true,
-    "skip_reason": null
-  }
-
-  If validation cannot be performed:
-  {
-    "sql": null,
-    "explanation": "Why validation cannot be performed",
-    "columns_used": [],
-    "tables_used": [],
-    "can_validate": false,
-    "skip_reason": "Missing required columns: ..."
-  }
-  </output_format>
+  Use the generate_validation_sql tool to provide your response.
 
 # User prompt - provides context and task
 user_prompt: |
@@ -107,7 +87,7 @@ user_prompt: |
   5. If the required columns don't exist, set can_validate=false
   </instructions>
 
-  Return ONLY the JSON object, no other text.
+  Use the generate_validation_sql tool to provide your response.
 
 # Input variable definitions
 inputs:

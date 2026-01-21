@@ -29,8 +29,20 @@ def mock_provider():
     """Create a mock LLM provider."""
     provider = MagicMock()
     provider.get_model_for_tier = MagicMock(return_value="claude-3-haiku")
-    provider.complete = MagicMock()
+    provider.converse = MagicMock()
     return provider
+
+
+def _make_tool_response(tool_input: dict, tool_name: str = "generate_validation_sql"):
+    """Create a mock LLM response with tool calls."""
+    tool_call = MagicMock()
+    tool_call.name = tool_name
+    tool_call.input = tool_input
+
+    response = MagicMock()
+    response.tool_calls = [tool_call]
+    response.content = None
+    return response
 
 
 @pytest.fixture
@@ -281,17 +293,17 @@ class TestValidationAgentGenerateSQL:
             ],
         }
 
-        # Mock LLM response
-        mock_response = MagicMock()
-        mock_response.content = json.dumps(
-            {
-                "sql": "SELECT SUM(debit) as total_debits, SUM(credit) as total_credits FROM typed_transactions",
-                "explanation": "Sums debit and credit columns",
-                "columns_used": ["debit", "credit"],
-                "can_validate": True,
-            }
-        )
-        mock_provider.complete.return_value = Result.ok(mock_response)
+        # Mock LLM response with tool call
+        tool_input = {
+            "sql": "SELECT SUM(debit) as total_debits, SUM(credit) as total_credits FROM typed_transactions",
+            "explanation": "Sums debit and credit columns",
+            "columns_used": ["debit", "credit"],
+            "tables_used": ["typed_transactions"],
+            "can_validate": True,
+            "skip_reason": None,
+        }
+        mock_response = _make_tool_response(tool_input)
+        mock_provider.converse.return_value = Result.ok(mock_response)
 
         result = validation_agent._generate_sql(spec, schema)
 
@@ -321,17 +333,16 @@ class TestValidationAgentGenerateSQL:
         }
 
         # Mock LLM response indicating cannot validate
-        mock_response = MagicMock()
-        mock_response.content = json.dumps(
-            {
-                "sql": None,
-                "explanation": "No debit/credit columns found",
-                "columns_used": [],
-                "can_validate": False,
-                "skip_reason": "Missing required columns: debit, credit",
-            }
-        )
-        mock_provider.complete.return_value = Result.ok(mock_response)
+        tool_input = {
+            "sql": None,
+            "explanation": "No debit/credit columns found",
+            "columns_used": [],
+            "tables_used": [],
+            "can_validate": False,
+            "skip_reason": "Missing required columns: debit, credit",
+        }
+        mock_response = _make_tool_response(tool_input)
+        mock_provider.converse.return_value = Result.ok(mock_response)
 
         result = validation_agent._generate_sql(spec, schema)
 
@@ -352,7 +363,7 @@ class TestValidationAgentGenerateSQL:
 
         schema = {"table_name": "test", "duckdb_path": "test", "columns": []}
 
-        mock_provider.complete.return_value = Result.fail("API error")
+        mock_provider.converse.return_value = Result.fail("API error")
 
         result = validation_agent._generate_sql(spec, schema)
 
@@ -442,18 +453,17 @@ class TestValidationAgentRunValidations:
 
         schema = get_multi_table_schema_for_llm(session, [table.table_id])
 
-        # Mock LLM to return valid SQL
-        mock_response = MagicMock()
-        mock_response.content = json.dumps(
-            {
-                "sql": "SELECT SUM(debit) as total_debits, SUM(credit) as total_credits, ABS(SUM(debit) - SUM(credit)) as difference FROM typed_journal_entries",
-                "explanation": "Sums and compares debits and credits",
-                "columns_used": ["journal_entries.debit", "journal_entries.credit"],
-                "tables_used": ["journal_entries"],
-                "can_validate": True,
-            }
-        )
-        mock_provider.complete.return_value = Result.ok(mock_response)
+        # Mock LLM to return valid SQL with tool call
+        tool_input = {
+            "sql": "SELECT SUM(debit) as total_debits, SUM(credit) as total_credits, ABS(SUM(debit) - SUM(credit)) as difference FROM typed_journal_entries",
+            "explanation": "Sums and compares debits and credits",
+            "columns_used": ["journal_entries.debit", "journal_entries.credit"],
+            "tables_used": ["journal_entries"],
+            "can_validate": True,
+            "skip_reason": None,
+        }
+        mock_response = _make_tool_response(tool_input)
+        mock_provider.converse.return_value = Result.ok(mock_response)
 
         result = validation_agent._run_single_validation(
             duckdb_conn=duckdb_conn,
@@ -487,18 +497,16 @@ class TestValidationAgentRunValidations:
         schema = get_multi_table_schema_for_llm(session, [table.table_id])
 
         # Mock LLM to indicate cannot validate
-        mock_response = MagicMock()
-        mock_response.content = json.dumps(
-            {
-                "sql": None,
-                "explanation": "Required columns not found",
-                "columns_used": [],
-                "tables_used": [],
-                "can_validate": False,
-                "skip_reason": "Missing account_type column",
-            }
-        )
-        mock_provider.complete.return_value = Result.ok(mock_response)
+        tool_input = {
+            "sql": None,
+            "explanation": "Required columns not found",
+            "columns_used": [],
+            "tables_used": [],
+            "can_validate": False,
+            "skip_reason": "Missing account_type column",
+        }
+        mock_response = _make_tool_response(tool_input)
+        mock_provider.converse.return_value = Result.ok(mock_response)
 
         result = validation_agent._run_single_validation(
             duckdb_conn=duckdb_conn,
