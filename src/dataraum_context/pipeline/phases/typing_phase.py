@@ -131,6 +131,10 @@ class TypingPhase(BasePhase):
                 )
                 continue
 
+            # Flush type candidates so resolve_types can query them via selectinload
+            # This is necessary because selectinload queries the DB, not the session cache
+            ctx.session.flush()
+
             # Phase 2: Resolve types (create typed + quarantine tables)
             resolution_result = resolve_types(
                 table_id=table_id,

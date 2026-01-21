@@ -199,9 +199,10 @@ class SemanticAnalysisOutput(BaseModel):
     )
 
     summary: str = Field(
+        default="",
         description=(
             "2-3 sentence overview of the schema structure, main entities, and business domain."
-        )
+        ),
     )
 
 

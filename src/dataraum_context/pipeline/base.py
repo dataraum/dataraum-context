@@ -232,7 +232,7 @@ PIPELINE_DAG: list[PhaseDefinition] = [
     PhaseDefinition(
         name="validation",
         description="LLM-powered validation checks",
-        dependencies=["typing"],
+        dependencies=["semantic"],  # Needs semantic annotations for better SQL generation
         outputs=["validation_results"],
         requires_llm=True,
     ),
@@ -242,7 +242,7 @@ PIPELINE_DAG: list[PhaseDefinition] = [
     PhaseDefinition(
         name="slicing",
         description="LLM-powered data slicing",
-        dependencies=["statistics", "temporal"],
+        dependencies=["semantic"],  # Needs semantic annotations for context
         outputs=["slice_definitions"],
         requires_llm=True,
     ),

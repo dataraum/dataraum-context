@@ -15,6 +15,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError, as_comp
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -121,15 +122,16 @@ class Pipeline:
         self._outputs = {}
 
         # Create pipeline run record (needs its own session)
+        # Generate run_id explicitly since SQLAlchemy defaults only apply at INSERT time
+        run_id = str(uuid4())
         with manager.session_scope() as session:
             run = PipelineRun(
+                run_id=run_id,
                 source_id=source_id,
                 target_phase=target_phase,
                 config=run_config or {},
             )
             session.add(run)
-            # No flush needed - run_id is client-generated UUID, available immediately
-            run_id = run.run_id  # Capture before session closes
 
             # Load existing checkpoints if resuming
             if self.config.skip_completed:

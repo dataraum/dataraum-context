@@ -255,12 +255,13 @@ class TestFormatMultiTableSchemaForPrompt:
 
         result = format_multi_table_schema_for_prompt(schema)
 
-        assert "## Available Tables" in result
-        assert "### orders" in result
-        assert "### customers" in result
-        assert "DuckDB Path: typed_orders" in result
-        assert "order_id (VARCHAR)" in result
-        assert "customer_id (VARCHAR)" in result
+        # New XML format
+        assert "<tables>" in result
+        assert 'name="orders"' in result
+        assert 'name="customers"' in result
+        assert 'duckdb_path="typed_orders"' in result
+        assert 'name="order_id"' in result
+        assert 'name="customer_id"' in result
 
     def test_format_multi_table_with_relationships(self):
         """Test formatting multi-table schema with relationships."""
@@ -292,12 +293,14 @@ class TestFormatMultiTableSchemaForPrompt:
 
         result = format_multi_table_schema_for_prompt(schema)
 
-        assert "## Detected Relationships" in result
-        assert "orders.customer_id" in result
-        assert "customers.customer_id" in result
-        assert "foreign_key" in result
-        assert "many-to-one" in result
-        assert "92%" in result  # confidence formatted as percentage
+        # New XML format
+        assert "<relationships>" in result
+        assert 'from_table="orders"' in result
+        assert 'from_column="customer_id"' in result
+        assert 'to_table="customers"' in result
+        assert 'type="foreign_key"' in result
+        assert 'cardinality="many-to-one"' in result
+        assert 'confidence="92%"' in result
 
     def test_format_multi_table_with_semantic_annotations(self):
         """Test formatting multi-table schema with semantic annotations."""
@@ -324,9 +327,10 @@ class TestFormatMultiTableSchemaForPrompt:
 
         result = format_multi_table_schema_for_prompt(schema)
 
-        assert "entity: amount" in result
-        assert "role: measure" in result
-        assert "business_name: Account Balance" in result
+        # New XML format with attributes
+        assert 'entity="amount"' in result
+        assert 'role="measure"' in result
+        assert 'business_name="Account Balance"' in result
 
     def test_format_multi_table_with_error(self):
         """Test formatting an error schema."""
@@ -334,4 +338,5 @@ class TestFormatMultiTableSchemaForPrompt:
 
         result = format_multi_table_schema_for_prompt(schema)
 
-        assert "Error: No tables found" in result
+        # New XML format
+        assert "<error>No tables found</error>" in result

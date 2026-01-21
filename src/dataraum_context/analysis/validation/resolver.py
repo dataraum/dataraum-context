@@ -145,6 +145,8 @@ def _format_table_schema(table: Table) -> dict[str, Any]:
 def format_multi_table_schema_for_prompt(schema: dict[str, Any]) -> str:
     """Format multi-table schema dict as text for LLM prompt.
 
+    Uses XML format and emphasizes exact column names with quoting examples.
+
     Args:
         schema: Schema dict from get_multi_table_schema_for_llm
 
@@ -152,46 +154,62 @@ def format_multi_table_schema_for_prompt(schema: dict[str, Any]) -> str:
         Formatted string for prompt context
     """
     if "error" in schema:
-        return f"Error: {schema['error']}"
+        return f"<error>{schema['error']}</error>"
 
-    lines = ["## Available Tables\n"]
+    lines = ["<tables>"]
 
     for table in schema.get("tables", []):
-        lines.append(f"### {table['table_name']}")
-        lines.append(f"DuckDB Path: {table['duckdb_path']}")
-        lines.append("Columns:")
+        lines.append(f'<table name="{table["table_name"]}" duckdb_path="{table["duckdb_path"]}">')
+        lines.append("<columns>")
 
         for col in table.get("columns", []):
-            col_line = f"  - {col['column_name']} ({col.get('data_type', 'unknown')})"
+            col_name = col["column_name"]
+            data_type = col.get("data_type", "unknown")
+
+            # Show how to reference this column in SQL
+            sql_ref = f'"{col_name}"'
+
+            col_line = f'  <column name="{col_name}" type="{data_type}" sql_reference={sql_ref}'
 
             if "semantic" in col:
                 sem = col["semantic"]
-                annotations = []
-                if sem.get("entity_type"):
-                    annotations.append(f"entity: {sem['entity_type']}")
                 if sem.get("role"):
-                    annotations.append(f"role: {sem['role']}")
+                    col_line += f' role="{sem["role"]}"'
+                if sem.get("entity_type"):
+                    col_line += f' entity="{sem["entity_type"]}"'
                 if sem.get("business_name"):
-                    annotations.append(f"business_name: {sem['business_name']}")
-                if annotations:
-                    col_line += f" [{', '.join(annotations)}]"
+                    col_line += f' business_name="{sem["business_name"]}"'
 
+            col_line += " />"
             lines.append(col_line)
 
+        lines.append("</columns>")
+        lines.append("</table>")
         lines.append("")
+
+    lines.append("</tables>")
 
     # Add relationships section
     relationships = schema.get("relationships", [])
     if relationships:
-        lines.append("## Detected Relationships\n")
+        lines.append("")
+        lines.append("<relationships>")
         for rel in relationships:
             lines.append(
-                f"- {rel['from_table']}.{rel['from_column']} → "
-                f"{rel['to_table']}.{rel['to_column']} "
-                f"({rel['relationship_type']}, {rel['cardinality']}, "
-                f"confidence: {rel['confidence']:.0%})"
+                f'<relationship from_table="{rel["from_table"]}" from_column="{rel["from_column"]}" '
+                f'to_table="{rel["to_table"]}" to_column="{rel["to_column"]}" '
+                f'type="{rel["relationship_type"]}" cardinality="{rel["cardinality"]}" '
+                f'confidence="{rel["confidence"]:.0%}" />'
             )
-        lines.append("")
+        lines.append("</relationships>")
+
+    # Add usage note
+    lines.append("")
+    lines.append("<sql_usage_note>")
+    lines.append("IMPORTANT: Use the sql_reference attribute when writing SQL.")
+    lines.append('Column names with spaces MUST be quoted: "Transaction date" not transaction_date')
+    lines.append("Use the duckdb_path for table references in FROM/JOIN clauses.")
+    lines.append("</sql_usage_note>")
 
     return "\n".join(lines)
 
