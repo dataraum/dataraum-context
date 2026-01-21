@@ -45,7 +45,7 @@ class EntropyPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["statistics", "semantic", "relationships", "correlations"]
+        return ["typing", "statistics", "semantic", "relationships", "correlations"]
 
     @property
     def outputs(self) -> list[str]:
@@ -89,6 +89,16 @@ class EntropyPhase(BasePhase):
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
         """Run entropy detection on all columns."""
+        # Verify detectors are registered
+        from dataraum_context.entropy.detectors.base import get_default_registry
+
+        registry = get_default_registry()
+        all_detectors = registry.get_all_detectors()
+        if not all_detectors:
+            return PhaseResult.failed(
+                "No entropy detectors registered. Cannot run entropy detection."
+            )
+
         # Get typed tables for this source
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)
         result = ctx.session.execute(stmt)

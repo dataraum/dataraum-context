@@ -298,12 +298,28 @@ def _register_builtin_detectors(registry: DetectorRegistry) -> None:
     This is called once when the default registry is created.
     Detectors are imported here to avoid circular imports.
     """
-    # Import and register detectors as they are implemented
-    # For now, this is a placeholder that will be populated
-    # as we implement detectors in Phase 1.4
+    # Structural layer detectors
+    from dataraum_context.entropy.detectors.structural.relations import JoinPathDeterminismDetector
+    from dataraum_context.entropy.detectors.structural.types import TypeFidelityDetector
 
-    # Example (to be implemented):
-    # from dataraum_context.entropy.detectors.structural import TypeFidelityDetector
-    # registry.register(TypeFidelityDetector())
+    registry.register(TypeFidelityDetector())
+    registry.register(JoinPathDeterminismDetector())
 
-    pass  # Will be populated in Phase 1.4
+    # Value layer detectors
+    from dataraum_context.entropy.detectors.value.null_semantics import NullRatioDetector
+    from dataraum_context.entropy.detectors.value.outliers import OutlierRateDetector
+
+    registry.register(NullRatioDetector())
+    registry.register(OutlierRateDetector())
+
+    # Semantic layer detectors
+    from dataraum_context.entropy.detectors.semantic.business_meaning import BusinessMeaningDetector
+
+    registry.register(BusinessMeaningDetector())
+
+    # Computational layer detectors
+    from dataraum_context.entropy.detectors.computational.derived_values import (
+        DerivedValueDetector,
+    )
+
+    registry.register(DerivedValueDetector())

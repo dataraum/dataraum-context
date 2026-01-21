@@ -1,6 +1,5 @@
 """Tests for the validation agent."""
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest

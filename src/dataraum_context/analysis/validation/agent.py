@@ -26,14 +26,9 @@ from dataraum_context.analysis.validation.models import (
     ValidationResult,
     ValidationRunResult,
     ValidationSeverity,
-    ValidationSQLOutput,
     ValidationSpec,
+    ValidationSQLOutput,
     ValidationStatus,
-)
-from dataraum_context.llm.providers.base import (
-    ConversationRequest,
-    Message,
-    ToolDefinition,
 )
 from dataraum_context.analysis.validation.resolver import (
     format_multi_table_schema_for_prompt,
@@ -41,6 +36,11 @@ from dataraum_context.analysis.validation.resolver import (
 )
 from dataraum_context.core.models.base import Result
 from dataraum_context.llm.features._base import LLMFeature
+from dataraum_context.llm.providers.base import (
+    ConversationRequest,
+    Message,
+    ToolDefinition,
+)
 
 if TYPE_CHECKING:
     from dataraum_context.llm.cache import LLMCache
