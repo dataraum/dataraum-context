@@ -252,11 +252,10 @@ class TemporalSliceAnalyzer:
                         )
                         self.session.add(entry)
 
-            self.session.commit()
+            # Note: commit handled by session_scope() in caller
             return Result.ok(run_id)
 
         except Exception as e:
-            self.session.rollback()
             return Result.fail(f"Failed to persist results: {e}")
 
     def _get_table(self, table_name: str) -> Table | None:

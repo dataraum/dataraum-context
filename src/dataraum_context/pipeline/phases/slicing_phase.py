@@ -166,7 +166,7 @@ class SlicingPhase(BasePhase):
             run_record.status = "failed"
             run_record.error_message = analysis_result.error
             run_record.completed_at = datetime.now(UTC)
-            ctx.session.commit()
+            # Note: commit handled by session_scope() in orchestrator
             return PhaseResult.failed(analysis_result.error or "Slicing analysis failed")
 
         slicing = analysis_result.unwrap()
@@ -197,7 +197,7 @@ class SlicingPhase(BasePhase):
         run_record.recommendations_count = len(slicing.recommendations)
         run_record.slices_generated = len(slicing.slice_queries)
 
-        ctx.session.commit()
+        # Note: commit handled by session_scope() in orchestrator
 
         return PhaseResult.success(
             outputs={

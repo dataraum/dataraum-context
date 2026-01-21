@@ -132,7 +132,7 @@ class CorrelationsPhase(BasePhase):
             )
             ctx.session.add(run_record)
 
-        ctx.session.commit()
+        # Note: commit handled by session_scope() in orchestrator
 
         if not analyzed_tables and warnings:
             return PhaseResult.failed(f"All tables failed analysis: {'; '.join(warnings)}")

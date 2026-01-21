@@ -299,7 +299,7 @@ class EntropyPhase(BasePhase):
         )
         ctx.session.add(snapshot)
 
-        ctx.session.commit()
+        # Note: commit handled by session_scope() in orchestrator
 
         return PhaseResult.success(
             outputs={

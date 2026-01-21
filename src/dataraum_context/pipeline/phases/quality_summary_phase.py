@@ -2,9 +2,15 @@
 
 LLM-powered quality report generation that aggregates slice results
 and generates summaries for each column.
+
+Uses parallel processing for slice definitions to improve throughput.
 """
 
 from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 
@@ -13,9 +19,91 @@ from dataraum_context.analysis.quality_summary.db_models import QualitySummaryRu
 from dataraum_context.analysis.quality_summary.processor import summarize_quality
 from dataraum_context.analysis.slicing.db_models import SliceDefinition
 from dataraum_context.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum_context.llm.config import LLMConfig
+from dataraum_context.llm.providers.base import LLMProvider
 from dataraum_context.pipeline.base import PhaseContext, PhaseResult
 from dataraum_context.pipeline.phases.base import BasePhase
 from dataraum_context.storage import Table
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
+
+@dataclass
+class SliceProcessingResult:
+    """Result from processing a single slice definition."""
+
+    slice_id: str
+    success: bool
+    reports_count: int = 0
+    columns_count: int = 0
+    error: str | None = None
+
+
+def _process_slice_definition(
+    slice_def: SliceDefinition,
+    session_factory: Callable[[], Any],
+    config: LLMConfig,
+    provider: LLMProvider,
+    skip_existing: bool,
+) -> SliceProcessingResult:
+    """Process a single slice definition in a worker thread.
+
+    Each thread gets its own session from the factory for thread safety.
+
+    Args:
+        slice_def: The slice definition to process
+        session_factory: Factory to create new sessions
+        config: LLM configuration
+        provider: LLM provider instance
+        skip_existing: Whether to skip existing reports
+
+    Returns:
+        SliceProcessingResult with counts or error
+    """
+    try:
+        # Create LLM components (cache and renderer are lightweight)
+        cache = LLMCache()
+        renderer = PromptRenderer()
+        agent = QualitySummaryAgent(
+            config=config,
+            provider=provider,
+            prompt_renderer=renderer,
+            cache=cache,
+        )
+
+        # Use session factory to get a dedicated session for this thread
+        with session_factory() as session:
+            summary_result = summarize_quality(
+                session=session,
+                agent=agent,
+                slice_definition=slice_def,
+                skip_existing=skip_existing,
+                session_factory=session_factory,
+            )
+
+            if not summary_result.success:
+                return SliceProcessingResult(
+                    slice_id=slice_def.slice_id,
+                    success=False,
+                    error=summary_result.error,
+                )
+
+            summary = summary_result.unwrap()
+            return SliceProcessingResult(
+                slice_id=slice_def.slice_id,
+                success=True,
+                reports_count=len(summary.column_summaries),
+                columns_count=len(summary.column_summaries),
+            )
+
+    except Exception as e:
+        return SliceProcessingResult(
+            slice_id=slice_def.slice_id,
+            success=False,
+            error=str(e),
+        )
 
 
 class QualitySummaryPhase(BasePhase):
@@ -23,6 +111,9 @@ class QualitySummaryPhase(BasePhase):
 
     Aggregates analysis results across slices and generates
     quality summaries per column using LLM.
+
+    Uses parallel processing for slice definitions when session_factory
+    is available, falling back to sequential processing otherwise.
 
     Requires: slice_analysis phase.
     """
@@ -78,7 +169,11 @@ class QualitySummaryPhase(BasePhase):
         return None
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
-        """Generate quality summaries using LLM."""
+        """Generate quality summaries using LLM.
+
+        Uses parallel processing for slice definitions when session_factory
+        is available.
+        """
         # Get typed tables for this source
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)
         result = ctx.session.execute(stmt)
@@ -91,7 +186,7 @@ class QualitySummaryPhase(BasePhase):
 
         # Get slice definitions
         slice_stmt = select(SliceDefinition).where(SliceDefinition.table_id.in_(table_ids))
-        slice_definitions = (ctx.session.execute(slice_stmt)).scalars().all()
+        slice_definitions = list((ctx.session.execute(slice_stmt)).scalars().all())
 
         if not slice_definitions:
             return PhaseResult.success(
@@ -120,41 +215,65 @@ class QualitySummaryPhase(BasePhase):
         except Exception as e:
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
-        # Create other components
-        cache = LLMCache()
-        renderer = PromptRenderer()
-
-        # Create quality summary agent
-        agent = QualitySummaryAgent(
-            config=config,
-            provider=provider,
-            prompt_renderer=renderer,
-            cache=cache,
-        )
-
-        # Get skip_existing setting from config (default True)
+        # Get settings from config
         skip_existing = ctx.config.get("skip_existing_summaries", True)
+        max_workers = ctx.config.get("quality_summary_workers", 4)
 
-        # Process each slice definition
+        # Process slice definitions
         total_reports = 0
         total_columns = 0
-        errors = []
+        errors: list[str] = []
 
-        for slice_def in slice_definitions:
-            summary_result = summarize_quality(
-                session=ctx.session,
-                agent=agent,
-                slice_definition=slice_def,
-                skip_existing=skip_existing,
+        # Use parallel processing if session_factory is available and multiple slices
+        if ctx.session_factory and len(slice_definitions) > 1 and max_workers > 1:
+            # Parallel processing
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {
+                    pool.submit(
+                        _process_slice_definition,
+                        slice_def,
+                        ctx.session_factory,
+                        config,
+                        provider,
+                        skip_existing,
+                    ): slice_def
+                    for slice_def in slice_definitions
+                }
+
+                for future in as_completed(futures):
+                    proc_result = future.result()
+                    if proc_result.success:
+                        total_reports += proc_result.reports_count
+                        total_columns += proc_result.columns_count
+                    else:
+                        errors.append(f"Slice {proc_result.slice_id}: {proc_result.error}")
+        else:
+            # Sequential processing (fallback)
+            cache = LLMCache()
+            renderer = PromptRenderer()
+            agent = QualitySummaryAgent(
+                config=config,
+                provider=provider,
+                prompt_renderer=renderer,
+                cache=cache,
             )
 
-            if not summary_result.success:
-                errors.append(f"Slice {slice_def.slice_id}: {summary_result.error}")
-                continue
+            for slice_def in slice_definitions:
+                summary_result = summarize_quality(
+                    session=ctx.session,
+                    agent=agent,
+                    slice_definition=slice_def,
+                    skip_existing=skip_existing,
+                    session_factory=ctx.session_factory,
+                )
 
-            summary = summary_result.unwrap()
-            total_reports += len(summary.column_summaries)
-            total_columns += len(summary.column_summaries)
+                if not summary_result.success:
+                    errors.append(f"Slice {slice_def.slice_id}: {summary_result.error}")
+                    continue
+
+                summary = summary_result.unwrap()
+                total_reports += len(summary.column_summaries)
+                total_columns += len(summary.column_summaries)
 
         outputs: dict[str, int | list[str]] = {
             "quality_reports": total_reports,

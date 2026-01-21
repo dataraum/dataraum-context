@@ -152,7 +152,7 @@ class LLMCache:
         )
 
         session.add(cache_entry)
-        session.commit()
+        # Note: commit handled by session_scope() in caller
 
     def invalidate_for_source(
         self,
@@ -180,7 +180,7 @@ class LLMCache:
             entry.is_valid = False
             count += 1
 
-        session.commit()
+        # Note: commit handled by session_scope() in caller
         return count
 
     def invalidate_for_tables(
@@ -211,5 +211,5 @@ class LLMCache:
                     entry.is_valid = False
                     count += 1
 
-        session.commit()
+        # Note: commit handled by session_scope() in caller
         return count
