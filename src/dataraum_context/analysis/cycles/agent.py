@@ -70,13 +70,15 @@ Your task is to analyze a dataset's metadata and identify business cycles - the 
 ## Your Approach
 
 1. First, analyze the provided context to understand the data structure
-2. Identify potential cycles based on entity flows and status columns
-3. Use the tools to validate your hypotheses and gather metrics
-4. Return structured findings about detected cycles
+2. Form hypotheses about potential cycles based on entity flows and status columns
+3. Use exploration tools (3-5 calls) to validate hypotheses and gather key metrics
+4. Call `submit_analysis` with your structured findings
 
-## Output Format
+## IMPORTANT: Output via submit_analysis Tool
 
-When you have gathered enough information, provide your analysis in a structured JSON format with:
+You MUST call the `submit_analysis` tool to provide your final analysis. Do NOT output raw JSON text.
+
+The `submit_analysis` tool accepts your structured findings including:
 - cycles: List of detected business cycles with details
 - business_summary: Overall interpretation of the business model
 - detected_processes: List of business processes found
@@ -94,58 +96,33 @@ USER_PROMPT_TEMPLATE = """Analyze this dataset for business cycles.
 
 ## Your Task
 
-1. Based on the semantic annotations and relationships, identify potential business cycles
-2. Use the tools to validate your hypotheses:
-   - get_column_value_distribution: Check status column values, transaction types
-   - get_cycle_completion_metrics: Measure cycle completion rates
-   - get_entity_transaction_flow: See how transactions flow for entities
-   - get_functional_dependencies: Understand data structure
+1. Review the provided context - it already contains rich metadata including:
+   - Table classifications (fact vs dimension)
+   - Status/state columns with their distinct values
+   - Semantic annotations with business descriptions
+   - Relationships between tables
 
-3. Return your findings as JSON with this structure:
-```json
-{{
-  "cycles": [
-    {{
-      "cycle_name": "string - descriptive name",
-      "cycle_type": "string - ar_cycle, ap_cycle, revenue_cycle, etc.",
-      "description": "string - what this cycle represents",
-      "business_value": "high|medium|low",
-      "entity_flows": [
-        {{
-          "entity_type": "string",
-          "entity_column": "string",
-          "entity_table": "string",
-          "fact_table": "string",
-          "fact_column": "string"
-        }}
-      ],
-      "status_column": "string - column tracking completion",
-      "status_table": "string",
-      "completion_value": "string - value indicating completion",
-      "stages": [
-        {{
-          "stage_name": "string",
-          "stage_order": 1,
-          "indicator_column": "string",
-          "indicator_values": ["string"]
-        }}
-      ],
-      "tables_involved": ["string"],
-      "total_records": 0,
-      "completed_cycles": 0,
-      "completion_rate": 0.0,
-      "confidence": 0.0,
-      "evidence": ["string - what evidence supports this cycle"]
-    }}
-  ],
-  "business_summary": "string - overall business model interpretation",
-  "detected_processes": ["string"],
-  "data_quality_observations": ["string"],
-  "recommendations": ["string"]
-}}
-```
+2. Form hypotheses about business cycles based on:
+   - Status columns (A/R paid, A/P paid, Cleared, etc.) → cycle completion indicators
+   - Entity columns (Customer name, Vendor name) → cycle participants
+   - Transaction type columns → cycle stages
 
-Start by examining the status columns and entity relationships, then use tools to validate."""
+3. Use exploration tools to validate and gather metrics:
+   - `get_cycle_completion_metrics`: Get completion rates for each potential cycle
+   - `get_column_value_distribution`: Check status values, transaction types
+   - `get_entity_transaction_flow`: Understand how entities progress through cycles
+   - `get_functional_dependencies`: Understand column relationships
+
+4. **REQUIRED**: Call `submit_analysis` with your structured findings when done.
+
+## Guidelines
+
+- The context provides rich metadata - use tools to validate hypotheses and gather metrics
+- For each potential cycle, call `get_cycle_completion_metrics` to get actual completion rates
+- Explore thoroughly - the tools are fast database queries
+- Focus on cycles you can identify with confidence and evidence
+- If no clear cycles exist, submit an analysis with an empty cycles list and explain why
+- You MUST call `submit_analysis` to complete the task"""
 
 
 class BusinessCycleAgent:
@@ -247,7 +224,36 @@ class BusinessCycleAgent:
 
                 # Check if there are tool calls
                 if response.tool_calls:
-                    # Execute tools and collect results
+                    # Check for submit_analysis - this is the terminal tool
+                    submit_call = next(
+                        (tc for tc in response.tool_calls if tc.name == "submit_analysis"),
+                        None,
+                    )
+
+                    if submit_call:
+                        # Agent is submitting final analysis via tool
+                        print("     → submit_analysis (final output)")
+                        tool_calls_made.append(
+                            {
+                                "tool": "submit_analysis",
+                                "input": submit_call.input,
+                                "output": {"status": "accepted"},
+                            }
+                        )
+
+                        # Parse the structured tool output
+                        analysis = self._parse_tool_output(
+                            submit_call.input,
+                            context,
+                            tool_calls_made,
+                            start_time,
+                        )
+
+                        # Persist and return
+                        self._persist_results(session, analysis, table_ids)
+                        return Result.ok(analysis)
+
+                    # Execute exploration tools and collect results
                     tool_results: list[ToolResult] = []
 
                     for tool_call in response.tool_calls:
@@ -289,14 +295,17 @@ class BusinessCycleAgent:
                     messages.append(Message(role="user", content=tool_results))
 
                 else:
-                    # No tool calls - this is the final response
+                    # No tool calls - try to parse as JSON (fallback)
                     final_response = response.content
                     break
 
             if not final_response:
-                return Result.fail("Agent did not produce a final response")
+                return Result.fail(
+                    "Agent did not call submit_analysis tool. "
+                    "Ensure the agent uses the submit_analysis tool to provide final output."
+                )
 
-            # 6. Parse response into structured output
+            # 6. Parse response into structured output (fallback for text response)
             analysis = self._parse_response(
                 final_response,
                 context,
@@ -355,6 +364,135 @@ class BusinessCycleAgent:
             )
         else:
             return {"error": f"Unknown tool: {tool_name}"}
+
+    def _parse_tool_output(
+        self,
+        tool_input: dict[str, Any],
+        context: dict[str, Any],
+        tool_calls: list[dict[str, Any]],
+        start_time: float,
+    ) -> BusinessCycleAnalysis:
+        """Parse submit_analysis tool input into structured analysis.
+
+        This is the preferred method - the LLM provides structured output
+        via the submit_analysis tool, which we validate and convert.
+
+        Args:
+            tool_input: The structured input from submit_analysis tool
+            context: Original context provided
+            tool_calls: Tool calls made during analysis
+            start_time: Analysis start time
+
+        Returns:
+            Structured BusinessCycleAnalysis
+        """
+        from dataraum_context.analysis.cycles.models import BusinessCycleAnalysisOutput
+
+        # Validate the input against our Pydantic model
+        try:
+            output = BusinessCycleAnalysisOutput.model_validate(tool_input)
+        except Exception as e:
+            # If validation fails, fall back to dict parsing
+            print(f"   Warning: Tool output validation failed: {e}")
+            output = None
+
+        # Build cycles from the output
+        cycles = []
+        cycle_data_list = output.cycles if output else tool_input.get("cycles", [])
+
+        for cycle_data in cycle_data_list:
+            # Handle both Pydantic model and dict
+            if hasattr(cycle_data, "model_dump"):
+                cd = cycle_data.model_dump()
+            else:
+                cd = cycle_data
+
+            # Parse entity flows
+            entity_flows = [
+                EntityFlow(
+                    entity_type=ef.get("entity_type", "unknown"),
+                    entity_column=ef.get("entity_column", ""),
+                    entity_table=ef.get("entity_table", ""),
+                    fact_table=ef.get("fact_table"),
+                    fact_column=ef.get("fact_column"),
+                )
+                for ef in cd.get("entity_flows", [])
+            ]
+
+            # Parse stages
+            stages = [
+                CycleStage(
+                    stage_name=s.get("stage_name", ""),
+                    stage_order=s.get("stage_order", 0),
+                    indicator_column=s.get("indicator_column"),
+                    indicator_values=s.get("indicator_values", []),
+                )
+                for s in cd.get("stages", [])
+            ]
+
+            # Map cycle_type to canonical vocabulary
+            raw_cycle_type = cd.get("cycle_type", "unknown")
+            canonical_type, is_known_type = map_to_canonical_type(raw_cycle_type)
+
+            cycle = DetectedCycle(
+                cycle_id=str(uuid4()),
+                cycle_name=cd.get("cycle_name", "Unknown Cycle"),
+                cycle_type=raw_cycle_type,
+                canonical_type=canonical_type,
+                is_known_type=is_known_type,
+                description=cd.get("description", ""),
+                business_value=cd.get("business_value", "medium"),
+                stages=stages,
+                entity_flows=entity_flows,
+                tables_involved=cd.get("tables_involved", []),
+                status_column=cd.get("status_column"),
+                status_table=cd.get("status_table"),
+                completion_value=cd.get("completion_value"),
+                total_records=cd.get("total_records"),
+                completed_cycles=cd.get("completed_cycles"),
+                completion_rate=cd.get("completion_rate"),
+                confidence=cd.get("confidence", 0.5),
+                evidence=cd.get("evidence", []),
+            )
+            cycles.append(cycle)
+
+        # Get summary fields
+        if output:
+            business_summary = output.business_summary
+            detected_processes = output.detected_processes
+            data_quality_obs = output.data_quality_observations
+            recommendations = output.recommendations
+        else:
+            business_summary = tool_input.get("business_summary", "")
+            detected_processes = tool_input.get("detected_processes", [])
+            data_quality_obs = tool_input.get("data_quality_observations", [])
+            recommendations = tool_input.get("recommendations", [])
+
+        analysis = BusinessCycleAnalysis(
+            analysis_id=str(uuid4()),
+            tables_analyzed=[t["table_name"] for t in context["dataset_overview"]["tables"]],
+            total_columns=context["summary"]["total_columns"],
+            total_relationships=context["summary"]["total_relationships"],
+            cycles=cycles,
+            total_cycles_detected=len(cycles),
+            high_value_cycles=sum(1 for c in cycles if c.business_value == "high"),
+            business_summary=business_summary,
+            detected_processes=detected_processes,
+            data_quality_observations=data_quality_obs,
+            recommendations=recommendations,
+            llm_model=self._model,
+            analysis_duration_seconds=time.time() - start_time,
+            context_provided={"summary": context["summary"]},
+            tool_calls_made=tool_calls,
+        )
+
+        # Calculate overall health
+        if cycles:
+            completion_rates = [c.completion_rate for c in cycles if c.completion_rate is not None]
+            if completion_rates:
+                analysis.overall_cycle_health = sum(completion_rates) / len(completion_rates)
+
+        return analysis
 
     def _parse_response(
         self,
