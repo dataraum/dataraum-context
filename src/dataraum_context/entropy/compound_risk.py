@@ -11,13 +11,13 @@ Key compound risks:
 - semantic.temporal + value.ranges -> Medium
 """
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from dataraum_context.core.logging import get_logger
 from dataraum_context.entropy.models import (
     ColumnEntropyProfile,
     CompoundRisk,
@@ -26,7 +26,7 @@ from dataraum_context.entropy.models import (
     ResolutionOption,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default config directory
 DEFAULT_CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config" / "entropy"

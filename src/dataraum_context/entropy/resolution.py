@@ -6,11 +6,11 @@ This module handles:
 - Tracking resolution history and effectiveness
 """
 
-import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+from dataraum_context.core.logging import get_logger
 from dataraum_context.entropy.models import (
     ColumnEntropyProfile,
     EntropyObject,
@@ -19,7 +19,7 @@ from dataraum_context.entropy.models import (
     TableEntropyProfile,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

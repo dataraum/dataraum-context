@@ -6,15 +6,15 @@ Supports multi-table validation by fetching all related tables at once.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from dataraum_context.core.logging import get_logger
 from dataraum_context.storage import Column, Table
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def get_multi_table_schema_for_llm(

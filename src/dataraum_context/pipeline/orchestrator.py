@@ -9,7 +9,6 @@ With free-threaded Python (python3.14t), this enables real parallelism.
 
 from __future__ import annotations
 
-import logging
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
@@ -21,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from dataraum_context.core.connections import ConnectionManager
+from dataraum_context.core.logging import get_logger
 from dataraum_context.pipeline.base import (
     PIPELINE_DAG,
     Phase,
@@ -32,7 +32,7 @@ from dataraum_context.pipeline.base import (
 )
 from dataraum_context.pipeline.db_models import PhaseCheckpoint, PipelineRun
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

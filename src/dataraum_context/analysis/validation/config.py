@@ -5,7 +5,6 @@ Loads validation specifications from YAML files in config/validations/.
 
 from __future__ import annotations
 
-import logging
 from functools import lru_cache
 from pathlib import Path
 
@@ -15,8 +14,9 @@ from dataraum_context.analysis.validation.models import (
     ValidationSeverity,
     ValidationSpec,
 )
+from dataraum_context.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default path to validation configs
 CONFIG_DIR = Path(__file__).parent.parent.parent.parent.parent / "config" / "validations"

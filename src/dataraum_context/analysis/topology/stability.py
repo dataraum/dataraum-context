@@ -6,7 +6,6 @@ This module provides functions for assessing topological stability:
 - Bottleneck distance computation
 """
 
-import logging
 from typing import Any
 
 import numpy as np
@@ -15,9 +14,10 @@ from sqlalchemy.orm import Session
 
 from dataraum_context.analysis.topology.db_models import TopologicalQualityMetrics
 from dataraum_context.analysis.topology.models import StabilityAnalysis
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import Result
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def compute_bottleneck_distance(

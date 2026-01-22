@@ -11,14 +11,15 @@ Usage:
     threshold = config.detector("null_ratio").multiplier
 """
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-logger = logging.getLogger(__name__)
+from dataraum_context.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Default config path relative to project root
 DEFAULT_CONFIG_PATH = (

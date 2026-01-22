@@ -14,9 +14,12 @@ from __future__ import annotations
 from sqlalchemy import func, select
 
 from dataraum_context.analysis.temporal import TemporalColumnProfile, profile_temporal
+from dataraum_context.core.logging import get_logger
 from dataraum_context.pipeline.base import PhaseContext, PhaseResult
 from dataraum_context.pipeline.phases.base import BasePhase
 from dataraum_context.storage import Column, Table
+
+logger = get_logger(__name__)
 
 
 class TemporalPhase(BasePhase):
@@ -44,9 +47,6 @@ class TemporalPhase(BasePhase):
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no temporal columns or all already profiled."""
-        import logging
-
-        logger = logging.getLogger(__name__)
 
         # Get typed tables
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)

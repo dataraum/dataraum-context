@@ -16,7 +16,6 @@ References:
 - MinHash: Broder, A. (1997) "On the resemblance and containment of documents"
 """
 
-import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -25,7 +24,9 @@ from typing import Any
 
 import duckdb
 
-logger = logging.getLogger(__name__)
+from dataraum_context.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 # Thresholds for algorithm selection

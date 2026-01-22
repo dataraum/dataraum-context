@@ -11,7 +11,6 @@ Uses RESERVOIR sampling for tables with >100K rows to maintain performance
 while preserving statistical validity for chi-square tests.
 """
 
-import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -30,10 +29,11 @@ from dataraum_context.analysis.correlation.db_models import (
     CategoricalAssociation as DBCategoricalAssociation,
 )
 from dataraum_context.analysis.correlation.models import CategoricalAssociation
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import Result
 from dataraum_context.storage import Column, Table
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Sampling thresholds for categorical correlation
 # Chi-square requires minimum expected cell counts of 5

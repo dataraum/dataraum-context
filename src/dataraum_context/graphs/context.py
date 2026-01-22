@@ -9,7 +9,6 @@ use cases, with support for slice-based filtering.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -17,12 +16,14 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from dataraum_context.core.logging import get_logger
+
 if TYPE_CHECKING:
     import duckdb
 
     from dataraum_context.graphs.field_mapping import FieldMappings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # =============================================================================

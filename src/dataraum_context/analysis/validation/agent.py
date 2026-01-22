@@ -8,7 +8,6 @@ relevant columns and generate cross-table JOINs when needed.
 from __future__ import annotations
 
 import json
-import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -34,6 +33,7 @@ from dataraum_context.analysis.validation.resolver import (
     format_multi_table_schema_for_prompt,
     get_multi_table_schema_for_llm,
 )
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import Result
 from dataraum_context.llm.features._base import LLMFeature
 from dataraum_context.llm.providers.base import (
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from dataraum_context.llm.prompts import PromptRenderer
     from dataraum_context.llm.providers.base import LLMProvider
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # Prompt template name for SQL generation

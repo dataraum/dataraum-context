@@ -4,7 +4,6 @@ This module provides single-table topological analysis via TDA.
 For cross-table schema analysis, see relationships/graph_topology.py.
 """
 
-import logging
 from typing import Any
 
 import duckdb
@@ -29,10 +28,11 @@ from dataraum_context.analysis.topology.stability import (
     get_previous_topology,
 )
 from dataraum_context.analysis.topology.tda.extractor import TableTopologyExtractor
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import Result
 from dataraum_context.storage import Table
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Module-level TDA extractor instance
 _extractor = TableTopologyExtractor()
