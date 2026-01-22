@@ -11,9 +11,12 @@ from sqlalchemy import func, select
 
 from dataraum_context.analysis.statistics import assess_statistical_quality
 from dataraum_context.analysis.statistics.db_models import StatisticalQualityMetrics
+from dataraum_context.core.logging import get_logger
 from dataraum_context.pipeline.base import PhaseContext, PhaseResult
 from dataraum_context.pipeline.phases.base import BasePhase
 from dataraum_context.storage import Column, Table
+
+logger = get_logger(__name__)
 
 
 class StatisticalQualityPhase(BasePhase):
@@ -41,9 +44,6 @@ class StatisticalQualityPhase(BasePhase):
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all numeric columns already have quality metrics."""
-        import logging
-
-        logger = logging.getLogger(__name__)
 
         # Get typed tables
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)

@@ -20,12 +20,12 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from dataraum_context.core.logging import get_logger
 from dataraum_context.entropy.detectors import register_builtin_detectors
 from dataraum_context.entropy.interpretation import (
     InterpretationInput,
@@ -41,7 +41,7 @@ from dataraum_context.entropy.processor import EntropyProcessor
 if TYPE_CHECKING:
     from dataraum_context.entropy.interpretation import EntropyInterpreter
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def build_entropy_context(

@@ -21,10 +21,10 @@ Usage:
     )
 """
 
-import logging
 from dataclasses import dataclass
 from typing import Any
 
+from dataraum_context.core.logging import get_logger
 from dataraum_context.entropy.compound_risk import detect_compound_risks_for_column
 from dataraum_context.entropy.config import get_entropy_config
 from dataraum_context.entropy.detectors.base import (
@@ -40,7 +40,7 @@ from dataraum_context.entropy.models import (
 )
 from dataraum_context.entropy.resolution import find_top_resolutions
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

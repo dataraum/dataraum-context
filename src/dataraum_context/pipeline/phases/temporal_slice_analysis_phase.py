@@ -23,9 +23,12 @@ from dataraum_context.analysis.slicing.slice_runner import (
 )
 from dataraum_context.analysis.temporal import TemporalColumnProfile
 from dataraum_context.analysis.temporal_slicing.analyzer import analyze_temporal_topology
+from dataraum_context.core.logging import get_logger
 from dataraum_context.pipeline.base import PhaseContext, PhaseResult
 from dataraum_context.pipeline.phases.base import BasePhase
 from dataraum_context.storage import Column, Table
+
+logger = get_logger(__name__)
 
 
 class TemporalSliceAnalysisPhase(BasePhase):
@@ -61,9 +64,6 @@ class TemporalSliceAnalysisPhase(BasePhase):
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no slice definitions or no temporal columns."""
-        import logging
-
-        logger = logging.getLogger(__name__)
 
         # Get typed tables for this source
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)

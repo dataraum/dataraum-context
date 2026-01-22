@@ -11,7 +11,6 @@ For correlation analysis, 100K samples provide very accurate estimates
 (standard error ~0.003 for r near 0).
 """
 
-import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -27,10 +26,11 @@ from dataraum_context.analysis.correlation.db_models import (
     ColumnCorrelation as DBColumnCorrelation,
 )
 from dataraum_context.analysis.correlation.models import NumericCorrelation
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import Result
 from dataraum_context.storage import Column, Table
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Sampling thresholds for numeric correlation
 # Standard error for Pearson r is ~1/sqrt(n), so n=100K gives SE~0.003

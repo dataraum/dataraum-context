@@ -29,7 +29,6 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -42,9 +41,10 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from dataraum_context.core.logging import get_logger
 from dataraum_context.storage import Base
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
