@@ -14,9 +14,10 @@ This file tracks completed work and session notes for the dataraum-context proje
 ## Current Sprint: Pipeline & Infrastructure
 
 ### In Progress
-- [ ] Step 3.5.5: Pipeline API endpoints
+- [ ] Step 3.5.6: MCP Server
 
 ### Completed
+- [x] Step 3.5.5: Pipeline API endpoints (2026-01-22)
 - [x] CLI and Concurrency Infrastructure (2025-01-16)
 - [x] Step 3.2: Topology Simplification (2025-01-15)
 - [x] Step 3.5.4: CLI Commands (2025-01-16)
@@ -46,6 +47,61 @@ This file tracks completed work and session notes for the dataraum-context proje
 ---
 
 ## Session Log
+
+### 2026-01-22 (Session 11)
+
+**Focus:** API Pipeline Execution, Free-Threading & Test Suite
+
+**Completed:**
+1. Verified Python 3.14t free-threading works with FastAPI/uvicorn:
+   - Requires `-Xgil=0` flag
+   - Created `api/server.py` entry point that warns if GIL enabled
+   - Added `dataraum-api` script in pyproject.toml
+
+2. Consolidated connection management:
+   - Deleted `api/connections.py` (was duplicate)
+   - API now uses shared `ConnectionManager` from core
+
+3. Implemented SSE pipeline progress streaming:
+   - `POST /api/v1/sources/{source_id}/run` - Triggers pipeline, returns run_id
+   - `GET /api/v1/runs/{run_id}/stream` - SSE endpoint for progress
+   - Events: start, phase_complete, phase_failed, complete, error
+
+4. Singleton pipeline execution:
+   - Only one pipeline runs at a time (in-memory lock + database check)
+   - Returns 409 Conflict if already running
+   - Marks stale "running" pipelines as "interrupted" on startup
+
+5. Fixed run_id consistency:
+   - Added `run_id` parameter to `Pipeline.run()` and `run_pipeline()`
+   - API-generated run_id now used throughout orchestrator
+
+6. Created comprehensive API test suite (31 tests):
+   - `tests/api/test_pipeline_router.py` - 8 tests
+   - `tests/api/test_sources_router.py` - 8 tests
+   - `tests/api/test_tables_router.py` - 8 tests
+   - `tests/api/test_query_router.py` - 7 tests
+
+**Files Created:**
+- `src/dataraum/api/server.py`
+- `tests/api/__init__.py`
+- `tests/api/conftest.py`
+- `tests/api/test_pipeline_router.py`
+- `tests/api/test_sources_router.py`
+- `tests/api/test_tables_router.py`
+- `tests/api/test_query_router.py`
+
+**Files Modified:**
+- `src/dataraum/api/deps.py`
+- `src/dataraum/api/main.py`
+- `src/dataraum/api/routers/pipeline.py`
+- `src/dataraum/api/schemas.py`
+- `src/dataraum/pipeline/orchestrator.py`
+- `pyproject.toml`
+
+**Test Results:** 583 passed, 8 skipped
+
+---
 
 ### 2025-01-16 (Session 10)
 

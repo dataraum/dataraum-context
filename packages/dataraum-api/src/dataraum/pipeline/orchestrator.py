@@ -103,6 +103,7 @@ class Pipeline:
         table_ids: list[str] | None = None,
         target_phase: str | None = None,
         run_config: dict[str, Any] | None = None,
+        run_id: str | None = None,
     ) -> dict[str, PhaseResult]:
         """Run the pipeline.
 
@@ -116,6 +117,7 @@ class Pipeline:
             table_ids: Optional list of table IDs to process
             target_phase: Optional target phase (runs phase + dependencies)
             run_config: Optional configuration overrides
+            run_id: Optional run ID (generated if not provided)
 
         Returns:
             Dict mapping phase names to their results
@@ -128,8 +130,9 @@ class Pipeline:
         self._outputs = {}
 
         # Create pipeline run record (needs its own session)
-        # Generate run_id explicitly since SQLAlchemy defaults only apply at INSERT time
-        run_id = str(uuid4())
+        # Generate run_id if not provided
+        if run_id is None:
+            run_id = str(uuid4())
         with manager.session_scope() as session:
             run = PipelineRun(
                 run_id=run_id,
@@ -559,6 +562,7 @@ def run_pipeline(
     target_phase: str | None = None,
     config: PipelineConfig | None = None,
     run_config: dict[str, Any] | None = None,
+    run_id: str | None = None,
 ) -> dict[str, PhaseResult]:
     """Run the pipeline.
 
@@ -571,6 +575,7 @@ def run_pipeline(
         target_phase: Optional target phase (runs phase + dependencies)
         config: Pipeline configuration
         run_config: Runtime configuration overrides
+        run_id: Optional run ID (generated if not provided)
 
     Returns:
         Dict mapping phase names to their results
@@ -585,4 +590,5 @@ def run_pipeline(
         table_ids=table_ids,
         target_phase=target_phase,
         run_config=run_config,
+        run_id=run_id,
     )
