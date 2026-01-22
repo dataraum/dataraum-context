@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataraum_context.storage import Base
@@ -58,7 +58,9 @@ class ValidationResultRecord(Base):
     __table_args__ = {"extend_existing": True}
 
     result_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    run_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("validation_runs.run_id", ondelete="CASCADE"), nullable=False, index=True
+    )
     validation_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     table_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
@@ -76,6 +78,10 @@ class ValidationResultRecord(Base):
 
     # Results
     details: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+
+# Index for efficient run-based queries
+Index("idx_validation_results_run", ValidationResultRecord.run_id)
 
 
 __all__ = [

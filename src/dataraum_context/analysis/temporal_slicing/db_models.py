@@ -6,7 +6,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataraum_context.storage.base import Base
@@ -43,7 +43,9 @@ class TemporalSliceAnalysis(Base):
     __tablename__ = "temporal_slice_analyses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    run_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("temporal_slice_runs.run_id", ondelete="CASCADE"), nullable=False, index=True
+    )
     slice_table_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     time_column: Mapped[str] = mapped_column(String(255), nullable=False)
 
@@ -80,7 +82,9 @@ class TemporalDriftAnalysis(Base):
     __tablename__ = "temporal_drift_analyses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    run_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("temporal_slice_runs.run_id", ondelete="CASCADE"), nullable=False, index=True
+    )
     slice_table_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     column_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     period_label: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -105,7 +109,9 @@ class SliceTimeMatrixEntry(Base):
     __tablename__ = "slice_time_matrix_entries"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    run_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("temporal_slice_runs.run_id", ondelete="CASCADE"), nullable=False, index=True
+    )
     slice_table_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     slice_column: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
 
@@ -125,7 +131,9 @@ class TemporalTopologyAnalysis(Base):
     __tablename__ = "temporal_topology_analyses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    run_id: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("temporal_slice_runs.run_id", ondelete="CASCADE"), nullable=True, index=True
+    )
     slice_table_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
 
     # Analysis parameters
@@ -148,6 +156,26 @@ class TemporalTopologyAnalysis(Base):
 
     # Metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# Composite indexes for common query patterns
+Index(
+    "idx_slice_analysis_run_table",
+    TemporalSliceAnalysis.run_id,
+    TemporalSliceAnalysis.slice_table_name,
+)
+Index(
+    "idx_drift_run_table_column",
+    TemporalDriftAnalysis.run_id,
+    TemporalDriftAnalysis.slice_table_name,
+    TemporalDriftAnalysis.column_name,
+)
+Index(
+    "idx_matrix_run_table_column",
+    SliceTimeMatrixEntry.run_id,
+    SliceTimeMatrixEntry.slice_table_name,
+    SliceTimeMatrixEntry.slice_column,
+)
 
 
 __all__ = [

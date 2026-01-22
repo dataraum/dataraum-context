@@ -103,6 +103,14 @@ class Relationship(Base):
 
 Index("idx_relationships_from", Relationship.from_table_id)
 Index("idx_relationships_to", Relationship.to_table_id)
+# Column-level indexes for FK column lookups
+Index("idx_relationships_from_column", Relationship.from_column_id)
+Index("idx_relationships_to_column", Relationship.to_column_id)
+# Composite indexes for table+column filtering
+Index(
+    "idx_relationships_from_table_column", Relationship.from_table_id, Relationship.from_column_id
+)
+Index("idx_relationships_to_table_column", Relationship.to_table_id, Relationship.to_column_id)
 
 
 __all__ = ["Relationship"]

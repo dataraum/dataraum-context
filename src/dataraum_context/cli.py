@@ -11,32 +11,48 @@ Usage:
 Environment:
     Loads .env file from current directory if present.
     Set ANTHROPIC_API_KEY for LLM phases.
+
+Logging:
+    -v / --verbose: Show INFO level logs
+    -vv: Show DEBUG level logs
+    --log-format json: Output logs as JSON (for cloud/production)
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.logging import RichHandler
 from rich.table import Table as RichTable
+
+from dataraum_context.core.logging import configure_logging
 
 # Load .env file from current directory (for API keys, etc.)
 load_dotenv()
 
 
-def setup_logging(verbose: bool = False) -> None:
-    """Configure logging with Rich handler."""
-    level = logging.INFO if verbose else logging.WARNING
-    logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler(rich_tracebacks=True, show_path=False)],
+def setup_logging(verbosity: int = 0, log_format: str = "console") -> None:
+    """Configure structured logging based on verbosity level.
+
+    Args:
+        verbosity: 0=WARNING, 1=INFO, 2+=DEBUG
+        log_format: "console" for development, "json" for production/cloud
+    """
+    if verbosity >= 2:
+        level = "DEBUG"
+    elif verbosity >= 1:
+        level = "INFO"
+    else:
+        level = "WARNING"
+
+    configure_logging(
+        log_level=level,
+        log_format=log_format,
+        show_timestamps=verbosity >= 1,
+        color=log_format == "console",
     )
 
 
@@ -100,13 +116,21 @@ def run(
         ),
     ] = False,
     verbose: Annotated[
-        bool,
+        int,
         typer.Option(
             "--verbose",
             "-v",
-            help="Show detailed logging (phase execution, commits, etc.)",
+            count=True,
+            help="Increase logging verbosity (-v=INFO, -vv=DEBUG)",
         ),
-    ] = False,
+    ] = 0,
+    log_format: Annotated[
+        str,
+        typer.Option(
+            "--log-format",
+            help="Log output format (console or json)",
+        ),
+    ] = "console",
 ) -> None:
     """Run the pipeline on CSV data.
 
@@ -118,9 +142,13 @@ def run(
 
         dataraum run /path/to/data --phase import --skip-llm
 
-        dataraum run /path/to/data --verbose  # Show detailed logs
+        dataraum run /path/to/data -v         # Show INFO level logs
+
+        dataraum run /path/to/data -vv        # Show DEBUG level logs
+
+        dataraum run /path/to/data --log-format json  # JSON logs for cloud
     """
-    setup_logging(verbose=verbose)
+    setup_logging(verbosity=verbose, log_format=log_format)
 
     from dataraum_context.pipeline.runner import RunConfig
     from dataraum_context.pipeline.runner import run as run_pipeline
@@ -131,11 +159,79 @@ def run(
         source_name=name,
         target_phase=phase,
         skip_llm=skip_llm,
-        verbose=not quiet,
     )
 
+    # Run pipeline - always returns Result.ok with RunResult
     result = run_pipeline(config)
-    raise typer.Exit(0 if result.success else 1)
+    run_result = result.unwrap()
+
+    # Print user-facing output
+    if not quiet:
+        console.print("\n[bold]Pipeline Run[/bold]")
+        console.print("=" * 60)
+        console.print(f"Source: {config.source_path}")
+        console.print(f"Output: {config.output_dir}")
+        console.print(f"Source ID: {run_result.source_id}")
+
+        if config.target_phase:
+            console.print(f"Target Phase: {config.target_phase}")
+        if config.skip_llm:
+            console.print("LLM Phases: Skipped")
+
+        # Show per-phase results
+        if run_result.phases:
+            console.print()
+            console.print("[bold]Phase Results[/bold]")
+            console.print("-" * 60)
+            for phase_result in run_result.phases:
+                status_icon = {
+                    "completed": "[green]✓[/green]",
+                    "failed": "[red]✗[/red]",
+                    "skipped": "[yellow]○[/yellow]",
+                }.get(phase_result.status, "?")
+                duration_str = (
+                    f" ({phase_result.duration_seconds:.1f}s)"
+                    if phase_result.duration_seconds > 0
+                    else ""
+                )
+                console.print(
+                    f"  {status_icon} {phase_result.phase_name}: "
+                    f"{phase_result.status}{duration_str}"
+                )
+                if phase_result.error:
+                    console.print(f"      [red]Error: {phase_result.error}[/red]")
+
+        # Summary
+        console.print()
+        console.print("[bold]Summary[/bold]")
+        console.print("-" * 60)
+        console.print(f"  [green]Completed:[/green] {run_result.phases_completed}")
+        console.print(f"  [red]Failed:[/red] {run_result.phases_failed}")
+        console.print(f"  [yellow]Skipped:[/yellow] {run_result.phases_skipped}")
+        console.print(f"  Duration: {run_result.duration_seconds:.2f}s")
+
+        # Output files
+        if run_result.output_dir:
+            console.print()
+            console.print("[bold]Output files:[/bold]")
+            console.print(f"  Metadata: {run_result.output_dir / 'metadata.db'}")
+            console.print(f"  Data: {run_result.output_dir / 'data.duckdb'}")
+
+        # Overall error (exception during setup)
+        if run_result.error:
+            console.print()
+            console.print(f"[red]Error: {run_result.error}[/red]")
+
+        # Warnings from phase failures
+        if result.warnings:
+            console.print()
+            console.print("[yellow]Warnings:[/yellow]")
+            for warning in result.warnings:
+                console.print(f"  - {warning}")
+
+        console.print()
+
+    raise typer.Exit(0 if run_result.success else 1)
 
 
 @app.command()

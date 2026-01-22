@@ -108,13 +108,3 @@ class LoaderBase(ABC):
             name = f"t_{name}"
 
         return name.lower()
-
-    def _get_layer_prefix(self) -> str:
-        """Get the table layer prefix based on type system strength.
-
-        Returns:
-            'raw' for untyped/weak, 'typed' for strong
-        """
-        if self.type_system_strength == TypeSystemStrength.STRONG:
-            return "typed"
-        return "raw"

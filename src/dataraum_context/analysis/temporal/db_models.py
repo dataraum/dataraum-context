@@ -11,7 +11,7 @@ Naming convention (consistent with statistics module):
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataraum_context.storage import Base
@@ -51,6 +51,10 @@ class TemporalColumnProfile(Base):
 
     # JSONB: Full TemporalAnalysisResult model
     profile_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+
+# Index for efficient column lookups
+Index("idx_temporal_profiles_column", TemporalColumnProfile.column_id)
 
 
 class TemporalTableSummary(Base):

@@ -36,12 +36,15 @@ from dataraum_context.analysis.statistics.models import (
     OutlierDetection,
     StatisticalQualityResult,
 )
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import ColumnRef, Result
 from dataraum_context.storage import Column, Table
 
 # Type checking imports to avoid hard dependency on scikit-learn
 if TYPE_CHECKING:
     pass
+
+logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -327,7 +330,8 @@ def detect_outliers_isolation_forest(
 
         return (avg_score, outlier_count, outlier_ratio, outlier_samples)
 
-    except Exception:
+    except Exception as e:
+        logger.debug("isolation_forest_failed", column=column.column_name, error=str(e))
         return None
 
 
@@ -387,7 +391,8 @@ def _assess_column_quality_parallel(
                 outlier_detection.outlier_samples.extend(iso_samples)
 
         return (column_id, column_name, benford_analysis, outlier_detection)
-    except Exception:
+    except Exception as e:
+        logger.warning("column_quality_assessment_failed", column=column_name, error=str(e))
         return None
     finally:
         cursor.close()
@@ -510,82 +515,6 @@ def assess_statistical_quality(
 
     except Exception as e:
         return Result.fail(f"Statistical quality assessment failed: {e}")
-
-
-def _assess_column_quality(
-    table: Table,
-    column: Column,
-    duckdb_conn: duckdb.DuckDBPyConnection,
-    session: Session,
-) -> Result[StatisticalQualityResult]:
-    """Assess statistical quality for a single column.
-
-    Follows the gold-standard hybrid storage pattern from temporal enrichment.
-    """
-    try:
-        computed_at = datetime.now(UTC)
-
-        # Run Benford's Law test
-        benford_result = check_benford_law(table, column, duckdb_conn)
-        benford_analysis = benford_result.value if benford_result.success else None
-
-        # Run IQR outlier detection
-        iqr_result = detect_outliers_iqr(table, column, duckdb_conn)
-        outlier_detection = iqr_result.value if iqr_result.success else None
-
-        # Run Isolation Forest outlier detection and merge into OutlierDetection
-        iso_forest_data = detect_outliers_isolation_forest(table, column, duckdb_conn)
-        if iso_forest_data and outlier_detection:
-            avg_score, anomaly_count, anomaly_ratio, iso_samples = iso_forest_data
-            # Update the outlier_detection with Isolation Forest results
-            outlier_detection.isolation_forest_score = avg_score
-            outlier_detection.isolation_forest_anomaly_count = anomaly_count
-            outlier_detection.isolation_forest_anomaly_ratio = anomaly_ratio
-            # Merge samples
-            if iso_samples:
-                outlier_detection.outlier_samples.extend(iso_samples)
-
-        # Generate quality issues
-        quality_issues = _generate_statistical_quality_issues(
-            benford_analysis=benford_analysis,
-            outlier_detection=outlier_detection,
-        )
-
-        # Build StatisticalQualityResult (Pydantic source of truth)
-        quality_result = StatisticalQualityResult(
-            column_id=column.column_id,
-            column_ref=ColumnRef(
-                table_name=table.table_name,
-                column_name=column.column_name,
-            ),
-            benford_analysis=benford_analysis,
-            outlier_detection=outlier_detection,
-            quality_issues=quality_issues,
-        )
-
-        # Persist using hybrid storage
-        db_metric = DBStatisticalQualityMetrics(
-            metric_id=str(uuid4()),
-            column_id=column.column_id,
-            computed_at=computed_at,
-            # STRUCTURED: Queryable quality indicators
-            benford_compliant=benford_analysis.is_compliant if benford_analysis else None,
-            has_outliers=(outlier_detection.iqr_outlier_ratio > 0.05)
-            if outlier_detection
-            else None,
-            iqr_outlier_ratio=outlier_detection.iqr_outlier_ratio if outlier_detection else None,
-            isolation_forest_anomaly_ratio=outlier_detection.isolation_forest_anomaly_ratio
-            if outlier_detection
-            else None,
-            # JSONB: Full Pydantic model (zero mapping!)
-            quality_data=quality_result.model_dump(mode="json"),
-        )
-        session.add(db_metric)
-
-        return Result.ok(quality_result)
-
-    except Exception as e:
-        return Result.fail(f"Failed to assess column quality for {column.column_name}: {e}")
 
 
 def _generate_statistical_quality_issues(

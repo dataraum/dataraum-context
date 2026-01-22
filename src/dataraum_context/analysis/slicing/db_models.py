@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -34,7 +35,11 @@ class SliceDefinition(Base):
     """
 
     __tablename__ = "slice_definitions"
-    __table_args__ = {"extend_existing": True}
+    __table_args__ = (
+        Index("idx_slice_definitions_table", "table_id"),
+        Index("idx_slice_definitions_column", "column_id"),
+        {"extend_existing": True},
+    )
 
     slice_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     table_id: Mapped[str] = mapped_column(

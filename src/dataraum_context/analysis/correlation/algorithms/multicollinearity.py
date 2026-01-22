@@ -9,6 +9,10 @@ from typing import Literal
 
 import numpy as np
 
+from dataraum_context.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class DependencyGroupResult:
@@ -140,10 +144,6 @@ def _compute_variance_decomposition(
     dependency_groups = []
     max_eigenvalue = eigenvalues[0]
 
-    import os
-
-    _debug = os.environ.get("DEBUG_MULTICOLLINEARITY")
-
     for j, eigenvalue in enumerate(eigenvalues):
         # Skip if eigenvalue is not near-zero
         if abs(eigenvalue) >= 0.01:
@@ -159,11 +159,15 @@ def _compute_variance_decomposition(
         # Find variables with VDP > threshold on this dimension
         high_vdp_indices = np.where(vdp_matrix[:, j] > vdp_threshold)[0]
 
-        if _debug:
-            vdps_this_dim = vdp_matrix[:, j]
-            print(f"DEBUG VDP dim={j}, eig={eigenvalue:.6f}, CI={condition_index:.1f}")
-            print(f"  VDPs: {[f'{v:.3f}' for v in vdps_this_dim]}")
-            print(f"  High VDP (>{vdp_threshold}): {high_vdp_indices.tolist()}")
+        logger.debug(
+            "vdp_analysis",
+            dimension=j,
+            eigenvalue=round(eigenvalue, 6),
+            condition_index=round(condition_index, 1),
+            vdps=[round(v, 3) for v in vdp_matrix[:, j]],
+            high_vdp_indices=high_vdp_indices.tolist(),
+            vdp_threshold=vdp_threshold,
+        )
 
         # Need at least 2 variables for a dependency group
         if len(high_vdp_indices) < 2:
