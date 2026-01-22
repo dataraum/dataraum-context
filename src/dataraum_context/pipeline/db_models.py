@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -94,3 +94,9 @@ class PhaseCheckpoint(Base):
 
     # Relationship
     run: Mapped[PipelineRun] = relationship(back_populates="checkpoints")
+
+
+# Composite index for efficient checkpoint lookups during pipeline resume
+Index("idx_checkpoint_run_phase", PhaseCheckpoint.run_id, PhaseCheckpoint.phase_name)
+# Composite index for source-based checkpoint queries
+Index("idx_checkpoint_source_phase", PhaseCheckpoint.source_id, PhaseCheckpoint.phase_name)

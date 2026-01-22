@@ -31,6 +31,7 @@ from dataraum_context.analysis.cycles.models import (
     EntityFlow,
 )
 from dataraum_context.analysis.cycles.tools import CycleDetectionTools, get_tool_definitions
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import Result
 from dataraum_context.llm.providers.base import (
     ConversationRequest,
@@ -44,6 +45,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from dataraum_context.llm.providers.base import LLMProvider
+
+logger = get_logger(__name__)
 
 
 SYSTEM_PROMPT = """You are an expert business analyst specializing in detecting business cycles and processes in data.
@@ -218,8 +221,12 @@ class BusinessCycleAgent:
                 response = result.unwrap()
 
                 # Debug output
-                print(
-                    f"   [Iteration {iteration}] stop={response.stop_reason}, tools={len(response.tool_calls)}, content_len={len(response.content)}"
+                logger.debug(
+                    "agent_iteration",
+                    iteration=iteration,
+                    stop_reason=response.stop_reason,
+                    tool_count=len(response.tool_calls),
+                    content_len=len(response.content),
                 )
 
                 # Check if there are tool calls
@@ -232,7 +239,7 @@ class BusinessCycleAgent:
 
                     if submit_call:
                         # Agent is submitting final analysis via tool
-                        print("     → submit_analysis (final output)")
+                        logger.debug("tool_call", tool="submit_analysis", final=True)
                         tool_calls_made.append(
                             {
                                 "tool": "submit_analysis",
@@ -261,7 +268,7 @@ class BusinessCycleAgent:
                         tool_input = tool_call.input
 
                         # Log the tool call
-                        print(f"     → {tool_name}({tool_input})")
+                        logger.debug("tool_call", tool=tool_name, input=tool_input)
 
                         # Execute the tool
                         tool_output = self._execute_tool(tools, tool_name, tool_input)
@@ -393,7 +400,7 @@ class BusinessCycleAgent:
             output = BusinessCycleAnalysisOutput.model_validate(tool_input)
         except Exception as e:
             # If validation fails, fall back to dict parsing
-            print(f"   Warning: Tool output validation failed: {e}")
+            logger.warning("tool_output_validation_failed", error=str(e))
             output = None
 
         # Build cycles from the output

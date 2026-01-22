@@ -30,6 +30,7 @@ from dataraum_context.analysis.semantic.models import (
 from dataraum_context.analysis.semantic.ontology import OntologyLoader
 from dataraum_context.analysis.semantic.utils import load_correlations_for_semantic
 from dataraum_context.analysis.statistics.models import ColumnProfile
+from dataraum_context.core.logging import get_logger
 from dataraum_context.core.models.base import (
     Cardinality,
     ColumnRef,
@@ -52,6 +53,8 @@ if TYPE_CHECKING:
     from dataraum_context.llm.config import LLMConfig
     from dataraum_context.llm.prompts import PromptRenderer
     from dataraum_context.llm.providers.base import LLMProvider
+
+logger = get_logger(__name__)
 
 
 class SemanticAgent(LLMFeature):
@@ -139,14 +142,16 @@ class SemanticAgent(LLMFeature):
             total_corrs = sum(len(d.get("numeric_correlations", [])) for d in correlations.values())
             total_derived = sum(len(d.get("derived_columns", [])) for d in correlations.values())
             if total_fds or total_corrs or total_derived:
-                print(
-                    f"   Including within-table correlations: {total_fds} FDs, "
-                    f"{total_corrs} numeric correlations, {total_derived} derived columns"
+                logger.info(
+                    "within_table_correlations",
+                    functional_dependencies=total_fds,
+                    numeric_correlations=total_corrs,
+                    derived_columns=total_derived,
                 )
             else:
-                print("   No significant within-table correlations found for context")
+                logger.debug("no_significant_correlations")
         else:
-            print("   No within-table correlation data available for context")
+            logger.debug("no_correlation_data")
 
         # Build context for prompt
         tables_json = self._build_tables_json(profiles, samples)

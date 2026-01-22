@@ -17,6 +17,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
 )
@@ -64,6 +65,10 @@ class TopologicalQualityMetrics(Base):
     # JSONB: Full topological analysis
     # Stores: persistence diagrams, stability metrics, complexity history, anomalous cycles, etc.
     topology_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+
+# Index for efficient table lookups
+Index("idx_topology_metrics_table", TopologicalQualityMetrics.table_id)
 
 
 __all__ = [
