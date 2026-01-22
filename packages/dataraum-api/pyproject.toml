@@ -99,6 +99,7 @@ all = [
 
 [project.scripts]
 dataraum = "dataraum.cli:app"
+dataraum-api = "dataraum.api.server:main"
 
 [project.urls]
 Homepage = "https://github.com/dataraum/dataraum-context"

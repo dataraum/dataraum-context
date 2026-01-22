@@ -244,3 +244,24 @@ class QueryResponse(BaseModel):
     rows: list[dict[str, Any]]
     row_count: int
     truncated: bool = Field(description="True if result was limited")
+
+
+# --- SSE Progress schemas ---
+
+
+class PipelineProgressEvent(BaseModel):
+    """Schema for pipeline progress SSE event."""
+
+    event: str = Field(
+        description="Event type: start, phase_start, phase_complete, phase_failed, complete, error"
+    )
+    run_id: str
+    source_id: str
+    phase: str | None = None
+    phase_status: str | None = None
+    phases_completed: int = 0
+    phases_total: int = 0
+    progress_percent: float = 0.0
+    duration_seconds: float | None = None
+    error: str | None = None
+    message: str | None = None

@@ -161,6 +161,35 @@ ls prototypes/analytics-agents-ts       # Agents and prompts (inside prompts fol
 | Dataflows | Apache Hamilton | DAG orchestration with lineage |
 | API | FastAPI | HTTP interface |
 | AI interface | MCP SDK | Tool definitions for AI |
+| Python Runtime | Python 3.14t | Free-threading for true parallelism |
+
+## Free-Threading (NO_GIL)
+
+This project uses **Python 3.14 free-threaded build** for true CPU parallelism. The GIL is disabled, enabling:
+- ~3.5x speedup on 4-core CPU-bound work via `ThreadPoolExecutor`
+- Pipeline phases run in parallel without GIL contention
+- FastAPI + uvicorn work correctly with free-threading
+
+### Running with Free-Threading
+
+```bash
+# Start API server with GIL disabled
+uv run python -Xgil=0 -m uvicorn dataraum.api.main:create_app --factory --reload
+
+# Or use the convenience script
+uv run dataraum-api
+
+# Verify free-threading is enabled
+python -c "import sys; print('Free-threading:', not sys._is_gil_enabled())"
+```
+
+### Architecture Notes
+
+- **Single ConnectionManager** (`core/connections.py`) shared by pipeline and API
+- **Sync endpoints**: FastAPI runs sync `def` endpoints in thread pool (efficient)
+- **Pipeline in ThreadPoolExecutor**: Gets true parallelism from free-threading
+- **SSE for progress**: Pipeline progress streamed to UI via Server-Sent Events
+- **DuckDB**: Read cursors are thread-safe; writes serialized via mutex
 
 ## Module Structure
 
@@ -458,7 +487,11 @@ pytest tests/ -v
 
 ### Start API server
 ```bash
-uvicorn dataraum.api.fastapi_app:app --reload
+# With free-threading (recommended)
+uv run python -Xgil=0 -m uvicorn dataraum.api.main:create_app --factory --reload
+
+# Or standard (with GIL)
+uv run uvicorn dataraum.api.main:create_app --factory --reload
 ```
 
 ### Start MCP server
