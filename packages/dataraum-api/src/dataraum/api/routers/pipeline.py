@@ -397,6 +397,7 @@ def _run_pipeline_with_cleanup(
             source_id=source_id,
             target_phase=target_phase,
             config=config,
+            run_id=run_id,
         )
     finally:
         _current_run_id = None
