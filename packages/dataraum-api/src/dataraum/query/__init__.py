@@ -23,13 +23,8 @@ Usage:
 from dataraum.query.agent import QueryAgent
 from dataraum.query.core import answer_question
 from dataraum.query.db_models import QueryExecutionRecord, QueryLibraryEntry
-from dataraum.query.embeddings import (
-    QueryEmbeddings,
-    SimilarQuery,
-    build_embedding_text_for_graph,
-    build_embedding_text_for_question,
-)
-from dataraum.query.library import LibraryMatch, QueryLibrary
+from dataraum.query.embeddings import QueryEmbeddings, SimilarQuery
+from dataraum.query.library import LibraryMatch, QueryLibrary, QueryLibraryError
 from dataraum.query.models import (
     QueryAnalysisOutput,
     QueryResult,
@@ -43,9 +38,8 @@ __all__ = [
     "QueryExecutionRecord",
     "QueryLibrary",
     "QueryLibraryEntry",
+    "QueryLibraryError",
     "QueryResult",
     "SimilarQuery",
     "answer_question",
-    "build_embedding_text_for_graph",
-    "build_embedding_text_for_question",
 ]

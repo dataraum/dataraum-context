@@ -588,8 +588,9 @@ class QueryAgent(LLMFeature):
         library = QueryLibrary(session, manager)
         library.save(
             source_id=source_id,
-            question=question,
+            embedding_text=question,  # Use question as embedding text for user queries
             sql=analysis_output.final_sql,
+            original_question=question,
             column_mappings=analysis_output.column_mappings,
             assumptions=[
                 {
