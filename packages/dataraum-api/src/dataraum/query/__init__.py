@@ -22,6 +22,13 @@ Usage:
 
 from dataraum.query.agent import QueryAgent
 from dataraum.query.core import answer_question
+from dataraum.query.db_models import QueryExecutionRecord, QueryLibraryEntry
+from dataraum.query.embeddings import (
+    QueryEmbeddings,
+    SimilarQuery,
+    build_embedding_text_for_graph,
+    build_embedding_text_for_question,
+)
 from dataraum.query.models import (
     QueryAnalysisOutput,
     QueryResult,
@@ -30,6 +37,12 @@ from dataraum.query.models import (
 __all__ = [
     "QueryAgent",
     "QueryAnalysisOutput",
+    "QueryEmbeddings",
+    "QueryExecutionRecord",
+    "QueryLibraryEntry",
     "QueryResult",
+    "SimilarQuery",
     "answer_question",
+    "build_embedding_text_for_graph",
+    "build_embedding_text_for_question",
 ]
