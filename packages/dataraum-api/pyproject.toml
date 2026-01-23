@@ -50,6 +50,7 @@ dependencies = [
     "rich>=13.0.0",
     "networkx>=3.6",
     "anthropic>=0.76.0",
+    "sentence-transformers>=5.2.0",
 ]
 
 [project.optional-dependencies]
