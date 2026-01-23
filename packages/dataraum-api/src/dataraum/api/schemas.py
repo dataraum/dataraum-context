@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # --- Source schemas ---
 
@@ -25,12 +25,11 @@ class SourceCreate(SourceBase):
 class SourceResponse(SourceBase):
     """Schema for source response."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     source_id: str
     created_at: datetime
     table_count: int = 0
-
-    class Config:
-        from_attributes = True
 
 
 class SourceListResponse(BaseModel):
@@ -46,6 +45,8 @@ class SourceListResponse(BaseModel):
 class ColumnResponse(BaseModel):
     """Schema for column metadata."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     column_id: str
     name: str
     position: int
@@ -55,21 +56,17 @@ class ColumnResponse(BaseModel):
     semantic_role: str | None = None
     entity_type: str | None = None
 
-    class Config:
-        from_attributes = True
-
 
 class TableResponse(BaseModel):
     """Schema for table metadata."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     table_id: str
     name: str
     source_id: str
     row_count: int | None = None
     columns: list[ColumnResponse] = Field(default_factory=list)
-
-    class Config:
-        from_attributes = True
 
 
 class TableListResponse(BaseModel):

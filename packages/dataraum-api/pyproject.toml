@@ -136,6 +136,13 @@ markers = [
     "integration: marks tests as integration tests (may be slower)",
     "slow: marks tests as slow (use real data, skip in CI)",
 ]
+filterwarnings = [
+    # Numpy warnings during correlation calculations with constant columns (expected)
+    "ignore:invalid value encountered in divide:RuntimeWarning",
+    "ignore:divide by zero encountered in scalar divide:RuntimeWarning",
+    # DuckDB GIL warning on Python 3.14 free-threaded (external library)
+    "ignore:The global interpreter lock.*:RuntimeWarning",
+]
 
 [tool.ruff]
 target-version = "py314"
