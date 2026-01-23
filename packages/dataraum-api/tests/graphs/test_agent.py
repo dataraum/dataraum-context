@@ -82,6 +82,7 @@ def mock_llm_response() -> LLMResponse:
     return LLMResponse(
         content=json.dumps(
             {
+                "summary": "Calculates the sum of all amounts in the test data.",
                 "steps": [
                     {
                         "step_id": "value",
@@ -381,6 +382,7 @@ class TestGraphAgentIntegration:
         mock_tool_call = MagicMock()
         mock_tool_call.name = "generate_sql"  # Set as attribute, not constructor kwarg
         mock_tool_call.input = {
+            "summary": "Calculates the sum of all amounts in the test data.",
             "steps": [
                 {
                     "step_id": "sum",
@@ -446,6 +448,7 @@ class TestGraphAgentIntegration:
         mock_tool_call = MagicMock()
         mock_tool_call.name = "generate_sql"  # Set as attribute, not constructor kwarg
         mock_tool_call.input = {
+            "summary": "Calculates the sum of all amounts in the test data.",
             "steps": [
                 {
                     "step_id": "sum",

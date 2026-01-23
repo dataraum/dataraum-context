@@ -513,6 +513,11 @@ class GraphSQLGenerationOutput(BaseModel):
     Used as a tool definition for structured LLM output via tool use API.
     """
 
+    summary: str = Field(
+        description="One sentence describing what this query calculates in plain English, "
+        "e.g., 'Calculates Days Sales Outstanding (DSO) by dividing accounts receivable "
+        "by average daily sales over the period.'"
+    )
     steps: list[SQLStepOutput] = Field(
         default_factory=list,
         description="List of SQL steps, each with step_id, sql, and description",

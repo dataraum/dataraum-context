@@ -209,7 +209,7 @@ def list_library_entries(
 
     Returns saved queries that can be reused by the Query Agent.
     """
-    from dataraum.query.library import QueryLibrary
+    from dataraum.query.library import QueryLibrary, QueryLibraryError
 
     # Verify source exists
     stmt = select(Source).where(Source.source_id == source_id)
@@ -217,7 +217,10 @@ def list_library_entries(
     if source is None:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
-    library = QueryLibrary(session, manager)
+    try:
+        library = QueryLibrary(session, manager)
+    except QueryLibraryError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     entries = library.list_entries(source_id, limit=limit, offset=offset)
     total = library.count(source_id)
 
@@ -252,9 +255,12 @@ def get_library_entry(
     manager: ManagerDep,
 ) -> QueryLibraryEntryResponse:
     """Get a specific query library entry."""
-    from dataraum.query.library import QueryLibrary
+    from dataraum.query.library import QueryLibrary, QueryLibraryError
 
-    library = QueryLibrary(session, manager)
+    try:
+        library = QueryLibrary(session, manager)
+    except QueryLibraryError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     entry = library.get_entry(query_id)
 
     if entry is None or entry.source_id != source_id:
@@ -289,7 +295,7 @@ def save_to_library(
     The query will be indexed for semantic search, allowing
     similar questions to find and reuse this SQL.
     """
-    from dataraum.query.library import QueryLibrary
+    from dataraum.query.library import QueryLibrary, QueryLibraryError
 
     # Verify source exists
     stmt = select(Source).where(Source.source_id == source_id)
@@ -297,11 +303,16 @@ def save_to_library(
     if source is None:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
-    library = QueryLibrary(session, manager)
+    try:
+        library = QueryLibrary(session, manager)
+    except QueryLibraryError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
     entry = library.save(
         source_id=source_id,
-        question=request.question,
+        embedding_text=request.question,  # Use question as embedding text
         sql=request.sql,
+        original_question=request.question,
         name=request.name,
         description=request.description,
         assumptions=request.assumptions,
@@ -329,7 +340,7 @@ def search_library(
     Uses semantic similarity to find queries that match the intent
     of the provided question.
     """
-    from dataraum.query.library import QueryLibrary
+    from dataraum.query.library import QueryLibrary, QueryLibraryError
 
     # Verify source exists
     stmt = select(Source).where(Source.source_id == source_id)
@@ -337,7 +348,10 @@ def search_library(
     if source is None:
         raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
 
-    library = QueryLibrary(session, manager)
+    try:
+        library = QueryLibrary(session, manager)
+    except QueryLibraryError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     matches = library.find_similar_all(
         question=request.question,
         source_id=source_id,
@@ -379,9 +393,12 @@ def delete_library_entry(
     manager: ManagerDep,
 ) -> dict[str, str]:
     """Delete a query from the library."""
-    from dataraum.query.library import QueryLibrary
+    from dataraum.query.library import QueryLibrary, QueryLibraryError
 
-    library = QueryLibrary(session, manager)
+    try:
+        library = QueryLibrary(session, manager)
+    except QueryLibraryError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
     # Verify entry exists and belongs to source
     entry = library.get_entry(query_id)

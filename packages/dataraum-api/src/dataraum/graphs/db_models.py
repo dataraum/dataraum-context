@@ -35,6 +35,9 @@ class GeneratedCodeRecord(Base):
     schema_mapping_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
 
     # Generated SQL
+    summary: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # Plain English description of what the query calculates
     steps_json: Mapped[list[dict[str, str]]] = mapped_column(
         JSON, nullable=False, default=list
     )  # [{step_id, sql, description}]
