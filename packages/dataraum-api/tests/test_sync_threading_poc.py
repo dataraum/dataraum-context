@@ -20,7 +20,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class TestRecord(Base):
+class SampleRecord(Base):
     __tablename__ = "test_records"
     id: Mapped[int] = mapped_column(primary_key=True)
     thread_name: Mapped[str] = mapped_column(String(100))
@@ -39,7 +39,7 @@ def worker_sync(
     # Each thread gets its own session
     with session_factory() as session:
         # Simulate some work
-        record = TestRecord(
+        record = SampleRecord(
             thread_name=thread_name,
             value=worker_id * 100,
         )
@@ -47,7 +47,7 @@ def worker_sync(
         session.commit()
 
         # Read back
-        stmt = select(TestRecord).where(TestRecord.thread_name == thread_name)
+        stmt = select(SampleRecord).where(SampleRecord.thread_name == thread_name)
         result = session.execute(stmt).scalar_one()
 
     # Each thread gets its own DuckDB cursor

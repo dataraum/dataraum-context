@@ -7,7 +7,7 @@ import pytest
 
 from dataraum.query.embeddings import (
     QueryEmbeddings,
-    build_embedding_text_for_graph,
+    build_embedding_text_for_graph_output,
     build_embedding_text_for_question,
     generate_embedding,
 )
@@ -21,31 +21,44 @@ class TestEmbeddingTextBuilders:
         text = build_embedding_text_for_question("What was total revenue?")
         assert text == "What was total revenue?"
 
-    def test_build_graph_text_minimal(self):
-        """Graph text with just name."""
-        text = build_embedding_text_for_graph(name="Days Sales Outstanding")
-        assert text == "Days Sales Outstanding"
-
-    def test_build_graph_text_with_description(self):
-        """Graph text with description."""
-        text = build_embedding_text_for_graph(
-            name="Days Sales Outstanding",
-            description="Measures how quickly receivables are collected",
+    def test_build_graph_text_summary_only(self):
+        """Graph text with just summary."""
+        text = build_embedding_text_for_graph_output(
+            summary="Calculates Days Sales Outstanding by dividing receivables by daily sales."
         )
         assert "Days Sales Outstanding" in text
         assert "receivables" in text
 
-    def test_build_graph_text_full(self):
-        """Graph text with all fields."""
-        text = build_embedding_text_for_graph(
-            name="Days Sales Outstanding",
-            description="Measures how quickly receivables are collected",
-            category="liquidity",
-            tags=["receivables", "collection"],
+    def test_build_graph_text_with_steps(self):
+        """Graph text with summary and step descriptions."""
+        text = build_embedding_text_for_graph_output(
+            summary="Calculates Days Sales Outstanding.",
+            step_descriptions=[
+                "Sums total accounts receivable",
+                "Calculates average daily sales over the period",
+            ],
         )
         assert "Days Sales Outstanding" in text
-        assert "Category: liquidity" in text
-        assert "Tags: receivables, collection" in text
+        assert "accounts receivable" in text
+        assert "average daily sales" in text
+
+    def test_build_graph_text_with_name(self):
+        """Graph text includes name if not in summary."""
+        text = build_embedding_text_for_graph_output(
+            summary="Measures collection efficiency.",
+            name="Days Sales Outstanding",
+        )
+        assert "Days Sales Outstanding" in text
+        assert "collection efficiency" in text
+
+    def test_build_graph_text_name_not_duplicated(self):
+        """Graph name is not duplicated if already in summary."""
+        text = build_embedding_text_for_graph_output(
+            summary="Calculates Days Sales Outstanding metric.",
+            name="Days Sales Outstanding",
+        )
+        # Name should appear only once (in the summary)
+        assert text.count("Days Sales Outstanding") == 1
 
 
 class TestGenerateEmbedding:
