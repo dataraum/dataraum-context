@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     import duckdb
     from sqlalchemy.orm import Session
 
+    from dataraum.core.connections import ConnectionManager
+
 logger = get_logger(__name__)
 
 
@@ -34,6 +36,8 @@ def answer_question(
     contract: str | None = None,
     auto_contract: bool = False,
     table_ids: list[str] | None = None,
+    manager: ConnectionManager | None = None,
+    ephemeral: bool = False,
 ) -> Result[QueryResult]:
     """Answer a natural language question about the data.
 
@@ -49,6 +53,8 @@ def answer_question(
         contract: Explicit contract name (e.g., "executive_dashboard")
         auto_contract: If True, find the strictest passing contract
         table_ids: Optional list of specific table IDs (defaults to all tables in source)
+        manager: ConnectionManager for query library (enables save/reuse)
+        ephemeral: If True, don't save query to library (default: saves successful queries)
 
     Returns:
         Result containing QueryResult with:
@@ -121,4 +127,6 @@ def answer_question(
         contract=contract,
         auto_contract=auto_contract,
         source_id=source_id,
+        manager=manager,
+        ephemeral=ephemeral,
     )

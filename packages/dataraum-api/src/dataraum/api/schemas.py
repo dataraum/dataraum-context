@@ -389,3 +389,80 @@ class AllContractsEvaluationResponse(BaseModel):
     strictest_passing: str | None = Field(description="Name of strictest passing contract")
     passing_count: int
     total_count: int
+
+
+# --- Query Library schemas ---
+
+
+class QueryLibraryEntryResponse(BaseModel):
+    """Response for a query library entry."""
+
+    query_id: str
+    source_id: str
+    original_question: str | None = Field(
+        default=None, description="NL question (for user queries)"
+    )
+    graph_id: str | None = Field(default=None, description="Graph ID (for seeded metrics)")
+    name: str | None = None
+    description: str | None = None
+    final_sql: str
+    column_mappings: dict[str, str] = Field(default_factory=dict)
+    assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    confidence_level: str = "GREEN"
+    usage_count: int = 0
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
+class QueryLibraryListResponse(BaseModel):
+    """Response for listing query library entries."""
+
+    entries: list[QueryLibraryEntryResponse]
+    total: int
+
+
+class QueryLibrarySaveRequest(BaseModel):
+    """Request to save a query to the library."""
+
+    question: str = Field(description="Natural language question")
+    sql: str = Field(description="SQL query")
+    name: str | None = Field(default=None, description="Optional name for the query")
+    description: str | None = Field(default=None, description="Optional description")
+    assumptions: list[dict[str, Any]] = Field(
+        default_factory=list, description="Assumptions made during query"
+    )
+    column_mappings: dict[str, str] = Field(
+        default_factory=dict, description="Column name mappings"
+    )
+    confidence_level: str = Field(default="GREEN", description="Confidence level")
+
+
+class QueryLibrarySaveResponse(BaseModel):
+    """Response after saving a query to the library."""
+
+    query_id: str
+    message: str
+
+
+class QueryLibrarySearchRequest(BaseModel):
+    """Request to search the query library."""
+
+    question: str = Field(description="Natural language question to search for")
+    min_similarity: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Minimum similarity threshold"
+    )
+    limit: int = Field(default=5, ge=1, le=20, description="Maximum results to return")
+
+
+class QueryLibrarySearchResult(BaseModel):
+    """A single search result from the library."""
+
+    entry: QueryLibraryEntryResponse
+    similarity: float = Field(description="Cosine similarity score (0.0 to 1.0)")
+
+
+class QueryLibrarySearchResponse(BaseModel):
+    """Response for library search."""
+
+    results: list[QueryLibrarySearchResult]
+    query: str = Field(description="Original query text")

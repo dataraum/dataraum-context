@@ -11,7 +11,16 @@ import duckdb
 from fastapi import Depends, Query
 from sqlalchemy.orm import Session
 
-from dataraum.core.connections import get_connection_manager
+from dataraum.core.connections import ConnectionManager, get_connection_manager
+
+
+def get_manager() -> ConnectionManager:
+    """Get the shared ConnectionManager.
+
+    Provides access to the full manager for features like
+    query library that need vectors database access.
+    """
+    return get_connection_manager()
 
 
 def get_session() -> Generator[Session]:
@@ -37,6 +46,7 @@ def get_duckdb_cursor() -> Generator[duckdb.DuckDBPyConnection]:
 
 
 # Type aliases for dependency injection
+ManagerDep = Annotated[ConnectionManager, Depends(get_manager)]
 SessionDep = Annotated[Session, Depends(get_session)]
 DuckDBDep = Annotated[duckdb.DuckDBPyConnection, Depends(get_duckdb_cursor)]
 

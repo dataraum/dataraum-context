@@ -1,7 +1,13 @@
 """Query Agent for natural language to SQL conversion.
 
 This agent converts natural language questions into executable SQL
-with entropy awareness and assumption tracking.
+with entropy awareness, assumption tracking, and query library reuse.
+
+The agent implements RAG-based query reuse:
+1. Search library for similar queries by semantic similarity
+2. If match found, reuse SQL (with confidence from original)
+3. If no match, generate fresh SQL using LLM
+4. Save successful queries to library for future reuse
 
 Usage:
     agent = QueryAgent(config, provider, renderer, cache)
@@ -10,6 +16,7 @@ Usage:
         duckdb_conn=conn,
         question="What was total revenue last month?",
         table_ids=["t1", "t2"],
+        manager=manager,  # For library access
     )
 """
 
@@ -46,11 +53,16 @@ if TYPE_CHECKING:
     import duckdb
     from sqlalchemy.orm import Session
 
+    from dataraum.core.connections import ConnectionManager
     from dataraum.entropy.models import EntropyContext
     from dataraum.graphs.context import GraphExecutionContext
     from dataraum.graphs.models import QueryAssumption
+    from dataraum.query.library import LibraryMatch
 
 logger = get_logger(__name__)
+
+# Default similarity threshold for library reuse
+DEFAULT_SIMILARITY_THRESHOLD = 0.85
 
 
 @dataclass
@@ -91,8 +103,13 @@ class QueryAgent(LLMFeature):
         contract: str | None = None,
         auto_contract: bool = False,
         source_id: str | None = None,
+        manager: ConnectionManager | None = None,
+        ephemeral: bool = False,
+        similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
     ) -> Result[QueryResult]:
         """Analyze a natural language question and generate SQL.
+
+        Uses RAG-based query reuse when a library match is found.
 
         Args:
             session: SQLAlchemy session for metadata access
@@ -102,11 +119,15 @@ class QueryAgent(LLMFeature):
             contract: Explicit contract name for evaluation
             auto_contract: If True, find the strictest passing contract
             source_id: Optional source ID for context
+            manager: ConnectionManager for library access (enables reuse)
+            ephemeral: If True, don't save query to library
+            similarity_threshold: Minimum similarity for library reuse (0.0-1.0)
 
         Returns:
             Result containing QueryResult with SQL, data, and confidence level
         """
         execution_id = str(uuid4())
+        library_match: LibraryMatch | None = None
 
         # Build rich context
         try:
@@ -172,28 +193,56 @@ class QueryAgent(LLMFeature):
                 )
             )
 
-        # Generate SQL using LLM
-        gen_result = self._generate_query(
-            question=question,
-            execution_id=execution_id,
-            execution_context=execution_context,
-            entropy_context=entropy_context,
-        )
+        # Try to find similar query in library (RAG-based reuse)
+        analysis_output: QueryAnalysisOutput | None = None
 
-        if not gen_result.success or not gen_result.value:
-            return Result.ok(
-                QueryResult(
-                    execution_id=execution_id,
-                    question=question,
-                    success=False,
-                    confidence_level=confidence_level,
-                    contract=contract,
-                    contract_evaluation=contract_evaluation,
-                    error=gen_result.error or "Query generation failed",
-                )
+        if manager and source_id:
+            library_match = self._search_library(
+                session=session,
+                manager=manager,
+                question=question,
+                source_id=source_id,
+                min_similarity=similarity_threshold,
             )
 
-        analysis_output = gen_result.value
+            if library_match:
+                logger.info(
+                    f"Reusing query from library: {library_match.entry.query_id} "
+                    f"(similarity: {library_match.similarity:.3f})"
+                )
+                # Create analysis output from library entry
+                analysis_output = QueryAnalysisOutput(
+                    interpreted_question=library_match.entry.original_question or question,
+                    metric_type="table",  # Default, could be stored in library
+                    final_sql=library_match.entry.final_sql,
+                    column_mappings=library_match.entry.column_mappings or {},
+                    assumptions=[],  # Will be loaded from library
+                    validation_notes=["Reused from query library"],
+                )
+
+        # Generate SQL using LLM if no library match
+        if analysis_output is None:
+            gen_result = self._generate_query(
+                question=question,
+                execution_id=execution_id,
+                execution_context=execution_context,
+                entropy_context=entropy_context,
+            )
+
+            if not gen_result.success or not gen_result.value:
+                return Result.ok(
+                    QueryResult(
+                        execution_id=execution_id,
+                        question=question,
+                        success=False,
+                        confidence_level=confidence_level,
+                        contract=contract,
+                        contract_evaluation=contract_evaluation,
+                        error=gen_result.error or "Query generation failed",
+                    )
+                )
+
+            analysis_output = gen_result.value
 
         # Execute the generated SQL
         exec_result = self._execute_query(
@@ -233,6 +282,41 @@ class QueryAgent(LLMFeature):
             confidence_level=confidence_level,
         )
 
+        # Determine if this was a library reuse
+        was_reused = library_match is not None
+        library_entry_id = library_match.entry.query_id if library_match else None
+        similarity_score = library_match.similarity if library_match else None
+
+        # Save to library if successful and not ephemeral
+        if exec_error is None and not ephemeral and not was_reused and manager and source_id:
+            self._save_to_library(
+                session=session,
+                manager=manager,
+                source_id=source_id,
+                question=question,
+                analysis_output=analysis_output,
+                assumptions=assumptions,
+                contract=contract,
+                confidence_level=confidence_level,
+            )
+
+        # Record execution
+        if manager and source_id:
+            self._record_execution(
+                session=session,
+                manager=manager,
+                source_id=source_id,
+                question=question,
+                sql=analysis_output.final_sql,
+                library_entry_id=library_entry_id,
+                similarity_score=similarity_score,
+                success=exec_error is None,
+                row_count=len(data) if data else None,
+                error_message=exec_error,
+                confidence_level=confidence_level,
+                contract=contract,
+            )
+
         return Result.ok(
             QueryResult(
                 execution_id=execution_id,
@@ -251,6 +335,9 @@ class QueryAgent(LLMFeature):
                 metric_type=analysis_output.metric_type,
                 column_mappings=analysis_output.column_mappings,
                 validation_notes=analysis_output.validation_notes,
+                library_entry_id=library_entry_id,
+                similarity_score=similarity_score,
+                was_reused=was_reused,
                 success=exec_error is None,
                 error=exec_error,
             )
@@ -443,3 +530,124 @@ class QueryAgent(LLMFeature):
         lines.append("2. Resolve the data quality issues first")
 
         return "\n".join(lines)
+
+    def _search_library(
+        self,
+        session: Session,
+        manager: ConnectionManager,
+        question: str,
+        source_id: str,
+        min_similarity: float,
+    ) -> LibraryMatch | None:
+        """Search the query library for similar queries.
+
+        Args:
+            session: SQLAlchemy session
+            manager: ConnectionManager with vectors
+            question: Question to search for
+            source_id: Source ID to filter by
+            min_similarity: Minimum similarity threshold
+
+        Returns:
+            LibraryMatch if found, None otherwise
+        """
+        from dataraum.query.library import QueryLibrary
+
+        library = QueryLibrary(session, manager)
+        return library.find_similar(
+            question=question,
+            source_id=source_id,
+            min_similarity=min_similarity,
+        )
+
+    def _save_to_library(
+        self,
+        session: Session,
+        manager: ConnectionManager,
+        source_id: str,
+        question: str,
+        analysis_output: QueryAnalysisOutput,
+        assumptions: list[QueryAssumption],
+        contract: str | None,
+        confidence_level: ConfidenceLevel,
+    ) -> None:
+        """Save a query to the library.
+
+        Args:
+            session: SQLAlchemy session
+            manager: ConnectionManager with vectors
+            source_id: Source ID
+            question: Original question
+            analysis_output: Generated analysis
+            assumptions: List of assumptions
+            contract: Contract name
+            confidence_level: Confidence level
+        """
+        from dataraum.query.library import QueryLibrary
+
+        library = QueryLibrary(session, manager)
+        library.save(
+            source_id=source_id,
+            question=question,
+            sql=analysis_output.final_sql,
+            column_mappings=analysis_output.column_mappings,
+            assumptions=[
+                {
+                    "dimension": a.dimension,
+                    "target": a.target,
+                    "assumption": a.assumption,
+                    "basis": a.basis.value,
+                    "confidence": a.confidence,
+                }
+                for a in assumptions
+            ],
+            contract_name=contract,
+            confidence_level=confidence_level.value,
+        )
+
+    def _record_execution(
+        self,
+        session: Session,
+        manager: ConnectionManager,
+        source_id: str,
+        question: str,
+        sql: str,
+        library_entry_id: str | None,
+        similarity_score: float | None,
+        success: bool,
+        row_count: int | None,
+        error_message: str | None,
+        confidence_level: ConfidenceLevel,
+        contract: str | None,
+    ) -> None:
+        """Record a query execution.
+
+        Args:
+            session: SQLAlchemy session
+            manager: ConnectionManager
+            source_id: Source ID
+            question: Question asked
+            sql: SQL executed
+            library_entry_id: Library entry if reused
+            similarity_score: Similarity if reused
+            success: Whether execution succeeded
+            row_count: Number of rows returned
+            error_message: Error if failed
+            confidence_level: Confidence level
+            contract: Contract name
+        """
+        from dataraum.query.library import QueryLibrary
+
+        library = QueryLibrary(session, manager)
+        library.record_execution(
+            source_id=source_id,
+            question=question,
+            sql=sql,
+            library_entry_id=library_entry_id,
+            similarity_score=similarity_score,
+            success=success,
+            row_count=row_count,
+            error_message=error_message,
+            confidence_level=confidence_level.value,
+            contract_name=contract,
+        )
