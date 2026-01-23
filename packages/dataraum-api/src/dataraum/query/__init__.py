@@ -29,16 +29,19 @@ from dataraum.query.embeddings import (
     build_embedding_text_for_graph,
     build_embedding_text_for_question,
 )
+from dataraum.query.library import LibraryMatch, QueryLibrary
 from dataraum.query.models import (
     QueryAnalysisOutput,
     QueryResult,
 )
 
 __all__ = [
+    "LibraryMatch",
     "QueryAgent",
     "QueryAnalysisOutput",
     "QueryEmbeddings",
     "QueryExecutionRecord",
+    "QueryLibrary",
     "QueryLibraryEntry",
     "QueryResult",
     "SimilarQuery",

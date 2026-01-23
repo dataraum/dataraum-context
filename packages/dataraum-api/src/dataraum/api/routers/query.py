@@ -5,11 +5,18 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from dataraum.api.deps import DuckDBDep, SessionDep
+from dataraum.api.deps import DuckDBDep, ManagerDep, SessionDep
 from dataraum.api.schemas import (
     QueryAgentRequest,
     QueryAgentResponse,
     QueryAssumptionResponse,
+    QueryLibraryEntryResponse,
+    QueryLibraryListResponse,
+    QueryLibrarySaveRequest,
+    QueryLibrarySaveResponse,
+    QueryLibrarySearchRequest,
+    QueryLibrarySearchResponse,
+    QueryLibrarySearchResult,
     QueryRequest,
     QueryResponse,
 )
@@ -183,3 +190,205 @@ def query_agent(
         success=query_result.success,
         error=query_result.error,
     )
+
+
+# =============================================================================
+# Query Library Endpoints
+# =============================================================================
+
+
+@router.get("/query/library/{source_id}", response_model=QueryLibraryListResponse)
+def list_library_entries(
+    source_id: str,
+    session: SessionDep,
+    manager: ManagerDep,
+    limit: int = 100,
+    offset: int = 0,
+) -> QueryLibraryListResponse:
+    """List query library entries for a source.
+
+    Returns saved queries that can be reused by the Query Agent.
+    """
+    from dataraum.query.library import QueryLibrary
+
+    # Verify source exists
+    stmt = select(Source).where(Source.source_id == source_id)
+    source = session.execute(stmt).scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    library = QueryLibrary(session, manager)
+    entries = library.list_entries(source_id, limit=limit, offset=offset)
+    total = library.count(source_id)
+
+    return QueryLibraryListResponse(
+        entries=[
+            QueryLibraryEntryResponse(
+                query_id=e.query_id,
+                source_id=e.source_id,
+                original_question=e.original_question,
+                graph_id=e.graph_id,
+                name=e.name,
+                description=e.description,
+                final_sql=e.final_sql,
+                column_mappings=e.column_mappings,
+                assumptions=e.assumptions,
+                confidence_level=e.confidence_level,
+                usage_count=e.usage_count,
+                created_at=e.created_at,
+                last_used_at=e.last_used_at,
+            )
+            for e in entries
+        ],
+        total=total,
+    )
+
+
+@router.get("/query/library/{source_id}/{query_id}", response_model=QueryLibraryEntryResponse)
+def get_library_entry(
+    source_id: str,
+    query_id: str,
+    session: SessionDep,
+    manager: ManagerDep,
+) -> QueryLibraryEntryResponse:
+    """Get a specific query library entry."""
+    from dataraum.query.library import QueryLibrary
+
+    library = QueryLibrary(session, manager)
+    entry = library.get_entry(query_id)
+
+    if entry is None or entry.source_id != source_id:
+        raise HTTPException(status_code=404, detail=f"Entry not found: {query_id}")
+
+    return QueryLibraryEntryResponse(
+        query_id=entry.query_id,
+        source_id=entry.source_id,
+        original_question=entry.original_question,
+        graph_id=entry.graph_id,
+        name=entry.name,
+        description=entry.description,
+        final_sql=entry.final_sql,
+        column_mappings=entry.column_mappings,
+        assumptions=entry.assumptions,
+        confidence_level=entry.confidence_level,
+        usage_count=entry.usage_count,
+        created_at=entry.created_at,
+        last_used_at=entry.last_used_at,
+    )
+
+
+@router.post("/query/library/{source_id}", response_model=QueryLibrarySaveResponse)
+def save_to_library(
+    source_id: str,
+    request: QueryLibrarySaveRequest,
+    session: SessionDep,
+    manager: ManagerDep,
+) -> QueryLibrarySaveResponse:
+    """Save a query to the library for future reuse.
+
+    The query will be indexed for semantic search, allowing
+    similar questions to find and reuse this SQL.
+    """
+    from dataraum.query.library import QueryLibrary
+
+    # Verify source exists
+    stmt = select(Source).where(Source.source_id == source_id)
+    source = session.execute(stmt).scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    library = QueryLibrary(session, manager)
+    entry = library.save(
+        source_id=source_id,
+        question=request.question,
+        sql=request.sql,
+        name=request.name,
+        description=request.description,
+        assumptions=request.assumptions,
+        column_mappings=request.column_mappings,
+        confidence_level=request.confidence_level,
+    )
+
+    session.commit()
+
+    return QueryLibrarySaveResponse(
+        query_id=entry.query_id,
+        message="Query saved to library",
+    )
+
+
+@router.post("/query/library/{source_id}/search", response_model=QueryLibrarySearchResponse)
+def search_library(
+    source_id: str,
+    request: QueryLibrarySearchRequest,
+    session: SessionDep,
+    manager: ManagerDep,
+) -> QueryLibrarySearchResponse:
+    """Search the query library for similar questions.
+
+    Uses semantic similarity to find queries that match the intent
+    of the provided question.
+    """
+    from dataraum.query.library import QueryLibrary
+
+    # Verify source exists
+    stmt = select(Source).where(Source.source_id == source_id)
+    source = session.execute(stmt).scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+
+    library = QueryLibrary(session, manager)
+    matches = library.find_similar_all(
+        question=request.question,
+        source_id=source_id,
+        min_similarity=request.min_similarity,
+        limit=request.limit,
+    )
+
+    return QueryLibrarySearchResponse(
+        results=[
+            QueryLibrarySearchResult(
+                entry=QueryLibraryEntryResponse(
+                    query_id=m.entry.query_id,
+                    source_id=m.entry.source_id,
+                    original_question=m.entry.original_question,
+                    graph_id=m.entry.graph_id,
+                    name=m.entry.name,
+                    description=m.entry.description,
+                    final_sql=m.entry.final_sql,
+                    column_mappings=m.entry.column_mappings,
+                    assumptions=m.entry.assumptions,
+                    confidence_level=m.entry.confidence_level,
+                    usage_count=m.entry.usage_count,
+                    created_at=m.entry.created_at,
+                    last_used_at=m.entry.last_used_at,
+                ),
+                similarity=round(m.similarity, 3),
+            )
+            for m in matches
+        ],
+        query=request.question,
+    )
+
+
+@router.delete("/query/library/{source_id}/{query_id}")
+def delete_library_entry(
+    source_id: str,
+    query_id: str,
+    session: SessionDep,
+    manager: ManagerDep,
+) -> dict[str, str]:
+    """Delete a query from the library."""
+    from dataraum.query.library import QueryLibrary
+
+    library = QueryLibrary(session, manager)
+
+    # Verify entry exists and belongs to source
+    entry = library.get_entry(query_id)
+    if entry is None or entry.source_id != source_id:
+        raise HTTPException(status_code=404, detail=f"Entry not found: {query_id}")
+
+    library.delete_entry(query_id)
+    session.commit()
+
+    return {"message": f"Entry {query_id} deleted"}

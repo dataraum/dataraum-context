@@ -15,7 +15,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dataraum.core.logging import get_logger
 
@@ -25,12 +25,12 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # Lazy-loaded model
-_model = None
+_model: Any = None
 _model_name = "all-MiniLM-L6-v2"
 _embedding_dim = 384
 
 
-def _get_model():
+def _get_model() -> Any:
     """Get or load the sentence-transformers model (lazy loading)."""
     global _model
     if _model is None:
@@ -59,7 +59,7 @@ def generate_embedding(text: str) -> list[float]:
     """
     model = _get_model()
     embedding = model.encode([text])[0]
-    return embedding.tolist()
+    return list(embedding.tolist())
 
 
 def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
@@ -75,7 +75,7 @@ def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
         return []
     model = _get_model()
     embeddings = model.encode(texts, show_progress_bar=len(texts) > 10)
-    return [e.tolist() for e in embeddings]
+    return [list(e.tolist()) for e in embeddings]
 
 
 @dataclass

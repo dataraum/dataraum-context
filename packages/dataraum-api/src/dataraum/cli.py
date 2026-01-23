@@ -1078,6 +1078,13 @@ def query(
             help="Show the generated SQL",
         ),
     ] = False,
+    ephemeral: Annotated[
+        bool,
+        typer.Option(
+            "--ephemeral",
+            help="Don't save this query to the library (default: saves successful queries)",
+        ),
+    ] = False,
     verbose: Annotated[
         int,
         typer.Option(
@@ -1093,6 +1100,9 @@ def query(
     The Query Agent converts your question into SQL and returns results
     with a confidence level based on data quality.
 
+    By default, successful queries are saved to the query library for future
+    reuse. Use --ephemeral to skip saving.
+
     Examples:
 
         dataraum query "What was total revenue?" -o ./pipeline_output
@@ -1100,9 +1110,11 @@ def query(
         dataraum query "Show sales by region" -o ./output --contract executive_dashboard
 
         dataraum query "Monthly trend" -o ./output --auto-contract --show-sql
+
+        dataraum query "Quick test" -o ./output --ephemeral
     """
     setup_logging(verbosity=verbose)
-    _query_impl(question, output_dir, contract, auto_contract, show_sql)
+    _query_impl(question, output_dir, contract, auto_contract, show_sql, ephemeral)
 
 
 def _query_impl(
@@ -1111,6 +1123,7 @@ def _query_impl(
     contract_name: str | None,
     auto_contract: bool,
     show_sql: bool,
+    ephemeral: bool,
 ) -> None:
     """Sync implementation of query command."""
     from sqlalchemy import select
@@ -1161,6 +1174,8 @@ def _query_impl(
                     source_id=source.source_id,
                     contract=contract_name,
                     auto_contract=auto_contract,
+                    manager=manager,
+                    ephemeral=ephemeral,
                 )
 
             if not result.success or not result.value:
@@ -1244,6 +1259,101 @@ def _query_impl(
                 )
 
             console.print()
+    finally:
+        manager.close()
+
+
+@app.command()
+def seed_library(
+    output_dir: Annotated[
+        Path,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output directory containing pipeline databases",
+            exists=True,
+            dir_okay=True,
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = Path("./pipeline_output"),
+    graphs_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--graphs",
+            "-g",
+            help="Custom graphs directory (defaults to config/graphs)",
+            exists=True,
+            dir_okay=True,
+            file_okay=False,
+            resolve_path=True,
+        ),
+    ] = None,
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "--verbose",
+            "-v",
+            count=True,
+            help="Increase logging verbosity (-v=INFO, -vv=DEBUG)",
+        ),
+    ] = 0,
+) -> None:
+    """Seed the query library from graph definitions.
+
+    Finds all metric graphs with validated SQL and adds them to the
+    query library for semantic search. This enables natural language
+    queries like "calculate DSO" to find the pre-defined graph.
+
+    Examples:
+
+        dataraum seed-library -o ./pipeline_output
+
+        dataraum seed-library -o ./output --graphs ./custom_graphs
+    """
+    setup_logging(verbosity=verbose)
+    _seed_library_impl(output_dir, str(graphs_dir) if graphs_dir else None)
+
+
+def _seed_library_impl(output_dir: Path, graphs_dir: str | None) -> None:
+    """Sync implementation of seed-library command."""
+    from sqlalchemy import select
+
+    from dataraum.core import ConnectionConfig, ConnectionManager
+    from dataraum.query.library import QueryLibrary
+    from dataraum.storage import Source
+
+    config = ConnectionConfig.for_directory(output_dir)
+
+    if not config.sqlite_path.exists():
+        console.print(f"[red]No metadata database found at {config.sqlite_path}[/red]")
+        raise typer.Exit(1)
+
+    manager = ConnectionManager(config)
+    manager.initialize()
+
+    try:
+        with manager.session_scope() as session:
+            # Get first source
+            sources_result = session.execute(select(Source))
+            sources = sources_result.scalars().all()
+
+            if not sources:
+                console.print("[yellow]No sources found in database[/yellow]")
+                return
+
+            source = sources[0]
+
+            # Create library and seed
+            library = QueryLibrary(session, manager)
+            seeded = library.seed_from_graphs(source.source_id, graphs_dir)
+
+            if seeded > 0:
+                session.commit()
+                console.print(f"[green]Seeded {seeded} queries from graph definitions[/green]")
+            else:
+                console.print("[yellow]No new queries to seed[/yellow]")
+
     finally:
         manager.close()
 
