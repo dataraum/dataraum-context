@@ -64,6 +64,24 @@ See [Query Agent Architecture](./query-agent-architecture.md) for full design.
 - [x] **Startup cleanup** - Marks interrupted runs on server start
 - [x] **Free-threading support** - Python 3.14t with `-Xgil=0`
 - [x] **API test suite** - 31 tests covering all implemented endpoints
+- [x] **Unified Query Document System** - QueryDocument model for consistent storage/retrieval
+
+### Recent: Unified Query Document System
+
+Implemented a unified `QueryDocument` model that both Graph Agent and Query Agent use:
+
+- **`query/document.py`** - `QueryDocument`, `SQLStep`, `QueryAssumptionData` dataclasses
+- **`query/embeddings.py`** - `build_embedding_text()` with priority-based truncation (summary > steps > assumptions)
+- **`query/library.py`** - `save()` now requires `QueryDocument`, `LibraryMatch.to_context()` for LLM injection
+- **`query/db_models.py`** - Added `summary` and `steps_json` to `QueryLibraryEntry`
+- **`graphs/agent.py`** - Fixed: `summary` now saved to DB (was generated but not persisted)
+- **`query/models.py`** - Added required `summary` field to `QueryAnalysisOutput`
+- **API schema** - `QueryLibrarySaveRequest` now requires `summary` field
+
+Key design decisions:
+- No backward compatibility - clean break, `summary` is required everywhere
+- Embedding uses model's 256-token limit efficiently via priority truncation
+- `LibraryMatch.to_context()` returns full document for RAG context injection
 
 ### In Progress
 
@@ -309,7 +327,7 @@ See [Query Agent Architecture](./query-agent-architecture.md) for details on:
 - [x] API endpoints: `GET /api/v1/contracts`, `GET /api/v1/contracts/{name}`, `GET /api/v1/contracts/{name}/evaluate`, `GET /api/v1/sources/{source_id}/contracts`
 - [x] 26 tests covering all contract functionality
 
-### Phase 3: Query Agent Core ⏳ IN PROGRESS
+### Phase 3: Query Agent Core ✅ COMPLETE
 *The core library that CLI/API/MCP all call*
 - [x] Create `query/` module structure
 - [x] Implement `answer_question()` library function
@@ -317,8 +335,11 @@ See [Query Agent Architecture](./query-agent-architecture.md) for details on:
 - [x] Create `query_analysis.yaml` prompt template
 - [x] Assumption tracking with QueryAssumption model
 - [x] Contract-based confidence levels in responses
-- [ ] Query library schema (extend existing graphs/)
-- [ ] Basic similarity search (embeddings)
+- [x] Query library schema with `QueryDocument` model
+- [x] Unified embedding with `build_embedding_text()` (priority: summary > steps > assumptions)
+- [x] `QueryLibrary.save()` requires `QueryDocument`
+- [x] `LibraryMatch.to_context()` for RAG context injection
+- [x] Graph Agent: `summary` now persisted to DB
 - [ ] Seed library with existing graph definitions
 
 ### Phase 4: Query Agent CLI ✅ COMPLETE
@@ -334,8 +355,9 @@ See [Query Agent Architecture](./query-agent-architecture.md) for details on:
 ### Phase 5: Query Agent API ⏳ IN PROGRESS
 *HTTP wrapper for UI/external consumption*
 - [x] `POST /api/v1/query/agent` endpoint
-- [ ] `GET /api/v1/query/library` (list saved queries)
-- [ ] `POST /api/v1/query/library` (save query)
+- [x] `GET /api/v1/query/library/{source_id}` (list saved queries)
+- [x] `POST /api/v1/query/library/{source_id}` (save query - requires `summary`)
+- [x] `POST /api/v1/query/library/{source_id}/search` (similarity search)
 - [ ] Context endpoint integration (existing)
 - [ ] Entropy endpoint integration (existing)
 

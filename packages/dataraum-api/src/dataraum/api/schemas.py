@@ -422,7 +422,12 @@ class QueryLibrarySaveRequest(BaseModel):
     """Request to save a query to the library."""
 
     question: str = Field(description="Natural language question")
+    summary: str = Field(description="One-sentence description of what the query calculates")
     sql: str = Field(description="SQL query")
+    steps: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Calculation steps [{step_id, sql, description}]",
+    )
     name: str | None = Field(default=None, description="Optional name for the query")
     description: str | None = Field(default=None, description="Optional description")
     assumptions: list[dict[str, Any]] = Field(

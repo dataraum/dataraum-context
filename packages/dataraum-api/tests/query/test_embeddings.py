@@ -7,26 +7,22 @@ import pytest
 
 from dataraum.query.embeddings import (
     QueryEmbeddings,
-    build_embedding_text_for_document,
-    build_embedding_text_for_graph_output,
-    build_embedding_text_for_question,
+    build_embedding_text,
     generate_embedding,
 )
 
 
-class TestBuildEmbeddingTextForDocument:
-    """Tests for the unified build_embedding_text_for_document function."""
+class TestBuildEmbeddingText:
+    """Tests for the build_embedding_text function."""
 
     def test_summary_only(self):
         """Document with just summary."""
-        text = build_embedding_text_for_document(
-            summary="Calculates total revenue by region for Q3 2024."
-        )
+        text = build_embedding_text(summary="Calculates total revenue by region for Q3 2024.")
         assert text == "Calculates total revenue by region for Q3 2024."
 
     def test_with_step_descriptions(self):
         """Document with summary and step descriptions."""
-        text = build_embedding_text_for_document(
+        text = build_embedding_text(
             summary="Calculates Days Sales Outstanding.",
             step_descriptions=[
                 "Sums total accounts receivable",
@@ -39,7 +35,7 @@ class TestBuildEmbeddingTextForDocument:
 
     def test_with_assumptions(self):
         """Document with summary and assumptions."""
-        text = build_embedding_text_for_document(
+        text = build_embedding_text(
             summary="Calculates revenue by region.",
             assumption_texts=["Currency is EUR", "Region is EMEA"],
         )
@@ -49,7 +45,7 @@ class TestBuildEmbeddingTextForDocument:
 
     def test_full_document(self):
         """Document with all fields."""
-        text = build_embedding_text_for_document(
+        text = build_embedding_text(
             summary="Calculates total revenue.",
             step_descriptions=["Filter completed orders", "Sum amounts"],
             assumption_texts=["Currency is USD"],
@@ -62,7 +58,7 @@ class TestBuildEmbeddingTextForDocument:
     def test_truncation_at_max_chars(self):
         """Text is truncated at max_chars."""
         # Create long descriptions
-        text = build_embedding_text_for_document(
+        text = build_embedding_text(
             summary="Short summary",
             step_descriptions=["A" * 500, "B" * 500],
             max_chars=100,
@@ -73,7 +69,7 @@ class TestBuildEmbeddingTextForDocument:
     def test_priority_order_summary_first(self):
         """Summary is always included, steps and assumptions truncated if needed."""
         long_summary = "Summary " * 100  # ~800 chars
-        text = build_embedding_text_for_document(
+        text = build_embedding_text(
             summary=long_summary,
             step_descriptions=["Step description"],
             assumption_texts=["Assumption text"],
@@ -84,60 +80,12 @@ class TestBuildEmbeddingTextForDocument:
 
     def test_empty_lists(self):
         """Handles empty lists gracefully."""
-        text = build_embedding_text_for_document(
+        text = build_embedding_text(
             summary="Just a summary.",
             step_descriptions=[],
             assumption_texts=[],
         )
         assert text == "Just a summary."
-
-
-class TestEmbeddingTextBuilders:
-    """Tests for legacy embedding text builder functions."""
-
-    def test_build_question_text(self):
-        """Question text is used as-is."""
-        text = build_embedding_text_for_question("What was total revenue?")
-        assert text == "What was total revenue?"
-
-    def test_build_graph_text_summary_only(self):
-        """Graph text with just summary."""
-        text = build_embedding_text_for_graph_output(
-            summary="Calculates Days Sales Outstanding by dividing receivables by daily sales."
-        )
-        assert "Days Sales Outstanding" in text
-        assert "receivables" in text
-
-    def test_build_graph_text_with_steps(self):
-        """Graph text with summary and step descriptions."""
-        text = build_embedding_text_for_graph_output(
-            summary="Calculates Days Sales Outstanding.",
-            step_descriptions=[
-                "Sums total accounts receivable",
-                "Calculates average daily sales over the period",
-            ],
-        )
-        assert "Days Sales Outstanding" in text
-        assert "accounts receivable" in text
-        assert "average daily sales" in text
-
-    def test_build_graph_text_with_name(self):
-        """Graph text includes name if not in summary."""
-        text = build_embedding_text_for_graph_output(
-            summary="Measures collection efficiency.",
-            name="Days Sales Outstanding",
-        )
-        assert "Days Sales Outstanding" in text
-        assert "collection efficiency" in text
-
-    def test_build_graph_text_name_not_duplicated(self):
-        """Graph name is not duplicated if already in summary."""
-        text = build_embedding_text_for_graph_output(
-            summary="Calculates Days Sales Outstanding metric.",
-            name="Days Sales Outstanding",
-        )
-        # Name should appear only once (in the summary)
-        assert text.count("Days Sales Outstanding") == 1
 
 
 class TestGenerateEmbedding:
