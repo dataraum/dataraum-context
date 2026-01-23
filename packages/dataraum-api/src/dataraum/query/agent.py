@@ -606,7 +606,7 @@ class QueryAgent(LLMFeature):
         )
 
         library = QueryLibrary(session, manager)
-        library.save_document(
+        library.save(
             source_id=source_id,
             document=document,
             original_question=question,

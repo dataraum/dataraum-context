@@ -73,61 +73,117 @@ The flywheel effect:
 
 ## Query Library Schema
 
-Each query entry contains:
+### QueryDocument Model
+
+The core data structure for all queries in the library is a **QueryDocument**, which captures the complete semantic representation:
+
+```python
+@dataclass
+class QueryDocument:
+    """Complete semantic document for a query."""
+
+    # Required: Plain English description (used for embedding)
+    summary: str  # e.g., "Calculates monthly revenue by sales region"
+
+    # Calculation steps with SQL
+    steps: list[SQLStep]  # [{step_id, sql, description}]
+
+    # Final executable SQL
+    final_sql: str
+
+    # Column mappings (abstract -> concrete)
+    column_mappings: dict[str, str]
+
+    # Assumptions made during generation
+    assumptions: list[QueryAssumptionData]
+```
+
+### Embedding Strategy
+
+The `build_embedding_text()` function creates searchable text from QueryDocuments:
+
+```python
+def build_embedding_text(
+    summary: str,
+    step_descriptions: list[str] | None = None,
+    assumption_texts: list[str] | None = None,
+    max_chars: int = 1000,  # ~256 tokens for all-MiniLM-L6-v2
+) -> str:
+    """Build embedding with priority-based truncation.
+
+    Priority order:
+    1. Summary (always included - primary semantic signal)
+    2. Step descriptions (secondary - calculation methodology)
+    3. Assumption texts (tertiary - ambiguity context)
+    """
+```
+
+### Database Schema (QueryLibraryEntry)
 
 ```yaml
-query_id: "revenue_by_region_monthly"
-version: 3
+query_id: "revenue_by_region_monthly"  # UUID
+source_id: "abc123..."
 
-# Semantic metadata for RAG retrieval
-description: "Monthly revenue breakdown by sales region"
-business_context:
-  metric: "revenue"
-  dimensions: ["region", "month"]
-  filters: ["active_customers_only"]
-  industry: "finance"
-
-# The actual SQL
-sql: |
-  SELECT
-    region,
-    DATE_TRUNC('month', order_date) as month,
-    SUM(amount) as revenue
-  FROM typed_orders
-  WHERE customer_status = 'active'
+# Semantic content (from QueryDocument)
+summary: "Calculates monthly revenue by sales region"
+steps_json:
+  - step_id: "filter"
+    sql: "SELECT * FROM orders WHERE status = 'active'"
+    description: "Filter to active customers only"
+  - step_id: "aggregate"
+    sql: "SELECT region, month, SUM(amount)..."
+    description: "Sum amount by region and month"
+final_sql: |
+  SELECT region, DATE_TRUNC('month', order_date), SUM(amount)
+  FROM typed_orders WHERE customer_status = 'active'
   GROUP BY 1, 2
+column_mappings:
+  revenue: "amount"
+  region: "region"
 
-# Lineage (which tables/columns touched)
-dependencies:
-  tables: ["typed_orders"]
-  columns: ["region", "order_date", "amount", "customer_status"]
-
-# Validated entropy profile
-entropy_profile:
-  currency: 0.2      # validated: all EUR
-  temporal: 0.1      # validated: calendar months
-  null_handling: 0.3 # some nulls in region, documented
-  overall: 0.2
-
-# Assumptions baked into this query
+# Assumptions with structured data
 assumptions:
-  - basis: "system_default"
-    description: "Revenue in EUR"
-  - basis: "inferred"
-    description: "Excluding cancelled orders"
+  - dimension: "semantic.units"
+    target: "column:orders.amount"
+    assumption: "Currency is EUR"
+    basis: "system_default"
+    confidence: 0.9
+  - dimension: "value.nulls"
+    target: "column:orders.region"
+    assumption: "NULL regions excluded"
+    basis: "inferred"
+    confidence: 0.8
+
+# Embedding for vector search
+embedding_text: "Calculates monthly revenue by sales region Filter to active..."
 
 # Usage tracking
-validated_at: "2026-01-15"
-validated_by: "analyst@company.com"
 usage_count: 47
-last_used: "2026-01-22"
+last_used_at: "2026-01-22"
+created_at: "2026-01-15"
+```
 
-# For graph visualization
-calculation_graph:
-  - step: "filter"
-    description: "Active customers only"
-  - step: "aggregate"
-    description: "Sum amount by region and month"
+### Library API
+
+```python
+# Save a query (requires QueryDocument)
+library.save(
+    source_id=source_id,
+    document=QueryDocument(
+        summary="Calculates revenue by region",
+        steps=[SQLStep(...)],
+        final_sql="SELECT ...",
+        assumptions=[QueryAssumptionData(...)],
+    ),
+    original_question="What was revenue by region?",
+)
+
+# Find similar queries
+match = library.find_similar(question, source_id, min_similarity=0.8)
+if match:
+    # Get full context for LLM injection
+    context = match.to_context()
+    # Returns: {query_id, summary, calculation_steps, sql, assumptions, similarity_score}
 ```
 
 ---

@@ -20,6 +20,7 @@ from dataraum.api.schemas import (
     QueryRequest,
     QueryResponse,
 )
+from dataraum.query.document import QueryAssumptionData, QueryDocument, SQLStep
 from dataraum.storage import Source, Table
 
 router = APIRouter()
@@ -308,15 +309,37 @@ def save_to_library(
     except QueryLibraryError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
+    # Build QueryDocument from request
+    document = QueryDocument(
+        summary=request.summary,
+        steps=[
+            SQLStep(
+                step_id=s.get("step_id", ""),
+                sql=s.get("sql", ""),
+                description=s.get("description", ""),
+            )
+            for s in request.steps
+        ],
+        final_sql=request.sql,
+        column_mappings=request.column_mappings,
+        assumptions=[
+            QueryAssumptionData(
+                dimension=a.get("dimension", ""),
+                target=a.get("target", ""),
+                assumption=a.get("assumption", ""),
+                basis=a.get("basis", "inferred"),
+                confidence=a.get("confidence", 0.5),
+            )
+            for a in request.assumptions
+        ],
+    )
+
     entry = library.save(
         source_id=source_id,
-        embedding_text=request.question,  # Use question as embedding text
-        sql=request.sql,
+        document=document,
         original_question=request.question,
         name=request.name,
         description=request.description,
-        assumptions=request.assumptions,
-        column_mappings=request.column_mappings,
         confidence_level=request.confidence_level,
     )
 
