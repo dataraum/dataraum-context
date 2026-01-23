@@ -2,6 +2,7 @@
 
 from dataraum.api.routers import (
     context,
+    contracts,
     entropy,
     graphs,
     pipeline,
@@ -15,6 +16,7 @@ __all__ = [
     "pipeline",
     "tables",
     "context",
+    "contracts",
     "entropy",
     "graphs",
     "query",

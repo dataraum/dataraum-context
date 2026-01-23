@@ -104,6 +104,7 @@ def create_app(
     app.include_router(routers.pipeline.router, prefix="/api/v1", tags=["pipeline"])
     app.include_router(routers.tables.router, prefix="/api/v1", tags=["tables"])
     app.include_router(routers.context.router, prefix="/api/v1", tags=["context"])
+    app.include_router(routers.contracts.router, prefix="/api/v1", tags=["contracts"])
     app.include_router(routers.entropy.router, prefix="/api/v1", tags=["entropy"])
     app.include_router(routers.graphs.router, prefix="/api/v1", tags=["graphs"])
     app.include_router(routers.query.router, prefix="/api/v1", tags=["query"])

@@ -7,13 +7,43 @@ This plan consolidates the UI/API layer for dataraum-context, integrating:
 - **TypeScript prototype patterns** (analytics-agents-ts)
 - **Web visualizer patterns** (calculation-graphs/web_visualizer)
 - **Entropy system** already built
+- **Query Agent with RAG-based query reuse** (core innovation)
 - **MCP Server** (after UI learnings collected)
 
 **Key decisions:**
 - Package renamed to `dataraum` (completed)
-- Build UI first, MCP Server last (learn from UI iteration)
+- **End-to-end to Query Agent first** - validate core assumptions before Configuration Hub
+- Query RAG approach over fresh SQL generation (stabilizes entropy faster)
 - API grows organically as UI needs emerge
-- Configuration Hub as separate phase after core UI
+
+**Related:** [Query Agent Architecture](./query-agent-architecture.md) - detailed design for RAG-based query reuse
+
+---
+
+## Core Architectural Idea: Query RAG
+
+**Problem:** Traditional LLM query agents generate SQL from scratch each time. Every query is "novel" from an entropy perspective—no learning accumulates.
+
+**Solution:** Build a library of validated query patterns, search by semantic similarity, adapt existing queries rather than generating fresh.
+
+```
+User Question → Search Library → Adapt Match → Execute → Save/Update
+                     ↓
+              (no match? generate with entropy awareness)
+```
+
+**Why this matters:**
+- Reused queries have **known entropy profiles** (validated assumptions, documented null handling)
+- Entropy **stabilizes with reuse** instead of staying high
+- Creates a flywheel: more usage → more validation → lower entropy → higher trust
+- The graph visualization (from web_visualizer) serves dual purpose: human understanding AND query library seeding
+
+**Existing modules to adapt:**
+- `graphs/` - Pre-defined calculation graphs become query library seeds
+- `web_visualizer` - Graph UI shows calculation lineage, enables "save as query"
+- `analytics-agents-ts` - Prompt patterns for SQL generation, chart recommendations
+
+See [Query Agent Architecture](./query-agent-architecture.md) for full design.
 
 ---
 
@@ -247,7 +277,16 @@ dataraum-context/
 
 ---
 
-## Implementation Phases (Revised)
+## Implementation Phases (Revised 2026-01-23)
+
+**Strategy:** CLI-first validation of Query Agent and Contracts, then UI.
+
+**Key Insight:** The CLI already calls library functions directly (not API). The query agent should follow the same pattern—library function first, with CLI and API as thin wrappers.
+
+See [Query Agent Architecture](./query-agent-architecture.md) for details on:
+- RAG-based query reuse
+- Contract-based confidence levels (🟢🟡🟠🔴)
+- Complete test flow with CLI commands
 
 ### Phase 1: API Foundation ✅ COMPLETE
 - [x] FastAPI app skeleton with dependency injection
@@ -255,54 +294,122 @@ dataraum-context/
 - [x] Source endpoints (CRUD)
 - [x] Pipeline endpoints (trigger, status, SSE stream)
 - [x] Table/Column endpoints
-- [x] Query endpoint
+- [x] Query endpoint (raw SQL)
 - [x] Singleton execution + startup cleanup
 - [x] Free-threading support
 - [x] API test suite (31 tests)
 
-### Phase 2: Metadata API (Next)
-- [ ] Context endpoint integration (GraphExecutionContext)
-- [ ] Entropy endpoint integration (to_dashboard_dict)
-- [ ] Graphs endpoint completion
-- [ ] Tests for remaining endpoints
+### Phase 2: Contract Implementation (Next)
+*Implement contracts to enable confidence-level responses*
+- [ ] Create `entropy/contracts.py` from [ENTROPY_CONTRACTS.md](../ENTROPY_CONTRACTS.md)
+- [ ] Load contracts from `config/entropy/contracts.yaml`
+- [ ] Implement `evaluate_contract()` function
+- [ ] Implement `calculate_confidence_level()` (GREEN/YELLOW/ORANGE/RED)
+- [ ] Add `dataraum contracts` CLI command
+- [ ] API endpoint: `GET /api/v1/contracts/{name}/evaluate`
 
-### Phase 3: Frontend Foundation
+### Phase 3: Query Agent Core (Library Function)
+*The core library that CLI/API/MCP all call*
+- [ ] Create `query/` module structure
+- [ ] Implement `answer_question()` library function
+- [ ] Query library schema (extend existing graphs/)
+- [ ] Basic similarity search (embeddings)
+- [ ] Seed library with existing graph definitions
+- [ ] Entropy-aware query generation (fallback for no match)
+- [ ] Assumption tracking with QueryAssumption model
+
+### Phase 4: Query Agent CLI
+*CLI wrapper for fast iteration and testing*
+- [ ] Add `dataraum query "..."` command
+- [ ] Contract selection: `--contract NAME`
+- [ ] Auto-contract: `--auto-contract`
+- [ ] Behavior modes: `--mode strict|balanced|lenient`
+- [ ] Interactive REPL: `dataraum query --interactive`
+- [ ] Save to library: `--save NAME`
+
+### Phase 5: Query Agent API
+*HTTP wrapper for UI/external consumption*
+- [ ] `POST /api/v1/query/agent` endpoint
+- [ ] `GET /api/v1/query/library` (list saved queries)
+- [ ] `POST /api/v1/query/library` (save query)
+- [ ] Context endpoint integration (existing)
+- [ ] Entropy endpoint integration (existing)
+
+### Phase 6: Frontend Foundation
 - [ ] Vite + React 19 + TypeScript scaffold
 - [ ] API client generation from OpenAPI + Zod schemas
 - [ ] TanStack setup (Query, Router, Form, Table, Virtual)
 - [ ] Tailwind + shadcn/ui components
 
-### Phase 4: Core UI
+### Phase 7: Core UI
 - [ ] Layout (Sidebar + MainContent)
-- [ ] Source selector
-- [ ] Pipeline monitor with SSE
-- [ ] Table browser (schema view)
+- [ ] Source selector + Pipeline monitor (SSE)
+- [ ] Schema browser (tables/columns)
+- [ ] Entropy dashboard with traffic light indicators
+- [ ] Contract compliance view
 
-### Phase 5: Advanced UI
-- [ ] Entropy dashboard (heatmap, readiness indicators)
-- [ ] Graph visualization (React Flow)
-- [ ] Drill-down modals (from web_visualizer)
-- [ ] Quality view
+### Phase 8: Query Agent UI
+- [ ] Query input with contract selector
+- [ ] Confidence level display (traffic light)
+- [ ] Assumption disclosure panel
+- [ ] SQL preview and results table
+- [ ] Save/update query workflow
+- [ ] Query library browser
 
-### Phase 6: Configuration Hub
+### Phase 9: Graph Visualization
+- [ ] Adapt web_visualizer to live API
+- [ ] MetricNode with entropy indicators
+- [ ] Calculation breakdown (expand/collapse)
+- [ ] Chart recommendations (from analytics-agents-ts patterns)
+
+### Phase 10: Configuration Hub
+*Only after validating Query Agent assumptions*
 - [ ] Ontology selector
 - [ ] Semantic overrides editor
 - [ ] Entropy threshold configuration
 - [ ] Quality rule toggles
 
-### Phase 7: MCP Server
+### Phase 11: MCP Server
 - [ ] MCP server skeleton
-- [ ] `get_context` tool
-- [ ] `query` tool
+- [ ] `get_context` tool (wraps context API)
+- [ ] `query` tool (wraps answer_question())
 - [ ] `get_metrics` tool
 - [ ] `annotate` tool
 - [ ] Claude Desktop configuration docs
 
-### Phase 8: Polish & Integration
+### Phase 12: Polish & Integration
 - [ ] End-to-end testing (Playwright)
 - [ ] Error boundaries
 - [ ] Export functionality (CSV/JSON)
 - [ ] Documentation
+- [ ] Query library analytics (usage, validation rates)
+
+---
+
+## Test Flow Summary
+
+The complete test flow validates the system end-to-end via CLI:
+
+```bash
+# 1. Import data
+dataraum run ./data/financial --output ./output
+
+# 2. Check contract compliance
+dataraum contracts ./output
+# → Shows which contracts pass/fail
+
+# 3. Query with confidence levels
+dataraum query "What was revenue?" -o ./output
+# → 🟢 Answer with confidence level
+
+dataraum query "What was revenue?" -o ./output --contract regulatory_reporting
+# → 🔴 BLOCKED (shows why and how to fix)
+
+# 4. Interactive exploration
+dataraum query --interactive -o ./output
+```
+
+See [Query Agent Architecture](./query-agent-architecture.md) for detailed test scenarios.
 
 ---
 
@@ -333,6 +440,53 @@ dataraum-context/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/v1/query` | Execute read-only SQL |
+
+## API Reference (Planned)
+
+### Query Agent
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/query/agent` | Answer question with Query Agent |
+| GET | `/api/v1/query/library` | List saved queries |
+| POST | `/api/v1/query/library` | Save query to library |
+| GET | `/api/v1/query/library/{id}` | Get query details |
+
+### Contracts
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/contracts` | List all contracts |
+| GET | `/api/v1/contracts/{name}` | Get contract definition |
+| GET | `/api/v1/contracts/{name}/evaluate` | Evaluate contract for source |
+
+### Context & Entropy (Needs Integration)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/context/{source_id}` | Get execution context |
+| GET | `/api/v1/entropy/{source_id}` | Get entropy dashboard data |
+| GET | `/api/v1/entropy/{source_id}/columns/{column_id}` | Get column entropy |
+
+---
+
+## CLI Reference
+
+### Existing Commands
+| Command | Description |
+|---------|-------------|
+| `dataraum run SOURCE` | Import data and run pipeline |
+| `dataraum status DIR` | Show pipeline status |
+| `dataraum inspect DIR` | Show context and entropy |
+| `dataraum phases` | List available phases |
+| `dataraum reset DIR` | Delete databases |
+
+### Planned Commands
+| Command | Description |
+|---------|-------------|
+| `dataraum contracts DIR` | Evaluate all contracts |
+| `dataraum contracts DIR --contract NAME` | Evaluate specific contract |
+| `dataraum query "..." -o DIR` | Ask a question |
+| `dataraum query "..." --contract NAME` | Query with specific contract |
+| `dataraum query "..." --auto-contract` | Auto-select best contract |
+| `dataraum query --interactive` | Interactive REPL mode |
 
 ---
 

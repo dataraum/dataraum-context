@@ -265,3 +265,72 @@ class PipelineProgressEvent(BaseModel):
     duration_seconds: float | None = None
     error: str | None = None
     message: str | None = None
+
+
+# --- Contract schemas ---
+
+
+class ContractSummary(BaseModel):
+    """Summary of a contract for listing."""
+
+    name: str
+    display_name: str
+    description: str
+    overall_threshold: float
+
+
+class ContractListResponse(BaseModel):
+    """Response for listing contracts."""
+
+    contracts: list[ContractSummary]
+
+
+class ViolationResponse(BaseModel):
+    """A contract violation."""
+
+    type: str = Field(description="Violation type: dimension, overall, blocking_condition")
+    severity: str = Field(description="Severity: warning, blocking")
+    dimension: str | None = None
+    max_allowed: float | None = None
+    actual: float | None = None
+    details: str
+    affected_columns: list[str] = Field(default_factory=list)
+
+
+class ContractEvaluationResponse(BaseModel):
+    """Result of evaluating a contract against data."""
+
+    contract_name: str
+    contract_display_name: str
+    is_compliant: bool
+
+    # Traffic light confidence
+    confidence_level: str = Field(description="green, yellow, orange, red")
+    confidence_emoji: str = Field(description="Traffic light emoji")
+    confidence_label: str = Field(description="GOOD, MARGINAL, ISSUES, BLOCKED")
+
+    # Scores
+    overall_score: float
+    dimension_scores: dict[str, float]
+
+    # Violations and warnings
+    violations: list[ViolationResponse]
+    warnings: list[ViolationResponse]
+
+    # Summary
+    compliance_percentage: float = Field(description="Percentage of dimensions within threshold")
+    worst_dimension: str | None = None
+    worst_dimension_score: float = 0.0
+    estimated_effort_to_comply: str
+
+    evaluated_at: str
+
+
+class AllContractsEvaluationResponse(BaseModel):
+    """Result of evaluating all contracts."""
+
+    source_id: str
+    evaluations: dict[str, ContractEvaluationResponse]
+    strictest_passing: str | None = Field(description="Name of strictest passing contract")
+    passing_count: int
+    total_count: int

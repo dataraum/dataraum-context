@@ -1,0 +1,154 @@
+# Entropy Contracts Configuration
+#
+# Contracts define acceptable entropy thresholds for different use cases.
+# Each contract specifies dimension thresholds, blocking conditions,
+# and overall requirements.
+#
+# See docs/ENTROPY_CONTRACTS.md for detailed specification.
+
+contracts:
+  # --------------------------------------------------------------------------
+  # EXPLORATORY ANALYSIS
+  # --------------------------------------------------------------------------
+  # Most lenient contract - for data exploration and hypothesis testing
+  exploratory_analysis:
+    display_name: "Exploratory Analysis"
+    description: "For data exploration, hypothesis testing, initial analysis"
+    overall_threshold: 0.5
+    warning_margin: 0.2  # Within 20% of threshold = warning
+
+    dimension_thresholds:
+      structural.types: 0.3
+      structural.relations: 0.5
+      semantic.business_meaning: 0.5
+      semantic.units: 0.4
+      semantic.temporal: 0.5
+      value.nulls: 0.5
+      value.outliers: 0.5
+      computational.derived_values: 0.5
+      computational.aggregations: 0.5
+
+    blocking_conditions:
+      - type: any_dimension_exceeds
+        threshold: 0.8
+        description: "Any dimension with critical entropy (>0.8) blocks exploration"
+
+  # --------------------------------------------------------------------------
+  # DATA SCIENCE / ML
+  # --------------------------------------------------------------------------
+  # Focus on value quality; semantic ambiguity less important
+  data_science:
+    display_name: "Data Science / ML"
+    description: "For feature engineering, model training, statistical analysis"
+    overall_threshold: 0.35
+
+    dimension_thresholds:
+      structural.types: 0.2       # Types must be consistent for pipelines
+      structural.relations: 0.3   # Join quality affects training data
+      semantic.business_meaning: 0.5  # ML doesn't need business terms
+      semantic.units: 0.3         # Units affect feature scaling
+      semantic.temporal: 0.4      # Temporal patterns are features
+      value.nulls: 0.3           # Nulls affect model quality
+      value.outliers: 0.3        # Outliers affect training
+      computational.derived_values: 0.4
+      computational.aggregations: 0.4
+
+    blocking_conditions:
+      - type: any_dimension_exceeds
+        threshold: 0.6
+        description: "Type or value quality too low for ML pipelines"
+
+  # --------------------------------------------------------------------------
+  # OPERATIONAL ANALYTICS
+  # --------------------------------------------------------------------------
+  # For operational reports and team dashboards
+  operational_analytics:
+    display_name: "Operational Analytics"
+    description: "For operational reports, team dashboards, process monitoring"
+    overall_threshold: 0.35
+
+    dimension_thresholds:
+      structural.types: 0.2
+      structural.relations: 0.3
+      semantic.business_meaning: 0.3
+      semantic.units: 0.3
+      semantic.temporal: 0.4
+      value.nulls: 0.4
+      value.outliers: 0.4
+      computational.derived_values: 0.3
+      computational.aggregations: 0.3
+
+    blocking_conditions:
+      - type: any_dimension_exceeds
+        threshold: 0.6
+      - type: has_critical_compound_risk
+        description: "Critical compound risks block operational reporting"
+
+  # --------------------------------------------------------------------------
+  # EXECUTIVE DASHBOARD
+  # --------------------------------------------------------------------------
+  # For C-level dashboards and board presentations
+  executive_dashboard:
+    display_name: "Executive Dashboard"
+    description: "For C-level dashboards, board presentations, KPI tracking"
+    overall_threshold: 0.25
+
+    dimension_thresholds:
+      structural.types: 0.2
+      structural.relations: 0.2
+      semantic.business_meaning: 0.2
+      semantic.units: 0.2
+      semantic.temporal: 0.3
+      value.nulls: 0.3
+      value.outliers: 0.3
+      computational.derived_values: 0.2
+      computational.aggregations: 0.2
+
+    blocking_conditions:
+      - type: any_dimension_exceeds
+        threshold: 0.5
+        description: "Any dimension exceeding 0.5 blocks executive reporting"
+      - type: has_critical_compound_risk
+        description: "Critical compound risks block executive reporting"
+
+  # --------------------------------------------------------------------------
+  # REGULATORY REPORTING
+  # --------------------------------------------------------------------------
+  # Strictest contract - for compliance and audit submissions
+  regulatory_reporting:
+    display_name: "Regulatory Reporting"
+    description: "For financial statements, compliance reports, audit submissions"
+    overall_threshold: 0.1
+
+    dimension_thresholds:
+      structural.types: 0.1
+      structural.relations: 0.1
+      semantic.business_meaning: 0.1
+      semantic.units: 0.1
+      semantic.temporal: 0.1
+      value.nulls: 0.1
+      value.outliers: 0.2      # Slightly more tolerance for outliers
+      computational.derived_values: 0.1
+      computational.aggregations: 0.1
+
+    blocking_conditions:
+      - type: any_dimension_exceeds
+        threshold: 0.2
+        description: "Any dimension exceeding 0.2 blocks regulatory reporting"
+      - type: has_critical_compound_risk
+        description: "Critical compound risks block regulatory reporting"
+      - type: has_high_compound_risk
+        description: "High compound risks block regulatory reporting"
+
+# --------------------------------------------------------------------------
+# CUSTOM CONTRACTS
+# --------------------------------------------------------------------------
+# Define project-specific contracts here. They can extend existing contracts.
+#
+# Example:
+# custom_contracts:
+#   my_project_strict:
+#     extends: regulatory_reporting
+#     overrides:
+#       dimension_thresholds:
+#         value.outliers: 0.1  # Stricter outlier threshold
