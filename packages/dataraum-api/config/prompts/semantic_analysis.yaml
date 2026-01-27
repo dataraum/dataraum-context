@@ -84,7 +84,10 @@ user_prompt: |
   </relationship_candidates>
 
   <within_table_patterns>
-  Detected patterns within tables that may help identify keys and derived columns:
+  Detected patterns within tables that may help identify keys and derived columns.
+  NOTE: Derived column candidates are based on statistical arithmetic matching.
+  Near-zero or low-variance columns can produce spurious matches (e.g. x * 1 ≈ x, x + 0 ≈ x).
+  Evaluate each candidate for domain plausibility before treating it as a true derivation.
 
   {within_table_correlations}
   </within_table_patterns>

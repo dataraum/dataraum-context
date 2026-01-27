@@ -535,9 +535,12 @@ class SemanticAgent(LLMFeature):
                         f"  - {c['column1']} <-> {c['column2']}: r={r:.2f} ({c['strength']})"
                     )
 
-            # Derived columns
+            # Derived columns (already deduplicated at detection time)
             if derived:
-                lines.append("Derived columns:")
+                lines.append(
+                    "Derived column candidates (statistical matches — "
+                    "verify domain plausibility, not all are true derivations):"
+                )
                 for d in derived:
                     lines.append(
                         f"  - {d['derived_column']} = {d['formula']} (match: {d['match_rate']:.0%})"
