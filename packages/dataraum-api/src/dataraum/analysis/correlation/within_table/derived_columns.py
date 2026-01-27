@@ -58,6 +58,13 @@ def _check_derived_triple(
                     "{target_name}" IS NOT NULL
                     AND "{col1_name}" IS NOT NULL
                     AND "{col2_name}" IS NOT NULL
+                    -- Exclude all-zero rows: 0 op 0 = 0 is trivially true
+                    -- and inflates match rates when columns use 0 instead of NULL
+                    AND NOT (
+                        TRY_CAST("{target_name}" AS DOUBLE) = 0
+                        AND TRY_CAST("{col1_name}" AS DOUBLE) = 0
+                        AND TRY_CAST("{col2_name}" AS DOUBLE) = 0
+                    )
             )
             SELECT
                 COUNT(CASE WHEN diff < 0.01 THEN 1 END) as matches,
@@ -144,13 +151,18 @@ def detect_derived_columns(
 
         # Build sets for filtering:
         # - Trivial targets: constant columns (distinct_count <= 1) — skip as targets
-        # - Constant sources: distinct_count <= 1 — skip for * and / (constant * anything = constant)
+        # - Zero-constant sources: distinct_count <= 1 AND value is 0 — produces
+        #   degenerate matches (0*X=0, X+0=X) for all operations.
+        #   Non-zero constants (e.g. VAT rate = 0.19) are kept as valid sources.
         trivial_target_ids: set[str] = set()
-        constant_source_ids: set[str] = set()
+        zero_constant_source_ids: set[str] = set()
         for col_id, profile in profiles_by_col.items():
             if profile.distinct_count is not None and profile.distinct_count <= 1:
                 trivial_target_ids.add(col_id)
-                constant_source_ids.add(col_id)
+                # Check if the constant value is zero via numeric stats
+                numeric_stats = (profile.profile_data or {}).get("numeric_stats")
+                if numeric_stats and numeric_stats.get("min_value") == 0:
+                    zero_constant_source_ids.add(col_id)
 
         # Check arithmetic derivations (numeric columns only)
         numeric_cols = [
@@ -180,10 +192,10 @@ def detect_derived_columns(
                     for op, op_name, is_commutative in operations:
                         if is_commutative and col1.column_id > col2.column_id:
                             continue
-                        # Skip constant sources for * and / (constant * X = trivial)
-                        if op in ("*", "/") and (
-                            col1.column_id in constant_source_ids
-                            or col2.column_id in constant_source_ids
+                        # Skip zero-constant sources (0*X=0, X+0=X, X-0=X, 0/X=0)
+                        if (
+                            col1.column_id in zero_constant_source_ids
+                            or col2.column_id in zero_constant_source_ids
                         ):
                             continue
                         checks.append((target, col1, col2, op, op_name))
@@ -216,6 +228,26 @@ def detect_derived_columns(
                 derived = future.result()
                 if derived:
                     derived_columns.append(derived)
+
+        # Deduplicate algebraic equivalences: z = x * y, x = z / y, y = z / x
+        # are the same relationship. Keep one per column triple, preferring
+        # sum/product over difference/ratio, then highest match rate.
+        _op_preference = {"sum": 0, "product": 1, "difference": 2, "ratio": 3}
+        seen_triples: dict[frozenset[str], DerivedColumn] = {}
+        for dc in derived_columns:
+            col_set = frozenset([dc.derived_column_id] + dc.source_column_ids)
+            existing = seen_triples.get(col_set)
+            if existing is None:
+                seen_triples[col_set] = dc
+            else:
+                dc_pref = _op_preference.get(dc.derivation_type, 4)
+                ex_pref = _op_preference.get(existing.derivation_type, 4)
+                if dc.match_rate > existing.match_rate or (
+                    dc.match_rate == existing.match_rate and dc_pref < ex_pref
+                ):
+                    seen_triples[col_set] = dc
+
+        derived_columns = list(seen_triples.values())
 
         # Store all in database (sequential - SQLite writes)
         for derived in derived_columns:
