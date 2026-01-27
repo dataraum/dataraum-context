@@ -19,6 +19,7 @@ from dataraum.analysis.correlation.db_models import (
     FunctionalDependency as DBFunctionalDependency,
 )
 from dataraum.analysis.correlation.models import FunctionalDependency
+from dataraum.analysis.statistics.db_models import StatisticalProfile
 from dataraum.core.models.base import Result
 from dataraum.storage import Column, Table
 
@@ -141,12 +142,36 @@ def detect_functional_dependencies(
         if not table_name:
             return Result.fail("Table has no DuckDB path")
 
-        # Generate all column pairs to check
+        # Load statistical profiles to filter trivial dependents
+        column_ids = [c.column_id for c in columns]
+        profile_stmt = select(StatisticalProfile).where(
+            StatisticalProfile.column_id.in_(column_ids)
+        )
+        profiles_by_col: dict[str, StatisticalProfile] = {
+            p.column_id: p for p in session.execute(profile_stmt).scalars().all()
+        }
+
+        # Build set of trivial column IDs — columns that should NOT be dependents:
+        # - Constants (distinct_count <= 1): any column trivially determines them
+        # - Near-empty (null_ratio > 0.95, distinct_count <= 2): too few rows for reliable FDs
+        trivial_dependent_ids: set[str] = set()
+        for col_id, profile in profiles_by_col.items():
+            if profile.distinct_count is not None and profile.distinct_count <= 1:
+                trivial_dependent_ids.add(col_id)
+            elif (
+                profile.null_ratio is not None
+                and profile.null_ratio > 0.95
+                and profile.distinct_count is not None
+                and profile.distinct_count <= 2
+            ):
+                trivial_dependent_ids.add(col_id)
+
+        # Generate all column pairs to check, skipping trivial dependents
         pairs = [
             (col_a, col_b)
             for col_a in columns
             for col_b in columns
-            if col_a.column_id != col_b.column_id
+            if col_a.column_id != col_b.column_id and col_b.column_id not in trivial_dependent_ids
         ]
 
         dependencies: list[FunctionalDependency] = []

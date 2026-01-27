@@ -20,6 +20,7 @@ from dataraum.analysis.correlation.db_models import (
     DerivedColumn as DBDerivedColumn,
 )
 from dataraum.analysis.correlation.models import DerivedColumn
+from dataraum.analysis.statistics.db_models import StatisticalProfile
 from dataraum.core.models.base import Result
 from dataraum.storage import Column, Table
 
@@ -132,6 +133,25 @@ def detect_derived_columns(
         if not table_name:
             return Result.fail("Table has no DuckDB path")
 
+        # Load statistical profiles to filter degenerate cases
+        column_ids = [c.column_id for c in columns]
+        profile_stmt = select(StatisticalProfile).where(
+            StatisticalProfile.column_id.in_(column_ids)
+        )
+        profiles_by_col: dict[str, StatisticalProfile] = {
+            p.column_id: p for p in session.execute(profile_stmt).scalars().all()
+        }
+
+        # Build sets for filtering:
+        # - Trivial targets: constant columns (distinct_count <= 1) — skip as targets
+        # - Constant sources: distinct_count <= 1 — skip for * and / (constant * anything = constant)
+        trivial_target_ids: set[str] = set()
+        constant_source_ids: set[str] = set()
+        for col_id, profile in profiles_by_col.items():
+            if profile.distinct_count is not None and profile.distinct_count <= 1:
+                trivial_target_ids.add(col_id)
+                constant_source_ids.add(col_id)
+
         # Check arithmetic derivations (numeric columns only)
         numeric_cols = [
             c for c in columns if c.resolved_type in ["INTEGER", "BIGINT", "DOUBLE", "DECIMAL"]
@@ -147,12 +167,24 @@ def detect_derived_columns(
 
         checks = []
         for target in numeric_cols:
+            # Skip constant targets — any arithmetic producing a constant is trivial
+            if target.column_id in trivial_target_ids:
+                continue
             for col1 in numeric_cols:
                 for col2 in numeric_cols:
                     if target.column_id in [col1.column_id, col2.column_id]:
                         continue
+                    # Skip self-subtraction/self-division: col - col = 0, col / col = 1
+                    if col1.column_id == col2.column_id:
+                        continue
                     for op, op_name, is_commutative in operations:
                         if is_commutative and col1.column_id > col2.column_id:
+                            continue
+                        # Skip constant sources for * and / (constant * X = trivial)
+                        if op in ("*", "/") and (
+                            col1.column_id in constant_source_ids
+                            or col2.column_id in constant_source_ids
+                        ):
                             continue
                         checks.append((target, col1, col2, op, op_name))
 
