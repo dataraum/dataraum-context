@@ -367,36 +367,49 @@ class EntropyInterpreter:
             temperature=temperature,
         )
 
-        result = self.provider.converse(request)
-        if not result.success or not result.value:
-            return Result.fail(result.error or "LLM call failed")
+        # Retry logic for transient failures
+        max_retries = 2
+        last_error = None
 
-        response = result.value
+        for _attempt in range(max_retries + 1):
+            result = self.provider.converse(request)
+            if not result.success or not result.value:
+                last_error = result.error or "LLM call failed"
+                continue
 
-        # Extract tool call result
-        if not response.tool_calls:
-            # LLM didn't use the tool - try to parse text as fallback
-            if response.content:
-                try:
-                    response_data = json.loads(response.content)
-                    output = EntropyInterpretationOutput.model_validate(response_data)
-                except Exception:
-                    return Result.fail(f"LLM did not use tool. Response: {response.content[:200]}")
-            else:
-                return Result.fail("LLM did not use the interpret_entropy tool")
-        else:
+            response = result.value
+
+            # Extract tool call result
+            if not response.tool_calls:
+                # LLM didn't use the tool - try to parse text as fallback
+                if response.content:
+                    try:
+                        response_data = json.loads(response.content)
+                        output = EntropyInterpretationOutput.model_validate(response_data)
+                        return self._convert_output_to_interpretations(inputs, output, model)
+                    except Exception:
+                        last_error = f"LLM did not use tool. Response: {response.content[:200]}"
+                        continue
+                else:
+                    last_error = "LLM did not use the interpret_entropy tool"
+                    continue
+
             # Parse tool response using Pydantic model
             tool_call = response.tool_calls[0]
             if tool_call.name != "interpret_entropy":
-                return Result.fail(f"Unexpected tool call: {tool_call.name}")
+                last_error = f"Unexpected tool call: {tool_call.name}"
+                continue
 
             try:
                 output = EntropyInterpretationOutput.model_validate(tool_call.input)
+                # Success - return the result
+                return self._convert_output_to_interpretations(inputs, output, model)
             except Exception as e:
-                return Result.fail(f"Failed to validate tool response: {e}")
+                last_error = f"Failed to validate tool response: {e}"
+                continue
 
-        # Convert Pydantic output to EntropyInterpretation dataclasses
-        return self._convert_output_to_interpretations(inputs, output, model)
+        # All retries failed
+        return Result.fail(last_error or "All retry attempts failed")
 
     def _convert_output_to_interpretations(
         self,

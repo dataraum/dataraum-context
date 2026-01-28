@@ -8,6 +8,8 @@ LLM-powered interpretation of entropy metrics to generate:
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
@@ -246,55 +248,65 @@ class EntropyInterpretationPhase(BasePhase):
                 "source_id": ctx.source_id,
             }
 
-        # Get batch size from config
-        batch_size = ctx.config.get("interpretation_batch_size", 10)
+        # Get batch size from LLM feature config or pipeline config
+        feature_batch_size = getattr(config.features.entropy_interpretation, "batch_size", None)
+        batch_size = feature_batch_size or ctx.config.get("interpretation_batch_size", 10)
 
-        # Process in batches
+        # Get max parallel batches (default 4 for rate limiting)
+        max_parallel = getattr(config.features.entropy_interpretation, "max_parallel", None)
+        max_parallel = max_parallel or ctx.config.get("interpretation_max_parallel", 4)
+
+        # Split inputs into batches
+        batches = []
+        for i in range(0, len(inputs), batch_size):
+            batch = inputs[i : i + batch_size]
+            batch_num = i // batch_size + 1
+            batches.append((batch_num, batch))
+
+        # Process batches in parallel
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         all_interpretations = {}
         total_assumptions = 0
         total_actions = 0
         errors = []
 
-        for i in range(0, len(inputs), batch_size):
-            batch = inputs[i : i + batch_size]
-            batch_num = i // batch_size + 1
-
-            interpret_result = interpreter.interpret_batch(
+        def process_batch(
+            batch_info: tuple[int, list[InterpretationInput]],
+        ) -> tuple[int, dict[str, Any] | None, str | None]:
+            """Process a single batch and return results."""
+            batch_num, batch = batch_info
+            result = interpreter.interpret_batch(
                 session=ctx.session,
                 inputs=batch,
             )
-
-            if interpret_result.success:
-                batch_interpretations = interpret_result.unwrap()
-                all_interpretations.update(batch_interpretations)
-
-                for interp in batch_interpretations.values():
-                    total_assumptions += len(interp.assumptions)
-                    total_actions += len(interp.resolution_actions)
+            if result.success:
+                return (batch_num, result.unwrap(), None)
             else:
-                # Fail explicitly on LLM errors - no silent fallbacks
-                errors.append(f"Batch {batch_num}: {interpret_result.error}")
+                return (batch_num, None, result.error)
+
+        with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+            futures = {executor.submit(process_batch, b): b[0] for b in batches}
+
+            for future in as_completed(futures):
+                batch_num = futures[future]
+                try:
+                    _, batch_interpretations, error = future.result()
+                    if batch_interpretations:
+                        all_interpretations.update(batch_interpretations)
+                        for interp in batch_interpretations.values():
+                            total_assumptions += len(interp.assumptions)
+                            total_actions += len(interp.resolution_actions)
+                    elif error:
+                        errors.append(f"Batch {batch_num}: {error}")
+                except Exception as e:
+                    errors.append(f"Batch {batch_num}: {e}")
 
         if errors and not all_interpretations:
             # All batches failed
             return PhaseResult.failed(f"All interpretation batches failed: {'; '.join(errors)}")
 
-        if errors:
-            # Some batches failed - report partial success with warnings
-            return PhaseResult.success(
-                outputs={
-                    "interpretations": len(all_interpretations),
-                    "assumptions": total_assumptions,
-                    "resolution_actions": total_actions,
-                    "columns_interpreted": len(inputs),
-                    "batch_errors": errors,
-                },
-                records_processed=len(inputs),
-                records_created=len(all_interpretations),
-                warnings=errors,
-            )
-
-        # Persist interpretations to database
+        # Persist interpretations to database (even if some batches failed)
         records_created = 0
         for key, interp in all_interpretations.items():
             meta = column_metadata.get(key)
@@ -343,13 +355,18 @@ class EntropyInterpretationPhase(BasePhase):
             ctx.session.add(interp_record)
             records_created += 1
 
+        outputs: dict[str, int | list[str]] = {
+            "interpretations": len(all_interpretations),
+            "assumptions": total_assumptions,
+            "resolution_actions": total_actions,
+            "columns_interpreted": len(inputs),
+        }
+        if errors:
+            outputs["batch_errors"] = errors
+
         return PhaseResult.success(
-            outputs={
-                "interpretations": len(all_interpretations),
-                "assumptions": total_assumptions,
-                "resolution_actions": total_actions,
-                "columns_interpreted": len(inputs),
-            },
+            outputs=outputs,
             records_processed=len(inputs),
             records_created=records_created,
+            warnings=errors if errors else None,
         )
