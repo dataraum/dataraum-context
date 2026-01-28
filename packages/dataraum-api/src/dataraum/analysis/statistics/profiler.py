@@ -191,15 +191,15 @@ def _profile_column_stats_parallel(
                     range_width = max_val - min_val
                     bucket_width = range_width / num_bins
 
+                    # DuckDB doesn't have WIDTH_BUCKET, use FLOOR-based bucketing
+                    # bucket_num = FLOOR((value - min) / bucket_width) + 1
+                    # Clamp to [1, num_bins] to handle edge cases
                     histogram_query = f"""
                         WITH bucketed AS (
                             SELECT
-                                WIDTH_BUCKET(
-                                    "{column_name}"::DOUBLE,
-                                    {min_val},
-                                    {max_val},
-                                    {num_bins}
-                                ) as bucket_num
+                                LEAST({num_bins}, GREATEST(1,
+                                    FLOOR(("{column_name}"::DOUBLE - {min_val}) / {bucket_width}) + 1
+                                ))::INTEGER as bucket_num
                             FROM "{table_duckdb_path}"
                             WHERE "{column_name}" IS NOT NULL
                         )
@@ -207,7 +207,6 @@ def _profile_column_stats_parallel(
                             bucket_num,
                             COUNT(*) as count
                         FROM bucketed
-                        WHERE bucket_num > 0 AND bucket_num <= {num_bins}
                         GROUP BY bucket_num
                         ORDER BY bucket_num
                     """

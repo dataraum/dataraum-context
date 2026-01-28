@@ -91,7 +91,7 @@ def detect_relationships(
 
         # Evaluate candidates with quality metrics (referential integrity, etc.)
         if evaluate and candidates:
-            table_paths = {name: path for name, (path, _df) in tables_data.items()}
+            table_paths = {name: path for name, (path, _df, _types) in tables_data.items()}
             candidates = evaluate_candidates(candidates, table_paths, duckdb_conn)
 
         # Store candidates in database
@@ -194,23 +194,48 @@ def _load_tables(
     duckdb_conn: duckdb.DuckDBPyConnection,
     table_ids: list[str],
     sample_percent: float,
-) -> dict[str, tuple[str, pd.DataFrame]]:
-    """Load table data from DuckDB.
+) -> dict[str, tuple[str, pd.DataFrame, dict[str, str | None]]]:
+    """Load table data from DuckDB with column type information.
 
     Returns duckdb_path for join detection via SQL,
-    plus sampled DataFrame for uniqueness calculation.
+    sampled DataFrame for uniqueness calculation,
+    and column types for type-aware comparison.
     """
-    stmt = select(Table.table_name, Table.duckdb_path).where(Table.table_id.in_(table_ids))
-    result = session.execute(stmt)
+    from dataraum.storage import Column
 
-    tables_data: dict[str, tuple[str, pd.DataFrame]] = {}
-    for table_name, duckdb_path in result.all():
+    # Load tables with their columns
+    stmt = select(Table.table_id, Table.table_name, Table.duckdb_path).where(
+        Table.table_id.in_(table_ids)
+    )
+    result = session.execute(stmt)
+    table_rows = result.all()
+
+    # Build a map of table_id -> table info
+    table_info: dict[str, tuple[str, str]] = {}  # table_id -> (table_name, duckdb_path)
+    for table_id, table_name, duckdb_path in table_rows:
+        table_info[table_id] = (table_name, duckdb_path)
+
+    # Load column types for all tables
+    col_stmt = select(Column.table_id, Column.column_name, Column.resolved_type).where(
+        Column.table_id.in_(table_ids)
+    )
+    col_result = session.execute(col_stmt)
+
+    # Build column type maps per table
+    column_types_by_table: dict[str, dict[str, str | None]] = {tid: {} for tid in table_ids}
+    for table_id, column_name, resolved_type in col_result.all():
+        column_types_by_table[table_id][column_name] = resolved_type
+
+    # Load sampled data from DuckDB
+    tables_data: dict[str, tuple[str, pd.DataFrame, dict[str, str | None]]] = {}
+    for table_id, (table_name, duckdb_path) in table_info.items():
         try:
             # Sample for uniqueness calculation (join detection uses full data via SQL)
             df = duckdb_conn.execute(
                 f"SELECT * FROM {duckdb_path} USING SAMPLE {sample_percent}%"
             ).df()
-            tables_data[table_name] = (duckdb_path, df)
+            column_types = column_types_by_table.get(table_id, {})
+            tables_data[table_name] = (duckdb_path, df, column_types)
         except Exception:
             continue
 
