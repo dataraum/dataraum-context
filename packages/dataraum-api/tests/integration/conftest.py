@@ -1,7 +1,7 @@
 """Integration test fixtures.
 
 Provides shared fixtures for running pipeline integration tests against
-real or fixture data.
+real or fixture data, including agent validation fixtures.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import duckdb
@@ -21,6 +22,7 @@ from dataraum.pipeline.base import PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.orchestrator import Pipeline, PipelineConfig
 from dataraum.pipeline.phases import (
     CorrelationsPhase,
+    EntropyPhase,
     ImportPhase,
     RelationshipsPhase,
     StatisticalQualityPhase,
@@ -33,7 +35,7 @@ from dataraum.storage import init_database
 # Paths to test data
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SMALL_FINANCE_DIR = FIXTURES_DIR / "small_finance"
-REAL_FINANCE_DIR = Path(__file__).parent.parent.parent / "examples" / "finance_csv_example"
+BOOKSQL_DIR = Path(__file__).parent.parent.parent.parent.parent / "examples" / "data"
 
 # Common junk columns in the finance data
 FINANCE_JUNK_COLUMNS = [
@@ -42,6 +44,13 @@ FINANCE_JUNK_COLUMNS = [
     "Unnamed: 0.2",
     "column0",
     "column00",
+]
+
+# Junk columns in BookSQL data
+BOOKSQL_JUNK_COLUMNS = [
+    "Unnamed: 0",
+    "Unnamed: 0.1",
+    "Unnamed: 0.2",
 ]
 
 
@@ -245,12 +254,194 @@ def small_finance_path() -> Path:
 
 
 @pytest.fixture
-def real_finance_path() -> Path:
-    """Path to real finance example data."""
-    return REAL_FINANCE_DIR
+def booksql_path() -> Path:
+    """Path to BookSQL example data.
+
+    Returns the path even if data is absent. Tests should check
+    existence and skip if missing.
+    """
+    return BOOKSQL_DIR
 
 
 @pytest.fixture
 def finance_junk_columns() -> list[str]:
     """Common junk columns in finance data."""
     return FINANCE_JUNK_COLUMNS
+
+
+# =============================================================================
+# Agent Validation Fixtures (Phase 0)
+# =============================================================================
+
+
+@pytest.fixture
+def agent_pipeline() -> Pipeline:
+    """Pipeline with phases needed for agent testing (through entropy)."""
+    pipeline = Pipeline(config=PipelineConfig(skip_llm_phases=True))
+    pipeline.register(ImportPhase())
+    pipeline.register(TypingPhase())
+    pipeline.register(StatisticsPhase())
+    pipeline.register(StatisticalQualityPhase())
+    pipeline.register(RelationshipsPhase())
+    pipeline.register(CorrelationsPhase())
+    pipeline.register(TemporalPhase())
+    pipeline.register(EntropyPhase())
+    return pipeline
+
+
+@pytest.fixture
+def agent_harness(
+    integration_engine: Engine,
+    integration_duckdb: duckdb.DuckDBPyConnection,
+    agent_pipeline: Pipeline,
+) -> PipelineTestHarness:
+    """Harness with entropy phase for agent validation tests."""
+    session_factory = sessionmaker(
+        bind=integration_engine,
+        expire_on_commit=False,
+    )
+
+    return PipelineTestHarness(
+        engine=integration_engine,
+        session_factory=session_factory,
+        duckdb_conn=integration_duckdb,
+        pipeline=agent_pipeline,
+    )
+
+
+@pytest.fixture
+def analyzed_small_finance(
+    agent_harness: PipelineTestHarness,
+    small_finance_path: Path,
+) -> PipelineTestHarness:
+    """Harness with small finance data fully analyzed through entropy.
+
+    Runs: import -> typing -> statistics -> statistical_quality ->
+          relationships -> correlations -> temporal -> entropy
+    """
+    result = agent_harness.run_import(
+        source_path=small_finance_path,
+        source_name="small_finance",
+        junk_columns=FINANCE_JUNK_COLUMNS,
+    )
+    assert result.status == PhaseStatus.COMPLETED, f"Import failed: {result.error}"
+
+    for phase_name in [
+        "typing",
+        "statistics",
+        "statistical_quality",
+        "relationships",
+        "correlations",
+        "temporal",
+        "entropy",
+    ]:
+        result = agent_harness.run_phase(phase_name)
+        assert result.status == PhaseStatus.COMPLETED, f"{phase_name} failed: {result.error}"
+
+    return agent_harness
+
+
+@pytest.fixture
+def analyzed_session(analyzed_small_finance: PipelineTestHarness) -> Session:
+    """A fresh session from the analyzed harness."""
+    with analyzed_small_finance.session_factory() as session:
+        yield session
+
+
+@pytest.fixture
+def analyzed_table_ids(analyzed_small_finance: PipelineTestHarness) -> list[str]:
+    """Table IDs for typed tables in the analyzed dataset."""
+    from sqlalchemy import select
+
+    from dataraum.storage import Table
+
+    with analyzed_small_finance.session_factory() as session:
+        stmt = select(Table.table_id).where(Table.layer == "typed")
+        return list(session.execute(stmt).scalars().all())
+
+
+@pytest.fixture
+def mock_llm_config() -> MagicMock:
+    """Mock LLM configuration for agent tests."""
+    config = MagicMock()
+    config.limits.max_output_tokens_per_request = 4000
+    config.limits.cache_ttl_seconds = 3600
+    config.limits.max_input_tokens_per_request = 8000
+    return config
+
+
+@pytest.fixture
+def mock_llm_provider() -> MagicMock:
+    """Mock LLM provider that doesn't call any real API."""
+    provider = MagicMock()
+    provider.get_model_for_tier.return_value = "test-model"
+    return provider
+
+
+@pytest.fixture
+def mock_prompt_renderer() -> MagicMock:
+    """Mock prompt renderer."""
+    renderer = MagicMock()
+    renderer.render_split.return_value = ("System prompt", "User prompt", 0.0)
+    return renderer
+
+
+@pytest.fixture
+def mock_llm_cache() -> MagicMock:
+    """Mock LLM cache."""
+    cache = MagicMock()
+    cache.get.return_value = None
+    cache.put.return_value = None
+    return cache
+
+
+@pytest.fixture
+def vectors_conn() -> duckdb.DuckDBPyConnection:
+    """In-memory DuckDB connection with VSS extension for query library tests."""
+    conn = duckdb.connect(":memory:")
+    conn.execute("INSTALL vss")
+    conn.execute("LOAD vss")
+    conn.execute("""
+        CREATE TABLE query_embeddings (
+            query_id VARCHAR PRIMARY KEY,
+            embedding FLOAT[384]
+        )
+    """)
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def mock_connection_manager(
+    vectors_conn: duckdb.DuckDBPyConnection,
+) -> MagicMock:
+    """Mock ConnectionManager with real vectors database for library tests."""
+    from unittest.mock import PropertyMock
+
+    manager = MagicMock()
+    type(manager).vectors_enabled = PropertyMock(return_value=True)
+
+    def vectors_cursor_ctx():
+        class CursorCtx:
+            def __enter__(self_inner):
+                return vectors_conn.cursor()
+
+            def __exit__(self_inner, *args):
+                pass
+
+        return CursorCtx()
+
+    def vectors_write_ctx():
+        class WriteCtx:
+            def __enter__(self_inner):
+                return vectors_conn
+
+            def __exit__(self_inner, *args):
+                pass
+
+        return WriteCtx()
+
+    manager.vectors_cursor = vectors_cursor_ctx
+    manager.vectors_write = vectors_write_ctx
+
+    return manager
