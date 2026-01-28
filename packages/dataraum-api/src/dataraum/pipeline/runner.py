@@ -117,7 +117,7 @@ def flatten_pipeline_config(config: dict[str, Any]) -> dict[str, Any]:
             flat[key] = value
 
     # Then merge nested sections (phase-specific configs)
-    for section_name, section_config in config.items():
+    for _section_name, section_config in config.items():
         if isinstance(section_config, dict):
             for key, value in section_config.items():
                 # Phase-specific overrides general

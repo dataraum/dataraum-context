@@ -37,13 +37,13 @@ class TemporalSliceRun(Base):
     config_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     # Relationships - allows SQLAlchemy to handle FK ordering automatically
-    analyses: Mapped[list["TemporalSliceAnalysis"]] = relationship(
+    analyses: Mapped[list[TemporalSliceAnalysis]] = relationship(
         "TemporalSliceAnalysis", back_populates="run", cascade="all, delete-orphan"
     )
-    drift_analyses: Mapped[list["TemporalDriftAnalysis"]] = relationship(
+    drift_analyses: Mapped[list[TemporalDriftAnalysis]] = relationship(
         "TemporalDriftAnalysis", back_populates="run", cascade="all, delete-orphan"
     )
-    matrix_entries: Mapped[list["SliceTimeMatrixEntry"]] = relationship(
+    matrix_entries: Mapped[list[SliceTimeMatrixEntry]] = relationship(
         "SliceTimeMatrixEntry", back_populates="run", cascade="all, delete-orphan"
     )
 
@@ -59,7 +59,7 @@ class TemporalSliceAnalysis(Base):
     )
 
     # Relationship to parent
-    run: Mapped["TemporalSliceRun"] = relationship("TemporalSliceRun", back_populates="analyses")
+    run: Mapped[TemporalSliceRun] = relationship("TemporalSliceRun", back_populates="analyses")
 
     slice_table_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     time_column: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -102,7 +102,7 @@ class TemporalDriftAnalysis(Base):
     )
 
     # Relationship to parent
-    run: Mapped["TemporalSliceRun"] = relationship(
+    run: Mapped[TemporalSliceRun] = relationship(
         "TemporalSliceRun", back_populates="drift_analyses"
     )
 
@@ -135,7 +135,7 @@ class SliceTimeMatrixEntry(Base):
     )
 
     # Relationship to parent
-    run: Mapped["TemporalSliceRun"] = relationship(
+    run: Mapped[TemporalSliceRun] = relationship(
         "TemporalSliceRun", back_populates="matrix_entries"
     )
 
