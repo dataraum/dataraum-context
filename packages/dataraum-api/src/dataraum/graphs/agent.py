@@ -443,10 +443,17 @@ class GraphAgent(LLMFeature):
         step_values: dict[str, Any] = {}
         created_views: list[str] = []
 
+        # Get max repair attempts from config (default 2)
+        feature_config = getattr(self.config.features, "sql_repair", None)
+        max_repair_attempts = (
+            getattr(feature_config, "max_repair_attempts", 2) if feature_config else 2
+        )
+
         try:
             for step_info in generated_code.steps:
                 step_id = step_info.get("step_id", "unknown")
                 sql = step_info.get("sql", "")
+                step_description = step_info.get("description", "")
 
                 # Prepend entropy comments to first step only
                 if step_info == generated_code.steps[0] and entropy_comments:
@@ -454,45 +461,98 @@ class GraphAgent(LLMFeature):
                 else:
                     sql_with_comments = sql
 
+                # Try to execute, with repair attempts on failure
+                current_sql = sql
+                last_error = None
+
+                for attempt in range(max_repair_attempts + 1):
+                    try:
+                        # Create a temp view using step_id as the view name
+                        view_sql = f"CREATE OR REPLACE TEMP VIEW {step_id} AS {current_sql}"
+                        context.duckdb_conn.execute(view_sql)
+                        created_views.append(step_id)
+
+                        # Execute the view to get the result
+                        result = context.duckdb_conn.execute(f"SELECT * FROM {step_id}").fetchone()
+                        value = result[0] if result else None
+                        step_values[step_id] = value
+
+                        # Create step result
+                        step_result = StepResult(
+                            step_id=step_id,
+                            level=1,
+                            step_type=StepType.FORMULA,
+                            source_query=sql_with_comments if attempt == 0 else current_sql,
+                            inputs_used={
+                                "sql": current_sql,
+                                "view_name": step_id,
+                                "repair_attempts": attempt,
+                            },
+                        )
+
+                        if isinstance(value, (int, float)):
+                            step_result.value_scalar = float(value)
+                        elif isinstance(value, bool):
+                            step_result.value_boolean = value
+                        elif isinstance(value, str):
+                            step_result.value_string = value
+
+                        execution.step_results.append(step_result)
+                        break  # Success, exit retry loop
+
+                    except Exception as e:
+                        last_error = str(e)
+                        if attempt < max_repair_attempts:
+                            # Try to repair the SQL
+                            repair_result = self._repair_sql(
+                                failed_sql=current_sql,
+                                error_message=last_error,
+                                context=context,
+                                step_description=step_description,
+                            )
+                            if repair_result.success and repair_result.value:
+                                current_sql = repair_result.value
+                            else:
+                                # Repair failed, no point retrying
+                                break
+                        else:
+                            # All attempts exhausted
+                            return Result.fail(
+                                f"Step {step_id} failed after {attempt + 1} attempts: {last_error}"
+                            )
+                else:
+                    # Loop completed without break = all repairs failed
+                    return Result.fail(f"Step {step_id} failed: {last_error}")
+
+            # Execute final SQL with repair attempts
+            final_sql = generated_code.final_sql
+            last_error = None
+
+            for attempt in range(max_repair_attempts + 1):
                 try:
-                    # Create a temp view using step_id as the view name
-                    # This allows subsequent steps to reference it directly (e.g., FROM step_1)
-                    view_sql = f"CREATE OR REPLACE TEMP VIEW {step_id} AS {sql}"
-                    context.duckdb_conn.execute(view_sql)
-                    created_views.append(step_id)
-
-                    # Execute the view to get the result
-                    result = context.duckdb_conn.execute(f"SELECT * FROM {step_id}").fetchone()
-                    value = result[0] if result else None
-                    step_values[step_id] = value
-
-                    # Create step result (store original SQL with comments for tracing)
-                    step_result = StepResult(
-                        step_id=step_id,
-                        level=1,  # All generated steps are level 1 for now
-                        step_type=StepType.FORMULA,
-                        source_query=sql_with_comments,
-                        inputs_used={"sql": sql, "view_name": step_id},
-                    )
-
-                    if isinstance(value, (int, float)):
-                        step_result.value_scalar = float(value)
-                    elif isinstance(value, bool):
-                        step_result.value_boolean = value
-                    elif isinstance(value, str):
-                        step_result.value_string = value
-
-                    execution.step_results.append(step_result)
+                    final_result = context.duckdb_conn.execute(final_sql).fetchone()
+                    execution.output_value = final_result[0] if final_result else None
+                    break  # Success
 
                 except Exception as e:
-                    return Result.fail(f"Step {step_id} failed: {e}")
-
-            # Execute final SQL (references step views directly by step_id)
-            try:
-                final_result = context.duckdb_conn.execute(generated_code.final_sql).fetchone()
-                execution.output_value = final_result[0] if final_result else None
-            except Exception as e:
-                return Result.fail(f"Final SQL failed: {e}")
+                    last_error = str(e)
+                    if attempt < max_repair_attempts:
+                        repair_result = self._repair_sql(
+                            failed_sql=final_sql,
+                            error_message=last_error,
+                            context=context,
+                            step_description=f"Final calculation for {graph.metadata.name}",
+                        )
+                        if repair_result.success and repair_result.value:
+                            final_sql = repair_result.value
+                        else:
+                            break
+                    else:
+                        return Result.fail(
+                            f"Final SQL failed after {attempt + 1} attempts: {last_error}"
+                        )
+            else:
+                return Result.fail(f"Final SQL failed: {last_error}")
 
         finally:
             # Clean up temporary views
@@ -765,6 +825,96 @@ class GraphAgent(LLMFeature):
             return Result.ok(True)
         except Exception as e:
             return Result.fail(f"SQL validation failed: {e}")
+
+    def _repair_sql(
+        self,
+        failed_sql: str,
+        error_message: str,
+        context: ExecutionContext,
+        step_description: str = "",
+    ) -> Result[str]:
+        """Use LLM to repair SQL that failed validation or execution.
+
+        Uses the sql_repair feature from llm.yaml with proper caching
+        and model tier configuration.
+
+        Args:
+            failed_sql: The SQL that failed
+            error_message: Error message from DuckDB
+            context: Execution context with table schema
+            step_description: What the SQL should accomplish
+
+        Returns:
+            Result containing repaired SQL or error
+        """
+        from dataraum.llm.providers.base import ConversationRequest, Message
+
+        # Check if sql_repair feature is enabled
+        feature_config = getattr(self.config.features, "sql_repair", None)
+        if not feature_config or not getattr(feature_config, "enabled", True):
+            return Result.fail("SQL repair feature is disabled")
+
+        # Get model tier from config (default to fast)
+        model_tier = getattr(feature_config, "model_tier", "fast")
+
+        # Get table schema for context
+        schema_result = self._get_table_schema(context)
+        if not schema_result.success or not schema_result.value:
+            return Result.fail("Cannot repair: failed to get schema")
+
+        table_schema = schema_result.value
+
+        # Build prompt context
+        prompt_context = {
+            "error_message": error_message,
+            "failed_sql": failed_sql,
+            "table_schema": json.dumps(
+                {
+                    "table_name": table_schema.table_name,
+                    "columns": table_schema.columns,
+                },
+                indent=2,
+            ),
+            "step_description": step_description or "Execute the query",
+        }
+
+        # Render repair prompt
+        try:
+            system_prompt, user_prompt, temperature = self.renderer.render_split(
+                "sql_repair", prompt_context
+            )
+        except Exception as e:
+            return Result.fail(f"Failed to render repair prompt: {e}")
+
+        # Call LLM with configured model tier
+        # Note: SQL repairs are not cached since errors are typically unique situations
+        request = ConversationRequest(
+            messages=[Message(role="user", content=user_prompt)],
+            system=system_prompt,
+            max_tokens=self.config.limits.max_output_tokens_per_request,
+            temperature=temperature,
+            model=self.provider.get_model_for_tier(model_tier),
+        )
+
+        result = self.provider.converse(request)
+        if not result.success or not result.value:
+            return Result.fail(result.error or "LLM repair call failed")
+
+        response = result.value
+        if not response.content:
+            return Result.fail("LLM returned empty response")
+
+        # Extract SQL from response (strip markdown code blocks if present)
+        repaired_sql = response.content.strip()
+        if repaired_sql.startswith("```sql"):
+            repaired_sql = repaired_sql[6:]
+        if repaired_sql.startswith("```"):
+            repaired_sql = repaired_sql[3:]
+        if repaired_sql.endswith("```"):
+            repaired_sql = repaired_sql[:-3]
+        repaired_sql = repaired_sql.strip()
+
+        return Result.ok(repaired_sql)
 
     def _resolve_parameters(
         self, graph: TransformationGraph, provided: dict[str, Any]
