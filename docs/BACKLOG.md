@@ -316,37 +316,26 @@ The topology module is now consumed by slice analysis phases, not as a standalon
 > **Plan:** [plans/interface-strategy.md](./plans/interface-strategy.md)
 > **Previous plan archived:** [archive/ui-api-consolidation.md](./archive/ui-api-consolidation.md)
 
-### Phase 0: Agent Validation with BookSQL
+### Phase 0: Agent Validation ✅ COMPLETE (Mocked Tests)
 
-**Step 0.1: Graph Agent Integration Tests**
-- [ ] Verify `build_execution_context()` populates entropy from real BookSQL data
-- [ ] Generate SQL via graph agent, verify valid DuckDB syntax
-- [ ] Test entropy behavior modes (strict/balanced/lenient) against real entropy
-- [ ] Verify assumption tracking in execution metadata
-- [ ] Verify entropy SQL comments
+**Step 0.1-0.4: Integration Tests** ✅ COMPLETE (2026-01-28)
+- [x] Graph agent: context loading, SQL generation, entropy behavior modes (14 tests)
+- [x] Query agent: end-to-end queries, contract integration, result metadata (11 tests)
+- [x] Query library: embeddings, vector search, persistence, usage tracking (13 tests)
+- [x] Contracts: all 5 profiles, confidence levels, violations (13 tests)
 
-**Step 0.2: Query Agent Integration Tests**
-- [ ] End-to-end: `answer_question()` against BookSQL, verify plausible results
-- [ ] Entropy-aware query: verify assumptions for ambiguous columns
-- [ ] Contract evaluation with different contracts (GREEN vs RED)
-- [ ] Auto-contract selection
-- [ ] Query library save/search/reuse cycle
+**Step 0.5: CI-Ready Test Suite** ✅ COMPLETE (2026-01-28)
+- [x] `tests/integration/conftest.py` with small_finance fixtures
+- [x] Mock LLM provider for deterministic tests
+- [x] No external dependencies (BookSQL removed)
+- [x] **50 tests passed, 1 skipped (~6 minutes)**
 
-**Step 0.3: Embedding and Library Tests**
-- [ ] Embedding generation from QueryDocument
-- [ ] Vector search: save queries, search, verify ranking
-- [ ] Library persistence and retrieval
-- [ ] Usage tracking
-
-**Step 0.4: Contract Evaluation Against Real Data**
-- [ ] Evaluate all 5 contract profiles against BookSQL entropy
-- [ ] Verify traffic light classifications are sensible
-- [ ] Verify resolution hints are actionable
-
-**Step 0.5: Codify Integration Test Suite**
-- [ ] `tests/integration/conftest.py` with BookSQL fixtures
-- [ ] Skip gracefully when data absent
-- [ ] Mock LLM provider for deterministic tests
+**Step 0.6: Real E2E Testing** ⏳ IN PROGRESS
+- [ ] Run full pipeline via CLI against small_finance (with LLM phases)
+- [ ] Test query agent with actual LLM responses
+- [ ] Verify generated SQL is correct and returns meaningful results
+- [ ] Verify contract evaluation produces sensible traffic lights
+- [ ] Requires: `ANTHROPIC_API_KEY` or equivalent configured
 
 ### Phase 1: HTMX UI Foundation
 - [ ] Add Jinja2 + static files to FastAPI app
