@@ -503,7 +503,12 @@ class SQLStepOutput(BaseModel):
     """Pydantic model for a SQL step in LLM tool output."""
 
     step_id: str = Field(description="Identifier for this step")
-    sql: str = Field(description="DuckDB SQL query for this step")
+    sql: str = Field(
+        description="Standalone DuckDB SQL query for this step. "
+        "Must be executable as: CREATE TEMP VIEW {step_id} AS {this_sql}. "
+        "Must NOT contain WITH clauses or reference other steps. "
+        "Should return a single scalar value or simple row."
+    )
     description: str = Field(description="What this step does")
 
 
@@ -522,7 +527,11 @@ class GraphSQLGenerationOutput(BaseModel):
         default_factory=list,
         description="List of SQL steps, each with step_id, sql, and description",
     )
-    final_sql: str = Field(description="Complete SQL that produces the final result")
+    final_sql: str = Field(
+        description="SQL that combines step results to produce the final output. "
+        "Reference steps via: SELECT (SELECT value FROM step_1) / (SELECT value FROM step_2). "
+        "Do NOT use CTEs to redefine step logic. Keep it simple."
+    )
     column_mappings: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping from abstract field names to concrete column names",
