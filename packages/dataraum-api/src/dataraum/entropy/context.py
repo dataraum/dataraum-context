@@ -191,7 +191,7 @@ def _load_entropy_from_db(
     table_profiles: dict[str, TableEntropyProfile] = {}
     columns_by_table: dict[str, list[ColumnEntropyProfile]] = defaultdict(list)
 
-    for key, profile in column_profiles.items():
+    for profile in column_profiles.values():
         columns_by_table[profile.table_name].append(profile)
 
     for table_name, col_profiles in columns_by_table.items():

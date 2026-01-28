@@ -153,10 +153,12 @@ def load_semantic_mappings(
         if concept not in mappings:
             mappings[concept] = []
 
+        # Use full DuckDB table name with layer prefix
+        duckdb_table_name = f"{table.layer}_{table.table_name}"
         candidate = ColumnCandidate(
             column_id=column.column_id,
             column_name=column.column_name,
-            table_name=table.table_name,
+            table_name=duckdb_table_name,
             confidence=annotation.confidence or 0.5,
             semantic_role=annotation.semantic_role,
             entity_type=annotation.entity_type,
