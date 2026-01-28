@@ -11,17 +11,21 @@ import pandas as pd
 
 from dataraum.analysis.relationships.joins import find_join_columns
 
+# Type alias for table data: (duckdb_path, sampled_df, column_types)
+TableData = tuple[str, pd.DataFrame, dict[str, str | None]]
+
 
 def find_relationships(
     conn: duckdb.DuckDBPyConnection,
-    tables: dict[str, tuple[str, pd.DataFrame]],  # name -> (duckdb_path, sampled_df)
+    tables: dict[str, TableData],  # name -> (duckdb_path, sampled_df, column_types)
     min_confidence: float = 0.3,
 ) -> list[dict[str, Any]]:
     """Find relationships between tables via value overlap.
 
     Args:
         conn: DuckDB connection
-        tables: Dict of table_name -> (duckdb_path, sampled_df)
+        tables: Dict of table_name -> (duckdb_path, sampled_df, column_types)
+            where column_types maps column_name -> resolved_type
         min_confidence: Minimum join_confidence threshold (default 0.3)
 
     Returns:
@@ -32,8 +36,8 @@ def find_relationships(
 
     for i, name1 in enumerate(table_names):
         for name2 in table_names[i + 1 :]:
-            path1, df1 = tables[name1]
-            path2, df2 = tables[name2]
+            path1, df1, types1 = tables[name1]
+            path2, df2, types2 = tables[name2]
 
             # Find join candidates via value overlap
             join_candidates = find_join_columns(
@@ -43,6 +47,8 @@ def find_relationships(
                 list(df1.columns),
                 list(df2.columns),
                 min_score=min_confidence,
+                column_types1=types1,
+                column_types2=types2,
             )
 
             # Enrich with uniqueness ratios from sampled data

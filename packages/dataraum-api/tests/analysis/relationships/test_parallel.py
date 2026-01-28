@@ -64,6 +64,24 @@ def test_duckdb(tmp_path):
 class TestFindJoinColumnsParallel:
     """Tests for parallel join column detection."""
 
+    # Column types matching the test fixture data
+    CUSTOMER_TYPES = {
+        "customer_id": "BIGINT",
+        "name": "VARCHAR",
+        "email": "VARCHAR",
+    }
+    ORDER_TYPES = {
+        "order_id": "BIGINT",
+        "customer_id": "BIGINT",
+        "amount": "DOUBLE",
+        "order_date": "VARCHAR",
+    }
+    PRODUCT_TYPES = {
+        "product_id": "BIGINT",
+        "name": "VARCHAR",
+        "price": "DOUBLE",
+    }
+
     def test_finds_customer_order_relationship(self, test_duckdb):
         """Test finding join between customers and orders on customer_id."""
         candidates = find_join_columns(
@@ -74,6 +92,8 @@ class TestFindJoinColumnsParallel:
             ["order_id", "customer_id", "amount", "order_date"],
             min_score=0.3,
             max_workers=4,
+            column_types1=self.CUSTOMER_TYPES,
+            column_types2=self.ORDER_TYPES,
         )
 
         # Should find customer_id as a join column
@@ -99,6 +119,8 @@ class TestFindJoinColumnsParallel:
             ["product_id", "name", "price"],
             min_score=0.3,
             max_workers=4,
+            column_types1=self.CUSTOMER_TYPES,
+            column_types2=self.PRODUCT_TYPES,
         )
 
         # Should not find high-confidence joins (name columns might have low overlap)
@@ -121,6 +143,8 @@ class TestFindJoinColumnsParallel:
             ["order_id", "customer_id", "amount", "order_date"],
             min_score=0.3,
             max_workers=4,
+            column_types1=self.CUSTOMER_TYPES,
+            column_types2=self.ORDER_TYPES,
         )
 
         # Should return results

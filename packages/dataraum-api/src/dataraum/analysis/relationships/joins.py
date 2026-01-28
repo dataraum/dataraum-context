@@ -37,6 +37,124 @@ MIN_SAMPLE_SIZE = 1000  # Minimum sample for sampling algorithm
 DEFAULT_SAMPLE_RATE = 0.1  # 10% sample rate
 MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum statistical confidence to accept
 
+# Type compatibility groups for join detection
+# Types within a group can be compared for Jaccard similarity
+TYPE_GROUPS: dict[str, set[str]] = {
+    # Numeric: DuckDB handles implicit casting between all numeric types
+    "numeric": {
+        "TINYINT",
+        "INT1",
+        "SMALLINT",
+        "INT2",
+        "SHORT",
+        "INTEGER",
+        "INT4",
+        "INT",
+        "SIGNED",
+        "BIGINT",
+        "INT8",
+        "LONG",
+        "HUGEINT",
+        "UTINYINT",
+        "USMALLINT",
+        "UINTEGER",
+        "UBIGINT",
+        "UHUGEINT",
+        "FLOAT",
+        "FLOAT4",
+        "REAL",
+        "DOUBLE",
+        "FLOAT8",
+        "DECIMAL",
+        "NUMERIC",
+    },
+    # String types
+    "string": {"VARCHAR", "CHAR", "TEXT", "STRING", "BPCHAR"},
+    # Temporal: cast all to TIMESTAMP for comparison
+    "temporal": {
+        "DATE",
+        "TIME",
+        "TIMESTAMP",
+        "DATETIME",
+        "TIMESTAMP WITH TIME ZONE",
+        "TIMESTAMPTZ",
+        "TIMESTAMP_S",
+        "TIMESTAMP_MS",
+        "TIMESTAMP_NS",
+    },
+    # Boolean
+    "boolean": {"BOOLEAN", "BOOL", "LOGICAL"},
+    # UUID
+    "uuid": {"UUID"},
+}
+
+
+def _get_type_group(resolved_type: str | None) -> str | None:
+    """Get the compatibility group for a resolved type.
+
+    Args:
+        resolved_type: The column's resolved type (e.g., "VARCHAR", "BIGINT", "DECIMAL(18,2)")
+
+    Returns:
+        Group name ("numeric", "string", "temporal", "boolean", "uuid") or None if unknown
+    """
+    if not resolved_type:
+        return None
+
+    # Normalize: uppercase, strip precision like DECIMAL(18,2) -> DECIMAL
+    normalized = resolved_type.upper().split("(")[0].strip()
+
+    for group, types in TYPE_GROUPS.items():
+        if normalized in types:
+            return group
+    return None
+
+
+def _are_types_compatible(type1: str | None, type2: str | None) -> bool:
+    """Check if two types can be compared for join detection.
+
+    Types are compatible if they belong to the same type group.
+    Unknown types are not compared (conservative approach).
+
+    Args:
+        type1: First column's resolved type
+        type2: Second column's resolved type
+
+    Returns:
+        True if types can be meaningfully compared for Jaccard similarity
+    """
+    group1 = _get_type_group(type1)
+    group2 = _get_type_group(type2)
+
+    # Unknown types are not compared
+    if group1 is None or group2 is None:
+        return False
+
+    return group1 == group2
+
+
+def _is_temporal_type(resolved_type: str | None) -> bool:
+    """Check if a type is temporal (needs TIMESTAMP casting for comparison)."""
+    return _get_type_group(resolved_type) == "temporal"
+
+
+def _get_cast_expression(column: str, resolved_type: str | None) -> str:
+    """Get the SQL expression for a column, with TIMESTAMP cast for temporal types.
+
+    For temporal types (DATE, TIME, TIMESTAMP variants), cast to TIMESTAMP
+    so that DATE and TIMESTAMP values can be compared.
+
+    Args:
+        column: Column name (will be quoted)
+        resolved_type: The column's resolved type
+
+    Returns:
+        SQL expression like '"{column}"' or '"{column}"::TIMESTAMP'
+    """
+    if _is_temporal_type(resolved_type):
+        return f'"{column}"::TIMESTAMP'
+    return f'"{column}"'
+
 
 class JoinAlgorithm(Enum):
     """Algorithm used for Jaccard computation."""
@@ -54,6 +172,7 @@ class ColumnStats:
     distinct_count: int
     total_count: int
     is_unique: bool  # distinct_count == total_count
+    resolved_type: str | None = None  # Column's resolved type (e.g., "VARCHAR", "BIGINT")
 
 
 @dataclass
@@ -72,12 +191,20 @@ def _precompute_column_stats(
     conn: duckdb.DuckDBPyConnection,
     table_path: str,
     columns: list[str],
+    column_types: dict[str, str | None] | None = None,
 ) -> dict[str, ColumnStats]:
     """Pre-compute statistics for all columns in a table.
 
     Uses DuckDB's exact count distinct (no sampling here - stats are fast).
+
+    Args:
+        conn: DuckDB connection
+        table_path: Path to the table in DuckDB
+        columns: List of column names to analyze
+        column_types: Optional dict mapping column name -> resolved type
     """
     stats: dict[str, ColumnStats] = {}
+    column_types = column_types or {}
 
     for col in columns:
         try:
@@ -96,6 +223,7 @@ def _precompute_column_stats(
                     distinct_count=distinct_count,
                     total_count=total_count,
                     is_unique=(distinct_count == total_count and distinct_count > 0),
+                    resolved_type=column_types.get(col),
                 )
         except Exception:
             # Skip columns that fail (e.g., unsupported types)
@@ -112,9 +240,14 @@ def _should_compare_columns(
     """Filter column pairs that are unlikely to be related.
 
     Skip pairs where:
+    - Types are incompatible (e.g., VARCHAR vs BIGINT)
     - Either column has 0 or 1 distinct values (constant/boolean)
     - Cardinality ratio is extreme (e.g., 1000:1)
     """
+    # Skip if types are incompatible
+    if not _are_types_compatible(stats1.resolved_type, stats2.resolved_type):
+        return False
+
     # Skip constant or near-constant columns
     if stats1.distinct_count <= 1 or stats2.distinct_count <= 1:
         return False
@@ -169,10 +302,14 @@ def _compute_exact_jaccard(
     """
     cursor = conn.cursor()
     try:
+        # For temporal types, cast to TIMESTAMP for cross-type comparison
+        col1_expr = _get_cast_expression(col1, stats1.resolved_type)
+        col2_expr = _get_cast_expression(col2, stats2.resolved_type)
+
         result = cursor.execute(f"""
             WITH
-            vals1 AS (SELECT DISTINCT "{col1}" AS v FROM {table1_path} WHERE "{col1}" IS NOT NULL),
-            vals2 AS (SELECT DISTINCT "{col2}" AS v FROM {table2_path} WHERE "{col2}" IS NOT NULL)
+            vals1 AS (SELECT DISTINCT {col1_expr} AS v FROM {table1_path} WHERE "{col1}" IS NOT NULL),
+            vals2 AS (SELECT DISTINCT {col2_expr} AS v FROM {table2_path} WHERE "{col2}" IS NOT NULL)
             SELECT COUNT(*) FROM vals1 WHERE v IN (SELECT v FROM vals2)
         """).fetchone()
 
@@ -249,18 +386,22 @@ def _compute_sampled_jaccard(
         # RESERVOIR is the only method that supports fixed row counts and
         # provides truly uniform random samples (DuckDB docs)
         # Note: We sample distinct values directly using a subquery
+        # For temporal types, cast to TIMESTAMP for cross-type comparison
+        col1_expr = _get_cast_expression(col1, stats1.resolved_type)
+        col2_expr = _get_cast_expression(col2, stats2.resolved_type)
+
         result = cursor.execute(f"""
             WITH
             sampled1 AS (
                 SELECT v FROM (
-                    SELECT DISTINCT "{col1}" AS v
+                    SELECT DISTINCT {col1_expr} AS v
                     FROM {table1_path}
                     WHERE "{col1}" IS NOT NULL
                 ) USING SAMPLE reservoir({m1} ROWS)
             ),
             sampled2 AS (
                 SELECT v FROM (
-                    SELECT DISTINCT "{col2}" AS v
+                    SELECT DISTINCT {col2_expr} AS v
                     FROM {table2_path}
                     WHERE "{col2}" IS NOT NULL
                 ) USING SAMPLE reservoir({m2} ROWS)
@@ -356,6 +497,11 @@ def _compute_minhash_jaccard(
     """
     cursor = conn.cursor()
     try:
+        # For temporal types, cast to TIMESTAMP first so DATE and TIMESTAMP
+        # have consistent string representations for hashing
+        col1_expr = _get_cast_expression(col1, stats1.resolved_type)
+        col2_expr = _get_cast_expression(col2, stats2.resolved_type)
+
         # Generate MinHash signatures using DuckDB's hash function
         # We use different seeds by appending different suffixes
         hash_selects1 = []
@@ -363,8 +509,8 @@ def _compute_minhash_jaccard(
 
         for i in range(num_hashes):
             seed = f"_mh_seed_{i}"
-            hash_selects1.append(f"MIN(hash(CAST(\"{col1}\" AS VARCHAR) || '{seed}')) AS h{i}")
-            hash_selects2.append(f"MIN(hash(CAST(\"{col2}\" AS VARCHAR) || '{seed}')) AS h{i}")
+            hash_selects1.append(f"MIN(hash(CAST({col1_expr} AS VARCHAR) || '{seed}')) AS h{i}")
+            hash_selects2.append(f"MIN(hash(CAST({col2_expr} AS VARCHAR) || '{seed}')) AS h{i}")
 
         # Execute queries for both tables
         sig1_query = f"""
@@ -455,12 +601,14 @@ def find_join_columns(
     min_score: float = 0.3,
     min_confidence: float = MIN_CONFIDENCE_THRESHOLD,
     max_workers: int = 4,
+    column_types1: dict[str, str | None] | None = None,
+    column_types2: dict[str, str | None] | None = None,
 ) -> list[dict[str, Any]]:
     """Find join columns using adaptive algorithm selection.
 
     Uses a three-phase approach for efficiency:
     1. Pre-compute column statistics (distinct count, total count) once per column
-    2. Filter column pairs by cardinality compatibility
+    2. Filter column pairs by type compatibility and cardinality
     3. Compute Jaccard using the best algorithm for each pair's cardinality:
        - Small (<10K distinct): Exact computation
        - Medium (10K-1M): Sampling with error bounds
@@ -475,6 +623,8 @@ def find_join_columns(
         min_score: Minimum Jaccard/containment score to include
         min_confidence: Minimum statistical confidence to include
         max_workers: Number of parallel workers
+        column_types1: Optional dict mapping column name -> resolved type for table1
+        column_types2: Optional dict mapping column name -> resolved type for table2
 
     Returns:
         List of dicts with:
@@ -484,9 +634,9 @@ def find_join_columns(
         - statistical_confidence: confidence in the score (0-1)
         - algorithm: which algorithm was used (exact, sampled, minhash)
     """
-    # Phase 1: Pre-compute column statistics
-    stats1 = _precompute_column_stats(conn, table1_path, columns1)
-    stats2 = _precompute_column_stats(conn, table2_path, columns2)
+    # Phase 1: Pre-compute column statistics (with type info for filtering)
+    stats1 = _precompute_column_stats(conn, table1_path, columns1, column_types1)
+    stats2 = _precompute_column_stats(conn, table2_path, columns2, column_types2)
 
     # Phase 2: Filter column pairs
     pairs_to_check = []

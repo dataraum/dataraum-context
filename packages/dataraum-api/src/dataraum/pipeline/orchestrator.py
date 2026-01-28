@@ -9,10 +9,11 @@ With free-threaded Python (python3.14t), this enables real parallelism.
 
 from __future__ import annotations
 
+import math
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -39,6 +40,64 @@ from dataraum.pipeline.base import (
 from dataraum.pipeline.db_models import PhaseCheckpoint, PipelineRun
 
 logger = get_logger(__name__)
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively sanitize values for JSON serialization.
+
+    Handles:
+    - datetime/date -> ISO format strings
+    - numpy NaN/Inf -> None (JSON doesn't support these)
+    - numpy types -> Python native types
+    - Nested dicts and lists
+    """
+    if obj is None:
+        return None
+
+    # Handle datetime and date
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+
+    # Handle float special values (NaN, Inf)
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+
+    # Handle numpy types (if numpy is available)
+    type_name = type(obj).__name__
+    module_name = type(obj).__module__
+
+    # numpy scalar types
+    if module_name == "numpy":
+        # numpy.nan, numpy.inf
+        if type_name in ("float64", "float32", "float16"):
+            val = float(obj)
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return val
+        # numpy integer types
+        if "int" in type_name:
+            return int(obj)
+        # numpy bool
+        if type_name == "bool_":
+            return bool(obj)
+        # numpy datetime64
+        if type_name == "datetime64":
+            return str(obj)
+
+    # Handle dicts recursively
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+
+    # Handle lists/tuples recursively
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(item) for item in obj]
+
+    # Default: return as-is (str, int, bool, etc.)
+    return obj
 
 
 @dataclass
@@ -71,6 +130,7 @@ class Pipeline:
     _failed: set[str] = field(default_factory=set)
     _skipped: set[str] = field(default_factory=set)
     _outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _logged_waiting: set[str] = field(default_factory=set)  # Track phases we've logged waiting for
 
     def register(self, phase: Phase) -> None:
         """Register a phase implementation."""
@@ -392,7 +452,7 @@ class Pipeline:
                     started_at=started_at,
                     completed_at=datetime.now(UTC),
                     duration_seconds=result.duration_seconds,
-                    outputs=result.outputs,
+                    outputs=_sanitize_for_json(result.outputs),
                     records_processed=result.records_processed,
                     records_created=result.records_created,
                     # Detailed metrics from PhaseMetrics
@@ -408,7 +468,9 @@ class Pipeline:
                     else 0,
                     db_queries=collected_metrics.db_queries if collected_metrics else 0,
                     db_writes=collected_metrics.db_writes if collected_metrics else 0,
-                    timings=collected_metrics.timings if collected_metrics else {},
+                    timings=_sanitize_for_json(
+                        collected_metrics.timings if collected_metrics else {}
+                    ),
                     error=result.error,
                     warnings=result.warnings,
                 )
@@ -447,7 +509,9 @@ class Pipeline:
                         else 0,
                         db_queries=collected_metrics.db_queries if collected_metrics else 0,
                         db_writes=collected_metrics.db_writes if collected_metrics else 0,
-                        timings=collected_metrics.timings if collected_metrics else {},
+                        timings=_sanitize_for_json(
+                            collected_metrics.timings if collected_metrics else {}
+                        ),
                         error=str(e),
                     )
                     session.add(checkpoint)
@@ -513,10 +577,14 @@ class Pipeline:
 
             if deps_met:
                 ready.add(name)
+                # Clear from logged set if it was waiting before
+                self._logged_waiting.discard(name)
             else:
-                # Some dependencies still running - phase will wait
-                pending_deps = [d for d in phase_def.dependencies if d not in done]
-                logger.debug(f"Phase {name} waiting for dependencies: {pending_deps}")
+                # Only log once per phase when it starts waiting
+                if name not in self._logged_waiting:
+                    pending_deps = [d for d in phase_def.dependencies if d not in done]
+                    logger.debug(f"Phase {name} waiting for dependencies: {pending_deps}")
+                    self._logged_waiting.add(name)
 
         return ready
 
