@@ -35,7 +35,6 @@ from dataraum.storage import init_database
 # Paths to test data
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SMALL_FINANCE_DIR = FIXTURES_DIR / "small_finance"
-BOOKSQL_DIR = Path(__file__).parent.parent.parent.parent.parent / "examples" / "data"
 
 # Common junk columns in the finance data
 FINANCE_JUNK_COLUMNS = [
@@ -44,13 +43,6 @@ FINANCE_JUNK_COLUMNS = [
     "Unnamed: 0.2",
     "column0",
     "column00",
-]
-
-# Junk columns in BookSQL data
-BOOKSQL_JUNK_COLUMNS = [
-    "Unnamed: 0",
-    "Unnamed: 0.1",
-    "Unnamed: 0.2",
 ]
 
 
@@ -251,16 +243,6 @@ def harness(
 def small_finance_path() -> Path:
     """Path to small finance fixture data."""
     return SMALL_FINANCE_DIR
-
-
-@pytest.fixture
-def booksql_path() -> Path:
-    """Path to BookSQL example data.
-
-    Returns the path even if data is absent. Tests should check
-    existence and skip if missing.
-    """
-    return BOOKSQL_DIR
 
 
 @pytest.fixture

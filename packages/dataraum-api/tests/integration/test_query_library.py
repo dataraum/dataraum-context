@@ -9,9 +9,6 @@ Tests verify:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-import duckdb
 import pytest
 
 from dataraum.query.document import QueryDocument, SQLStep
