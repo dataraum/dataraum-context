@@ -15,9 +15,11 @@ This file tracks completed work and session notes for the dataraum-context proje
 
 > **Plan:** [plans/interface-strategy.md](./plans/interface-strategy.md)
 
+### Completed
+- [x] Phase 0 Step 0.5: Mocked integration tests (50 passed, 1 skipped)
+
 ### In Progress
-- [x] Phase 0 Step 0.5: Mocked integration tests (graph agent, query agent, contracts, library)
-- [ ] Phase 0 Step 0.6: Real E2E testing with LLM (manual validation)
+- [ ] Phase 0 Step 0.6: Real E2E testing with LLM (required)
 
 ### Up Next
 - [ ] Phase 1: HTMX UI Foundation
@@ -60,6 +62,8 @@ This file tracks completed work and session notes for the dataraum-context proje
 
 **Focus:** Phase 0 Agent Validation - Integration Tests
 
+**Outcome:** ✅ Phase 0 Step 0.5 Complete (50 passed, 1 skipped)
+
 **Completed:**
 1. Rewrote `docs/plans/interface-strategy.md` with UI-first sequencing:
    - Phase 0: Agent validation (mocked + real E2E)
@@ -75,11 +79,23 @@ This file tracks completed work and session notes for the dataraum-context proje
    - `tests/integration/test_query_agent.py` - 11 tests for end-to-end query flow
    - `tests/integration/test_query_library.py` - 13 tests for embeddings and library
 
-3. Fixed BACKLOG.md phase numbering to match strategy (UI=Phase 1, MCP/Jupyter=Phase 2)
+3. Cleaned up BookSQL references:
+   - Removed `BOOKSQL_DIR`, `BOOKSQL_JUNK_COLUMNS`, `booksql_path` fixture from conftest.py
+   - Tests now use only small_finance fixtures (committed to repo)
 
-4. Updated `config/pipeline.yaml`:
-   - Removed hardcoded German temporal column
-   - Added documentation for dataset-specific configuration
+4. Fixed lint errors across project:
+   - Removed unused imports in test files
+   - Fixed unused loop variable in `runner.py`
+   - Applied ruff auto-fixes for type annotations
+
+**Test Results:**
+```
+tests/integration/test_contracts.py: 12 passed, 1 skipped
+tests/integration/test_graph_agent.py: 14 passed
+tests/integration/test_query_agent.py: 11 passed
+tests/integration/test_query_library.py: 13 passed
+Total: 50 passed, 1 skipped (~6 minutes)
+```
 
 **Files Created:**
 - `tests/integration/test_contracts.py` (13 tests)
@@ -90,13 +106,14 @@ This file tracks completed work and session notes for the dataraum-context proje
 **Files Modified:**
 - `docs/plans/interface-strategy.md` (major rewrite)
 - `docs/BACKLOG.md` (phase numbering fix)
-- `tests/integration/conftest.py` (extended fixtures)
+- `tests/integration/conftest.py` (extended fixtures, removed BookSQL)
 - `config/pipeline.yaml` (config cleanup)
+- `src/dataraum/pipeline/runner.py` (lint fix)
 
-**Test Approach:**
-- Mocked tests use small_finance fixtures (committed, CI-ready)
-- Real E2E tests run pipeline via CLI with actual LLM (manual, requires API keys)
-- Tests skip gracefully if BookSQL data absent
+**What's Next:**
+- Phase 0.6 - Real E2E testing with actual LLM (required before Phase 1)
+
+The mocked tests validate code paths but not actual behavior. Real E2E testing is essential to verify prompts work, SQL is correct, and the full pipeline-to-agent flow produces meaningful results.
 
 ---
 
