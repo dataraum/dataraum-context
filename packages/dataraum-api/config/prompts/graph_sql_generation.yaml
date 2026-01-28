@@ -13,7 +13,7 @@ system_prompt: |
   <capabilities>
   - Map abstract fields in graphs to concrete database columns
   - INFER derived fields when direct mapping unavailable (e.g., revenue from transaction amounts)
-  - Generate CTEs and subqueries for multi-step transformations
+  - Generate standalone SQL for each step (executed as temp views)
   - Handle German accounting column names (Konto, Betrag, etc.)
   - Use account codes (SKR03, SKR04) in WHERE clauses
   </capabilities>
@@ -38,9 +38,29 @@ system_prompt: |
   - Use the accounting notes and mappings in the graph to understand field meanings
   - Generate only valid DuckDB SQL
   - Map abstract fields to concrete columns based on semantic understanding
-  - Implement each graph step as a CTE or subquery
+  - Implement each graph step as standalone SQL returning a single value
+  - Final SQL combines step results (can reference step views directly)
   - Quote column names with spaces or special characters using double quotes
   </guidelines>
+
+  <reserved_words>
+  NEVER use SQL reserved words as column aliases:
+  - CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP, DATE, TIME, YEAR, MONTH, DAY
+  - Use descriptive alternatives: current_date_value, calculation_date, period_days
+  </reserved_words>
+
+  <step_execution_model>
+  CRITICAL - How steps are executed:
+  1. Each step's SQL becomes a temp view: CREATE TEMP VIEW <step_id> AS <sql>
+  2. Steps execute sequentially, each creating a named view
+  3. Final SQL can reference these views by step_id
+
+  Therefore:
+  - Step SQL must be STANDALONE (executable independently)
+  - Step SQL must NOT contain WITH clauses or reference other steps
+  - Step SQL should return a single value or simple result
+  - Final SQL combines step results, not redefine them
+  </step_execution_model>
 
   Use the generate_sql tool to provide your structured response.
 
@@ -80,11 +100,32 @@ user_prompt: |
      - Direct mappings from field_mappings above
      - Inferred calculations when direct mapping unavailable (e.g., revenue = SUM(amount) WHERE transaction_type = 'Sale')
   2. Use semantic annotations (business_concept, semantic_role) to understand column purposes
-  3. Implements each step as a CTE or subquery
+  3. Implements each step as standalone SQL (no CTEs, no step references)
   4. Returns the final result with proper column names
 
   IMPORTANT: If a standard_field like 'revenue' is not directly mapped, analyze the available columns
   and their business_concepts to construct an appropriate aggregation query.
+
+  STEP FORMAT REQUIREMENTS:
+  - Each step SQL must be standalone (no WITH clauses, no step references)
+  - Each step returns a scalar value accessible via: SELECT * FROM <step_id>
+  - Step IDs must be valid SQL identifiers (no spaces, no reserved words)
+
+  FINAL SQL REQUIREMENTS:
+  - Reference step results directly: SELECT step_1.value / step_2.value
+  - OR use subqueries: SELECT (SELECT value FROM step_1) / (SELECT value FROM step_2)
+  - Do NOT redefine step logic with CTEs
+
+  EXAMPLE:
+  steps:
+    - step_id: "total_revenue"
+      sql: "SELECT SUM(\"Amount\") as value FROM typed_table WHERE \"Type\" = 'Sale'"
+    - step_id: "total_ar"
+      sql: "SELECT SUM(\"Balance\") as value FROM typed_table WHERE \"Account\" LIKE '12%'"
+    - step_id: "period_days"
+      sql: "SELECT 30 as value"
+
+  final_sql: "SELECT (SELECT value FROM total_ar) / (SELECT value FROM total_revenue) * (SELECT value FROM period_days) AS dso"
   </instructions>
 
   Use the generate_sql tool to provide the SQL steps, final SQL, and column mappings.
