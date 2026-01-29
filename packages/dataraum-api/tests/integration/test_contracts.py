@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from dataraum.entropy.context import build_entropy_context
+from dataraum.entropy.analysis.aggregator import ColumnSummary, EntropyAggregator
 from dataraum.entropy.contracts import (
     ConfidenceLevel,
     evaluate_all_contracts,
@@ -16,10 +16,45 @@ from dataraum.entropy.contracts import (
     find_best_contract,
     list_contracts,
 )
+from dataraum.entropy.core.storage import EntropyRepository
+from dataraum.entropy.models import CompoundRisk
 
 from .conftest import PipelineTestHarness
 
 pytestmark = pytest.mark.integration
+
+
+def _build_column_summaries(
+    harness: PipelineTestHarness,
+    table_ids: list[str],
+) -> tuple[dict[str, ColumnSummary], list[CompoundRisk]]:
+    """Build column summaries and compound risks from test harness."""
+    with harness.session_factory() as session:
+        repo = EntropyRepository(session)
+        aggregator = EntropyAggregator()
+
+        typed_table_ids = repo.get_typed_table_ids(table_ids)
+        if not typed_table_ids:
+            return {}, []
+
+        table_map, column_map = repo.get_table_column_mapping(typed_table_ids)
+        entropy_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
+
+        if not entropy_objects:
+            return {}, []
+
+        column_summaries, _ = aggregator.summarize_columns_by_table(
+            entropy_objects=entropy_objects,
+            table_map=table_map,
+            column_map=column_map,
+        )
+
+        # Collect compound risks
+        compound_risks: list[CompoundRisk] = []
+        for summary in column_summaries.values():
+            compound_risks.extend(summary.compound_risks)
+
+        return column_summaries, compound_risks
 
 
 class TestContractListAndStructure:
@@ -61,11 +96,9 @@ class TestContractEvaluation:
         analyzed_table_ids: list[str],
     ):
         """Verify entropy context is populated from real analysis data."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, _ = _build_column_summaries(analyzed_small_finance, analyzed_table_ids)
 
-        assert len(entropy_ctx.column_profiles) > 0
-        assert len(entropy_ctx.table_profiles) > 0
+        assert len(column_summaries) > 0
 
     def test_evaluate_exploratory_analysis(
         self,
@@ -79,10 +112,11 @@ class TestContractEvaluation:
         has a threshold of 0.3 for types, so it won't be GREEN. This is
         expected — it validates that the contract correctly detects issues.
         """
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        evaluation = evaluate_contract(entropy_ctx, "exploratory_analysis")
+        evaluation = evaluate_contract(column_summaries, "exploratory_analysis", compound_risks)
 
         assert evaluation.contract_name == "exploratory_analysis"
         assert evaluation.overall_score >= 0.0
@@ -96,10 +130,11 @@ class TestContractEvaluation:
         analyzed_table_ids: list[str],
     ):
         """Regulatory reporting should be the strictest contract."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        evaluation = evaluate_contract(entropy_ctx, "regulatory_reporting")
+        evaluation = evaluate_contract(column_summaries, "regulatory_reporting", compound_risks)
 
         assert evaluation.contract_name == "regulatory_reporting"
         assert evaluation.overall_score >= 0.0
@@ -114,10 +149,11 @@ class TestContractEvaluation:
         analyzed_table_ids: list[str],
     ):
         """evaluate_all_contracts should return evaluations for every contract."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        evaluations = evaluate_all_contracts(entropy_ctx)
+        evaluations = evaluate_all_contracts(column_summaries, compound_risks)
 
         assert len(evaluations) >= 5
         for name, evaluation in evaluations.items():
@@ -131,10 +167,11 @@ class TestContractEvaluation:
         analyzed_table_ids: list[str],
     ):
         """Stricter contracts should not be more confident than lenient ones."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        evaluations = evaluate_all_contracts(entropy_ctx)
+        evaluations = evaluate_all_contracts(column_summaries, compound_risks)
 
         # Define ordering: GREEN < YELLOW < ORANGE < RED (higher = worse)
         level_rank = {
@@ -165,10 +202,11 @@ class TestBestContractSelection:
         which may cause all contracts to fail. This is valid behavior —
         the function correctly returns None when data quality is insufficient.
         """
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        best_name, best_eval = find_best_contract(entropy_ctx)
+        best_name, best_eval = find_best_contract(column_summaries, compound_risks)
 
         if best_name is not None:
             # If a contract passes, it should be compliant
@@ -176,7 +214,7 @@ class TestBestContractSelection:
             assert best_eval.is_compliant
         else:
             # All contracts fail — verify this is because of real entropy issues
-            all_evals = evaluate_all_contracts(entropy_ctx)
+            all_evals = evaluate_all_contracts(column_summaries, compound_risks)
             assert all(not e.is_compliant for e in all_evals.values())
 
     def test_best_contract_is_strictest_passing(
@@ -185,11 +223,12 @@ class TestBestContractSelection:
         analyzed_table_ids: list[str],
     ):
         """The best contract should be the strictest one that still passes."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        best_name, best_eval = find_best_contract(entropy_ctx)
-        all_evals = evaluate_all_contracts(entropy_ctx)
+        best_name, best_eval = find_best_contract(column_summaries, compound_risks)
+        all_evals = evaluate_all_contracts(column_summaries, compound_risks)
 
         if best_name is None:
             pytest.skip("No contracts pass for this data")
@@ -212,10 +251,11 @@ class TestEvaluationDetails:
         analyzed_table_ids: list[str],
     ):
         """Evaluation should include per-dimension entropy scores."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        evaluation = evaluate_contract(entropy_ctx, "exploratory_analysis")
+        evaluation = evaluate_contract(column_summaries, "exploratory_analysis", compound_risks)
 
         assert evaluation.dimension_scores is not None
         assert len(evaluation.dimension_scores) > 0
@@ -230,10 +270,11 @@ class TestEvaluationDetails:
         analyzed_table_ids: list[str],
     ):
         """Evaluation should identify which dimension is worst."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        evaluation = evaluate_contract(entropy_ctx, "exploratory_analysis")
+        evaluation = evaluate_contract(column_summaries, "exploratory_analysis", compound_risks)
 
         if evaluation.worst_dimension:
             assert evaluation.worst_dimension_score > 0.0
@@ -250,11 +291,12 @@ class TestEvaluationDetails:
         analyzed_table_ids: list[str],
     ):
         """Non-compliant evaluation should have violations explaining why."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
         # Use the strictest contract to increase chance of violations
-        evaluation = evaluate_contract(entropy_ctx, "regulatory_reporting")
+        evaluation = evaluate_contract(column_summaries, "regulatory_reporting", compound_risks)
 
         if not evaluation.is_compliant:
             assert len(evaluation.violations) > 0
@@ -269,10 +311,11 @@ class TestEvaluationDetails:
         analyzed_table_ids: list[str],
     ):
         """Evaluation should serialize to dict for API responses."""
-        with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+        column_summaries, compound_risks = _build_column_summaries(
+            analyzed_small_finance, analyzed_table_ids
+        )
 
-        evaluation = evaluate_contract(entropy_ctx, "exploratory_analysis")
+        evaluation = evaluate_contract(column_summaries, "exploratory_analysis", compound_risks)
         result = evaluation.to_dict()
 
         assert isinstance(result, dict)

@@ -119,9 +119,9 @@ class TestEntropyProcessor:
 
         assert profile.table_name == "orders"
         assert profile.column_name == "amount"
-        assert profile.structural_entropy >= 0
-        assert profile.semantic_entropy >= 0
-        assert profile.value_entropy >= 0
+        assert profile.layer_scores.get("structural", 0) >= 0
+        assert profile.layer_scores.get("semantic", 0) >= 0
+        assert profile.layer_scores.get("value", 0) >= 0
         assert profile.composite_score >= 0
         assert profile.readiness in ["ready", "investigate", "blocked"]
 
@@ -142,9 +142,9 @@ class TestEntropyProcessor:
         # High parse failure rate (0.60) -> structural entropy = 0.40
         # High null ratio (0.35) -> value entropy = 0.70
         # No description -> semantic entropy = 1.0
-        assert profile.structural_entropy == pytest.approx(0.40, abs=0.01)
-        assert profile.value_entropy == pytest.approx(0.70, abs=0.01)
-        assert profile.semantic_entropy == pytest.approx(1.0, abs=0.01)
+        assert profile.layer_scores.get("structural", 0) == pytest.approx(0.40, abs=0.01)
+        assert profile.layer_scores.get("value", 0) == pytest.approx(0.70, abs=0.01)
+        assert profile.layer_scores.get("semantic", 0) == pytest.approx(1.0, abs=0.01)
 
     def test_process_column_with_low_entropy(
         self,
@@ -163,8 +163,8 @@ class TestEntropyProcessor:
         # Perfect parse rate -> structural entropy = 0.0
         # Zero null ratio -> value entropy = 0.0
         # Has description -> semantic entropy = 0.2
-        assert profile.structural_entropy == pytest.approx(0.0, abs=0.01)
-        assert profile.value_entropy == pytest.approx(0.0, abs=0.01)
+        assert profile.layer_scores.get("structural", 0) == pytest.approx(0.0, abs=0.01)
+        assert profile.layer_scores.get("value", 0) == pytest.approx(0.0, abs=0.01)
         assert profile.readiness == "ready"
 
     def test_process_table(self, test_registry: DetectorRegistry):
@@ -196,16 +196,16 @@ class TestEntropyProcessor:
         )
 
         assert table_profile.table_name == "orders"
-        assert len(table_profile.column_profiles) == 2
+        assert len(table_profile.columns) == 2
         assert table_profile.avg_composite_score >= 0
         assert table_profile.max_composite_score >= table_profile.avg_composite_score
 
-    def test_build_entropy_context(self, test_registry: DetectorRegistry):
-        """Test building complete entropy context."""
+    def test_table_summary_has_columns(self, test_registry: DetectorRegistry):
+        """Test that TableSummary contains column summaries."""
         processor = EntropyProcessor(registry=test_registry)
 
         # Process a table
-        table_profile = processor.process_table(
+        table_summary = processor.process_table(
             table_name="orders",
             columns=[
                 {
@@ -219,12 +219,10 @@ class TestEntropyProcessor:
             ],
         )
 
-        # Build context
-        context = processor.build_entropy_context([table_profile])
-
-        assert "orders" in context.table_profiles
-        assert "orders.amount" in context.column_profiles
-        assert context.overall_readiness in ["ready", "investigate", "blocked"]
+        # Check table summary has column summaries
+        assert len(table_summary.columns) == 1
+        assert table_summary.columns[0].column_name == "amount"
+        assert table_summary.readiness in ["ready", "investigate", "blocked"]
 
 
 class TestProcessorConfig:

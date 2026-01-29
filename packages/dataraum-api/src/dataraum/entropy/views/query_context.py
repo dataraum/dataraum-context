@@ -201,9 +201,10 @@ def build_for_query(
     else:
         overall_entropy_score = None
 
-    # Build a minimal EntropyContext-like object for contract evaluation
-    # We need to wrap our summaries in a format contracts.py can use
-    entropy_context_wrapper = _create_contract_wrapper(column_summaries)
+    # Collect all compound risks from column summaries
+    all_compound_risks = []
+    for summary in column_summaries.values():
+        all_compound_risks.extend(summary.compound_risks)
 
     # Evaluate contracts
     contract_name: str | None = None
@@ -212,7 +213,7 @@ def build_for_query(
 
     if auto_contract:
         # Find strictest passing contract
-        best_name, best_eval = find_best_contract(entropy_context_wrapper)
+        best_name, best_eval = find_best_contract(column_summaries, all_compound_risks)
         if best_name and best_eval:
             contract_name = best_name
             contract_evaluation = best_eval
@@ -226,14 +227,16 @@ def build_for_query(
         if get_contract(contract) is None:
             logger.warning(f"Contract not found: {contract}")
         else:
-            contract_evaluation = evaluate_contract(entropy_context_wrapper, contract)
+            contract_evaluation = evaluate_contract(column_summaries, contract, all_compound_risks)
             contract_name = contract
             confidence_level = contract_evaluation.confidence_level
     else:
         # Default contract
         contract_name = "exploratory_analysis"
         try:
-            contract_evaluation = evaluate_contract(entropy_context_wrapper, "exploratory_analysis")
+            contract_evaluation = evaluate_contract(
+                column_summaries, "exploratory_analysis", all_compound_risks
+            )
             confidence_level = contract_evaluation.confidence_level
         except ValueError:
             # Contract not configured - use heuristic
@@ -254,50 +257,3 @@ def build_for_query(
         columns=column_summaries,
         overall_entropy_score=overall_entropy_score,
     )
-
-
-def _create_contract_wrapper(
-    column_summaries: dict[str, ColumnSummary],
-) -> Any:
-    """Create a wrapper object that mimics EntropyContext for contract evaluation.
-
-    The contracts module expects an EntropyContext-like object with:
-    - column_profiles: dict[str, ColumnEntropyProfile]
-    - compound_risks: list[CompoundRisk]
-
-    We wrap our ColumnSummary objects to provide this interface.
-    """
-    from dataraum.entropy.models import ColumnEntropyProfile, CompoundRisk, EntropyContext
-
-    # Convert ColumnSummary to ColumnEntropyProfile for contract evaluation
-    column_profiles: dict[str, ColumnEntropyProfile] = {}
-
-    for key, summary in column_summaries.items():
-        profile = ColumnEntropyProfile(
-            column_id=summary.column_id,
-            column_name=summary.column_name,
-            table_name=summary.table_name,
-            structural_entropy=summary.layer_scores.get("structural", 0.0),
-            semantic_entropy=summary.layer_scores.get("semantic", 0.0),
-            value_entropy=summary.layer_scores.get("value", 0.0),
-            computational_entropy=summary.layer_scores.get("computational", 0.0),
-            composite_score=summary.composite_score,
-            dimension_scores=summary.dimension_scores,
-            high_entropy_dimensions=summary.high_entropy_dimensions,
-            readiness=summary.readiness,
-        )
-        column_profiles[key] = profile
-
-    # Collect all compound risks
-    all_risks: list[CompoundRisk] = []
-    for summary in column_summaries.values():
-        all_risks.extend(summary.compound_risks)
-
-    # Create EntropyContext wrapper
-    context = EntropyContext(
-        column_profiles=column_profiles,
-        compound_risks=all_risks,
-    )
-    context.update_summary_stats()
-
-    return context

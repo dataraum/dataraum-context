@@ -13,7 +13,7 @@ Usage:
     # Refine interpretations for columns used in a query
     result = refine_interpretations_for_query(
         session=session,
-        entropy_context=entropy_ctx,
+        column_summaries=column_summaries,  # dict[str, ColumnSummary]
         query=sql_query,
         interpreter=interpreter,  # Optional
     )
@@ -27,11 +27,11 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
+from dataraum.entropy.analysis.aggregator import ColumnSummary
 from dataraum.entropy.interpretation import (
     EntropyInterpretation,
     InterpretationInput,
 )
-from dataraum.entropy.models import EntropyContext
 
 if TYPE_CHECKING:
     from dataraum.entropy.interpretation import EntropyInterpreter
@@ -53,16 +53,16 @@ class QueryRefinementResult:
 
 def find_columns_in_query(
     query: str,
-    entropy_context: EntropyContext,
+    column_summaries: dict[str, ColumnSummary],
 ) -> list[str]:
-    """Find which columns from the entropy context appear in the query.
+    """Find which columns from the summaries appear in the query.
 
     Uses simple string matching to identify column names.
     The LLM will determine actual usage context.
 
     Args:
         query: SQL or natural language query
-        entropy_context: Entropy context with column profiles
+        column_summaries: Column summaries keyed by "table.column"
 
     Returns:
         List of matched column keys (table.column format)
@@ -70,8 +70,8 @@ def find_columns_in_query(
     matched = []
     query_lower = query.lower()
 
-    for key, profile in entropy_context.column_profiles.items():
-        column_name = profile.column_name.lower()
+    for key, summary in column_summaries.items():
+        column_name = summary.column_name.lower()
 
         # Check if column name appears in query
         # Use word boundary matching to avoid partial matches
@@ -84,7 +84,7 @@ def find_columns_in_query(
 
 def refine_interpretations_for_query(
     session: Session,
-    entropy_context: EntropyContext,
+    column_summaries: dict[str, ColumnSummary],
     query: str,
     *,
     interpreter: EntropyInterpreter | None = None,
@@ -94,13 +94,13 @@ def refine_interpretations_for_query(
 ) -> QueryRefinementResult:
     """Refine entropy interpretations for columns used in a query.
 
-    Identifies columns from the entropy context that appear in the query,
+    Identifies columns from the summaries that appear in the query,
     then generates refined interpretations with the query as context.
     Makes a single batch LLM call for all columns.
 
     Args:
         session: Database session
-        entropy_context: Pre-computed entropy context
+        column_summaries: Column summaries keyed by "table.column"
         query: SQL or natural language query
         interpreter: Optional EntropyInterpreter for LLM interpretation
         use_fallback: Whether to use fallback interpretation if LLM fails
@@ -116,7 +116,7 @@ def refine_interpretations_for_query(
     business_descriptions = business_descriptions or {}
 
     # Find columns that appear in the query
-    matched_keys = find_columns_in_query(query, entropy_context)
+    matched_keys = find_columns_in_query(query, column_summaries)
     result.matched_columns = matched_keys
 
     if not matched_keys:
@@ -125,9 +125,9 @@ def refine_interpretations_for_query(
     # Build interpretation inputs for all matched columns
     inputs: list[InterpretationInput] = []
     for key in matched_keys:
-        profile = entropy_context.column_profiles[key]
-        input_data = InterpretationInput.from_profile(
-            profile=profile,
+        summary = column_summaries[key]
+        input_data = InterpretationInput.from_summary(
+            summary=summary,
             detected_type=detected_types.get(key, "unknown"),
             business_description=business_descriptions.get(key),
         )

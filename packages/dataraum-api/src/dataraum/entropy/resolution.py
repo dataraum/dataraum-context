@@ -11,12 +11,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dataraum.core.logging import get_logger
+from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
 from dataraum.entropy.models import (
-    ColumnEntropyProfile,
     EntropyObject,
     ResolutionCascade,
     ResolutionOption,
-    TableEntropyProfile,
 )
 
 logger = get_logger(__name__)
@@ -183,26 +182,26 @@ def find_top_resolutions(
 
 
 def get_resolutions_for_column(
-    profile: ColumnEntropyProfile,
+    summary: ColumnSummary,
     entropy_objects: list[EntropyObject] | None = None,
     limit: int = 3,
 ) -> list[ResolutionOption]:
     """Get top resolution options for a column.
 
-    Uses the column profile's top_resolution_hints if available,
+    Uses the column summary's top_resolution_hints if available,
     otherwise analyzes entropy objects.
 
     Args:
-        profile: Column entropy profile
+        summary: Column entropy summary
         entropy_objects: Optional entropy objects for deeper analysis
         limit: Maximum number of resolutions
 
     Returns:
         List of resolution options sorted by priority
     """
-    # First try profile's pre-computed hints
-    if profile.top_resolution_hints:
-        return profile.top_resolution_hints[:limit]
+    # First try summary's pre-computed hints
+    if summary.top_resolution_hints:
+        return summary.top_resolution_hints[:limit]
 
     # Fall back to analyzing entropy objects
     if entropy_objects:
@@ -226,7 +225,7 @@ def get_resolutions_for_column(
 
 
 def get_resolutions_for_table(
-    table_profile: TableEntropyProfile,
+    table_summary: TableSummary,
     entropy_objects_by_column: dict[str, list[EntropyObject]] | None = None,
     limit: int = 5,
 ) -> list[ResolutionCascade]:
@@ -235,7 +234,7 @@ def get_resolutions_for_table(
     Analyzes all columns to find resolutions with the broadest impact.
 
     Args:
-        table_profile: Table entropy profile
+        table_summary: Table entropy summary
         entropy_objects_by_column: Optional dict of column to entropy objects
         limit: Maximum number of cascades
 

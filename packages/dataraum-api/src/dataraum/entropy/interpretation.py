@@ -17,7 +17,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from dataraum.core.models.base import Result
-from dataraum.entropy.models import ColumnEntropyProfile, CompoundRisk
+from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.models import CompoundRisk
 
 if TYPE_CHECKING:
     from dataraum.llm.cache import LLMCache
@@ -145,17 +146,17 @@ class InterpretationInput:
     compound_risks: list[CompoundRisk]
 
     @classmethod
-    def from_profile(
+    def from_summary(
         cls,
-        profile: ColumnEntropyProfile,
+        summary: ColumnSummary,
         detected_type: str = "unknown",
         business_description: str | None = None,
         raw_metrics: dict[str, Any] | None = None,
     ) -> InterpretationInput:
-        """Create input from a ColumnEntropyProfile.
+        """Create input from a ColumnSummary.
 
         Args:
-            profile: Column entropy profile
+            summary: Column entropy summary
             detected_type: Detected data type
             business_description: Business description if available
             raw_metrics: Raw metrics from detectors
@@ -164,19 +165,19 @@ class InterpretationInput:
             InterpretationInput ready for LLM
         """
         return cls(
-            table_name=profile.table_name,
-            column_name=profile.column_name,
+            table_name=summary.table_name,
+            column_name=summary.column_name,
             detected_type=detected_type,
             business_description=business_description,
-            composite_score=profile.composite_score,
-            readiness=profile.readiness,
-            structural_entropy=profile.structural_entropy,
-            semantic_entropy=profile.semantic_entropy,
-            value_entropy=profile.value_entropy,
-            computational_entropy=profile.computational_entropy,
+            composite_score=summary.composite_score,
+            readiness=summary.readiness,
+            structural_entropy=summary.layer_scores.get("structural", 0.0),
+            semantic_entropy=summary.layer_scores.get("semantic", 0.0),
+            value_entropy=summary.layer_scores.get("value", 0.0),
+            computational_entropy=summary.layer_scores.get("computational", 0.0),
             raw_metrics=raw_metrics or {},
-            high_entropy_dimensions=profile.high_entropy_dimensions,
-            compound_risks=profile.compound_risks,
+            high_entropy_dimensions=summary.high_entropy_dimensions,
+            compound_risks=summary.compound_risks,
         )
 
 

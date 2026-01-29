@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from dataraum.api.deps import SessionDep
 from dataraum.api.schemas import (
@@ -11,7 +12,7 @@ from dataraum.api.schemas import (
     ContractSummary,
     ViolationResponse,
 )
-from dataraum.entropy.context import build_entropy_context
+from dataraum.entropy.analysis.aggregator import ColumnSummary, EntropyAggregator
 from dataraum.entropy.contracts import (
     ContractEvaluation,
     evaluate_all_contracts,
@@ -20,9 +21,55 @@ from dataraum.entropy.contracts import (
     get_contract,
     list_contracts,
 )
+from dataraum.entropy.core.storage import EntropyRepository
+from dataraum.entropy.models import CompoundRisk
 from dataraum.storage import Source, Table
 
 router = APIRouter()
+
+
+def _build_column_summaries_for_contracts(
+    session: Session,
+    table_ids: list[str],
+) -> tuple[dict[str, ColumnSummary], list[CompoundRisk]]:
+    """Build column summaries and collect compound risks for contract evaluation.
+
+    Args:
+        session: SQLAlchemy session
+        table_ids: List of table IDs to include
+
+    Returns:
+        Tuple of (column_summaries dict, compound_risks list)
+    """
+    repo = EntropyRepository(session)
+    aggregator = EntropyAggregator()
+
+    # Get typed table IDs only
+    typed_table_ids = repo.get_typed_table_ids(table_ids)
+    if not typed_table_ids:
+        return {}, []
+
+    table_map, column_map = repo.get_table_column_mapping(typed_table_ids)
+
+    # Load entropy objects
+    entropy_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
+
+    if not entropy_objects:
+        return {}, []
+
+    # Aggregate into column summaries
+    column_summaries, _ = aggregator.summarize_columns_by_table(
+        entropy_objects=entropy_objects,
+        table_map=table_map,
+        column_map=column_map,
+    )
+
+    # Collect compound risks from all summaries
+    all_compound_risks: list[CompoundRisk] = []
+    for summary in column_summaries.values():
+        all_compound_risks.extend(summary.compound_risks)
+
+    return column_summaries, all_compound_risks
 
 
 @router.get("/contracts", response_model=ContractListResponse)
@@ -99,11 +146,13 @@ def evaluate_contract_for_source(
 
     table_ids = [t.table_id for t in tables]
 
-    # Build entropy context
-    entropy_context = build_entropy_context(session=session, table_ids=table_ids)
+    # Build column summaries and compound risks
+    column_summaries, compound_risks = _build_column_summaries_for_contracts(
+        session=session, table_ids=table_ids
+    )
 
     # Evaluate contract
-    evaluation = evaluate_contract(entropy_context, name)
+    evaluation = evaluate_contract(column_summaries, name, compound_risks)
 
     # Convert to response
     return _evaluation_to_response(evaluation)
@@ -136,14 +185,16 @@ def evaluate_all_contracts_for_source(
 
     table_ids = [t.table_id for t in tables]
 
-    # Build entropy context
-    entropy_context = build_entropy_context(session=session, table_ids=table_ids)
+    # Build column summaries and compound risks
+    column_summaries, compound_risks = _build_column_summaries_for_contracts(
+        session=session, table_ids=table_ids
+    )
 
     # Evaluate all contracts
-    evaluations = evaluate_all_contracts(entropy_context)
+    evaluations = evaluate_all_contracts(column_summaries, compound_risks)
 
     # Find strictest passing
-    best_name, best_evaluation = find_best_contract(entropy_context)
+    best_name, best_evaluation = find_best_contract(column_summaries, compound_risks)
     strictest_passing = best_name if best_evaluation and best_evaluation.is_compliant else None
 
     # Count passing

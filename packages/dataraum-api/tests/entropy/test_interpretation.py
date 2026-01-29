@@ -6,13 +6,15 @@ models and prompt context building.
 
 import json
 
+from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.interpretation import (
     Assumption,
     EntropyInterpretation,
     InterpretationInput,
     ResolutionAction,
 )
-from dataraum.entropy.models import ColumnEntropyProfile, CompoundRisk
+from dataraum.entropy.models import CompoundRisk
 
 
 class TestAssumption:
@@ -148,26 +150,39 @@ class TestInterpretationInput:
         assert input_data.semantic_entropy == 0.6
         assert "null_ratio" in input_data.raw_metrics
 
-    def test_from_profile(self):
-        """Test creating input from ColumnEntropyProfile."""
-        profile = ColumnEntropyProfile(
+    def test_from_summary(self):
+        """Test creating input from ColumnSummary."""
+        config = get_entropy_config()
+        weights = config.composite_weights
+        layer_scores = {
+            "structural": 0.1,
+            "semantic": 0.6,
+            "value": 0.5,
+            "computational": 0.2,
+        }
+        composite_score = (
+            layer_scores["structural"] * weights["structural"]
+            + layer_scores["semantic"] * weights["semantic"]
+            + layer_scores["value"] * weights["value"]
+            + layer_scores["computational"] * weights["computational"]
+        )
+
+        summary = ColumnSummary(
             column_id="col1",
             column_name="amount",
+            table_id="t1",
             table_name="orders",
-            structural_entropy=0.1,
-            semantic_entropy=0.6,
-            value_entropy=0.5,
-            computational_entropy=0.2,
-            composite_score=0.45,
+            composite_score=composite_score,
+            readiness="investigate",
+            layer_scores=layer_scores,
             dimension_scores={
                 "semantic.business_meaning.naming_clarity": 0.7,
             },
             high_entropy_dimensions=["semantic.business_meaning.naming_clarity"],
-            readiness="investigate",
         )
 
-        input_data = InterpretationInput.from_profile(
-            profile=profile,
+        input_data = InterpretationInput.from_summary(
+            summary=summary,
             detected_type="DECIMAL",
             business_description="Order total",
             raw_metrics={"null_ratio": 0.15},
@@ -177,28 +192,29 @@ class TestInterpretationInput:
         assert input_data.column_name == "amount"
         assert input_data.detected_type == "DECIMAL"
         assert input_data.business_description == "Order total"
-        assert input_data.composite_score == 0.45
         assert input_data.structural_entropy == 0.1
         assert input_data.semantic_entropy == 0.6
         assert input_data.value_entropy == 0.5
         assert input_data.computational_entropy == 0.2
         assert input_data.high_entropy_dimensions == ["semantic.business_meaning.naming_clarity"]
 
-    def test_from_profile_with_defaults(self):
-        """Test creating input from profile with default values."""
-        profile = ColumnEntropyProfile(
+    def test_from_summary_with_defaults(self):
+        """Test creating input from summary with default values."""
+        summary = ColumnSummary(
+            column_id="col1",
             column_name="col1",
+            table_id="t1",
             table_name="table1",
         )
 
-        input_data = InterpretationInput.from_profile(profile)
+        input_data = InterpretationInput.from_summary(summary)
 
         assert input_data.detected_type == "unknown"
         assert input_data.business_description is None
         assert input_data.raw_metrics == {}
 
-    def test_from_profile_with_compound_risks(self):
-        """Test creating input from profile with compound risks."""
+    def test_from_summary_with_compound_risks(self):
+        """Test creating input from summary with compound risks."""
         risk = CompoundRisk(
             target="column:orders.amount",
             dimensions=["semantic.units", "computational.aggregations"],
@@ -209,13 +225,15 @@ class TestInterpretationInput:
             combined_score=0.85,
         )
 
-        profile = ColumnEntropyProfile(
+        summary = ColumnSummary(
+            column_id="col1",
             column_name="amount",
+            table_id="t1",
             table_name="orders",
             compound_risks=[risk],
         )
 
-        input_data = InterpretationInput.from_profile(profile)
+        input_data = InterpretationInput.from_summary(summary)
 
         assert len(input_data.compound_risks) == 1
         assert input_data.compound_risks[0].risk_level == "critical"
