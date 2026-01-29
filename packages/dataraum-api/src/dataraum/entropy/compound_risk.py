@@ -117,13 +117,6 @@ class CompoundRiskDetector:
                 f"Loaded {len(self.risk_definitions)} compound risk definitions from thresholds.yaml"
             )
 
-    def _load_hardcoded_defaults(self) -> None:
-        """Removed: fail-fast instead of using stale hardcoded defaults."""
-        raise NotImplementedError(
-            "Hardcoded compound risk defaults have been removed. "
-            "Add 'compound_risks' section to config/entropy/thresholds.yaml"
-        )
-
     def detect_risks(
         self,
         profile: ColumnEntropyProfile,
