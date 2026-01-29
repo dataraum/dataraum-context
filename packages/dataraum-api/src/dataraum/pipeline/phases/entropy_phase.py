@@ -323,6 +323,13 @@ class EntropyPhase(BasePhase):
         high_entropy_count = 0
         critical_entropy_count = 0
         all_compound_risks: list[Any] = []
+        all_composite_scores: list[float] = []
+        all_layer_scores: dict[str, list[float]] = {
+            "structural": [],
+            "semantic": [],
+            "value": [],
+            "computational": [],
+        }
 
         for table_profile in table_profiles:
             for col_summary in table_profile.columns:
@@ -333,6 +340,37 @@ class EntropyPhase(BasePhase):
                     high_entropy_count += 1
                 all_compound_risks.extend(col_summary.compound_risks)
 
+                # Collect scores for averaging
+                all_composite_scores.append(col_summary.composite_score)
+                for layer, score in col_summary.layer_scores.items():
+                    if layer in all_layer_scores:
+                        all_layer_scores[layer].append(score)
+
+        # Calculate average scores
+        avg_composite = (
+            sum(all_composite_scores) / len(all_composite_scores) if all_composite_scores else 0.0
+        )
+        avg_structural = (
+            sum(all_layer_scores["structural"]) / len(all_layer_scores["structural"])
+            if all_layer_scores["structural"]
+            else 0.0
+        )
+        avg_semantic = (
+            sum(all_layer_scores["semantic"]) / len(all_layer_scores["semantic"])
+            if all_layer_scores["semantic"]
+            else 0.0
+        )
+        avg_value = (
+            sum(all_layer_scores["value"]) / len(all_layer_scores["value"])
+            if all_layer_scores["value"]
+            else 0.0
+        )
+        avg_computational = (
+            sum(all_layer_scores["computational"]) / len(all_layer_scores["computational"])
+            if all_layer_scores["computational"]
+            else 0.0
+        )
+
         # Determine overall readiness
         if critical_entropy_count > 0:
             overall_readiness = "blocked"
@@ -341,7 +379,7 @@ class EntropyPhase(BasePhase):
         else:
             overall_readiness = "ready"
 
-        # Create snapshot record
+        # Create snapshot record with all averages
         snapshot = EntropySnapshotRecord(
             source_id=ctx.source_id,
             total_entropy_objects=total_entropy_objects,
@@ -349,6 +387,11 @@ class EntropyPhase(BasePhase):
             critical_entropy_count=critical_entropy_count,
             compound_risk_count=len(all_compound_risks),
             overall_readiness=overall_readiness,
+            avg_composite_score=avg_composite,
+            avg_structural_entropy=avg_structural,
+            avg_semantic_entropy=avg_semantic,
+            avg_value_entropy=avg_value,
+            avg_computational_entropy=avg_computational,
         )
         ctx.session.add(snapshot)
 
