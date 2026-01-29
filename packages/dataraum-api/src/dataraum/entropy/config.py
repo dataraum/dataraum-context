@@ -235,13 +235,3 @@ def get_entropy_config(config_path: Path | None = None) -> EntropyConfig:
     _config_cache = load_entropy_config(path)
     _config_path_cache = path
     return _config_cache
-
-
-def clear_config_cache() -> None:
-    """Clear the configuration cache.
-
-    Useful for testing or when config file changes.
-    """
-    global _config_cache, _config_path_cache
-    _config_cache = None
-    _config_path_cache = None

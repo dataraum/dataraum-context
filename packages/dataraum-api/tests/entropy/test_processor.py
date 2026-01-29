@@ -11,7 +11,6 @@ from dataraum.entropy.models import EntropyObject
 from dataraum.entropy.processor import (
     EntropyProcessor,
     ProcessorConfig,
-    process_column_entropy,
 )
 
 
@@ -243,21 +242,3 @@ class TestProcessorConfig:
 
         assert config.high_entropy_threshold == 0.5
         assert config.critical_entropy_threshold == 0.8
-
-
-class TestConvenienceFunctions:
-    """Tests for convenience functions."""
-
-    def test_process_column_entropy(self):
-        """Test process_column_entropy convenience function."""
-        # This uses the default (empty) registry, so no detectors run
-        profile = process_column_entropy(
-            table_name="test",
-            column_name="col",
-            analysis_results={},
-        )
-
-        assert profile.table_name == "test"
-        assert profile.column_name == "col"
-        # No detectors ran, so all entropies are 0
-        assert profile.composite_score == 0.0

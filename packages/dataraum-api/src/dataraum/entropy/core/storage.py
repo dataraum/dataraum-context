@@ -16,8 +16,6 @@ from dataraum.core.logging import get_logger
 from dataraum.entropy.db_models import EntropyObjectRecord
 from dataraum.entropy.models import (
     EntropyObject,
-    HumanContext,
-    LLMContext,
     ResolutionOption,
 )
 from dataraum.storage import Column, Table
@@ -249,34 +247,6 @@ class EntropyRepository:
                     )
                 )
 
-        # Parse LLM context
-        llm_ctx = LLMContext()
-        if record.llm_context:
-            llm_ctx = LLMContext(
-                description=record.llm_context.get("description", ""),
-                query_impact=record.llm_context.get("query_impact", ""),
-                best_guess=record.llm_context.get("best_guess"),
-                best_guess_confidence=record.llm_context.get("best_guess_confidence", 0.0),
-                assumption_if_unresolved=record.llm_context.get("assumption_if_unresolved"),
-                filter_recommendation=record.llm_context.get("filter_recommendation"),
-                aggregation_recommendation=record.llm_context.get("aggregation_recommendation"),
-                join_recommendation=record.llm_context.get("join_recommendation"),
-                warning=record.llm_context.get("warning"),
-                caveat_template=record.llm_context.get("caveat_template"),
-            )
-
-        # Parse human context
-        human_ctx = HumanContext()
-        if record.human_context:
-            human_ctx = HumanContext(
-                severity=record.human_context.get("severity", "medium"),
-                category=record.human_context.get("category", ""),
-                message=record.human_context.get("message", ""),
-                recommendation=record.human_context.get("recommendation", ""),
-                icon=record.human_context.get("icon"),
-                color=record.human_context.get("color"),
-            )
-
         # Parse evidence
         evidence: list[dict[str, Any]] = []
         if record.evidence:
@@ -295,29 +265,7 @@ class EntropyRepository:
             confidence=record.confidence,
             evidence=evidence,
             resolution_options=resolution_options,
-            llm_context=llm_ctx,
-            human_context=human_ctx,
             computed_at=record.computed_at,
             source_analysis_ids=record.source_analysis_ids or [],
             detector_id=record.detector_id,
         )
-
-
-def load_entropy_objects(
-    session: Session,
-    table_ids: list[str],
-    *,
-    enforce_typed: bool = True,
-) -> list[EntropyObject]:
-    """Convenience function to load entropy objects for tables.
-
-    Args:
-        session: SQLAlchemy session
-        table_ids: List of table IDs
-        enforce_typed: If True, filters to typed tables only
-
-    Returns:
-        List of EntropyObject instances
-    """
-    repo = EntropyRepository(session)
-    return repo.load_for_tables(table_ids, enforce_typed=enforce_typed)

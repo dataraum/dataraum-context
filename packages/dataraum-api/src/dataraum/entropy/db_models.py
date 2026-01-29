@@ -57,12 +57,6 @@ class EntropyObjectRecord(Base):
     # Resolution options
     resolution_options: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON_TYPE)
 
-    # Context for LLM agents
-    llm_context: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
-
-    # Context for human users
-    human_context: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
-
     # Metadata
     detector_id: Mapped[str] = mapped_column(String, nullable=False)  # Which detector produced this
     source_analysis_ids: Mapped[list[str] | None] = mapped_column(

@@ -15,8 +15,6 @@ from typing import Any
 
 from dataraum.entropy.models import (
     EntropyObject,
-    HumanContext,
-    LLMContext,
     ResolutionOption,
 )
 
@@ -127,8 +125,6 @@ class EntropyDetector(ABC):
         score: float,
         evidence: list[dict[str, Any]] | None = None,
         resolution_options: list[ResolutionOption] | None = None,
-        llm_context: LLMContext | None = None,
-        human_context: HumanContext | None = None,
     ) -> EntropyObject:
         """Helper to create an EntropyObject with detector metadata.
 
@@ -137,8 +133,6 @@ class EntropyDetector(ABC):
             score: Entropy score (0.0-1.0)
             evidence: Evidence supporting the score
             resolution_options: Ways to reduce entropy
-            llm_context: Context for LLM agents
-            human_context: Context for human users
 
         Returns:
             Configured EntropyObject
@@ -151,8 +145,6 @@ class EntropyDetector(ABC):
             score=score,
             evidence=evidence or [],
             resolution_options=resolution_options or [],
-            llm_context=llm_context or LLMContext(),
-            human_context=human_context or HumanContext(),
             detector_id=self.detector_id,
             source_analysis_ids=[],
         )
