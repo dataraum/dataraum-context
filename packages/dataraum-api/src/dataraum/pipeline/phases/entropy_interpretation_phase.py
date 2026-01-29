@@ -18,8 +18,9 @@ from dataraum.entropy import (
     EntropyInterpreter,
     InterpretationInput,
 )
+from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.db_models import EntropyInterpretationRecord, EntropyObjectRecord
-from dataraum.entropy.models import ColumnEntropyProfile
 from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -176,52 +177,63 @@ class EntropyInterpretationPhase(BasePhase):
             if not table:
                 continue
 
-            # Build ColumnEntropyProfile from records
-            profile = ColumnEntropyProfile(
-                column_id=column_id,
-                column_name=col.column_name,
-                table_name=table.table_name,
-            )
-
+            # Build ColumnSummary from records
             # Aggregate scores by layer
-            layer_scores: dict[str, list[float]] = {
+            layer_scores_raw: dict[str, list[float]] = {
                 "structural": [],
                 "semantic": [],
                 "value": [],
                 "computational": [],
             }
+            dimension_scores: dict[str, float] = {}
 
             for record in entropy_records:
-                if record.layer in layer_scores:
-                    layer_scores[record.layer].append(record.score)
+                if record.layer in layer_scores_raw:
+                    layer_scores_raw[record.layer].append(record.score)
                 # Construct dimension path from layer.dimension.sub_dimension
                 dim_path = f"{record.layer}.{record.dimension}.{record.sub_dimension}"
-                profile.dimension_scores[dim_path] = record.score
+                dimension_scores[dim_path] = record.score
 
             # Calculate layer averages
-            profile.structural_entropy = (
-                sum(layer_scores["structural"]) / len(layer_scores["structural"])
-                if layer_scores["structural"]
-                else 0.0
-            )
-            profile.semantic_entropy = (
-                sum(layer_scores["semantic"]) / len(layer_scores["semantic"])
-                if layer_scores["semantic"]
-                else 0.0
-            )
-            profile.value_entropy = (
-                sum(layer_scores["value"]) / len(layer_scores["value"])
-                if layer_scores["value"]
-                else 0.0
-            )
-            profile.computational_entropy = (
-                sum(layer_scores["computational"]) / len(layer_scores["computational"])
-                if layer_scores["computational"]
-                else 0.0
+            layer_scores: dict[str, float] = {}
+            for layer in ["structural", "semantic", "value", "computational"]:
+                if layer_scores_raw[layer]:
+                    layer_scores[layer] = sum(layer_scores_raw[layer]) / len(
+                        layer_scores_raw[layer]
+                    )
+                else:
+                    layer_scores[layer] = 0.0
+
+            # Calculate composite score using config weights
+            config = get_entropy_config()
+            weights = config.composite_weights
+            composite_score = (
+                layer_scores.get("structural", 0.0) * weights["structural"]
+                + layer_scores.get("semantic", 0.0) * weights["semantic"]
+                + layer_scores.get("value", 0.0) * weights["value"]
+                + layer_scores.get("computational", 0.0) * weights["computational"]
             )
 
-            profile.calculate_composite()
-            profile.update_readiness()
+            # Determine readiness
+            readiness = config.get_readiness(composite_score)
+
+            # Identify high-entropy dimensions
+            high_threshold = config.high_entropy_threshold
+            high_entropy_dimensions = [
+                dim for dim, score in dimension_scores.items() if score >= high_threshold
+            ]
+
+            summary = ColumnSummary(
+                column_id=column_id,
+                column_name=col.column_name,
+                table_id=col.table_id,
+                table_name=table.table_name,
+                composite_score=composite_score,
+                readiness=readiness,
+                layer_scores=layer_scores,
+                dimension_scores=dimension_scores,
+                high_entropy_dimensions=high_entropy_dimensions,
+            )
 
             # Get additional context
             detected_type = "unknown"
@@ -233,8 +245,8 @@ class EntropyInterpretationPhase(BasePhase):
                 business_description = semantic_annotations[column_id].business_description
 
             # Create interpretation input
-            input_item = InterpretationInput.from_profile(
-                profile=profile,
+            input_item = InterpretationInput.from_summary(
+                summary=summary,
                 detected_type=detected_type,
                 business_description=business_description,
             )

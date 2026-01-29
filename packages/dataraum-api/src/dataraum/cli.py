@@ -807,7 +807,7 @@ def _contracts_impl(output_dir: Path, contract_name: str | None) -> None:
     from sqlalchemy import select
 
     from dataraum.core import ConnectionConfig, ConnectionManager
-    from dataraum.entropy.context import build_entropy_context
+    from dataraum.entropy.analysis.aggregator import EntropyAggregator
     from dataraum.entropy.contracts import (
         ConfidenceLevel,
         evaluate_all_contracts,
@@ -815,6 +815,7 @@ def _contracts_impl(output_dir: Path, contract_name: str | None) -> None:
         get_contract,
         list_contracts,
     )
+    from dataraum.entropy.core.storage import EntropyRepository
     from dataraum.storage import Source, Table
 
     config = ConnectionConfig.for_directory(output_dir)
@@ -853,8 +854,26 @@ def _contracts_impl(output_dir: Path, contract_name: str | None) -> None:
 
             console.print(f"\n[bold]Contract Evaluation[/bold] - {source.name}\n")
 
-            # Build entropy context
-            entropy_context = build_entropy_context(session, table_ids)
+            # Build column summaries for contract evaluation
+            repo = EntropyRepository(session)
+            aggregator = EntropyAggregator()
+
+            typed_table_ids = repo.get_typed_table_ids(table_ids)
+            column_summaries = {}
+            compound_risks = []
+
+            if typed_table_ids:
+                table_map, column_map = repo.get_table_column_mapping(typed_table_ids)
+                entropy_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
+
+                if entropy_objects:
+                    column_summaries, _ = aggregator.summarize_columns_by_table(
+                        entropy_objects=entropy_objects,
+                        table_map=table_map,
+                        column_map=column_map,
+                    )
+                    for summary in column_summaries.values():
+                        compound_risks.extend(summary.compound_risks)
 
             if contract_name:
                 # Evaluate specific contract
@@ -866,12 +885,12 @@ def _contracts_impl(output_dir: Path, contract_name: str | None) -> None:
                         console.print(f"  - {c['name']}: {c['description']}")
                     raise typer.Exit(1)
 
-                evaluation = evaluate_contract(entropy_context, contract_name)
+                evaluation = evaluate_contract(column_summaries, contract_name, compound_risks)
                 _print_contract_detail(evaluation, profile)
 
             else:
                 # Evaluate all contracts
-                evaluations = evaluate_all_contracts(entropy_context)
+                evaluations = evaluate_all_contracts(column_summaries, compound_risks)
 
                 def _get_threshold(name: str) -> float:
                     """Get threshold for sorting, defaulting to 1.0 if not found."""

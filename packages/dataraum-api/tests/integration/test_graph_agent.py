@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from dataraum.core.models.base import Result
-from dataraum.entropy.context import build_entropy_context
-from dataraum.entropy.models import EntropyContext
+from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
+from dataraum.entropy.views import build_for_graph
 from dataraum.graphs.agent import ExecutionContext, GraphAgent
 from dataraum.graphs.context import (
     GraphExecutionContext,
@@ -144,32 +144,32 @@ class TestContextLoading:
 
 
 class TestEntropyContextLoading:
-    """Test build_entropy_context produces real entropy scores."""
+    """Test build_for_graph produces real entropy scores."""
 
     def test_entropy_context_has_column_profiles(
         self,
         analyzed_small_finance: PipelineTestHarness,
         analyzed_table_ids: list[str],
     ):
-        """Entropy context should have profiles for analyzed columns."""
+        """Entropy context should have summaries for analyzed columns."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+            entropy_ctx = build_for_graph(session, analyzed_table_ids)
 
-        assert isinstance(entropy_ctx, EntropyContext)
-        assert len(entropy_ctx.column_profiles) > 0
+        assert len(entropy_ctx.columns) > 0
 
     def test_entropy_column_profiles_have_scores(
         self,
         analyzed_small_finance: PipelineTestHarness,
         analyzed_table_ids: list[str],
     ):
-        """Each column profile should have entropy scores."""
+        """Each column summary should have entropy scores."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+            entropy_ctx = build_for_graph(session, analyzed_table_ids)
 
-        for key, profile in entropy_ctx.column_profiles.items():
-            assert profile.composite_score >= 0.0
-            assert profile.composite_score <= 1.0
+        for key, summary in entropy_ctx.columns.items():
+            assert isinstance(summary, ColumnSummary)
+            assert summary.composite_score >= 0.0
+            assert summary.composite_score <= 1.0
             # Key should be in format "table_name.column_name"
             assert "." in key
 
@@ -178,15 +178,16 @@ class TestEntropyContextLoading:
         analyzed_small_finance: PipelineTestHarness,
         analyzed_table_ids: list[str],
     ):
-        """Entropy context should have table-level profiles."""
+        """Entropy context should have table-level summaries."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, analyzed_table_ids)
+            entropy_ctx = build_for_graph(session, analyzed_table_ids)
 
-        assert len(entropy_ctx.table_profiles) > 0
+        assert len(entropy_ctx.tables) > 0
 
-        for table_name, table_profile in entropy_ctx.table_profiles.items():
-            assert table_profile.avg_composite_score >= 0.0
-            assert table_profile.avg_composite_score <= 1.0
+        for table_name, table_summary in entropy_ctx.tables.items():
+            assert isinstance(table_summary, TableSummary)
+            assert table_summary.avg_composite_score >= 0.0
+            assert table_summary.avg_composite_score <= 1.0
             # Key is the table name
             assert len(table_name) > 0
 
@@ -196,10 +197,10 @@ class TestEntropyContextLoading:
     ):
         """Empty table IDs should return empty entropy context."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_entropy_context(session, [])
+            entropy_ctx = build_for_graph(session, [])
 
-        assert len(entropy_ctx.column_profiles) == 0
-        assert len(entropy_ctx.table_profiles) == 0
+        assert len(entropy_ctx.columns) == 0
+        assert len(entropy_ctx.tables) == 0
 
 
 class TestGraphAgentSQLGeneration:

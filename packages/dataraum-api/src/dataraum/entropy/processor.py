@@ -2,7 +2,7 @@
 
 This module orchestrates entropy detection:
 - Runs all applicable detectors for a given context
-- Aggregates results into column/table profiles
+- Aggregates results into column/table summaries
 - Detects compound risks
 - Finds top resolution cascades
 
@@ -10,7 +10,7 @@ Usage:
     from dataraum.entropy.processor import EntropyProcessor
 
     processor = EntropyProcessor()
-    context = processor.process_column(
+    summary = processor.process_column(
         table_name="orders",
         column_name="amount",
         analysis_results={
@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from dataraum.core.logging import get_logger
+from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
 from dataraum.entropy.compound_risk import detect_compound_risks_for_column
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import (
@@ -32,12 +33,7 @@ from dataraum.entropy.detectors.base import (
     DetectorRegistry,
     get_default_registry,
 )
-from dataraum.entropy.models import (
-    ColumnEntropyProfile,
-    EntropyContext,
-    EntropyObject,
-    TableEntropyProfile,
-)
+from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.entropy.resolution import find_top_resolutions
 
 logger = get_logger(__name__)
@@ -81,7 +77,7 @@ class ProcessorConfig:
 class EntropyProcessor:
     """Orchestrates entropy detection across detectors.
 
-    Runs detectors, aggregates results into profiles, and detects
+    Runs detectors, aggregates results into summaries, and detects
     compound risks.
     """
 
@@ -107,8 +103,8 @@ class EntropyProcessor:
         source_id: str | None = None,
         table_id: str | None = None,
         column_id: str | None = None,
-    ) -> ColumnEntropyProfile:
-        """Process a single column and return its entropy profile.
+    ) -> ColumnSummary:
+        """Process a single column and return its entropy summary.
 
         Args:
             table_name: Name of the table
@@ -119,7 +115,7 @@ class EntropyProcessor:
             column_id: Optional column ID
 
         Returns:
-            ColumnEntropyProfile with aggregated entropy
+            ColumnSummary with aggregated entropy
         """
         # Create detector context
         context = DetectorContext(
@@ -134,24 +130,23 @@ class EntropyProcessor:
         # Run all applicable detectors
         entropy_objects = self._run_detectors(context)
 
-        # Aggregate into profile
-        profile = self._aggregate_to_profile(
+        # Aggregate into summary
+        summary = self._aggregate_to_summary(
             table_name=table_name,
             column_name=column_name,
+            table_id=table_id or "",
             column_id=column_id or "",
             entropy_objects=entropy_objects,
         )
 
         # Detect compound risks
-        profile.compound_risks = detect_compound_risks_for_column(profile, entropy_objects)
+        summary.compound_risks = detect_compound_risks_for_column(summary, entropy_objects)
 
         # Find top resolution hints
         cascades = find_top_resolutions(entropy_objects, limit=self.config.max_resolution_hints)
-        # Convert cascades to resolution options for the profile
+        # Convert cascades to resolution options for the summary
         for cascade in cascades:
             if cascade.entropy_reductions:
-                from dataraum.entropy.models import ResolutionOption
-
                 opt = ResolutionOption(
                     action=cascade.action,
                     parameters=cascade.parameters,
@@ -160,9 +155,9 @@ class EntropyProcessor:
                     description=cascade.description,
                     cascade_dimensions=list(cascade.entropy_reductions.keys()),
                 )
-                profile.top_resolution_hints.append(opt)
+                summary.top_resolution_hints.append(opt)
 
-        return profile
+        return summary
 
     def process_table(
         self,
@@ -170,8 +165,8 @@ class EntropyProcessor:
         columns: list[dict[str, Any]],
         source_id: str | None = None,
         table_id: str | None = None,
-    ) -> TableEntropyProfile:
-        """Process all columns in a table and return table entropy profile.
+    ) -> TableSummary:
+        """Process all columns in a table and return table entropy summary.
 
         Args:
             table_name: Name of the table
@@ -180,17 +175,17 @@ class EntropyProcessor:
             table_id: Optional table ID
 
         Returns:
-            TableEntropyProfile with aggregated entropy
+            TableSummary with aggregated entropy
         """
         # Process each column
-        column_profiles: list[ColumnEntropyProfile] = []
+        column_summaries: list[ColumnSummary] = []
 
         for col_spec in columns:
             column_name = col_spec.get("name", "")
             analysis_results = col_spec.get("analysis_results", {})
             column_id = col_spec.get("column_id")
 
-            profile = self.process_column(
+            summary = self.process_column(
                 table_name=table_name,
                 column_name=column_name,
                 analysis_results=analysis_results,
@@ -198,48 +193,14 @@ class EntropyProcessor:
                 table_id=table_id,
                 column_id=column_id,
             )
-            column_profiles.append(profile)
+            column_summaries.append(summary)
 
-        # Create table profile
-        table_profile = TableEntropyProfile(
+        # Create table summary using aggregator logic
+        return self._create_table_summary(
             table_id=table_id or "",
             table_name=table_name,
-            column_profiles=column_profiles,
+            column_summaries=column_summaries,
         )
-        table_profile.calculate_aggregates()
-
-        return table_profile
-
-    def build_entropy_context(
-        self,
-        tables: list[TableEntropyProfile],
-    ) -> EntropyContext:
-        """Build complete entropy context from table profiles.
-
-        Args:
-            tables: List of table entropy profiles
-
-        Returns:
-            EntropyContext for graph agent consumption
-        """
-        context = EntropyContext()
-
-        for table_profile in tables:
-            # Add table profile
-            context.table_profiles[table_profile.table_name] = table_profile
-
-            # Add column profiles
-            for col_profile in table_profile.column_profiles:
-                key = f"{table_profile.table_name}.{col_profile.column_name}"
-                context.column_profiles[key] = col_profile
-
-                # Collect compound risks
-                context.compound_risks.extend(col_profile.compound_risks)
-
-        # Update summary stats
-        context.update_summary_stats()
-
-        return context
 
     def _run_detectors(self, context: DetectorContext) -> list[EntropyObject]:
         """Run all applicable detectors and collect results.
@@ -272,33 +233,40 @@ class EntropyProcessor:
 
         return all_objects
 
-    def _aggregate_to_profile(
+    def _aggregate_to_summary(
         self,
         table_name: str,
         column_name: str,
+        table_id: str,
         column_id: str,
         entropy_objects: list[EntropyObject],
-    ) -> ColumnEntropyProfile:
-        """Aggregate entropy objects into a column profile.
+    ) -> ColumnSummary:
+        """Aggregate entropy objects into a column summary.
 
         Args:
             table_name: Table name
             column_name: Column name
+            table_id: Table ID
             column_id: Column ID
             entropy_objects: List of entropy objects
 
         Returns:
-            ColumnEntropyProfile with aggregated scores
+            ColumnSummary with aggregated scores
         """
-        profile = ColumnEntropyProfile(
+        summary = ColumnSummary(
             column_id=column_id,
             column_name=column_name,
+            table_id=table_id,
             table_name=table_name,
             entropy_objects=entropy_objects,  # Store raw objects for persistence
         )
 
+        if not entropy_objects:
+            summary.readiness = "ready"
+            return summary
+
         # Group by layer and calculate layer scores
-        layer_scores: dict[str, list[float]] = {
+        layer_scores_raw: dict[str, list[float]] = {
             "structural": [],
             "semantic": [],
             "value": [],
@@ -306,40 +274,111 @@ class EntropyProcessor:
         }
 
         for obj in entropy_objects:
-            if obj.layer in layer_scores:
-                layer_scores[obj.layer].append(obj.score)
+            if obj.layer in layer_scores_raw:
+                layer_scores_raw[obj.layer].append(obj.score)
 
             # Also track dimension-level scores
-            profile.dimension_scores[obj.dimension_path] = obj.score
+            summary.dimension_scores[obj.dimension_path] = obj.score
 
         # Calculate layer averages (or 0 if no detectors ran)
-        profile.structural_entropy = (
-            sum(layer_scores["structural"]) / len(layer_scores["structural"])
-            if layer_scores["structural"]
-            else 0.0
-        )
-        profile.semantic_entropy = (
-            sum(layer_scores["semantic"]) / len(layer_scores["semantic"])
-            if layer_scores["semantic"]
-            else 0.0
-        )
-        profile.value_entropy = (
-            sum(layer_scores["value"]) / len(layer_scores["value"])
-            if layer_scores["value"]
-            else 0.0
-        )
-        profile.computational_entropy = (
-            sum(layer_scores["computational"]) / len(layer_scores["computational"])
-            if layer_scores["computational"]
-            else 0.0
+        layer_scores: dict[str, float] = {}
+        for layer in ["structural", "semantic", "value", "computational"]:
+            if layer_scores_raw[layer]:
+                layer_scores[layer] = sum(layer_scores_raw[layer]) / len(layer_scores_raw[layer])
+            else:
+                layer_scores[layer] = 0.0
+
+        summary.layer_scores = layer_scores
+
+        # Calculate composite score using config weights
+        weights = self.config.layer_weights or get_entropy_config().composite_weights
+        summary.composite_score = (
+            layer_scores.get("structural", 0.0) * weights["structural"]
+            + layer_scores.get("semantic", 0.0) * weights["semantic"]
+            + layer_scores.get("value", 0.0) * weights["value"]
+            + layer_scores.get("computational", 0.0) * weights["computational"]
         )
 
-        # Calculate composite and update readiness
-        profile.calculate_composite(self.config.layer_weights)
-        profile.update_high_entropy_dimensions(self.config.high_entropy_threshold)
-        profile.update_readiness()
+        # Identify high-entropy dimensions
+        high_threshold = self.config.high_entropy_threshold or 0.5
+        summary.high_entropy_dimensions = [
+            dim for dim, score in summary.dimension_scores.items() if score >= high_threshold
+        ]
 
-        return profile
+        # Determine readiness
+        summary.readiness = get_entropy_config().get_readiness(summary.composite_score)
+
+        return summary
+
+    def _create_table_summary(
+        self,
+        table_id: str,
+        table_name: str,
+        column_summaries: list[ColumnSummary],
+    ) -> TableSummary:
+        """Create table summary from column summaries.
+
+        Args:
+            table_id: Table ID
+            table_name: Table name
+            column_summaries: List of column summaries
+
+        Returns:
+            TableSummary with aggregated scores
+        """
+        summary = TableSummary(
+            table_id=table_id,
+            table_name=table_name,
+            columns=column_summaries,
+        )
+
+        if not column_summaries:
+            summary.readiness = "ready"
+            return summary
+
+        # Calculate aggregate scores
+        composite_scores = [c.composite_score for c in column_summaries]
+        summary.avg_composite_score = sum(composite_scores) / len(composite_scores)
+        summary.max_composite_score = max(composite_scores)
+
+        # Per-layer aggregates
+        layers = ["structural", "semantic", "value", "computational"]
+        avg_layer: dict[str, float] = {}
+        max_layer: dict[str, float] = {}
+
+        for layer in layers:
+            layer_scores = [c.layer_scores.get(layer, 0.0) for c in column_summaries]
+            avg_layer[layer] = sum(layer_scores) / len(layer_scores)
+            max_layer[layer] = max(layer_scores)
+
+        summary.avg_layer_scores = avg_layer
+        summary.max_layer_scores = max_layer
+
+        # Identify problem columns
+        config = get_entropy_config()
+        high_threshold = config.high_entropy_threshold
+        critical_threshold = config.critical_entropy_threshold
+
+        summary.high_entropy_columns = [
+            c.column_name for c in column_summaries if c.composite_score >= high_threshold
+        ]
+        summary.blocked_columns = [
+            c.column_name for c in column_summaries if c.composite_score >= critical_threshold
+        ]
+
+        # Collect all compound risks
+        for col in column_summaries:
+            summary.compound_risks.extend(col.compound_risks)
+
+        # Determine table readiness
+        if summary.blocked_columns:
+            summary.readiness = "blocked"
+        elif summary.high_entropy_columns:
+            summary.readiness = "investigate"
+        else:
+            summary.readiness = "ready"
+
+        return summary
 
 
 def process_column_entropy(
@@ -347,7 +386,7 @@ def process_column_entropy(
     column_name: str,
     analysis_results: dict[str, Any],
     **kwargs: Any,
-) -> ColumnEntropyProfile:
+) -> ColumnSummary:
     """Convenience function to process a single column.
 
     Args:
@@ -357,7 +396,7 @@ def process_column_entropy(
         **kwargs: Additional arguments for process_column
 
     Returns:
-        ColumnEntropyProfile
+        ColumnSummary
     """
     processor = EntropyProcessor()
     return processor.process_column(
@@ -372,7 +411,7 @@ def process_table_entropy(
     table_name: str,
     columns: list[dict[str, Any]],
     **kwargs: Any,
-) -> TableEntropyProfile:
+) -> TableSummary:
     """Convenience function to process a table.
 
     Args:
@@ -381,7 +420,7 @@ def process_table_entropy(
         **kwargs: Additional arguments for process_table
 
     Returns:
-        TableEntropyProfile
+        TableSummary
     """
     processor = EntropyProcessor()
     return processor.process_table(

@@ -13,7 +13,7 @@ Usage:
     )
 
     # Evaluate a contract
-    evaluation = evaluate_contract(entropy_context, "executive_dashboard")
+    evaluation = evaluate_contract(entropy_data, "executive_dashboard")
 
     # Get traffic light confidence
     level = get_confidence_level(evaluation)  # GREEN, YELLOW, ORANGE, RED
@@ -27,12 +27,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from dataraum.core.logging import get_logger
-from dataraum.entropy.models import ColumnEntropyProfile, EntropyContext, ResolutionOption
+from dataraum.entropy.models import CompoundRisk, ResolutionOption
+
+if TYPE_CHECKING:
+    from dataraum.entropy.analysis.aggregator import ColumnSummary
 
 logger = get_logger(__name__)
 
@@ -87,7 +90,12 @@ class BlockingCondition:
     parameters: dict[str, Any] = field(default_factory=dict)
     description: str = ""
 
-    def evaluate(self, entropy_context: EntropyContext, evaluation: ContractEvaluation) -> bool:
+    def evaluate(
+        self,
+        column_summaries: dict[str, ColumnSummary],
+        compound_risks: list[CompoundRisk],
+        evaluation: ContractEvaluation,
+    ) -> bool:
         """Check if this blocking condition is triggered.
 
         Returns True if condition is triggered (blocking).
@@ -100,14 +108,22 @@ class BlockingCondition:
             return False
 
         elif self.condition_type == "has_critical_compound_risk":
-            return any(r.risk_level == "critical" for r in entropy_context.compound_risks)
+            return any(r.risk_level == "critical" for r in compound_risks)
 
         elif self.condition_type == "has_high_compound_risk":
-            return any(r.risk_level in ("critical", "high") for r in entropy_context.compound_risks)
+            return any(r.risk_level in ("critical", "high") for r in compound_risks)
 
         elif self.condition_type == "critical_entropy_count_exceeds":
             threshold = int(self.parameters.get("threshold", 0))
-            return entropy_context.critical_entropy_count > threshold
+            # Count columns with critical entropy (>= 0.8)
+            from dataraum.entropy.config import get_entropy_config
+
+            config = get_entropy_config()
+            critical_threshold = config.critical_entropy_threshold
+            critical_count = sum(
+                1 for s in column_summaries.values() if s.composite_score >= critical_threshold
+            )
+            return critical_count > threshold
 
         # Unknown condition type - don't block
         logger.warning(f"Unknown blocking condition type: {self.condition_type}")
@@ -373,34 +389,29 @@ def _get_layer_from_dimension(dimension: str) -> str | None:
     return None
 
 
-def _get_layer_score(profile: ColumnEntropyProfile, layer: str) -> float:
-    """Get the entropy score for a specific layer from a column profile.
+def _get_layer_score(summary: ColumnSummary, layer: str) -> float:
+    """Get the entropy score for a specific layer from a column summary.
 
     Args:
-        profile: Column entropy profile
+        summary: Column entropy summary
         layer: Layer name (structural, semantic, value, computational)
 
     Returns:
         Layer score or 0.0 if layer not recognized.
     """
-    return {
-        "structural": profile.structural_entropy,
-        "semantic": profile.semantic_entropy,
-        "value": profile.value_entropy,
-        "computational": profile.computational_entropy,
-    }.get(layer, 0.0)
+    return summary.layer_scores.get(layer, 0.0)
 
 
 def _get_dimension_score(
-    entropy_context: EntropyContext,
+    column_summaries: dict[str, ColumnSummary],
     dimension: str,
 ) -> float:
-    """Get the score for a specific dimension from entropy context.
+    """Get the score for a specific dimension from column summaries.
 
     Aggregates scores across all columns for the dimension.
 
     Args:
-        entropy_context: The entropy context
+        column_summaries: Dict mapping column key to summary
         dimension: Dimension path like "structural.types" or "semantic.units"
 
     Returns:
@@ -411,26 +422,26 @@ def _get_dimension_score(
     # Extract layer from dimension using convention (first part before '.')
     layer = _get_layer_from_dimension(dimension)
 
-    for profile in entropy_context.column_profiles.values():
+    for summary in column_summaries.values():
         # First check dimension_scores for exact match
-        if dimension in profile.dimension_scores:
-            scores.append(profile.dimension_scores[dimension])
+        if dimension in summary.dimension_scores:
+            scores.append(summary.dimension_scores[dimension])
         # Fall back to layer-level score
         elif layer:
-            scores.append(_get_layer_score(profile, layer))
+            scores.append(_get_layer_score(summary, layer))
 
     return sum(scores) / len(scores) if scores else 0.0
 
 
 def _find_affected_columns(
-    entropy_context: EntropyContext,
+    column_summaries: dict[str, ColumnSummary],
     dimension: str,
     threshold: float,
 ) -> list[str]:
     """Find columns that exceed threshold for a dimension.
 
     Args:
-        entropy_context: The entropy context
+        column_summaries: Dict mapping column key to summary
         dimension: Dimension path (e.g., "structural.types")
         threshold: Threshold score
 
@@ -442,13 +453,13 @@ def _find_affected_columns(
     # Extract layer from dimension using convention (first part before '.')
     layer = _get_layer_from_dimension(dimension)
 
-    for key, profile in entropy_context.column_profiles.items():
+    for key, summary in column_summaries.items():
         score = 0.0
 
-        if dimension in profile.dimension_scores:
-            score = profile.dimension_scores[dimension]
+        if dimension in summary.dimension_scores:
+            score = summary.dimension_scores[dimension]
         elif layer:
-            score = _get_layer_score(profile, layer)
+            score = _get_layer_score(summary, layer)
 
         if score > threshold:
             affected.append(key)
@@ -457,15 +468,17 @@ def _find_affected_columns(
 
 
 def evaluate_contract(
-    entropy_context: EntropyContext,
+    column_summaries: dict[str, ColumnSummary],
     contract_name: str,
+    compound_risks: list[CompoundRisk] | None = None,
     config_path: Path | None = None,
 ) -> ContractEvaluation:
     """Evaluate entropy against a contract.
 
     Args:
-        entropy_context: The entropy context to evaluate
+        column_summaries: Dict mapping column key to ColumnSummary
         contract_name: Name of the contract to evaluate against
+        compound_risks: Optional list of compound risks
         config_path: Optional path to contracts config
 
     Returns:
@@ -478,6 +491,8 @@ def evaluate_contract(
     if contract is None:
         raise ValueError(f"Contract not found: {contract_name}")
 
+    compound_risks = compound_risks or []
+
     violations: list[Violation] = []
     warnings: list[Violation] = []
     dimension_scores: dict[str, float] = {}
@@ -489,14 +504,14 @@ def evaluate_contract(
     worst_excess = 0.0
 
     for dimension, max_score in contract.dimension_thresholds.items():
-        actual_score = _get_dimension_score(entropy_context, dimension)
+        actual_score = _get_dimension_score(column_summaries, dimension)
         dimension_scores[dimension] = actual_score
         dimensions_checked += 1
 
         if actual_score > max_score:
             # Violation
             excess = actual_score - max_score
-            affected = _find_affected_columns(entropy_context, dimension, max_score)
+            affected = _find_affected_columns(column_summaries, dimension, max_score)
 
             # Determine severity
             blocking_threshold = max_score * (1 + contract.warning_margin * 2)
@@ -568,7 +583,7 @@ def evaluate_contract(
 
     # Check blocking conditions
     for condition in contract.blocking_conditions:
-        if condition.evaluate(entropy_context, evaluation):
+        if condition.evaluate(column_summaries, compound_risks, evaluation):
             violations.append(
                 Violation(
                     violation_type="blocking_condition",
@@ -618,9 +633,6 @@ def evaluate_contract(
         dimension_scores.get(worst_dimension, 0.0) if worst_dimension else 0.0
     )
     evaluation.estimated_effort_to_comply = effort
-
-    # TODO: Generate recommendations based on violations
-    # For now, leave empty - will be populated by resolution hints
 
     return evaluation
 
@@ -682,7 +694,8 @@ def get_confidence_level(evaluation: ContractEvaluation) -> ConfidenceLevel:
 
 
 def evaluate_all_contracts(
-    entropy_context: EntropyContext,
+    column_summaries: dict[str, ColumnSummary],
+    compound_risks: list[CompoundRisk] | None = None,
     config_path: Path | None = None,
 ) -> dict[str, ContractEvaluation]:
     """Evaluate entropy against all available contracts.
@@ -690,7 +703,8 @@ def evaluate_all_contracts(
     Useful for finding the strictest passing contract.
 
     Args:
-        entropy_context: The entropy context to evaluate
+        column_summaries: Dict mapping column key to ColumnSummary
+        compound_risks: Optional list of compound risks
         config_path: Optional path to contracts config
 
     Returns:
@@ -700,26 +714,28 @@ def evaluate_all_contracts(
     evaluations: dict[str, ContractEvaluation] = {}
 
     for name in contracts:
-        evaluations[name] = evaluate_contract(entropy_context, name, config_path)
+        evaluations[name] = evaluate_contract(column_summaries, name, compound_risks, config_path)
 
     return evaluations
 
 
 def find_best_contract(
-    entropy_context: EntropyContext,
+    column_summaries: dict[str, ColumnSummary],
+    compound_risks: list[CompoundRisk] | None = None,
     config_path: Path | None = None,
 ) -> tuple[str | None, ContractEvaluation | None]:
     """Find the strictest contract that passes.
 
     Args:
-        entropy_context: The entropy context to evaluate
+        column_summaries: Dict mapping column key to ColumnSummary
+        compound_risks: Optional list of compound risks
         config_path: Optional path to contracts config
 
     Returns:
         Tuple of (contract_name, evaluation) for strictest passing contract.
         Returns (None, None) if no contracts pass.
     """
-    evaluations = evaluate_all_contracts(entropy_context, config_path)
+    evaluations = evaluate_all_contracts(column_summaries, compound_risks, config_path)
     contracts = get_contracts(config_path)
 
     # Sort by strictness (lower overall_threshold = stricter)

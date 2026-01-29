@@ -5,12 +5,33 @@ Tests the simplified query refinement that passes query context to the LLM.
 
 import pytest
 
-from dataraum.entropy.models import ColumnEntropyProfile, EntropyContext
+from dataraum.entropy.analysis.aggregator import ColumnSummary
 from dataraum.entropy.query_refinement import (
     QueryRefinementResult,
     find_columns_in_query,
     refine_interpretations_for_query,
 )
+
+
+def _make_column_summary(
+    column_name: str,
+    table_name: str,
+    layer_scores: dict[str, float] | None = None,
+) -> ColumnSummary:
+    """Helper to create a ColumnSummary for tests."""
+    layer_scores = layer_scores or {
+        "structural": 0.1,
+        "semantic": 0.1,
+        "value": 0.1,
+        "computational": 0.1,
+    }
+    return ColumnSummary(
+        column_id=f"col_{column_name}",
+        column_name=column_name,
+        table_id=f"tbl_{table_name}",
+        table_name=table_name,
+        layer_scores=layer_scores,
+    )
 
 
 class TestQueryRefinementResult:
@@ -32,88 +53,75 @@ class TestFindColumnsInQuery:
     """Tests for find_columns_in_query function."""
 
     @pytest.fixture
-    def sample_context(self) -> EntropyContext:
-        """Create a sample entropy context."""
-        ctx = EntropyContext()
+    def sample_summaries(self) -> dict[str, ColumnSummary]:
+        """Create sample column summaries."""
+        return {
+            "orders.amount": _make_column_summary("amount", "orders"),
+            "orders.status": _make_column_summary("status", "orders"),
+            "users.name": _make_column_summary("name", "users"),
+        }
 
-        ctx.column_profiles["orders.amount"] = ColumnEntropyProfile(
-            column_name="amount",
-            table_name="orders",
-        )
-        ctx.column_profiles["orders.status"] = ColumnEntropyProfile(
-            column_name="status",
-            table_name="orders",
-        )
-        ctx.column_profiles["users.name"] = ColumnEntropyProfile(
-            column_name="name",
-            table_name="users",
-        )
-
-        return ctx
-
-    def test_finds_single_column(self, sample_context: EntropyContext) -> None:
+    def test_finds_single_column(self, sample_summaries: dict[str, ColumnSummary]) -> None:
         """Test finding a single column in query."""
         query = "SELECT amount FROM orders"
-        matched = find_columns_in_query(query, sample_context)
+        matched = find_columns_in_query(query, sample_summaries)
 
         assert "orders.amount" in matched
 
-    def test_finds_multiple_columns(self, sample_context: EntropyContext) -> None:
+    def test_finds_multiple_columns(self, sample_summaries: dict[str, ColumnSummary]) -> None:
         """Test finding multiple columns in query."""
         query = "SELECT amount, status FROM orders"
-        matched = find_columns_in_query(query, sample_context)
+        matched = find_columns_in_query(query, sample_summaries)
 
         assert "orders.amount" in matched
         assert "orders.status" in matched
 
-    def test_case_insensitive(self, sample_context: EntropyContext) -> None:
+    def test_case_insensitive(self, sample_summaries: dict[str, ColumnSummary]) -> None:
         """Test that matching is case insensitive."""
         query = "SELECT AMOUNT, Status FROM orders"
-        matched = find_columns_in_query(query, sample_context)
+        matched = find_columns_in_query(query, sample_summaries)
 
         assert "orders.amount" in matched
         assert "orders.status" in matched
 
-    def test_word_boundary_matching(self, sample_context: EntropyContext) -> None:
+    def test_word_boundary_matching(self) -> None:
         """Test that partial matches are avoided."""
         # 'amount' should not match 'total_amount'
-        ctx = EntropyContext()
-        ctx.column_profiles["orders.amount"] = ColumnEntropyProfile(
-            column_name="amount",
-            table_name="orders",
-        )
+        summaries = {
+            "orders.amount": _make_column_summary("amount", "orders"),
+        }
 
         query = "SELECT total_amount FROM orders"
-        matched = find_columns_in_query(query, ctx)
+        matched = find_columns_in_query(query, summaries)
 
         # Should not match because 'amount' is part of 'total_amount'
         assert "orders.amount" not in matched
 
-    def test_matches_in_where_clause(self, sample_context: EntropyContext) -> None:
+    def test_matches_in_where_clause(self, sample_summaries: dict[str, ColumnSummary]) -> None:
         """Test finding columns in WHERE clause."""
         query = "SELECT * FROM orders WHERE status = 'active'"
-        matched = find_columns_in_query(query, sample_context)
+        matched = find_columns_in_query(query, sample_summaries)
 
         assert "orders.status" in matched
 
-    def test_matches_in_join(self, sample_context: EntropyContext) -> None:
+    def test_matches_in_join(self, sample_summaries: dict[str, ColumnSummary]) -> None:
         """Test finding columns in JOIN conditions."""
         query = "SELECT * FROM orders JOIN users ON orders.name = users.name"
-        matched = find_columns_in_query(query, sample_context)
+        matched = find_columns_in_query(query, sample_summaries)
 
         assert "users.name" in matched
 
-    def test_no_matches(self, sample_context: EntropyContext) -> None:
+    def test_no_matches(self, sample_summaries: dict[str, ColumnSummary]) -> None:
         """Test when no columns match."""
         query = "SELECT unknown_column FROM other_table"
-        matched = find_columns_in_query(query, sample_context)
+        matched = find_columns_in_query(query, sample_summaries)
 
         assert len(matched) == 0
 
-    def test_natural_language_query(self, sample_context: EntropyContext) -> None:
+    def test_natural_language_query(self, sample_summaries: dict[str, ColumnSummary]) -> None:
         """Test matching in natural language query."""
         query = "Show me the total amount by status"
-        matched = find_columns_in_query(query, sample_context)
+        matched = find_columns_in_query(query, sample_summaries)
 
         assert "orders.amount" in matched
         assert "orders.status" in matched
@@ -132,45 +140,50 @@ class TestRefineInterpretationsForQuery:
         return session
 
     @pytest.fixture
-    def sample_entropy_context(self) -> EntropyContext:
-        """Create a sample entropy context with column profiles."""
-        ctx = EntropyContext()
-
-        ctx.column_profiles["orders.amount"] = ColumnEntropyProfile(
-            column_name="amount",
-            table_name="orders",
-            structural_entropy=0.2,
-            semantic_entropy=0.6,
-            value_entropy=0.3,
-            computational_entropy=0.1,
-            composite_score=0.35,
-            readiness="investigate",
-        )
-
-        ctx.column_profiles["orders.status"] = ColumnEntropyProfile(
-            column_name="status",
-            table_name="orders",
-            structural_entropy=0.1,
-            semantic_entropy=0.2,
-            value_entropy=0.1,
-            computational_entropy=0.0,
-            composite_score=0.1,
-            readiness="ready",
-        )
-
-        return ctx
+    def sample_column_summaries(self) -> dict[str, ColumnSummary]:
+        """Create sample column summaries."""
+        return {
+            "orders.amount": ColumnSummary(
+                column_id="col_amount",
+                column_name="amount",
+                table_id="tbl_orders",
+                table_name="orders",
+                composite_score=0.35,
+                readiness="investigate",
+                layer_scores={
+                    "structural": 0.2,
+                    "semantic": 0.6,
+                    "value": 0.3,
+                    "computational": 0.1,
+                },
+            ),
+            "orders.status": ColumnSummary(
+                column_id="col_status",
+                column_name="status",
+                table_id="tbl_orders",
+                table_name="orders",
+                composite_score=0.1,
+                readiness="ready",
+                layer_scores={
+                    "structural": 0.1,
+                    "semantic": 0.2,
+                    "value": 0.1,
+                    "computational": 0.0,
+                },
+            ),
+        }
 
     def test_refine_with_fallback(
         self,
         mock_session,
-        sample_entropy_context: EntropyContext,
+        sample_column_summaries: dict[str, ColumnSummary],
     ) -> None:
         """Test refinement with fallback interpretation."""
         query = "SELECT SUM(amount) FROM orders WHERE status = 'active'"
 
         result = refine_interpretations_for_query(
             session=mock_session,
-            entropy_context=sample_entropy_context,
+            column_summaries=sample_column_summaries,
             query=query,
             use_fallback=True,
         )
@@ -185,14 +198,14 @@ class TestRefineInterpretationsForQuery:
     def test_refine_without_fallback(
         self,
         mock_session,
-        sample_entropy_context: EntropyContext,
+        sample_column_summaries: dict[str, ColumnSummary],
     ) -> None:
         """Test refinement without fallback."""
         query = "SELECT amount FROM orders"
 
         result = refine_interpretations_for_query(
             session=mock_session,
-            entropy_context=sample_entropy_context,
+            column_summaries=sample_column_summaries,
             query=query,
             interpreter=None,
             use_fallback=False,
@@ -205,7 +218,7 @@ class TestRefineInterpretationsForQuery:
     def test_no_interpretation_without_interpreter(
         self,
         mock_session,
-        sample_entropy_context: EntropyContext,
+        sample_column_summaries: dict[str, ColumnSummary],
     ) -> None:
         """Test that no interpretation is generated without an interpreter.
 
@@ -215,7 +228,7 @@ class TestRefineInterpretationsForQuery:
 
         result = refine_interpretations_for_query(
             session=mock_session,
-            entropy_context=sample_entropy_context,
+            column_summaries=sample_column_summaries,
             query=query,
             use_fallback=True,
         )
@@ -228,14 +241,14 @@ class TestRefineInterpretationsForQuery:
     def test_no_matching_columns(
         self,
         mock_session,
-        sample_entropy_context: EntropyContext,
+        sample_column_summaries: dict[str, ColumnSummary],
     ) -> None:
         """Test when query has no matching columns."""
         query = "SELECT unknown FROM other_table"
 
         result = refine_interpretations_for_query(
             session=mock_session,
-            entropy_context=sample_entropy_context,
+            column_summaries=sample_column_summaries,
             query=query,
             use_fallback=True,
         )

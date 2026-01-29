@@ -2,9 +2,10 @@
 
 import pytest
 
+from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, DetectorRegistry
 from dataraum.entropy.models import (
-    ColumnEntropyProfile,
     EntropyObject,
     ResolutionOption,
 )
@@ -141,48 +142,78 @@ def sample_entropy_object() -> EntropyObject:
 
 
 @pytest.fixture
-def sample_column_profile() -> ColumnEntropyProfile:
-    """Sample column entropy profile for testing."""
-    profile = ColumnEntropyProfile(
+def sample_column_profile() -> ColumnSummary:
+    """Sample column entropy summary for testing."""
+    config = get_entropy_config()
+    weights = config.composite_weights
+    layer_scores = {
+        "structural": 0.25,
+        "semantic": 0.40,
+        "value": 0.15,
+        "computational": 0.10,
+    }
+    composite_score = (
+        layer_scores["structural"] * weights["structural"]
+        + layer_scores["semantic"] * weights["semantic"]
+        + layer_scores["value"] * weights["value"]
+        + layer_scores["computational"] * weights["computational"]
+    )
+    readiness = config.get_readiness(composite_score)
+    return ColumnSummary(
         column_id="col_001",
         column_name="amount",
+        table_id="tbl_001",
         table_name="orders",
-        structural_entropy=0.25,
-        semantic_entropy=0.40,
-        value_entropy=0.15,
-        computational_entropy=0.10,
+        composite_score=composite_score,
+        readiness=readiness,
+        layer_scores=layer_scores,
         dimension_scores={
             "structural.types.type_fidelity": 0.25,
             "semantic.units.unit_declared": 0.40,
             "value.nulls.null_ratio": 0.15,
             "computational.aggregations.aggregation_clarity": 0.10,
         },
+        high_entropy_dimensions=[],
     )
-    profile.calculate_composite()
-    profile.update_readiness()
-    return profile
 
 
 @pytest.fixture
-def high_entropy_column_profile() -> ColumnEntropyProfile:
-    """High-entropy column profile for compound risk testing."""
-    profile = ColumnEntropyProfile(
+def high_entropy_column_profile() -> ColumnSummary:
+    """High-entropy column summary for compound risk testing."""
+    config = get_entropy_config()
+    weights = config.composite_weights
+    layer_scores = {
+        "structural": 0.60,
+        "semantic": 0.75,
+        "value": 0.55,
+        "computational": 0.70,
+    }
+    composite_score = (
+        layer_scores["structural"] * weights["structural"]
+        + layer_scores["semantic"] * weights["semantic"]
+        + layer_scores["value"] * weights["value"]
+        + layer_scores["computational"] * weights["computational"]
+    )
+    readiness = config.get_readiness(composite_score)
+    dimension_scores = {
+        "structural.types.type_fidelity": 0.60,
+        "semantic.units.unit_declared": 0.85,
+        "semantic.business_meaning.naming_clarity": 0.65,
+        "value.nulls.null_ratio": 0.55,
+        "value.outliers.outlier_rate": 0.45,
+        "computational.aggregations.aggregation_clarity": 0.70,
+    }
+    high_entropy_dims = [
+        dim for dim, score in dimension_scores.items() if score >= config.high_entropy_threshold
+    ]
+    return ColumnSummary(
         column_id="col_002",
         column_name="value",
+        table_id="tbl_001",
         table_name="transactions",
-        structural_entropy=0.60,
-        semantic_entropy=0.75,
-        value_entropy=0.55,
-        computational_entropy=0.70,
-        dimension_scores={
-            "structural.types.type_fidelity": 0.60,
-            "semantic.units.unit_declared": 0.85,
-            "semantic.business_meaning.naming_clarity": 0.65,
-            "value.nulls.null_ratio": 0.55,
-            "value.outliers.outlier_rate": 0.45,
-            "computational.aggregations.aggregation_clarity": 0.70,
-        },
+        composite_score=composite_score,
+        readiness=readiness,
+        layer_scores=layer_scores,
+        dimension_scores=dimension_scores,
+        high_entropy_dimensions=high_entropy_dims,
     )
-    profile.calculate_composite()
-    profile.update_readiness()
-    return profile

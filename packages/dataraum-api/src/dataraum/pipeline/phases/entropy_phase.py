@@ -15,6 +15,7 @@ from dataraum.analysis.relationships.db_models import Relationship
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.statistics.db_models import StatisticalProfile
 from dataraum.analysis.typing.db_models import TypeDecision
+from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.db_models import (
     CompoundRiskRecord,
     EntropyObjectRecord,
@@ -265,7 +266,7 @@ class EntropyPhase(BasePhase):
             table_profiles.append(table_profile)
 
             # Persist entropy records
-            for col_profile in table_profile.column_profiles:
+            for col_profile in table_profile.columns:
                 # Persist each EntropyObject with full evidence
                 for entropy_obj in col_profile.entropy_objects:
                     # Serialize resolution options to dicts
@@ -314,20 +315,40 @@ class EntropyPhase(BasePhase):
                     ctx.session.add(risk_record)
                     total_compound_risks += 1
 
-        # Build entropy context
-        entropy_context = processor.build_entropy_context(table_profiles)
+        # Compute summary statistics from table profiles
+        config = get_entropy_config()
+        high_threshold = config.high_entropy_threshold
+        critical_threshold = config.critical_entropy_threshold
 
-        # Update summary stats in entropy context
-        entropy_context.update_summary_stats()
+        high_entropy_count = 0
+        critical_entropy_count = 0
+        all_compound_risks: list = []
+
+        for table_profile in table_profiles:
+            for col in table_profile.columns:
+                if col.composite_score >= critical_threshold:
+                    critical_entropy_count += 1
+                    high_entropy_count += 1
+                elif col.composite_score >= high_threshold:
+                    high_entropy_count += 1
+                all_compound_risks.extend(col.compound_risks)
+
+        # Determine overall readiness
+        if critical_entropy_count > 0:
+            overall_readiness = "blocked"
+        elif high_entropy_count > 0:
+            overall_readiness = "investigate"
+        else:
+            overall_readiness = "ready"
 
         # Create snapshot record
         snapshot = EntropySnapshotRecord(
             source_id=ctx.source_id,
             total_entropy_objects=total_entropy_objects,
-            high_entropy_count=entropy_context.high_entropy_count,
-            critical_entropy_count=entropy_context.critical_entropy_count,
-            compound_risk_count=len(entropy_context.compound_risks),
-            overall_readiness=entropy_context.overall_readiness,
+            high_entropy_count=high_entropy_count,
+            critical_entropy_count=critical_entropy_count,
+            compound_risk_count=len(all_compound_risks),
+            overall_readiness=overall_readiness,
         )
         ctx.session.add(snapshot)
 
@@ -338,9 +359,9 @@ class EntropyPhase(BasePhase):
                 "entropy_profiles": len(table_profiles),
                 "compound_risks": total_compound_risks,
                 "entropy_objects": total_entropy_objects,
-                "overall_readiness": entropy_context.overall_readiness,
-                "high_entropy_columns": entropy_context.high_entropy_count,
-                "critical_entropy_columns": entropy_context.critical_entropy_count,
+                "overall_readiness": overall_readiness,
+                "high_entropy_columns": high_entropy_count,
+                "critical_entropy_columns": critical_entropy_count,
             },
             records_processed=len(all_columns),
             records_created=total_entropy_objects + total_compound_risks + 1,
