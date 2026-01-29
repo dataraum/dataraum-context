@@ -4,7 +4,7 @@ This module defines the core data structures for the entropy layer.
 All models follow the specification in docs/ENTROPY_MODELS.md.
 
 Key models:
-- EntropyObject: Core measurement with evidence, resolution options, context
+- EntropyObject: Core measurement with evidence and resolution options
 - ResolutionOption: Actionable fix with effort and expected entropy reduction
 - CompoundRisk: Dangerous dimension combination with multiplied impact
 - ResolutionCascade: Single fix affecting multiple entropy dimensions
@@ -31,51 +31,6 @@ def _get_config() -> EntropyConfig:
     from dataraum.entropy.config import get_entropy_config
 
     return get_entropy_config()
-
-
-@dataclass
-class LLMContext:
-    """Context for LLM/query agents.
-
-    Provides information the agent needs to:
-    - Understand the uncertainty
-    - Decide how to handle it (answer, ask, refuse)
-    - Generate appropriate caveats or assumptions
-    """
-
-    description: str = ""  # Plain language description of the entropy
-    query_impact: str = ""  # How this affects query generation/results
-
-    # For answering with assumptions
-    best_guess: str | None = None  # Best guess if forced to assume
-    best_guess_confidence: float = 0.0  # Confidence in the guess
-    assumption_if_unresolved: str | None = None  # Assumption to state
-
-    # For query generation
-    filter_recommendation: str | None = None  # Suggested WHERE clause
-    aggregation_recommendation: str | None = None  # Suggested aggregation
-    join_recommendation: str | None = None  # Suggested join approach
-
-    # Warnings and caveats
-    warning: str | None = None  # Warning to include in response
-    caveat_template: str | None = None  # Template for caveat in answer
-
-
-@dataclass
-class HumanContext:
-    """Context for human users and administrators.
-
-    Provides information for UI display, alerting, and manual resolution.
-    """
-
-    severity: str = "medium"  # none, low, medium, high, critical
-    category: str = ""  # e.g., "Data Types", "Business Definitions", "Schema Design"
-    message: str = ""  # Short human-readable message
-    recommendation: str = ""  # Actionable recommendation
-
-    # For UI display
-    icon: str | None = None  # Suggested icon
-    color: str | None = None  # Suggested color (for severity visualization)
 
 
 @dataclass
@@ -130,10 +85,6 @@ class EntropyObject:
 
     # Resolution options
     resolution_options: list[ResolutionOption] = field(default_factory=list)
-
-    # Context for different consumers
-    llm_context: LLMContext = field(default_factory=LLMContext)
-    human_context: HumanContext = field(default_factory=HumanContext)
 
     # Metadata
     computed_at: datetime = field(default_factory=lambda: datetime.now(UTC))

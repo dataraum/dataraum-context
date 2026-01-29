@@ -48,17 +48,13 @@ from dataraum.entropy.analysis import (
 # Configuration
 from dataraum.entropy.config import (
     EntropyConfig,
-    clear_config_cache,
     get_entropy_config,
-    load_entropy_config,
 )
 from dataraum.entropy.core import (
     CompoundRisk,
     CompoundRiskDefinition,
     EntropyObject,
     EntropyRepository,
-    HumanContext,
-    LLMContext,
     ResolutionCascade,
     ResolutionOption,
 )
@@ -71,13 +67,6 @@ from dataraum.entropy.interpretation import (
     EntropyInterpreter,
     InterpretationInput,
     ResolutionAction,
-)
-
-# Query-time refinement
-from dataraum.entropy.query_refinement import (
-    QueryRefinementResult,
-    find_columns_in_query,
-    refine_interpretations_for_query,
 )
 
 # Layer 3: Views - caller-specific builders
@@ -95,8 +84,6 @@ __all__ = [
     # Layer 1: Core
     "EntropyObject",
     "ResolutionOption",
-    "LLMContext",
-    "HumanContext",
     "CompoundRisk",
     "CompoundRiskDefinition",
     "ResolutionCascade",
@@ -117,8 +104,6 @@ __all__ = [
     # Configuration
     "EntropyConfig",
     "get_entropy_config",
-    "load_entropy_config",
-    "clear_config_cache",
     # Interpretation (LLM-powered)
     "EntropyInterpreter",
     "EntropyInterpretation",
@@ -126,8 +111,4 @@ __all__ = [
     "InterpretationInput",
     "Assumption",
     "ResolutionAction",
-    # Query-time refinement
-    "QueryRefinementResult",
-    "find_columns_in_query",
-    "refine_interpretations_for_query",
 ]

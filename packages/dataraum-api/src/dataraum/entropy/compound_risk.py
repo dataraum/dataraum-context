@@ -234,36 +234,3 @@ def detect_compound_risks_for_column(
     if config_path:
         detector.load_config(config_path)
     return detector.detect_risks(summary, entropy_objects)
-
-
-def detect_compound_risks_for_table(
-    column_summaries: list[ColumnSummary],
-    entropy_objects_by_column: dict[str, list[EntropyObject]] | None = None,
-    config_path: Path | None = None,
-) -> list[CompoundRisk]:
-    """Detect compound risks across all columns in a table.
-
-    Args:
-        column_summaries: List of column entropy summaries
-        entropy_objects_by_column: Optional dict of column name to entropy objects
-        config_path: Optional path to compound_risks.yaml
-
-    Returns:
-        List of all detected compound risks
-    """
-    detector = CompoundRiskDetector()
-    if config_path:
-        detector.load_config(config_path)
-
-    all_risks: list[CompoundRisk] = []
-
-    for summary in column_summaries:
-        objects = None
-        if entropy_objects_by_column:
-            key = f"{summary.table_name}.{summary.column_name}"
-            objects = entropy_objects_by_column.get(key)
-
-        risks = detector.detect_risks(summary, objects)
-        all_risks.extend(risks)
-
-    return all_risks

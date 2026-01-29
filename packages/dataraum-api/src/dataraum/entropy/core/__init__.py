@@ -11,8 +11,6 @@ from dataraum.entropy.models import (
     CompoundRisk,
     CompoundRiskDefinition,
     EntropyObject,
-    HumanContext,
-    LLMContext,
     ResolutionCascade,
     ResolutionOption,
 )
@@ -21,8 +19,6 @@ __all__ = [
     # Core types (re-exported from models)
     "EntropyObject",
     "ResolutionOption",
-    "LLMContext",
-    "HumanContext",
     "CompoundRisk",
     "CompoundRiskDefinition",
     "ResolutionCascade",
