@@ -14,7 +14,7 @@ from dataraum.analysis.correlation.db_models import DerivedColumn
 from dataraum.analysis.relationships.db_models import Relationship
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.statistics.db_models import StatisticalProfile, StatisticalQualityMetrics
-from dataraum.analysis.typing.db_models import TypeDecision
+from dataraum.analysis.typing.db_models import TypeCandidate, TypeDecision
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.db_models import (
     CompoundRiskRecord,
@@ -139,6 +139,51 @@ class EntropyPhase(BasePhase):
         for decision in (ctx.session.execute(type_stmt)).scalars().all():
             type_decisions[decision.column_id] = decision
 
+        # Load type candidates from RAW table columns (TypeCandidates are created for raw columns)
+        # Then map to typed columns by (table_name, column_name)
+        # First get raw tables for this source
+        raw_tables_stmt = select(Table).where(
+            Table.layer == "raw", Table.source_id == ctx.source_id
+        )
+        raw_tables = (ctx.session.execute(raw_tables_stmt)).scalars().all()
+        raw_table_ids = [t.table_id for t in raw_tables]
+
+        # Build mapping from (table_name, column_name) to TypeCandidate
+        type_candidates_by_name: dict[tuple[str, str], TypeCandidate] = {}
+        if raw_table_ids:
+            # Get raw column IDs
+            raw_cols_stmt = select(Column).where(Column.table_id.in_(raw_table_ids))
+            raw_columns = (ctx.session.execute(raw_cols_stmt)).scalars().all()
+            raw_column_ids = [c.column_id for c in raw_columns]
+
+            # Build mapping from raw column_id to (table_name, column_name)
+            raw_col_to_name: dict[str, tuple[str, str]] = {}
+            raw_table_names = {t.table_id: t.table_name for t in raw_tables}
+            for col in raw_columns:
+                table_name = raw_table_names.get(col.table_id, "")
+                raw_col_to_name[col.column_id] = (table_name, col.column_name)
+
+            # Load TypeCandidates for raw columns
+            if raw_column_ids:
+                tc_stmt = (
+                    select(TypeCandidate)
+                    .where(TypeCandidate.column_id.in_(raw_column_ids))
+                    .order_by(TypeCandidate.confidence.desc())
+                )
+                for tc in (ctx.session.execute(tc_stmt)).scalars().all():
+                    name_key = raw_col_to_name.get(tc.column_id)
+                    if name_key and name_key not in type_candidates_by_name:
+                        type_candidates_by_name[name_key] = tc
+
+        # Create lookup from typed column_id to TypeCandidate using name mapping
+        type_candidates: dict[str, TypeCandidate] = {}
+        typed_table_names = {t.table_id: t.table_name for t in typed_tables}
+        for col in all_columns:
+            table_name = typed_table_names.get(col.table_id, "")
+            name_key = (table_name, col.column_name)
+            if name_key in type_candidates_by_name:
+                type_candidates[col.column_id] = type_candidates_by_name[name_key]
+
         # Load semantic annotations
         semantic_annotations: dict[str, SemanticAnnotation] = {}
         sem_stmt = select(SemanticAnnotation).where(SemanticAnnotation.column_id.in_(column_ids))
@@ -215,8 +260,28 @@ class EntropyPhase(BasePhase):
             for col in table_columns:
                 analysis_results: dict[str, Any] = {}
 
-                # Add typing info
-                if col.column_id in type_decisions:
+                # Add typing info from TypeCandidate (and TypeDecision if available)
+                if col.column_id in type_candidates:
+                    tc = type_candidates[col.column_id]
+                    typing_dict: dict[str, Any] = {
+                        "data_type": tc.data_type,
+                        "detected_type": tc.data_type,  # Alias for type_fidelity detector
+                        "confidence": tc.confidence,
+                        "parse_success_rate": tc.parse_success_rate or 1.0,
+                        "failed_examples": tc.failed_examples or [],
+                        "detected_pattern": tc.detected_pattern,
+                        "pattern_match_rate": tc.pattern_match_rate,
+                        "detected_unit": tc.detected_unit,
+                        "unit_confidence": tc.unit_confidence,
+                    }
+                    # Add decision info if available
+                    if col.column_id in type_decisions:
+                        td = type_decisions[col.column_id]
+                        typing_dict["resolved_type"] = td.decided_type
+                        typing_dict["decision_source"] = td.decision_source
+                    analysis_results["typing"] = typing_dict
+                elif col.column_id in type_decisions:
+                    # Fallback to just decision info
                     td = type_decisions[col.column_id]
                     analysis_results["typing"] = {
                         "resolved_type": td.decided_type,
@@ -266,13 +331,20 @@ class EntropyPhase(BasePhase):
                 if col.column_id in relationships_by_column:
                     analysis_results["relationships"] = relationships_by_column[col.column_id]
 
-                # Add derived column info
+                # Add derived column info (for computational entropy)
                 if col.column_id in derived_columns:
                     dc = derived_columns[col.column_id]
-                    analysis_results["correlations"] = {
-                        "is_derived": True,
-                        "formula": dc.formula,
-                        "match_rate": dc.match_rate,
+                    # Format expected by DerivedValueDetector
+                    analysis_results["correlation"] = {
+                        "derived_columns": [
+                            {
+                                "derived_column_name": col.column_name,
+                                "formula": dc.formula,
+                                "match_rate": dc.match_rate,
+                                "derivation_type": dc.derivation_type,
+                                "source_column_ids": dc.source_column_ids or [],
+                            }
+                        ]
                     }
 
                 columns_data.append(
