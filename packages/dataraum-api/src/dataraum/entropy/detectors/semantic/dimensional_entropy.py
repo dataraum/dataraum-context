@@ -390,6 +390,216 @@ class DimensionalEntropyDetector(EntropyDetector):
 
         return entropy_objects
 
+    def detect_with_details(
+        self, context: DetectorContext
+    ) -> tuple[list[EntropyObject], list[CrossColumnPattern], DimensionalEntropyScore, dict[str, Any]]:
+        """Detect patterns and return detailed results for summary generation.
+
+        Same as detect(), but also returns intermediate results needed for
+        generating dataset-level summaries.
+
+        Args:
+            context: Detector context with slice_variance analysis results
+
+        Returns:
+            Tuple of (entropy_objects, patterns, entropy_score, analysis_data) where:
+                - entropy_objects: List of EntropyObject instances
+                - patterns: List of CrossColumnPattern instances detected
+                - entropy_score: DimensionalEntropyScore with calculated metrics
+                - analysis_data: Dict with columns_data, temporal_columns, etc.
+        """
+        config = get_entropy_config()
+        detector_config = config.detector("dimensional_entropy")
+
+        # Configurable scores
+        score_undocumented_rule = detector_config.get("score_undocumented_rule", 0.7)
+        score_partial_pattern = detector_config.get("score_partial_pattern", 0.5)
+        correlation_threshold = detector_config.get("correlation_threshold", 0.8)
+        mutual_exclusivity_threshold = detector_config.get(
+            "mutual_exclusivity_threshold", 0.95
+        )
+
+        slice_variance = context.get_analysis("slice_variance", {})
+        columns_data = slice_variance.get("columns", {})
+        slice_data = slice_variance.get("slice_data", {})
+
+        # Optional temporal data
+        temporal_columns = slice_variance.get("temporal_columns", {})
+        temporal_drift = slice_variance.get("temporal_drift", [])
+
+        # Initialize entropy score tracker
+        entropy_score = DimensionalEntropyScore()
+
+        if not columns_data:
+            return [], [], entropy_score, {"columns_data": {}, "temporal_columns": {}}
+
+        # Extract INTERESTING columns (categorical)
+        interesting_columns = self._get_interesting_columns(columns_data)
+
+        # Extract INTERESTING temporal columns
+        interesting_temporal = self._get_interesting_temporal_columns(temporal_columns)
+
+        # Detect categorical patterns
+        patterns: list[CrossColumnPattern] = []
+
+        if len(interesting_columns) >= 2:
+            # 1. Check for mutual exclusivity patterns
+            mutual_patterns = self._detect_mutual_exclusivity(
+                interesting_columns, slice_data, mutual_exclusivity_threshold
+            )
+            patterns.extend(mutual_patterns)
+            entropy_score.mutual_exclusivity_count = len(mutual_patterns)
+
+            # 2. Check for correlated variance patterns
+            correlated_patterns = self._detect_correlated_variance(
+                interesting_columns, columns_data, correlation_threshold
+            )
+            patterns.extend(correlated_patterns)
+            entropy_score.correlated_variance_count = len(correlated_patterns)
+
+            # 3. Check for conditional dependencies
+            conditional_patterns = self._detect_conditional_dependencies(
+                interesting_columns, slice_data
+            )
+            patterns.extend(conditional_patterns)
+            entropy_score.conditional_dependency_count = len(conditional_patterns)
+
+        # Detect temporal patterns
+        if len(interesting_temporal) >= 2:
+            # 4. Check for temporal correlations (columns that spike/drift together)
+            temporal_corr_patterns = self._detect_temporal_correlations(
+                interesting_temporal, temporal_drift
+            )
+            patterns.extend(temporal_corr_patterns)
+            entropy_score.temporal_correlation_count = len(temporal_corr_patterns)
+
+        # 5. Count significant drift patterns (separate from correlation)
+        drift_patterns = self._detect_significant_drift(temporal_drift)
+        patterns.extend(drift_patterns)
+        entropy_score.temporal_drift_count = len(drift_patterns)
+
+        # Calculate overall entropy score
+        entropy_score.categorical_entropy = (
+            entropy_score.mutual_exclusivity_count * 0.8
+            + entropy_score.conditional_dependency_count * 0.6
+            + entropy_score.correlated_variance_count * 0.4
+        ) / max(len(interesting_columns), 1)
+
+        entropy_score.temporal_entropy = (
+            entropy_score.temporal_correlation_count * 0.5
+            + entropy_score.temporal_drift_count * 0.3
+        ) / max(len(interesting_temporal), 1)
+
+        entropy_score.calculate_total()
+
+        # Create entropy objects for each pattern
+        entropy_objects: list[EntropyObject] = []
+
+        for pattern in patterns:
+            score = (
+                score_undocumented_rule
+                if pattern.confidence > 0.9
+                else score_partial_pattern
+            )
+
+            evidence = [
+                {
+                    "pattern_type": pattern.pattern_type,
+                    "columns": pattern.columns,
+                    "confidence": pattern.confidence,
+                    "description": pattern.description,
+                    "business_rule_hypothesis": pattern.business_rule_hypothesis,
+                    "raw_evidence": pattern.evidence,
+                    "uncertainty_bits": pattern.uncertainty_bits,
+                }
+            ]
+
+            resolution_options = [
+                ResolutionOption(
+                    action="document_business_rule",
+                    parameters={
+                        "pattern_type": pattern.pattern_type,
+                        "columns": pattern.columns,
+                        "hypothesis": pattern.business_rule_hypothesis,
+                    },
+                    expected_entropy_reduction=0.6,
+                    effort="medium",
+                    description=f"Document business rule: {pattern.description}",
+                ),
+                ResolutionOption(
+                    action="add_constraint",
+                    parameters={
+                        "pattern_type": pattern.pattern_type,
+                        "columns": pattern.columns,
+                    },
+                    expected_entropy_reduction=0.3,
+                    effort="high",
+                    description="Add database constraint to enforce this rule",
+                ),
+            ]
+
+            entropy_objects.append(
+                self.create_entropy_object(
+                    context=context,
+                    score=score,
+                    evidence=evidence,
+                    resolution_options=resolution_options,
+                )
+            )
+
+        # Add summary entropy object with overall score
+        if patterns:
+            summary_evidence = [
+                {
+                    "dimensional_entropy_score": {
+                        "total_score": entropy_score.total_score,
+                        "total_uncertainty_bits": entropy_score.total_uncertainty_bits,
+                        "categorical_entropy": entropy_score.categorical_entropy,
+                        "temporal_entropy": entropy_score.temporal_entropy,
+                        "total_patterns": entropy_score.total_patterns,
+                        "pattern_breakdown": {
+                            "mutual_exclusivity": entropy_score.mutual_exclusivity_count,
+                            "conditional_dependency": entropy_score.conditional_dependency_count,
+                            "correlated_variance": entropy_score.correlated_variance_count,
+                            "temporal_correlation": entropy_score.temporal_correlation_count,
+                            "temporal_drift": entropy_score.temporal_drift_count,
+                        },
+                        "interpretation": entropy_score.interpretation,
+                    }
+                }
+            ]
+
+            entropy_objects.append(
+                EntropyObject(
+                    layer=self.layer,
+                    dimension=self.dimension,
+                    sub_dimension="overall_score",
+                    target=context.target_ref,
+                    score=entropy_score.total_score,
+                    evidence=summary_evidence,
+                    resolution_options=[
+                        ResolutionOption(
+                            action="document_all_patterns",
+                            parameters={"pattern_count": entropy_score.total_patterns},
+                            expected_entropy_reduction=entropy_score.total_score * 0.8,
+                            effort="high",
+                            description=f"Document all {entropy_score.total_patterns} detected business rules",
+                        )
+                    ],
+                    detector_id=f"{self.detector_id}_summary",
+                    source_analysis_ids=[],
+                )
+            )
+
+        # Return analysis data for summary generation
+        analysis_data = {
+            "columns_data": columns_data,
+            "temporal_columns": temporal_columns,
+            "temporal_drift": temporal_drift,
+        }
+
+        return entropy_objects, patterns, entropy_score, analysis_data
+
     def _get_interesting_columns(
         self, columns_data: dict[str, Any]
     ) -> list[ColumnVariancePattern]:
@@ -913,3 +1123,341 @@ def compute_dimensional_entropy(
     entropy = log2(1 + pattern_ratio * 10) / log2(11)  # Normalize to 0-1
 
     return min(1.0, entropy)
+
+
+# =============================================================================
+# DATASET-LEVEL SUMMARY
+# =============================================================================
+
+
+@dataclass
+class InterestingColumnSummary:
+    """Summary of why a column is interesting."""
+
+    column_name: str
+    classification: str  # "interesting" for categorical, or temporal reason
+    source: str  # "categorical" or "temporal"
+    reasons: list[str] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DetectedBusinessRule:
+    """A detected business rule from cross-column patterns."""
+
+    rule_type: str  # mutual_exclusivity, conditional_dependency, etc.
+    columns: list[str]
+    confidence: float
+    description: str
+    hypothesis: str
+    actionable: bool = True
+
+
+@dataclass
+class DatasetDimensionalSummary:
+    """Dataset-level summary synthesizing all dimensional entropy findings.
+
+    This provides a unified view of:
+    - Which columns are interesting and why
+    - What cross-column business rules were detected
+    - Overall data complexity assessment
+    - Recommendations for documentation/validation
+
+    Intended for:
+    - LLM context (to generate human-readable insights)
+    - API responses (structured dataset overview)
+    - Entropy snapshots (persisted summary)
+    """
+
+    # Identification
+    table_name: str
+    slice_column: str | None = None
+
+    # Column analysis summary
+    total_columns: int = 0
+    interesting_categorical_columns: int = 0
+    interesting_temporal_columns: int = 0
+    stable_columns: int = 0
+    empty_columns: int = 0
+    constant_columns: int = 0
+
+    # Interesting columns with reasons
+    interesting_columns: list[InterestingColumnSummary] = field(default_factory=list)
+
+    # Detected business rules
+    business_rules: list[DetectedBusinessRule] = field(default_factory=list)
+
+    # Entropy scores
+    dimensional_entropy_score: float = 0.0
+    categorical_entropy: float = 0.0
+    temporal_entropy: float = 0.0
+    uncertainty_bits: float = 0.0
+
+    # Pattern counts
+    mutual_exclusivity_patterns: int = 0
+    conditional_dependency_patterns: int = 0
+    correlated_variance_patterns: int = 0
+    temporal_correlation_patterns: int = 0
+    temporal_drift_patterns: int = 0
+
+    # Overall assessment
+    complexity_level: str = "low"  # low, moderate, high, very_high
+    data_quality_concerns: list[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
+
+    # Text summary for LLM/human consumption
+    executive_summary: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "table_name": self.table_name,
+            "slice_column": self.slice_column,
+            "column_counts": {
+                "total": self.total_columns,
+                "interesting_categorical": self.interesting_categorical_columns,
+                "interesting_temporal": self.interesting_temporal_columns,
+                "stable": self.stable_columns,
+                "empty": self.empty_columns,
+                "constant": self.constant_columns,
+            },
+            "interesting_columns": [
+                {
+                    "column_name": col.column_name,
+                    "classification": col.classification,
+                    "source": col.source,
+                    "reasons": col.reasons,
+                    "metrics": col.metrics,
+                }
+                for col in self.interesting_columns
+            ],
+            "business_rules": [
+                {
+                    "rule_type": rule.rule_type,
+                    "columns": rule.columns,
+                    "confidence": rule.confidence,
+                    "description": rule.description,
+                    "hypothesis": rule.hypothesis,
+                    "actionable": rule.actionable,
+                }
+                for rule in self.business_rules
+            ],
+            "entropy_scores": {
+                "dimensional_entropy": self.dimensional_entropy_score,
+                "categorical_entropy": self.categorical_entropy,
+                "temporal_entropy": self.temporal_entropy,
+                "uncertainty_bits": self.uncertainty_bits,
+            },
+            "pattern_counts": {
+                "mutual_exclusivity": self.mutual_exclusivity_patterns,
+                "conditional_dependency": self.conditional_dependency_patterns,
+                "correlated_variance": self.correlated_variance_patterns,
+                "temporal_correlation": self.temporal_correlation_patterns,
+                "temporal_drift": self.temporal_drift_patterns,
+            },
+            "assessment": {
+                "complexity_level": self.complexity_level,
+                "data_quality_concerns": self.data_quality_concerns,
+                "recommendations": self.recommendations,
+            },
+            "executive_summary": self.executive_summary,
+        }
+
+
+def generate_dataset_summary(
+    table_name: str,
+    columns_data: dict[str, dict[str, Any]],
+    temporal_columns: dict[str, dict[str, Any]],
+    patterns: list[CrossColumnPattern],
+    entropy_score: DimensionalEntropyScore,
+    slice_column: str | None = None,
+) -> DatasetDimensionalSummary:
+    """Generate a dataset-level summary from dimensional entropy analysis.
+
+    Synthesizes column classifications, detected patterns, and entropy scores
+    into a unified summary for LLM context, API responses, or persistence.
+
+    Args:
+        table_name: Name of the analyzed table
+        columns_data: Column variance data with classifications
+        temporal_columns: Temporal analysis results per column
+        patterns: List of detected cross-column patterns
+        entropy_score: Calculated dimensional entropy score
+        slice_column: Name of the slice column (if applicable)
+
+    Returns:
+        DatasetDimensionalSummary with all findings synthesized
+    """
+    summary = DatasetDimensionalSummary(
+        table_name=table_name,
+        slice_column=slice_column,
+    )
+
+    # Count column classifications
+    summary.total_columns = len(columns_data)
+    for col_name, metrics in columns_data.items():
+        classification = metrics.get("classification", "stable")
+        if classification == "interesting":
+            summary.interesting_categorical_columns += 1
+            summary.interesting_columns.append(
+                InterestingColumnSummary(
+                    column_name=col_name,
+                    classification=classification,
+                    source="categorical",
+                    reasons=metrics.get("exceeded_thresholds", []),
+                    metrics={
+                        "null_spread": metrics.get("null_spread", 0.0),
+                        "distinct_ratio": metrics.get("distinct_ratio", 1.0),
+                        "outlier_spread": metrics.get("outlier_spread", 0.0),
+                    },
+                )
+            )
+        elif classification == "stable":
+            summary.stable_columns += 1
+        elif classification == "empty":
+            summary.empty_columns += 1
+        elif classification == "constant":
+            summary.constant_columns += 1
+
+    # Add temporal interesting columns
+    for col_name, temporal_metrics in temporal_columns.items():
+        if temporal_metrics.get("is_interesting", False):
+            summary.interesting_temporal_columns += 1
+            # Only add if not already in categorical interesting
+            if not any(c.column_name == col_name for c in summary.interesting_columns):
+                summary.interesting_columns.append(
+                    InterestingColumnSummary(
+                        column_name=col_name,
+                        classification="temporal_variance",
+                        source="temporal",
+                        reasons=temporal_metrics.get("reasons", []),
+                        metrics={
+                            "completeness_ratio": temporal_metrics.get("completeness_ratio"),
+                            "period_end_spike_ratio": temporal_metrics.get("period_end_spike_ratio"),
+                            "gap_count": temporal_metrics.get("gap_count", 0),
+                        },
+                    )
+                )
+
+    # Convert patterns to business rules
+    for pattern in patterns:
+        rule = DetectedBusinessRule(
+            rule_type=pattern.pattern_type,
+            columns=pattern.columns,
+            confidence=pattern.confidence,
+            description=pattern.description,
+            hypothesis=pattern.business_rule_hypothesis,
+            actionable=pattern.confidence > 0.5,
+        )
+        summary.business_rules.append(rule)
+
+    # Set entropy scores
+    summary.dimensional_entropy_score = entropy_score.total_score
+    summary.categorical_entropy = entropy_score.categorical_entropy
+    summary.temporal_entropy = entropy_score.temporal_entropy
+    summary.uncertainty_bits = entropy_score.total_uncertainty_bits
+
+    # Set pattern counts
+    summary.mutual_exclusivity_patterns = entropy_score.mutual_exclusivity_count
+    summary.conditional_dependency_patterns = entropy_score.conditional_dependency_count
+    summary.correlated_variance_patterns = entropy_score.correlated_variance_count
+    summary.temporal_correlation_patterns = entropy_score.temporal_correlation_count
+    summary.temporal_drift_patterns = entropy_score.temporal_drift_count
+
+    # Determine complexity level
+    total_interesting = summary.interesting_categorical_columns + summary.interesting_temporal_columns
+    total_patterns = entropy_score.total_patterns
+
+    if total_patterns == 0 and total_interesting <= 2:
+        summary.complexity_level = "low"
+    elif total_patterns <= 2 and total_interesting <= 5:
+        summary.complexity_level = "moderate"
+    elif total_patterns <= 5 or total_interesting <= 10:
+        summary.complexity_level = "high"
+    else:
+        summary.complexity_level = "very_high"
+
+    # Generate data quality concerns
+    if summary.empty_columns > summary.total_columns * 0.2:
+        summary.data_quality_concerns.append(
+            f"{summary.empty_columns} columns are completely empty across slices"
+        )
+    if summary.mutual_exclusivity_patterns > 0:
+        summary.data_quality_concerns.append(
+            f"{summary.mutual_exclusivity_patterns} mutual exclusivity patterns detected - may indicate undocumented business rules"
+        )
+    if summary.conditional_dependency_patterns > 0:
+        summary.data_quality_concerns.append(
+            f"{summary.conditional_dependency_patterns} conditional dependencies detected - fields vary by category"
+        )
+    if summary.temporal_drift_patterns > 0:
+        summary.data_quality_concerns.append(
+            f"{summary.temporal_drift_patterns} temporal drift events detected - data may have changed over time"
+        )
+
+    # Generate recommendations
+    if summary.business_rules:
+        summary.recommendations.append(
+            f"Document {len(summary.business_rules)} detected business rules to reduce semantic entropy"
+        )
+    if summary.interesting_categorical_columns > 5:
+        summary.recommendations.append(
+            "Consider adding data validation rules for high-variance columns"
+        )
+    if summary.temporal_drift_patterns > 0:
+        summary.recommendations.append(
+            "Investigate temporal drift events - may indicate data migration or business rule changes"
+        )
+    if summary.empty_columns > 0:
+        summary.recommendations.append(
+            f"Review {summary.empty_columns} empty columns - consider removing or documenting why empty"
+        )
+
+    # Generate executive summary
+    summary.executive_summary = _generate_executive_summary(summary)
+
+    return summary
+
+
+def _generate_executive_summary(summary: DatasetDimensionalSummary) -> str:
+    """Generate a human-readable executive summary."""
+    parts = []
+
+    # Opening
+    parts.append(f"Analysis of table '{summary.table_name}'")
+    if summary.slice_column:
+        parts.append(f" sliced by '{summary.slice_column}'")
+    parts.append(f" reveals {summary.complexity_level} dimensional complexity.\n\n")
+
+    # Column overview
+    parts.append(f"Of {summary.total_columns} columns analyzed:\n")
+    if summary.interesting_categorical_columns > 0:
+        parts.append(f"- {summary.interesting_categorical_columns} show significant variance across slices\n")
+    if summary.interesting_temporal_columns > 0:
+        parts.append(f"- {summary.interesting_temporal_columns} show notable temporal patterns\n")
+    if summary.stable_columns > 0:
+        parts.append(f"- {summary.stable_columns} are stable (consistent across slices)\n")
+    if summary.empty_columns > 0:
+        parts.append(f"- {summary.empty_columns} are empty\n")
+    if summary.constant_columns > 0:
+        parts.append(f"- {summary.constant_columns} have constant values\n")
+
+    # Business rules
+    if summary.business_rules:
+        parts.append(f"\n{len(summary.business_rules)} potential business rules detected:\n")
+        for rule in summary.business_rules[:5]:  # Top 5
+            parts.append(f"- {rule.description} (confidence: {rule.confidence:.0%})\n")
+        if len(summary.business_rules) > 5:
+            parts.append(f"  ... and {len(summary.business_rules) - 5} more\n")
+
+    # Entropy score
+    parts.append(f"\nDimensional entropy score: {summary.dimensional_entropy_score:.2f}")
+    parts.append(f" ({summary.uncertainty_bits:.1f} bits of uncertainty)\n")
+
+    # Key concerns
+    if summary.data_quality_concerns:
+        parts.append("\nKey concerns:\n")
+        for concern in summary.data_quality_concerns[:3]:
+            parts.append(f"- {concern}\n")
+
+    return "".join(parts)
