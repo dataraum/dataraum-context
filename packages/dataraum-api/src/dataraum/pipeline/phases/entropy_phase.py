@@ -460,9 +460,27 @@ class EntropyPhase(BasePhase):
                 }
                 for opt in entropy_obj.resolution_options
             ]
+            
+            # Determine table_id for the record
+            # For dimensional_entropy detector, extract table name and look up the ID
+            record_table_id: str | None = None
+            if entropy_obj.detector_id.startswith("dimensional_entropy"):
+                # Target is like "table:kontobuchungen" - look up actual table_id
+                if ":" in entropy_obj.target:
+                    target_table_name = entropy_obj.target.split(":")[1].split(".")[0]
+                    # Find matching table from typed_tables
+                    for t in typed_tables:
+                        if t.table_name == target_table_name:
+                            record_table_id = t.table_id
+                            break
+            else:
+                # For other detectors, the target might contain the table_id directly
+                # Keep existing logic as fallback but be safe
+                record_table_id = None
+            
             record = EntropyObjectRecord(
                 source_id=ctx.source_id,
-                table_id=entropy_obj.target.split(":")[1].split(".")[0] if ":" in entropy_obj.target else None,
+                table_id=record_table_id,
                 column_id=None,  # Table-level, no specific column
                 target=entropy_obj.target,
                 layer=entropy_obj.layer,
@@ -696,37 +714,39 @@ def _run_dimensional_entropy(
         temporal_columns: dict[str, dict[str, Any]] = {}
         temporal_drift: list[dict[str, Any]] = []
 
-        # Load temporal slice analyses
+        # Load temporal slice analyses - filter by slice_table_name matching table name pattern
+        # TemporalSliceAnalysis stores metrics per time period for slice tables
         temporal_stmt = select(TemporalSliceAnalysis).where(
-            TemporalSliceAnalysis.table_id == table.table_id
+            TemporalSliceAnalysis.slice_table_name.like(f"{table.table_name}_%")
         )
         temporal_analyses = list(ctx.session.execute(temporal_stmt).scalars().all())
 
+        # Aggregate temporal info by time_column
         for ta in temporal_analyses:
-            col_name = ta.column_name
+            col_name = ta.time_column
             if col_name not in temporal_columns:
                 temporal_columns[col_name] = {
                     "is_interesting": False,
                     "reasons": [],
-                    "completeness_ratio": ta.completeness_ratio,
-                    "period_end_spike_ratio": ta.period_end_spike_ratio,
-                    "gap_count": ta.gap_count or 0,
+                    "coverage_ratio": ta.coverage_ratio,
+                    "last_day_ratio": ta.last_day_ratio,
+                    "is_volume_anomaly": bool(ta.is_volume_anomaly),
                 }
-            # Check if interesting
-            if (ta.completeness_ratio and ta.completeness_ratio < 0.5) or \
-               (ta.period_end_spike_ratio and ta.period_end_spike_ratio > 1.5) or \
-               (ta.gap_count and ta.gap_count > 0):
+            # Check if interesting based on available fields
+            if (ta.coverage_ratio and ta.coverage_ratio < 0.5) or \
+               (ta.last_day_ratio and ta.last_day_ratio > 1.5) or \
+               ta.is_volume_anomaly:
                 temporal_columns[col_name]["is_interesting"] = True
-                if ta.completeness_ratio and ta.completeness_ratio < 0.5:
-                    temporal_columns[col_name]["reasons"].append("low_completeness")
-                if ta.period_end_spike_ratio and ta.period_end_spike_ratio > 1.5:
+                if ta.coverage_ratio and ta.coverage_ratio < 0.5:
+                    temporal_columns[col_name]["reasons"].append("low_coverage")
+                if ta.last_day_ratio and ta.last_day_ratio > 1.5:
                     temporal_columns[col_name]["reasons"].append("period_end_spike")
-                if ta.gap_count and ta.gap_count > 0:
-                    temporal_columns[col_name]["reasons"].append("has_gaps")
+                if ta.is_volume_anomaly:
+                    temporal_columns[col_name]["reasons"].append("volume_anomaly")
 
-        # Load drift analyses
+        # Load drift analyses - filter by slice_table_name matching table name pattern
         drift_stmt = select(TemporalDriftAnalysis).where(
-            TemporalDriftAnalysis.table_id == table.table_id
+            TemporalDriftAnalysis.slice_table_name.like(f"{table.table_name}_%")
         )
         drift_analyses = list(ctx.session.execute(drift_stmt).scalars().all())
 
@@ -735,8 +755,8 @@ def _run_dimensional_entropy(
                 "column_name": da.column_name,
                 "period_label": da.period_label,
                 "js_divergence": da.js_divergence,
-                "has_significant_drift": da.js_divergence and da.js_divergence > 0.3,
-                "has_category_changes": bool(da.new_categories_json or da.missing_categories_json),
+                "has_significant_drift": bool(da.has_significant_drift) if da.has_significant_drift is not None else (da.js_divergence and da.js_divergence > 0.3),
+                "has_category_changes": bool(da.has_category_changes) if da.has_category_changes is not None else bool(da.new_categories_json or da.missing_categories_json),
                 "new_categories_json": da.new_categories_json,
                 "missing_categories_json": da.missing_categories_json,
             })
