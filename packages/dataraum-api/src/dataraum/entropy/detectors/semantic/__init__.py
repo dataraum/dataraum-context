@@ -13,10 +13,14 @@ from dataraum.entropy.detectors.semantic.business_meaning import (
 from dataraum.entropy.detectors.semantic.dimensional_entropy import (
     ColumnVariancePattern,
     CrossColumnPattern,
+    DatasetDimensionalSummary,
+    DetectedBusinessRule,
     DimensionalEntropyDetector,
     DimensionalEntropyScore,
+    InterestingColumnSummary,
     TemporalColumnPattern,
     compute_dimensional_entropy,
+    generate_dataset_summary,
 )
 from dataraum.entropy.detectors.semantic.temporal_entropy import (
     TemporalEntropyDetector,
@@ -36,4 +40,9 @@ __all__ = [
     "CrossColumnPattern",
     "DimensionalEntropyScore",
     "compute_dimensional_entropy",
+    # Dataset summary
+    "DatasetDimensionalSummary",
+    "InterestingColumnSummary",
+    "DetectedBusinessRule",
+    "generate_dataset_summary",
 ]

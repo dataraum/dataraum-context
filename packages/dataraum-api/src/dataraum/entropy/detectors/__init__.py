@@ -40,6 +40,7 @@ from dataraum.entropy.detectors.computational import (
 # Semantic layer detectors
 from dataraum.entropy.detectors.semantic import (
     BusinessMeaningDetector,
+    DimensionalEntropyDetector,
     TemporalEntropyDetector,
     UnitEntropyDetector,
 )
@@ -57,7 +58,8 @@ from dataraum.entropy.detectors.value import (
     OutlierRateDetector,
 )
 
-# All built-in detector classes
+# All built-in detector classes (per-column detectors only)
+# Note: DimensionalEntropyDetector is table-level and runs after quality_summary
 BUILTIN_DETECTORS: list[type[EntropyDetector]] = [
     # Structural
     TypeFidelityDetector,
@@ -110,6 +112,7 @@ __all__ = [
     "BusinessMeaningDetector",
     "UnitEntropyDetector",
     "TemporalEntropyDetector",
+    "DimensionalEntropyDetector",
     # Computational detectors
     "DerivedValueDetector",
 ]

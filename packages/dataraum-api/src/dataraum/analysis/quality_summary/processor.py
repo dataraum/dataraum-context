@@ -19,6 +19,8 @@ from sqlalchemy import distinct as sql_distinct
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import structlog
+
 from dataraum.analysis.quality_summary.db_models import (
     ColumnQualityReport,
     ColumnSliceProfile,
@@ -48,6 +50,8 @@ BATCH_SIZE = 10
 
 # Maximum parallel batch workers
 MAX_BATCH_WORKERS = 4
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
