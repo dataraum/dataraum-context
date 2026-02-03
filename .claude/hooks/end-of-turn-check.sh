@@ -5,7 +5,7 @@
 
 set -e
 
-cd "$CLAUDE_PROJECT_DIR/packages/dataraum-api"
+cd "$CLAUDE_PROJECT_DIR/"
 
 echo "Running quality checks..."
 

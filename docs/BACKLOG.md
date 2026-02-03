@@ -3,13 +3,18 @@
 Prioritized backlog for the dataraum-context project. Items are organized by priority and dependency.
 
 **Related Documentation:**
-- [plans/interface-strategy.md](./plans/interface-strategy.md) - Current plan: Agent testing, HTMX UI, MCP, Jupyter
+- [plans/cli-tui-plan.md](./plans/cli-tui-plan.md) - Current plan: Textual TUI + MCP
 - [plans/query-agent-architecture.md](./plans/query-agent-architecture.md) - RAG-based query reuse design
 - [ENTROPY_IMPLEMENTATION_PLAN.md](./ENTROPY_IMPLEMENTATION_PLAN.md) - Entropy system architecture
 - [ENTROPY_MODELS.md](./ENTROPY_MODELS.md) - Data model specifications
 - [ENTROPY_CONTRACTS.md](./ENTROPY_CONTRACTS.md) - Data readiness thresholds
 - [ENTROPY_QUERY_BEHAVIOR.md](./ENTROPY_QUERY_BEHAVIOR.md) - Agent response policies
 - [PROGRESS.md](./PROGRESS.md) - Completed work log
+
+**Project Structure (as of 2026-02-03):**
+- Flattened from `packages/dataraum-api/` to root level
+- FastAPI removed - CLI-first with Textual TUI + MCP
+- Source: `src/dataraum/`, Tests: `tests/`, Config: `config/`
 
 ---
 
@@ -311,64 +316,56 @@ The topology module is now consumed by slice analysis phases, not as a standalon
 
 ---
 
-## Priority 4: Agent Validation & Interfaces (Current Focus)
+## Priority 4: CLI/TUI & MCP (Current Focus)
 
-> **Plan:** [plans/interface-strategy.md](./plans/interface-strategy.md)
-> **Previous plan archived:** [archive/ui-api-consolidation.md](./archive/ui-api-consolidation.md)
+> **Plan:** [plans/cli-tui-plan.md](./plans/cli-tui-plan.md)
+> **Previous plans archived:** [archive/ui/](./archive/ui/)
 
-### Phase 0: Agent Validation ✅ COMPLETE (Mocked Tests)
+### Phase 0: Project Restructure ✅ COMPLETE (2026-02-03)
 
-**Step 0.1-0.4: Integration Tests** ✅ COMPLETE (2026-01-28)
-- [x] Graph agent: context loading, SQL generation, entropy behavior modes (14 tests)
-- [x] Query agent: end-to-end queries, contract integration, result metadata (11 tests)
-- [x] Query library: embeddings, vector search, persistence, usage tracking (13 tests)
-- [x] Contracts: all 5 profiles, confidence levels, violations (13 tests)
+**Step 0.1: Flatten Project** ✅ COMPLETE
+- [x] Move `packages/dataraum-api/src/dataraum/` → `src/dataraum/`
+- [x] Move `packages/dataraum-api/tests/` → `tests/`
+- [x] Move `packages/dataraum-api/config/` → `config/`
+- [x] Merge `pyproject.toml` (remove FastAPI, add Textual + MCP)
+- [x] Delete `packages/` directory
 
-**Step 0.5: CI-Ready Test Suite** ✅ COMPLETE (2026-01-28)
-- [x] `tests/integration/conftest.py` with small_finance fixtures
-- [x] Mock LLM provider for deterministic tests
-- [x] No external dependencies (BookSQL removed)
-- [x] **50 tests passed, 1 skipped (~6 minutes)**
+**Step 0.2: Remove FastAPI** ✅ COMPLETE
+- [x] Delete `src/dataraum/api/` module
+- [x] Delete `tests/api/` tests
+- [x] Remove `fastapi`, `uvicorn` from dependencies
+- [x] Remove `dataraum-api` script entry point
 
-**Step 0.6: Real E2E Testing** ⏳ IN PROGRESS
-- [ ] Run full pipeline via CLI against small_finance (with LLM phases)
-- [ ] Test query agent with actual LLM responses
-- [ ] Verify generated SQL is correct and returns meaningful results
-- [ ] Verify contract evaluation produces sensible traffic lights
-- [ ] Requires: `ANTHROPIC_API_KEY` or equivalent configured
+**Step 0.3: Consolidate Docs** ✅ COMPLETE
+- [x] Move `docs/ui/*.md` → `docs/archive/ui/`
+- [x] Move `packages/dataraum-api/docs/plans/*.md` → `docs/plans/`
+- [x] Update `CLAUDE.md` and `BACKLOG.md`
 
-### Phase 1: HTMX UI Foundation
-- [ ] Add Jinja2 + static files to FastAPI app
-- [ ] Content negotiation on existing routes (JSON or HTML)
-- [ ] Base template with daisyUI layout
-- [ ] Conversation interface with SSE streaming
-- [ ] `<arrow-table>` web component (regular-table + Arrow JS)
-- [ ] Entropy dashboard (Vega-Lite radar + issues table)
-- [ ] Query agent UI (input, streaming response, results)
+### Phase 1: Textual TUI Integration
+- [ ] Create `cli/` module structure (rename from `cli.py`)
+- [ ] Add `--no-tui` flag to commands for raw Rich output
+- [ ] Implement `HomeScreen` - table tree, overview, entropy summary
+- [ ] Implement `EntropyScreen` - entropy dashboard with drill-down
+- [ ] Implement `TableScreen` - column details, semantic annotations
+- [ ] Implement `ContractsScreen` - contract evaluation with traffic lights
+- [ ] Implement `QueryScreen` - NL input, history, streaming response, SQL preview
+- [ ] Create `styles.tcss` for Textual styling
+- [ ] Test with `small_finance` data
 
-### Phase 2a: MCP Server
+### Phase 2: MCP Server
 - [ ] Create `mcp/server.py` with tool registration
 - [ ] Implement `get_context` tool (wraps `build_execution_context`)
+- [ ] Implement `get_entropy` tool (wraps entropy dashboard builder)
+- [ ] Implement `evaluate_contract` tool (wraps contract evaluation)
 - [ ] Implement `query` tool (wraps `answer_question`)
-- [ ] Implement `get_metrics` tool (graph listing + entropy)
-- [ ] Implement `annotate` tool (semantic annotation update)
 - [ ] Create `mcp/formatters.py` for LLM-optimized output
+- [ ] Add `dataraum-mcp` entry point
 - [ ] Claude Desktop configuration docs
 
-### Phase 2b: Jupyter / Python API
-- [ ] Create `notebook/` module with `Context` class
-- [ ] Entropy accessor: `ctx.entropy.summary()`, `.table()`, `.column()`
-- [ ] Contracts accessor: `ctx.contracts.evaluate()`, `.evaluate_all()`
-- [ ] Query accessor: `ctx.query("...")` returning pandas DataFrame
-- [ ] Library accessor: `ctx.library.search()`, `.list()`
-- [ ] IPython `_repr_html_` methods for rich display
-
-### Phase 3: UI Completion
-- [ ] Schema explorer (Cytoscape.js)
-- [ ] Pipeline monitor (SSE)
-- [ ] Context panel (sidebar)
-- [ ] SQL editor (CodeMirror 6)
-- [ ] Mutations + undo system
+### Phase 3: Documentation
+- [ ] Update `docs/CLI.md` with TUI usage
+- [ ] Create MCP integration guide
+- [ ] Update README.md
 
 ### Graph Agent Enhancements (Parallel)
 

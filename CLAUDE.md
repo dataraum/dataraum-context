@@ -104,12 +104,12 @@ Before declaring any task complete, verify:
 |------|---------|
 | `docs/BACKLOG.md` | Task stack - what's done, what's next |
 | `docs/PROGRESS.md` | Session log - recent work history |
-| `docs/plans/ui-api-consolidation.md` | Current plan: FastAPI + React UI |
+| `docs/plans/cli-tui-plan.md` | Current plan: Textual TUI + MCP |
 | `docs/ENTROPY_IMPLEMENTATION_PLAN.md` | Entropy system architecture |
 
 **Current Focus (from BACKLOG.md):**
-- Step 3.3: API Endpoints (FastAPI routes for sources, pipeline, entropy, context)
-- Step 3.4: MCP Server (4 tools: get_context, query, get_metrics, annotate)
+- CLI/TUI: Textual screens for status, entropy, contracts, query
+- MCP Server: 4 tools (get_context, get_entropy, evaluate_contract, query)
 
 **Core Concept - Entropy:**
 The key innovation is quantifying **uncertainty (entropy)** in data so LLMs can make deterministic decisions. See `entropy-management-framework.md` for the full spec.
@@ -145,9 +145,9 @@ ls prototypes/analytics-agents-ts       # Agents and prompts (inside prompts fol
 
 1. **DuckDB for compute** - All data operations through DuckDB/PyArrow
 2. **SQLAlchemy for metadata** - SQLite for dev, PostgreSQL for production
-3. **Hamilton for dataflows** - Functional DAG with automatic lineage
-4. **Configuration as YAML** - Ontologies, patterns, rules, null values
-5. **OSS-ready** - Clean interfaces, pip-installable, Apache-licensed core
+3. **Configuration as YAML** - Ontologies, patterns, rules, null values
+4. **OSS-ready** - Clean interfaces, pip-installable, Apache-licensed core
+5. **CLI-first** - Textual TUI for interactive use, MCP for LLM integration
 
 ## Technology Stack
 
@@ -158,8 +158,8 @@ ls prototypes/analytics-agents-ts       # Agents and prompts (inside prompts fol
 | Pattern detection | PyArrow + Pint | Type inference, unit detection |
 | Topology | TDA (existing prototype) | Relationship detection |
 | Metadata storage | SQLAlchemy | SQLite (dev) / PostgreSQL (prod) |
-| Dataflows | Apache Hamilton | DAG orchestration with lineage |
-| API | FastAPI | HTTP interface |
+| CLI | Typer + Rich | Command-line interface |
+| TUI | Textual | Interactive terminal UI |
 | AI interface | MCP SDK | Tool definitions for AI |
 | Python Runtime | Python 3.14t | Free-threading for true parallelism |
 
@@ -168,16 +168,12 @@ ls prototypes/analytics-agents-ts       # Agents and prompts (inside prompts fol
 This project uses **Python 3.14 free-threaded build** for true CPU parallelism. The GIL is disabled, enabling:
 - ~3.5x speedup on 4-core CPU-bound work via `ThreadPoolExecutor`
 - Pipeline phases run in parallel without GIL contention
-- FastAPI + uvicorn work correctly with free-threading
 
 ### Running with Free-Threading
 
 ```bash
-# Start API server with GIL disabled
-uv run python -Xgil=0 -m uvicorn dataraum.api.main:create_app --factory --reload
-
-# Or use the convenience script
-uv run dataraum-api
+# Run pipeline with GIL disabled
+uv run python -Xgil=0 -m dataraum run /path/to/data
 
 # Verify free-threading is enabled
 python -c "import sys; print('Free-threading:', not sys._is_gil_enabled())"
@@ -185,16 +181,14 @@ python -c "import sys; print('Free-threading:', not sys._is_gil_enabled())"
 
 ### Architecture Notes
 
-- **Single ConnectionManager** (`core/connections.py`) shared by pipeline and API
-- **Sync endpoints**: FastAPI runs sync `def` endpoints in thread pool (efficient)
+- **Single ConnectionManager** (`core/connections.py`) shared across modules
 - **Pipeline in ThreadPoolExecutor**: Gets true parallelism from free-threading
-- **SSE for progress**: Pipeline progress streamed to UI via Server-Sent Events
 - **DuckDB**: Read cursors are thread-safe; writes serialized via mutex
 
 ## Module Structure
 
 ```
-packages/dataraum-api/src/dataraum/
+src/dataraum/
 ├── analysis/       # Data analysis modules
 │   ├── typing/         # Type inference, pattern detection
 │   ├── statistics/     # Column profiling, distributions
@@ -216,8 +210,14 @@ packages/dataraum-api/src/dataraum/
 ├── storage/        # SQLAlchemy models
 ├── llm/            # LLM providers and prompts
 ├── core/           # Config, connections, utilities
-├── api/            # FastAPI routes (TODO)
+├── cli/            # Textual TUI (TODO)
+│   ├── main.py         # Typer app, command definitions
+│   ├── app.py          # Textual DataraumApp
+│   ├── screens/        # TUI screens
+│   └── widgets/        # TUI widgets
 └── mcp/            # MCP server (TODO)
+    ├── server.py       # MCP tool definitions
+    └── formatters.py   # LLM-optimized output
 ```
 
 **Note:** SQLAlchemy DB models are co-located with business logic in `db_models.py` files within each module.
@@ -260,7 +260,7 @@ Prompts are customizable in `config/prompts/`.
 ## Key Design Decisions
 
 ### VARCHAR-First Staging
-Load all data as VARCHAR to preserve raw values. Type inference happens in 
+Load all data as VARCHAR to preserve raw values. Type inference happens in
 profiling, not during load. This prevents silent data loss.
 
 ### Quarantine Pattern
@@ -268,16 +268,16 @@ Failed type casts don't fail the pipeline. They go to quarantine tables for
 human review. The workflow can checkpoint and wait for approval.
 
 ### Pre-computed Context
-AI doesn't discover metadata. It receives a pre-assembled `ContextDocument` 
-with all relevant metadata already computed and interpreted through the 
+AI doesn't discover metadata. It receives a pre-assembled `ContextDocument`
+with all relevant metadata already computed and interpreted through the
 selected ontology.
 
 ### Minimal AI Tools
 Only 4 MCP tools:
 - `get_context` - Primary context retrieval
-- `query` - Execute SQL
-- `get_metrics` - Available metrics for ontology  
-- `annotate` - Human-in-loop semantic updates
+- `get_entropy` - Entropy analysis for tables/columns
+- `evaluate_contract` - Data readiness evaluation
+- `query` - Execute SQL with entropy awareness
 
 ### Ontologies as Configuration
 Domain ontologies (financial_reporting, marketing, etc.) are YAML configs that:
@@ -306,7 +306,7 @@ Features:
 - Type candidate scoring with confidence
 
 ### Topology Analysis (`prototypes/topology/`)
-**REIMPLEMENT** - take inspiration from the code, remove string comparisons for ranking, focus on extracting the topology and related metrics as additional context forr the semantic analysis.
+**REIMPLEMENT** - take inspiration from the code, remove string comparisons for ranking, focus on extracting the topology and related metrics as additional context for the semantic analysis.
 
 ```python
 # Entry point
@@ -329,12 +329,12 @@ Features:
 - FK candidate detection with evidence
 
 ### Topology Analysis (`prototypes/analytics-agents-ts/`)
-**REIMPLEMENT** - take inspiration from the code, check the data-analysis prompts inside the prompts folder. Check the data-analysis schema inside the prommpts/schemas folder. Follow the same pattern of system prompt, user prompt, JSON Schema as a tool. Only focus on the semantic meaning, skip the data quality part
+**REIMPLEMENT** - take inspiration from the code, check the data-analysis prompts inside the prompts folder. Check the data-analysis schema inside the prompts/schemas folder. Follow the same pattern of system prompt, user prompt, JSON Schema as a tool. Only focus on the semantic meaning, skip the data quality part
 
 Features:
 - Analyse the semantics of the provided data schema.
 - Summarize the business purpose.
-- Dynamically create the prompts, with context injected. 
+- Dynamically create the prompts, with context injected.
 
 ## Implementation Guidelines
 
@@ -353,10 +353,10 @@ async def some_operation() -> Result[SomeOutput]:
 
 ### Database Connections
 ```python
-# Use async context managers
-async with get_duckdb_connection() as duckdb_conn:
-    async with get_metadata_session() as session:
-        result = await some_operation(duckdb_conn, session)
+# Use context managers
+with manager.session_scope() as session:
+    with manager.duckdb_cursor() as cursor:
+        result = some_operation(cursor, session)
 ```
 
 ### Testing
@@ -376,7 +376,7 @@ async with get_duckdb_connection() as duckdb_conn:
 ## Implementation Order (Historical Reference)
 
 > **Note:** This section reflects the original plan. For current status, see `docs/BACKLOG.md`.
-> Phases 1-4 are complete. Current work is API/UI (Phase 5+).
+> Phases 1-4 are complete. Current work is CLI/TUI + MCP.
 
 ### Phase 1: Foundation ✅ COMPLETE
 These must come first - everything else depends on them.
@@ -400,8 +400,8 @@ These must come first - everything else depends on them.
 | Step | Module | Status |
 |------|--------|--------|
 | Pipeline Orchestrator | `pipeline/` | ✅ 18 phases, CLI complete |
-| API | `api/` | ⏳ Next: FastAPI routes |
-| MCP Server | `mcp/` | Pending (after API) |
+| CLI/TUI | `cli/` | ⏳ Next: Textual screens |
+| MCP Server | `mcp/` | Pending (after TUI) |
 
 ### Testing Strategy
 
@@ -412,7 +412,6 @@ These must come first - everything else depends on them.
 | 5-6 | Property-based tests, sample datasets |
 | 7-9 | Integration tests: mock LLM + real DuckDB |
 | 10-11 | Golden file tests for context documents |
-| 12-13 | API contract tests, end-to-end tests |
 
 ## File Locations
 
@@ -420,14 +419,14 @@ These must come first - everything else depends on them.
 |------|-------|
 | Architecture docs | `docs/` |
 | Existing prototypes | `prototypes/` |
-| Source code | `packages/dataraum-api/src/dataraum/` |
-| Tests | `packages/dataraum-api/tests/` |
-| Ontology configs | `packages/dataraum-api/config/ontologies/` |
-| Pattern configs | `packages/dataraum-api/config/patterns/` |
-| Quality rule configs | `packages/dataraum-api/config/rules/` |
-| LLM prompts | `packages/dataraum-api/config/prompts/` |
-| LLM config | `packages/dataraum-api/config/llm.yaml` |
-| Null value lists | `packages/dataraum-api/config/null_values.yaml` |
+| Source code | `src/dataraum/` |
+| Tests | `tests/` |
+| Ontology configs | `config/ontologies/` |
+| Pattern configs | `config/patterns/` |
+| Quality rule configs | `config/rules/` |
+| LLM prompts | `config/prompts/` |
+| LLM config | `config/llm.yaml` |
+| Null value lists | `config/null_values.yaml` |
 | Semantic overrides | `config/semantic_overrides.yaml` |
 | Example data | `examples/data/` |
 
@@ -442,10 +441,10 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.19.0",
     "pydantic>=2.0.0",
-    "fastapi>=0.110.0",
-    "uvicorn>=0.27.0",
-    "sf-hamilton>=1.82.0",
-    "mcp>=0.1.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "textual>=0.50.0",
+    "mcp>=1.0.0",
     "pyyaml>=6.0.0",
 ]
 
@@ -468,8 +467,17 @@ dependencies = [
 # Run on CSV data
 dataraum run /path/to/data --output ./output
 
-# Check status
+# Check status (launches TUI by default)
 dataraum status ./output
+
+# Check status (raw output)
+dataraum status ./output --no-tui
+
+# View entropy dashboard
+dataraum entropy ./output
+
+# Evaluate contracts
+dataraum contracts ./output
 
 # Inspect graphs and context
 dataraum inspect ./output
@@ -485,17 +493,10 @@ See `docs/CLI.md` for full CLI documentation.
 pytest tests/ -v
 ```
 
-### Start API server
-```bash
-# With free-threading (recommended)
-uv run python -Xgil=0 -m uvicorn dataraum.api.main:create_app --factory --reload
-
-# Or standard (with GIL)
-uv run uvicorn dataraum.api.main:create_app --factory --reload
-```
-
 ### Start MCP server
 ```bash
+dataraum-mcp
+# or
 python -m dataraum.mcp.server
 ```
 
