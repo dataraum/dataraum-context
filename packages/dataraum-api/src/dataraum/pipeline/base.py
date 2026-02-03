@@ -204,24 +204,33 @@ PIPELINE_DAG: list[PhaseDefinition] = [
         parallel_group="post_typing",
     ),
     # ============================================================
+    # COLUMN ELIGIBILITY (gate before further analysis)
+    # ============================================================
+    PhaseDefinition(
+        name="column_eligibility",
+        description="Column eligibility evaluation and cleanup",
+        dependencies=["statistics"],
+        outputs=["column_eligibility_records"],
+    ),
+    # ============================================================
     # STATISTICAL ANALYSIS PHASES
     # ============================================================
     PhaseDefinition(
         name="statistical_quality",
         description="Benford's Law and outlier detection",
-        dependencies=["statistics"],
+        dependencies=["column_eligibility"],
         outputs=["quality_metrics"],
     ),
     PhaseDefinition(
         name="relationships",
         description="Cross-table relationship detection",
-        dependencies=["statistics"],
+        dependencies=["column_eligibility"],
         outputs=["relationship_candidates"],
     ),
     PhaseDefinition(
         name="correlations",
         description="Within-table correlation analysis",
-        dependencies=["statistics"],
+        dependencies=["column_eligibility"],
         outputs=["correlations", "derived_columns"],
     ),
     # ============================================================
@@ -272,7 +281,7 @@ PIPELINE_DAG: list[PhaseDefinition] = [
         description="Entropy detection across all dimensions",
         dependencies=[
             "typing",
-            "statistics",
+            "column_eligibility",  # Ensures only eligible columns are analyzed
             "semantic",
             "relationships",
             "correlations",
@@ -320,7 +329,7 @@ PIPELINE_DAG: list[PhaseDefinition] = [
         description="Execute metric graphs via LLM SQL generation",
         dependencies=[
             "semantic",
-            "statistics",
+            "column_eligibility",  # Ensures only eligible columns in context
             "statistical_quality",
             "temporal",
             "relationships",
