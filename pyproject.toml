@@ -27,13 +27,11 @@ dependencies = [
     # Database (SQLAlchemy + SQLite backend)
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.19.0",
-    # API
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.27.0",
+    # Pydantic
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     # MCP
-    "mcp>=0.1.0",
+    "mcp>=1.0.0",
     # Configuration
     "pyyaml>=6.0.0",
     # TDA (Topological Data Analysis)
@@ -51,6 +49,8 @@ dependencies = [
     "networkx>=3.6",
     "anthropic>=0.76.0",
     "sentence-transformers>=5.2.0",
+    # TUI
+    "textual>=0.50.0",
 ]
 
 [project.optional-dependencies]
@@ -100,7 +100,7 @@ all = [
 
 [project.scripts]
 dataraum = "dataraum.cli:app"
-dataraum-api = "dataraum.api.server:main"
+dataraum-mcp = "dataraum.mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/dataraum/dataraum-context"
@@ -148,7 +148,7 @@ filterwarnings = [
 target-version = "py314"
 line-length = 100
 extend-exclude = [
-    "../../prototypes/",
+    "prototypes/",
 ]
 
 [tool.ruff.lint]
@@ -197,6 +197,7 @@ module = [
     "ruptures.*",
     "pyarrow.*",
     "networkx.*",
+    "textual.*",
 ]
 ignore_missing_imports = true
 
