@@ -26,6 +26,7 @@ class HomeScreen(Screen[None]):
         super().__init__(**kwargs)
         self.output_dir = output_dir
         self._data_loaded = False
+        self._table_names: list[str] = []
 
     def compose(self) -> ComposeResult:
         """Create the screen layout."""
@@ -117,11 +118,13 @@ class HomeScreen(Screen[None]):
 
         table_widget = self.query_one("#tables-table", DataTable)
         table_widget.clear(columns=True)
+        table_widget.cursor_type = "row"
 
         table_widget.add_column("Table", key="table")
         table_widget.add_column("Columns", key="columns")
         table_widget.add_column("Rows", key="rows")
 
+        self._table_names = []
         for tbl in tables:
             # Count columns
             col_count = session.execute(
@@ -133,6 +136,18 @@ class HomeScreen(Screen[None]):
                 str(col_count or 0),
                 str(tbl.row_count or "-"),
             )
+            self._table_names.append(tbl.table_name)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle row selection in tables table."""
+        if event.data_table.id == "tables-table" and event.cursor_row < len(self._table_names):
+            table_name = self._table_names[event.cursor_row]
+            # Access app and push table screen
+            from dataraum.cli.tui.app import DataraumApp
+
+            app = self.app
+            if isinstance(app, DataraumApp):
+                app.push_table_screen(table_name)
 
     def _update_pipeline_status(self, session: Any, source: Any) -> None:
         """Update the pipeline status table."""

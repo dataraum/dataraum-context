@@ -30,6 +30,7 @@ class DataraumApp(App[None]):
         Binding("h", "switch_screen('home')", "Home", show=True),
         Binding("e", "switch_screen('entropy')", "Entropy", show=True),
         Binding("c", "switch_screen('contracts')", "Contracts", show=True),
+        Binding("/", "switch_screen('query')", "Query", show=True),
         Binding("?", "show_help", "Help", show=True),
     ]
 
@@ -72,6 +73,7 @@ class DataraumApp(App[None]):
         from dataraum.cli.tui.screens.contracts import ContractsScreen
         from dataraum.cli.tui.screens.entropy import EntropyScreen
         from dataraum.cli.tui.screens.home import HomeScreen
+        from dataraum.cli.tui.screens.query import QueryScreen
 
         # Install all screens
         self.install_screen(HomeScreen(self.output_dir), name="home")
@@ -80,9 +82,20 @@ class DataraumApp(App[None]):
             name="entropy",
         )
         self.install_screen(ContractsScreen(self.output_dir), name="contracts")
+        self.install_screen(
+            QueryScreen(self.output_dir, initial_query=self.initial_query),
+            name="query",
+        )
 
         # Switch to initial screen
         self.push_screen(self.initial_screen)
+
+    def push_table_screen(self, table_name: str) -> None:
+        """Push a table detail screen for the given table."""
+        from dataraum.cli.tui.screens.table import TableScreen
+
+        screen = TableScreen(self.output_dir, table_name)
+        self.push_screen(screen)
 
     async def action_switch_screen(self, screen_name: str) -> None:
         """Switch to a different screen."""
@@ -91,7 +104,7 @@ class DataraumApp(App[None]):
     def action_show_help(self) -> None:
         """Show help dialog."""
         self.notify(
-            "Keys: [h]ome, [e]ntropy, [c]ontracts, [q]uit\n"
+            "Keys: [h]ome, [e]ntropy, [c]ontracts, [/]query, [q]uit\n"
             "Use arrow keys to navigate, Enter to select",
             title="Help",
             timeout=5,
