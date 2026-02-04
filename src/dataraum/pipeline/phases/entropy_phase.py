@@ -650,6 +650,32 @@ def _run_dimensional_entropy(
     all_summaries: list[dict[str, Any]] = []
     detector = DimensionalEntropyDetector()
 
+    # Attempt optional LLM for executive summaries
+    summary_agent = None
+    try:
+        from dataraum.entropy.detectors.semantic.dimensional_entropy import (
+            DimensionalSummaryAgent,
+        )
+        from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+
+        llm_config = load_llm_config()
+        feature_config = llm_config.features.dimensional_summary
+        if feature_config and feature_config.enabled:
+            provider_config = llm_config.providers.get(llm_config.active_provider)
+            if provider_config:
+                provider = create_provider(llm_config.active_provider, provider_config.model_dump())
+                cache = LLMCache()
+                renderer = PromptRenderer()
+                summary_agent = DimensionalSummaryAgent(
+                    config=llm_config,
+                    provider=provider,
+                    prompt_renderer=renderer,
+                    cache=cache,
+                )
+                logger.info("dimensional_summary_agent_initialized")
+    except Exception as e:
+        logger.info("dimensional_summary_llm_unavailable", reason=str(e))
+
     logger.info("dimensional_entropy_start", tables=len(typed_tables))
 
     for table in typed_tables:
@@ -830,6 +856,7 @@ def _run_dimensional_entropy(
                 patterns=patterns,
                 entropy_score=entropy_score,
                 slice_column=slice_column_name,
+                summary_agent=summary_agent,
             )
             all_summaries.append(summary.to_dict())
             logger.info(

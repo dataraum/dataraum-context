@@ -135,9 +135,9 @@ def _verify_cardinality(
         True if cardinality matches, False if mismatch, None if inconclusive
     """
     try:
-        # Check if each distinct col1 value matches at most one ROW in t2
-        # (Determines "one" vs "many" on the right side of relationship)
-        col1_max_matches_query = f"""
+        # For each distinct col1 value in t1, how many t2 rows match?
+        # If max <= 1, each t1 value maps to at most one t2 row.
+        t1_to_t2_query = f"""
             SELECT MAX(match_count) <= 1
             FROM (
                 SELECT t1."{col1}", COUNT(*) as match_count
@@ -146,12 +146,12 @@ def _verify_cardinality(
                 GROUP BY t1."{col1}"
             )
         """
-        result1 = duckdb_conn.execute(col1_max_matches_query).fetchone()
-        right_side_is_one = bool(result1[0]) if result1 and result1[0] is not None else None
+        result1 = duckdb_conn.execute(t1_to_t2_query).fetchone()
+        each_t1_has_one_t2 = bool(result1[0]) if result1 and result1[0] is not None else None
 
-        # Check if each distinct col2 value matches at most one ROW in t1
-        # (Determines "one" vs "many" on the left side of relationship)
-        col2_max_matches_query = f"""
+        # For each distinct col2 value in t2, how many t1 rows match?
+        # If max <= 1, each t2 value maps to at most one t1 row.
+        t2_to_t1_query = f"""
             SELECT MAX(match_count) <= 1
             FROM (
                 SELECT t2."{col2}", COUNT(*) as match_count
@@ -160,27 +160,24 @@ def _verify_cardinality(
                 GROUP BY t2."{col2}"
             )
         """
-        result2 = duckdb_conn.execute(col2_max_matches_query).fetchone()
-        left_side_is_one = bool(result2[0]) if result2 and result2[0] is not None else None
+        result2 = duckdb_conn.execute(t2_to_t1_query).fetchone()
+        each_t2_has_one_t1 = bool(result2[0]) if result2 and result2[0] is not None else None
 
         # If we couldn't determine either side, return None (inconclusive)
-        if right_side_is_one is None or left_side_is_one is None:
+        if each_t1_has_one_t2 is None or each_t2_has_one_t1 is None:
             return None
 
-        # Determine actual cardinality from join behavior
-        # From t1's perspective: t1 -> t2
-        # - left_side_is_one: each t1 value matches at most one t2 row (t1 side is "one")
-        # - right_side_is_one: each t2 value matches at most one t1 row (t2 side is "one")
-        if left_side_is_one and right_side_is_one:
+        # Determine actual cardinality in "t1-to-t2" format
+        # "one-to-many" means: each t1 value can match many t2 rows,
+        #   but each t2 value matches at most one t1 row.
+        if each_t1_has_one_t2 and each_t2_has_one_t1:
             actual = "one-to-one"
-        elif left_side_is_one and not right_side_is_one:
-            # Each t1 value has one match, but t2 values have multiple matches
-            # From t1->t2: many t1 rows -> one t2 row = many-to-one
-            actual = "many-to-one"
-        elif not left_side_is_one and right_side_is_one:
-            # Each t1 value has multiple matches, but t2 values have one match
-            # From t1->t2: one t1 row -> many t2 rows = one-to-many
+        elif not each_t1_has_one_t2 and each_t2_has_one_t1:
+            # Each t1 value maps to many t2 rows, each t2 value maps to one t1 row
             actual = "one-to-many"
+        elif each_t1_has_one_t2 and not each_t2_has_one_t1:
+            # Each t1 value maps to one t2 row, each t2 value maps to many t1 rows
+            actual = "many-to-one"
         else:
             actual = "many-to-many"
 
