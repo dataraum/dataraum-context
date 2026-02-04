@@ -78,6 +78,14 @@ user_prompt: |
   {business_rules_json}
   </business_rules>
 
+  <column_quality_findings>
+  This section contains LLM-generated quality assessments per column, aggregated
+  across all slices. Each entry includes the average quality score (0-1), entropy
+  score (1 - quality), quality grades (A-F), key findings, quality issues, and
+  recommendations from the detailed per-column analysis.
+  {column_quality_findings_json}
+  </column_quality_findings>
+
   <current_concerns>
   {data_quality_concerns_json}
   </current_concerns>
@@ -175,6 +183,11 @@ inputs:
   business_rules_json:
     description: JSON array of detected business rules with confidence and descriptions
     required: true
+
+  column_quality_findings_json:
+    description: JSON array of LLM-generated column quality findings aggregated across slices, including quality scores, grades, key findings, issues, and recommendations
+    required: false
+    default: "[]"
 
   data_quality_concerns_json:
     description: JSON array of current quality concerns (from hardcoded analysis)
