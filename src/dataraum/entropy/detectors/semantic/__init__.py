@@ -28,6 +28,7 @@ from dataraum.entropy.detectors.semantic.temporal_entropy import (
 from dataraum.entropy.detectors.semantic.unit_entropy import (
     UnitEntropyDetector,
 )
+from dataraum.entropy.summary_agent import DimensionalSummaryAgent, DimensionalSummaryOutput
 
 __all__ = [
     "BusinessMeaningDetector",
@@ -45,4 +46,7 @@ __all__ = [
     "InterestingColumnSummary",
     "DetectedBusinessRule",
     "generate_dataset_summary",
+    # LLM summary agent
+    "DimensionalSummaryAgent",
+    "DimensionalSummaryOutput",
 ]

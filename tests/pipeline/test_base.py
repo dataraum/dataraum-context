@@ -67,8 +67,8 @@ class TestPipelineDAG:
     def test_entropy_phase_exists(self):
         entropy_phase = get_phase_definition("entropy")
         assert entropy_phase is not None
-        assert "statistics" in entropy_phase.dependencies
         assert "semantic" in entropy_phase.dependencies
+        assert "quality_summary" in entropy_phase.dependencies
 
     def test_graph_execution_phase_is_last(self):
         """Graph execution is now the final phase after context was merged into it."""
