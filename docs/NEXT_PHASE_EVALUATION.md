@@ -85,7 +85,6 @@ async def get_source(source_id: str) -> SourceResponse:
 async def run_pipeline(
     source_id: str,
     target_phase: str | None = None,
-    skip_llm: bool = False,
 ) -> PipelineRunResponse:
     """Execute pipeline on source."""
 

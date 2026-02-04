@@ -23,7 +23,7 @@ class TestTriggerPipeline:
         """Triggering pipeline returns run_id and status."""
         response = test_client.post(
             f"/api/v1/sources/{seeded_source['source_id']}/run",
-            json={"skip_llm": True},
+            json={},
         )
         assert response.status_code == 200
 
@@ -34,11 +34,10 @@ class TestTriggerPipeline:
         assert "message" in data
 
     def test_trigger_with_options(self, test_client: TestClient, seeded_source: dict):
-        """Pipeline can be triggered with skip_llm and force options."""
+        """Pipeline can be triggered with force and target_phase options."""
         response = test_client.post(
             f"/api/v1/sources/{seeded_source['source_id']}/run",
             json={
-                "skip_llm": True,
                 "force": True,
                 "target_phase": "profiling",
             },
@@ -89,7 +88,7 @@ class TestSingletonExecution:
         # First trigger
         resp1 = test_client.post(
             f"/api/v1/sources/{seeded_source['source_id']}/run",
-            json={"skip_llm": True},
+            json={},
         )
         assert resp1.status_code == 200
         first_run_id = resp1.json()["run_id"]
@@ -100,7 +99,7 @@ class TestSingletonExecution:
         # Second trigger - should get new run_id since first completed
         resp2 = test_client.post(
             f"/api/v1/sources/{seeded_source['source_id']}/run",
-            json={"skip_llm": True},
+            json={},
         )
 
         # Either gets 409 (first still running) or 200 with new run_id
@@ -127,7 +126,7 @@ class TestPipelineIntegration:
         # Trigger pipeline
         trigger_resp = test_client.post(
             f"/api/v1/sources/{seeded_source['source_id']}/run",
-            json={"skip_llm": True},
+            json={},
         )
         assert trigger_resp.status_code == 200
         run_id = trigger_resp.json()["run_id"]

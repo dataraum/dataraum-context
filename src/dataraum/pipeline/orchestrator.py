@@ -107,7 +107,6 @@ class PipelineConfig:
     max_parallel: int = 4
     fail_fast: bool = True
     skip_completed: bool = True
-    skip_llm_phases: bool = False  # Skip phases that require LLM
 
 
 @dataclass
@@ -559,12 +558,6 @@ class Pipeline:
             # Check if phase has an implementation
             if name not in self.phases:
                 logger.info(f"Phase {name} skipped: no implementation registered")
-                self._skipped.add(name)
-                continue
-
-            # Check if LLM phase should be skipped
-            if self.config.skip_llm_phases and phase_def.requires_llm:
-                logger.info(f"Phase {name} skipped: LLM phase (skip_llm_phases=True)")
                 self._skipped.add(name)
                 continue
 

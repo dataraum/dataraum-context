@@ -45,13 +45,6 @@ def run(
             help="Run only this phase and its dependencies",
         ),
     ] = None,
-    skip_llm: Annotated[
-        bool,
-        typer.Option(
-            "--skip-llm",
-            help="Skip phases that require LLM",
-        ),
-    ] = False,
     quiet: Annotated[
         bool,
         typer.Option(
@@ -85,7 +78,7 @@ def run(
 
         dataraum run /path/to/file.csv --output ./my_output
 
-        dataraum run /path/to/data --phase import --skip-llm
+        dataraum run /path/to/data --phase semantic  # Run up to semantic phase
 
         dataraum run /path/to/data -v         # Show INFO level logs
 
@@ -103,7 +96,6 @@ def run(
         output_dir=output,
         source_name=name,
         target_phase=phase,
-        skip_llm=skip_llm,
     )
 
     # Run pipeline - always returns Result.ok with RunResult
@@ -120,8 +112,6 @@ def run(
 
         if config.target_phase:
             console.print(f"Target Phase: {config.target_phase}")
-        if config.skip_llm:
-            console.print("LLM Phases: Skipped")
 
         # Show per-phase results
         if run_result.phases:
