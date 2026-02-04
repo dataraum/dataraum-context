@@ -38,6 +38,7 @@ class LLMFeatures(BaseModel):
     validation: FeatureConfig | None = None
     entropy_interpretation: FeatureConfig | None = None
     entropy_query_interpretation: FeatureConfig | None = None
+    dimensional_summary: FeatureConfig | None = None
 
 
 class LLMLimits(BaseModel):
@@ -86,7 +87,9 @@ def load_llm_config(config_path: Path | None = None) -> LLMConfig:
         pydantic.ValidationError: If config doesn't match schema
     """
     if config_path is None:
-        config_path = Path("config/llm.yaml")
+        from dataraum.core.config import get_settings
+
+        config_path = get_settings().config_path / "llm.yaml"
 
     if not config_path.exists():
         raise FileNotFoundError(
