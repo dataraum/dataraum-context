@@ -180,7 +180,6 @@ def trigger_pipeline(
 
         manager = get_connection_manager()
         config = PipelineConfig(
-            skip_llm_phases=request.skip_llm,
             skip_completed=not request.force,
         )
 

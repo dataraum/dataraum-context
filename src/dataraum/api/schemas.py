@@ -111,7 +111,6 @@ class PipelineRunRequest(BaseModel):
     target_phase: str | None = Field(
         default=None, description="Run up to this phase (None = all phases)"
     )
-    skip_llm: bool = Field(default=False, description="Skip LLM-dependent phases")
     force: bool = Field(default=False, description="Force re-run even if already completed")
 
 

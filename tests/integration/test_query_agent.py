@@ -246,7 +246,7 @@ class TestContractIntegration:
     ):
         """auto_contract finds strictest passing, or falls back if none pass.
 
-        With skip_llm_phases=True, structural.types entropy is high (0.7)
+        Without LLM phases, structural.types entropy is high (0.7)
         which may cause all contracts to fail. In this case, auto_contract
         falls back to exploratory_analysis with RED confidence.
         """

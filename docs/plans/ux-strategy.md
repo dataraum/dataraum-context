@@ -309,39 +309,52 @@ Once in TUI, user can navigate between screens:
 
 ## Implementation Phases
 
-### Phase 1: CLI Refactor + Basic TUI
-1. Refactor `cli.py` → `cli/` module with commands
-2. Add `--tui` and `--json` flags
-3. Create basic Textual app structure
-4. Implement EntropyScreen (most visual)
-5. Test with existing pipeline output
+### Phase 1: CLI Refactor + Basic TUI ✅ COMPLETE
+1. ✅ Refactor `cli.py` → `cli/` module with commands
+2. ✅ Add `--tui` and `--json` flags
+3. ✅ Create basic Textual app structure
+4. ✅ Implement EntropyScreen (most visual)
+5. ✅ Test with existing pipeline output
 
-### Phase 2: Complete TUI
-1. HomeScreen with table tree
-2. ContractsScreen with traffic lights
-3. QueryScreen with history
-4. TableScreen for drill-down
-5. Navigation between screens
+### Phase 2: Complete TUI ✅ COMPLETE
+1. ✅ HomeScreen with table tree (clickable rows)
+2. ✅ ContractsScreen with traffic lights
+3. ✅ QueryScreen with history
+4. ✅ TableScreen for drill-down
+5. ✅ Navigation between screens (h/e/c///?/q)
 
-### Phase 3: MCP Server
-1. Implement high-level tools
-2. Create LLM-optimized formatters
-3. Add `dataraum-mcp` entry point
-4. Document Claude Desktop config
+### Phase 3: MCP Server ✅ COMPLETE
+1. ✅ Implement high-level tools (get_context, get_entropy, evaluate_contract, query)
+2. ✅ Create LLM-optimized formatters
+3. ✅ Add `dataraum-mcp` entry point
+4. ⏳ Document Claude Desktop config (see Phase 6)
 
-### Phase 4: Python API
-1. Create `Context` class
-2. Entropy accessor
-3. Contracts accessor
-4. Query accessor
-5. Jupyter-friendly display methods
+### Phase 4: Python API ✅ COMPLETE
+1. ✅ Create `Context` class
+2. ✅ Entropy accessor
+3. ✅ Contracts accessor
+4. ✅ Query accessor
+5. ✅ Jupyter-friendly display methods (`_repr_html_`, `to_dataframe`)
 
-### Phase 5: Web UI (HTMX)
+### Phase 5: Web UI (HTMX) ⏳ FUTURE
 1. Add Jinja2 templates to FastAPI
 2. Content negotiation (HTML vs JSON)
 3. Basic dashboard
 4. Conversational interface
 5. Arrow data tables
+
+### Phase 6: Documentation 📝 TODO
+1. **User Documentation** - Consolidate into publishable docs
+   - Getting Started guide
+   - CLI reference
+   - Python API reference
+   - MCP integration guide (Claude Desktop config)
+   - TUI usage guide
+2. **Spec Cleanup** - Move completed specs to `docs/specs/`
+   - Entropy specs → `docs/specs/entropy/`
+   - Query specs → `docs/specs/query/`
+   - Archive obsolete plans
+3. **Web Publishing** - Set up docs site (MkDocs/Sphinx)
 
 ---
 
@@ -358,9 +371,9 @@ Once in TUI, user can navigate between screens:
 
 These should be done once the respective phases are complete:
 
-1. **Remove old CLI** (`src/dataraum/cli.py`) - After Phase 2 TUI is complete and tested
+1. ~~**Remove old CLI** (`src/dataraum/cli.py`)~~ ✅ DONE (2026-02-04)
 2. **Clean up API routes** - After MCP and Web UI work; evaluate which routes are still needed
-3. **Update entry points** - Ensure `pyproject.toml` points to new `cli/` module
+3. ~~**Update entry points**~~ ✅ DONE - `pyproject.toml` points to `cli/` module, verified working
 
 ---
 
