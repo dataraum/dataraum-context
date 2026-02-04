@@ -13,7 +13,7 @@ import structlog
 from sqlalchemy import func, select
 
 from dataraum.analysis.correlation.db_models import DerivedColumn
-from dataraum.analysis.quality_summary.db_models import ColumnSliceProfile
+from dataraum.analysis.quality_summary.db_models import ColumnQualityReport, ColumnSliceProfile
 from dataraum.analysis.relationships.db_models import Relationship
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.statistics.db_models import StatisticalProfile, StatisticalQualityMetrics
@@ -30,7 +30,11 @@ from dataraum.entropy.db_models import (
     EntropySnapshotRecord,
 )
 from dataraum.entropy.detectors.base import DetectorContext
-from dataraum.entropy.detectors.semantic import DimensionalEntropyDetector, generate_dataset_summary
+from dataraum.entropy.detectors.semantic import (
+    ColumnQualityFinding,
+    DimensionalEntropyDetector,
+    generate_dataset_summary,
+)
 from dataraum.entropy.processor import EntropyProcessor
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -814,6 +818,113 @@ def _run_dimensional_entropy(
             },
         )
 
+        # Load ColumnQualityReports for this table (LLM-generated quality assessments)
+        quality_reports_stmt = select(ColumnQualityReport).where(
+            ColumnQualityReport.source_table_name == table.table_name
+        )
+        quality_reports = list(ctx.session.execute(quality_reports_stmt).scalars().all())
+
+        # Group reports by column and aggregate into ColumnQualityFinding objects
+        reports_by_column: dict[str, list[Any]] = {}
+        for report in quality_reports:
+            col_name = report.column_name
+            if col_name not in reports_by_column:
+                reports_by_column[col_name] = []
+            reports_by_column[col_name].append(report)
+
+        # Create ColumnQualityFinding objects and EntropyObjects for each column
+        column_quality_findings: list[ColumnQualityFinding] = []
+        from dataraum.entropy.models import EntropyObject, ResolutionOption
+
+        for col_name, reports in reports_by_column.items():
+            # Calculate average quality score and entropy
+            avg_quality_score = sum(r.overall_quality_score for r in reports) / len(reports)
+            entropy_score_val = 1.0 - avg_quality_score  # Higher quality = lower entropy
+
+            # Collect grades
+            grades = [r.quality_grade for r in reports]
+
+            # Aggregate findings from report_data
+            all_key_findings: list[str] = []
+            all_quality_issues: list[dict[str, Any]] = []
+            all_recommendations: list[str] = []
+            all_slice_comparisons: list[dict[str, Any]] = []
+
+            for report in reports:
+                data = report.report_data or {}
+                all_key_findings.extend(data.get("key_findings", []))
+                all_quality_issues.extend(data.get("quality_issues", []))
+                all_recommendations.extend(data.get("recommendations", []))
+                all_slice_comparisons.extend(data.get("slice_comparisons", []))
+
+            # Create ColumnQualityFinding
+            finding = ColumnQualityFinding(
+                column_name=col_name,
+                avg_quality_score=avg_quality_score,
+                entropy_score=entropy_score_val,
+                grades=grades,
+                slices_analyzed=len(reports),
+                key_findings=all_key_findings,
+                quality_issues=all_quality_issues,
+                recommendations=all_recommendations,
+                slice_comparisons=all_slice_comparisons,
+            )
+            column_quality_findings.append(finding)
+
+            # Create EntropyObject for this column's quality assessment
+            column_entropy_obj = EntropyObject(
+                layer="semantic",
+                dimension="dimensional",
+                sub_dimension="column_quality",
+                target=f"column:{table.table_name}.{col_name}",
+                score=entropy_score_val,
+                confidence=0.9,  # High confidence for LLM-assessed quality
+                evidence=[
+                    {
+                        "source": "column_quality_report",
+                        "slices_analyzed": len(reports),
+                        "avg_quality_score": avg_quality_score,
+                        "grades": grades,
+                        "key_findings": all_key_findings[:5],  # Top 5 findings
+                        "quality_issues_count": len(all_quality_issues),
+                        "recommendations_count": len(all_recommendations),
+                    }
+                ],
+                resolution_options=[
+                    ResolutionOption(
+                        action="review_quality_findings",
+                        parameters={
+                            "column_name": col_name,
+                            "key_findings": all_key_findings,
+                            "recommendations": all_recommendations,
+                        },
+                        expected_entropy_reduction=entropy_score_val * 0.5,
+                        effort="low",
+                        description=f"Review {len(all_key_findings)} quality findings for {col_name}",
+                    ),
+                    ResolutionOption(
+                        action="address_quality_issues",
+                        parameters={
+                            "column_name": col_name,
+                            "issues": all_quality_issues,
+                        },
+                        expected_entropy_reduction=entropy_score_val * 0.7,
+                        effort="medium",
+                        description=f"Address {len(all_quality_issues)} quality issues in {col_name}",
+                    ),
+                ],
+                detector_id="dimensional_entropy_column_quality",
+                source_analysis_ids=[],
+            )
+            all_entropy_objects.append(column_entropy_obj)
+
+        logger.info(
+            "column_quality_reports_processed",
+            table=table.table_name,
+            reports_count=len(quality_reports),
+            columns_with_findings=len(column_quality_findings),
+        )
+
         logger.info(
             "dimensional_entropy_context_built",
             table=table.table_name,
@@ -846,6 +957,7 @@ def _run_dimensional_entropy(
                 entropy_score=entropy_score,
                 slice_column=slice_column_name,
                 summary_agent=summary_agent,
+                column_quality_findings=column_quality_findings,
             )
             if summary is not None:
                 # Write as table-level interpretation record

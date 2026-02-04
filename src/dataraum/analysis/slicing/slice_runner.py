@@ -130,10 +130,13 @@ def register_slice_tables(
             if not source_table or not source_column:
                 continue
 
-            # Get source columns for copying schema
+            # Get source columns for copying schema (exclude dropped columns)
             source_columns_stmt = (
                 select(Column)
-                .where(Column.table_id == source_table.table_id)
+                .where(
+                    Column.table_id == source_table.table_id,
+                    Column.is_dropped == False,  # noqa: E712 - SQLAlchemy requires ==
+                )
                 .order_by(Column.column_position)
             )
             source_columns_result = session.execute(source_columns_stmt)

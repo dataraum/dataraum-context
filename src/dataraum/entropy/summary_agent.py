@@ -147,6 +147,22 @@ class DimensionalSummaryAgent:
                 ],
                 indent=2,
             ),
+            "column_quality_findings_json": json.dumps(
+                [
+                    {
+                        "column_name": cqf.column_name,
+                        "avg_quality_score": cqf.avg_quality_score,
+                        "entropy_score": cqf.entropy_score,
+                        "grades": cqf.grades,
+                        "slices_analyzed": cqf.slices_analyzed,
+                        "key_findings": cqf.key_findings,
+                        "quality_issues": cqf.quality_issues,
+                        "recommendations": cqf.recommendations,
+                    }
+                    for cqf in summary.column_quality_findings
+                ],
+                indent=2,
+            ),
             "data_quality_concerns_json": json.dumps(summary.data_quality_concerns),
             "current_recommendations_json": json.dumps(summary.recommendations),
         }

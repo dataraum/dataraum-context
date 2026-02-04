@@ -43,6 +43,7 @@ from dataraum.storage import Column, Table
 
 if TYPE_CHECKING:
     from dataraum.analysis.quality_summary.agent import QualitySummaryAgent
+    from dataraum.analysis.quality_summary.variance import SliceVarianceMetrics
 
 # Maximum columns per LLM batch call
 BATCH_SIZE = 10
@@ -136,11 +137,12 @@ def aggregate_slice_results(
         all_slice_def_cols_result = session.execute(all_slice_def_cols_stmt)
         slice_definition_column_ids = set(all_slice_def_cols_result.scalars().all())
 
-        # Get all columns from source table, excluding slice columns
+        # Get all columns from source table, excluding slice columns and dropped columns
         source_cols_stmt = (
             select(Column)
             .where(Column.table_id == source_table.table_id)
             .where(Column.column_id.notin_(slice_definition_column_ids))
+            .where(Column.is_dropped == False)  # noqa: E712 - SQLAlchemy requires ==
             .order_by(Column.column_position)
         )
         source_cols_result = session.execute(source_cols_stmt)
@@ -492,6 +494,7 @@ def summarize_quality(
             aggregated_columns=aggregated_columns,
             slice_definition=slice_definition,
             source_table_name=source_table.table_name,
+            variance_metrics=variance_metrics,
         )
 
         return Result.ok(
@@ -545,11 +548,12 @@ def build_quality_matrix(
         all_slice_def_cols_result = session.execute(all_slice_def_cols_stmt)
         slice_definition_column_ids = set(all_slice_def_cols_result.scalars().all())
 
-        # Get source columns (excluding slice columns)
+        # Get source columns (excluding slice columns and dropped columns)
         source_cols_stmt = (
             select(Column)
             .where(Column.table_id == source_table.table_id)
             .where(Column.column_id.notin_(slice_definition_column_ids))
+            .where(Column.is_dropped == False)  # noqa: E712 - SQLAlchemy requires ==
             .order_by(Column.column_position)
         )
         source_cols_result = session.execute(source_cols_stmt)
@@ -700,6 +704,7 @@ def _save_slice_profiles_from_aggregated(
     aggregated_columns: list[AggregatedColumnData],
     slice_definition: SliceDefinition,
     source_table_name: str,
+    variance_metrics: dict[str, SliceVarianceMetrics] | None = None,
 ) -> None:
     """Persist slice profiles from aggregated column data.
 
@@ -778,6 +783,11 @@ def _save_slice_profiles_from_aggregated(
                 row_count=slice_info.get("row_count", 0),
                 null_ratio=null_ratio,
                 distinct_count=slice_info.get("distinct_count"),
+                variance_classification=(
+                    variance_metrics[col_data.column_name].classification.value
+                    if variance_metrics and col_data.column_name in variance_metrics
+                    else None
+                ),
                 quality_score=quality_score,
                 has_issues=has_issues,
                 issue_count=issue_count,
