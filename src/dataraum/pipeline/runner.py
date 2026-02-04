@@ -135,7 +135,6 @@ class RunConfig:
     output_dir: Path = field(default_factory=lambda: Path("./pipeline_output"))
     source_name: str | None = None
     target_phase: str | None = None
-    skip_llm: bool = False
     junk_columns: list[str] = field(default_factory=lambda: DEFAULT_JUNK_COLUMNS.copy())
 
 
@@ -248,7 +247,6 @@ def create_pipeline(config: RunConfig) -> Pipeline:
         Configured Pipeline instance
     """
     pipeline_config = PipelineConfig(
-        skip_llm_phases=config.skip_llm,
         skip_completed=True,
         fail_fast=True,
         # Parallel execution using ThreadPoolExecutor
@@ -363,7 +361,6 @@ def run(config: RunConfig) -> Result[RunResult]:
             output_dir=str(config.output_dir),
             source_id=source_id,
             target_phase=config.target_phase,
-            skip_llm=config.skip_llm,
         )
 
         # Create pipeline
@@ -508,8 +505,6 @@ def _print_run_result(run_result: RunResult, config: RunConfig, warnings: list[s
 
     if config.target_phase:
         print(f"Target Phase: {config.target_phase}")
-    if config.skip_llm:
-        print("LLM Phases: Skipped")
 
     # Show per-phase results
     if run_result.phases:
@@ -596,11 +591,6 @@ Examples:
         help="Run only this phase and its dependencies",
     )
     parser.add_argument(
-        "--skip-llm",
-        action="store_true",
-        help="Skip phases that require LLM",
-    )
-    parser.add_argument(
         "--quiet",
         "-q",
         action="store_true",
@@ -620,7 +610,6 @@ Examples:
         output_dir=args.output,
         source_name=args.name,
         target_phase=args.phase,
-        skip_llm=args.skip_llm,
     )
 
     # Run pipeline - always returns Result.ok with RunResult

@@ -202,7 +202,7 @@ def integration_duckdb() -> duckdb.DuckDBPyConnection:
 @pytest.fixture
 def integration_pipeline() -> Pipeline:
     """Create a pipeline with registered phases for testing."""
-    pipeline = Pipeline(config=PipelineConfig(skip_llm_phases=True))
+    pipeline = Pipeline(config=PipelineConfig())
     pipeline.register(ImportPhase())
     pipeline.register(TypingPhase())
     pipeline.register(StatisticsPhase())
@@ -259,7 +259,7 @@ def finance_junk_columns() -> list[str]:
 @pytest.fixture
 def agent_pipeline() -> Pipeline:
     """Pipeline with phases needed for agent testing (through entropy)."""
-    pipeline = Pipeline(config=PipelineConfig(skip_llm_phases=True))
+    pipeline = Pipeline(config=PipelineConfig())
     pipeline.register(ImportPhase())
     pipeline.register(TypingPhase())
     pipeline.register(StatisticsPhase())
