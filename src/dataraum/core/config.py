@@ -10,6 +10,23 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _find_config_dir() -> Path:
+    """Find the config directory by walking up from the package location.
+
+    Looks for a 'config/' directory containing expected files (llm.yaml, prompts/).
+    Falls back to relative Path("config") if not found.
+    """
+    # Start from this file: src/dataraum/core/config.py
+    # Project root is 4 levels up: config.py -> core/ -> dataraum/ -> src/ -> root/
+    package_dir = Path(__file__).resolve().parent.parent.parent.parent
+    candidate = package_dir / "config"
+    if candidate.is_dir():
+        return candidate
+
+    # Fallback: relative path (works when CWD is project root)
+    return Path("config")
+
+
 class Settings(BaseSettings):
     """Application settings.
 
@@ -47,7 +64,7 @@ class Settings(BaseSettings):
 
     # Configuration paths
     config_path: Path = Field(
-        default=Path("config"),
+        default_factory=_find_config_dir,
         description="Path to configuration files (ontologies, patterns, rules)",
     )
 

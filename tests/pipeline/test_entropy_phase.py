@@ -26,6 +26,7 @@ class TestEntropyPhase:
             "semantic",
             "relationships",
             "correlations",
+            "quality_summary",
         ]
         assert phase.outputs == ["entropy_profiles", "compound_risks"]
         assert phase.is_llm_phase is False

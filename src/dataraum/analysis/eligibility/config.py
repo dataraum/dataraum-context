@@ -92,15 +92,10 @@ def load_eligibility_config(config_path: Path | None = None) -> EligibilityConfi
         return _cached_config
 
     if config_path is None:
-        # Look for config in standard locations
-        possible_paths = [
-            Path("config/column_eligibility.yaml"),
-            Path(__file__).parent.parent.parent.parent / "config" / "column_eligibility.yaml",
-        ]
-        for path in possible_paths:
-            if path.exists():
-                config_path = path
-                break
+        # Look for config via settings (resolves regardless of CWD)
+        from dataraum.core.config import get_settings
+
+        config_path = get_settings().config_path / "column_eligibility.yaml"
 
     if config_path is not None and config_path.exists():
         with open(config_path) as f:
