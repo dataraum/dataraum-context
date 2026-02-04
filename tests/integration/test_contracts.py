@@ -107,7 +107,7 @@ class TestContractEvaluation:
     ):
         """Exploratory analysis is the most lenient contract.
 
-        Note: With skip_llm_phases=True, semantic analysis is absent, so
+        Note: Without LLM phases, semantic analysis is absent, so
         structural.types entropy is high (0.7). The exploratory contract
         has a threshold of 0.3 for types, so it won't be GREEN. This is
         expected — it validates that the contract correctly detects issues.
@@ -198,7 +198,7 @@ class TestBestContractSelection:
     ):
         """find_best_contract returns the strictest compliant contract, or None.
 
-        With skip_llm_phases=True, structural.types entropy is high (0.7)
+        Without LLM phases, structural.types entropy is high (0.7)
         which may cause all contracts to fail. This is valid behavior —
         the function correctly returns None when data quality is insufficient.
         """
