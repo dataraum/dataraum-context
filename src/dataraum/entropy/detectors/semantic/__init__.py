@@ -11,6 +11,7 @@ from dataraum.entropy.detectors.semantic.business_meaning import (
     BusinessMeaningDetector,
 )
 from dataraum.entropy.detectors.semantic.dimensional_entropy import (
+    ColumnQualityFinding,
     ColumnVariancePattern,
     CrossColumnPattern,
     DatasetDimensionalSummary,
@@ -36,6 +37,7 @@ __all__ = [
     "TemporalEntropyDetector",
     "UnitEntropyDetector",
     # Dimensional entropy models
+    "ColumnQualityFinding",
     "ColumnVariancePattern",
     "TemporalColumnPattern",
     "CrossColumnPattern",
