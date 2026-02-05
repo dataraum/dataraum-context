@@ -63,6 +63,7 @@ class EntropyScreen(Screen[None]):
         self.output_dir = output_dir
         self.table_filter = table_filter
         self._data_loaded = False
+        self._interpretations: list[Any] = []  # For row selection navigation
 
     def compose(self) -> ComposeResult:
         """Create the screen layout."""
@@ -230,6 +231,10 @@ class EntropyScreen(Screen[None]):
         """Update the columns data table."""
         table = self.query_one("#columns-table", DataTable)
         table.clear(columns=True)
+        table.cursor_type = "row"
+
+        # Store interpretations for row selection
+        self._interpretations = list(interpretations[:20])
 
         # Add columns
         table.add_column("Table", key="table")
@@ -245,7 +250,7 @@ class EntropyScreen(Screen[None]):
         }
 
         # Add rows (top 20)
-        for interp in interpretations[:20]:
+        for interp in self._interpretations:
             status = readiness_icons.get(interp.readiness, interp.readiness)
 
             # Get first line of explanation
@@ -256,7 +261,7 @@ class EntropyScreen(Screen[None]):
 
             table.add_row(
                 interp.table_name,
-                interp.column_name,
+                interp.column_name or "(table-level)",
                 f"{interp.composite_score:.3f}",
                 status,
                 first_line,
@@ -264,3 +269,28 @@ class EntropyScreen(Screen[None]):
 
         if len(interpretations) > 20:
             table.add_row("", f"... +{len(interpretations) - 20} more", "", "", "")
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle row selection to navigate to column detail."""
+        if event.data_table.id != "columns-table":
+            return
+
+        if event.cursor_row >= len(self._interpretations):
+            return  # Skip "... more" row
+
+        interp = self._interpretations[event.cursor_row]
+
+        # Skip table-level interpretations (no column)
+        if not interp.column_name:
+            self.notify("Table-level interpretations cannot be drilled down")
+            return
+
+        # Push column detail screen
+        from dataraum.cli.tui.screens.column_detail import ColumnDetailScreen
+
+        screen = ColumnDetailScreen(
+            self.output_dir,
+            interp.table_name,
+            interp.column_name,
+        )
+        self.app.push_screen(screen)

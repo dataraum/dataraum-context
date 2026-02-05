@@ -25,6 +25,7 @@ class ContractsScreen(Screen[None]):
         super().__init__(**kwargs)
         self.output_dir = output_dir
         self._data_loaded = False
+        self._contract_names: list[str] = []  # For row selection navigation
 
     def compose(self) -> ComposeResult:
         """Create the screen layout."""
@@ -149,6 +150,7 @@ class ContractsScreen(Screen[None]):
 
         table_widget = self.query_one("#contracts-table", DataTable)
         table_widget.clear(columns=True)
+        table_widget.cursor_type = "row"
 
         table_widget.add_column("Status", key="status")
         table_widget.add_column("Contract", key="contract")
@@ -165,6 +167,9 @@ class ContractsScreen(Screen[None]):
             key=lambda x: _get_threshold(x[0]),
             reverse=True,
         )
+
+        # Store contract names for row selection
+        self._contract_names = [name for name, _ in sorted_evals]
 
         for name, evaluation in sorted_evals:
             # Traffic light status
@@ -191,6 +196,22 @@ class ContractsScreen(Screen[None]):
             issue_str = str(issues) if issues > 0 else "-"
 
             table_widget.add_row(status, name, desc, issue_str)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle row selection to navigate to contract detail."""
+        if event.data_table.id != "contracts-table":
+            return
+
+        if event.cursor_row >= len(self._contract_names):
+            return
+
+        contract_name = self._contract_names[event.cursor_row]
+
+        # Push contract detail screen
+        from dataraum.cli.tui.screens.contract_detail import ContractDetailScreen
+
+        screen = ContractDetailScreen(self.output_dir, contract_name)
+        self.app.push_screen(screen)
 
     def _update_summary(self, evaluations: dict[str, Any], get_contract: Any) -> None:
         """Update the summary text."""
