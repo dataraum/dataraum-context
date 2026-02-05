@@ -40,31 +40,44 @@ Screen {
     border: solid $primary-background;
 }
 
-.detail-section {
-    padding: 0 0 1 0;
-}
-
-#overview-section {
-    height: 20%;
-}
-
-#assumptions-section {
-    height: 40%;
-    overflow-y: auto;
-}
-
-#actions-section {
-    height: 40%;
-    overflow-y: auto;
-}
-
 #detail-header {
     padding: 0 0 1 0;
     text-style: bold;
 }
 
+#layer-section {
+    height: auto;
+    padding: 0 0 1 0;
+}
+
+#layer-bars {
+    height: auto;
+}
+
+.layer-bar-item {
+    padding: 0 2 0 0;
+}
+
 #detail-tabs {
     height: 1fr;
+    min-height: 10;
+}
+
+#tab-overview,
+#tab-assumptions,
+#tab-actions {
+    overflow-y: auto;
+}
+
+#raw-section {
+    height: auto;
+    max-height: 12;
+    padding: 1 0 0 0;
+}
+
+#raw-table {
+    height: auto;
+    max-height: 10;
 }
 
 .detail-text {

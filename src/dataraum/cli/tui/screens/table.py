@@ -198,23 +198,17 @@ class TableScreen(Screen[None]):
             table.add_row(col.column_name, col_type, entropy, status)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection to navigate to column detail."""
+        """Handle row selection to navigate to entropy screen for this table."""
         if event.data_table.id != "columns-table":
             return
 
         if event.cursor_row >= len(self._column_names):
             return
 
-        column_name = self._column_names[event.cursor_row]
+        # Push entropy screen filtered to this table
+        from dataraum.cli.tui.screens.entropy import EntropyScreen
 
-        # Push column detail screen
-        from dataraum.cli.tui.screens.column_detail import ColumnDetailScreen
-
-        screen = ColumnDetailScreen(
-            self.output_dir,
-            self.table_name,
-            column_name,
-        )
+        screen = EntropyScreen(self.output_dir, table_filter=self.table_name)
         self.app.push_screen(screen)
 
     def _update_stats(self, table: Any, columns: Sequence[Any]) -> None:

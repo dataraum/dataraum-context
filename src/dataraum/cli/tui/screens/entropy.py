@@ -1,4 +1,4 @@
-"""Entropy dashboard screen with tree navigation and stacked details."""
+"""Entropy dashboard screen with tree navigation and detailed view."""
 
 from __future__ import annotations
 
@@ -7,13 +7,16 @@ from pathlib import Path
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, ScrollableContainer, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Collapsible,
+    DataTable,
     Label,
     ProgressBar,
     Static,
+    TabbedContent,
+    TabPane,
     Tree,
 )
 from textual.widgets.tree import TreeNode
@@ -71,6 +74,8 @@ class EntropyScreen(Screen[None]):
         self._data_loaded = False
         # Store interpretations keyed by "table.column" for lookup
         self._interp_map: dict[str, Any] = {}
+        # Store entropy objects keyed by column_id for lookup
+        self._entropy_objects_map: dict[str, list[Any]] = {}
         self._selected_key: str | None = None
 
     def compose(self) -> ComposeResult:
@@ -82,21 +87,24 @@ class EntropyScreen(Screen[None]):
                 # Left panel: Tree navigation (full height)
                 with Vertical(classes="left-panel"):
                     yield Tree("Tables", id="entropy-tree")
-                # Right panel: Stacked sections
-                with ScrollableContainer(classes="right-panel"):
+                # Right panel: Layer bars, tabs, raw table
+                with Vertical(classes="right-panel"):
                     yield Static("Select a column from the tree", id="detail-header")
-                    # Overview section
-                    with Container(id="overview-section", classes="detail-section"):
-                        yield Static("[bold]Overview[/bold]", classes="section-title")
-                        yield Static("", id="overview-content")
-                    # Assumptions section
-                    with Container(id="assumptions-section", classes="detail-section"):
-                        yield Static("[bold]Assumptions[/bold]", classes="section-title")
-                        yield Vertical(id="assumptions-list")
-                    # Actions section
-                    with Container(id="actions-section", classes="detail-section"):
-                        yield Static("[bold]Actions[/bold]", classes="section-title")
-                        yield Vertical(id="actions-list")
+                    # Layer breakdown bars (always visible)
+                    with Container(id="layer-section"):
+                        yield Static("", id="layer-bars")
+                    # Tabs for Overview/Assumptions/Actions
+                    with TabbedContent(id="detail-tabs"):
+                        with TabPane("Overview", id="tab-overview"):
+                            yield Static("", id="overview-content")
+                        with TabPane("Assumptions", id="tab-assumptions"):
+                            yield Vertical(id="assumptions-list")
+                        with TabPane("Actions", id="tab-actions"):
+                            yield Vertical(id="actions-list")
+                    # Raw measurements table (always visible)
+                    with Container(id="raw-section"):
+                        yield Static("[bold]Raw Measurements[/bold]", classes="section-title")
+                        yield DataTable(id="raw-table")
 
     def on_mount(self) -> None:
         """Load data when screen mounts."""
@@ -106,6 +114,7 @@ class EntropyScreen(Screen[None]):
         """Refresh the data."""
         self._data_loaded = False
         self._interp_map.clear()
+        self._entropy_objects_map.clear()
         self._selected_key = None
         self._load_data()
 
@@ -118,6 +127,7 @@ class EntropyScreen(Screen[None]):
 
         from dataraum.entropy.db_models import (
             EntropyInterpretationRecord,
+            EntropyObjectRecord,
             EntropySnapshotRecord,
         )
         from dataraum.storage import Source
@@ -164,13 +174,34 @@ class EntropyScreen(Screen[None]):
                 interp_result = session.execute(interp_query)
                 interpretations = interp_result.scalars().all()
 
-                # Build lookup map
+                # Build lookup map and collect column_ids
+                column_ids: list[str] = []
                 for interp in interpretations:
                     if interp.column_name:
                         key = f"{interp.table_name}.{interp.column_name}"
                     else:
                         key = f"{interp.table_name}.(table)"
                     self._interp_map[key] = interp
+                    if interp.column_id:
+                        column_ids.append(interp.column_id)
+
+                # Load entropy objects for all columns
+                if column_ids:
+                    entropy_objects_result = session.execute(
+                        select(EntropyObjectRecord)
+                        .where(EntropyObjectRecord.column_id.in_(column_ids))
+                        .order_by(
+                            EntropyObjectRecord.column_id,
+                            EntropyObjectRecord.score.desc(),
+                        )
+                    )
+                    for obj in entropy_objects_result.scalars().all():
+                        col_id = obj.column_id
+                        if col_id is None:
+                            continue
+                        if col_id not in self._entropy_objects_map:
+                            self._entropy_objects_map[col_id] = []
+                        self._entropy_objects_map[col_id].append(obj)
 
                 # Update UI
                 self._update_summary(source.name, snapshot, interpretations)
@@ -183,8 +214,8 @@ class EntropyScreen(Screen[None]):
                         self._selected_key = f"{first.table_name}.{first.column_name}"
                     else:
                         self._selected_key = f"{first.table_name}.(table)"
-                    # Delay update until after mount completes
-                    self.call_after_refresh(self._update_detail_panel, first)
+                    # Delay selection and update until after mount completes
+                    self.call_after_refresh(self._select_and_update, self._selected_key, first)
 
                 self._data_loaded = True
         finally:
@@ -275,6 +306,20 @@ class EntropyScreen(Screen[None]):
 
             table_node.expand()
 
+    def _select_and_update(self, key: str, interp: Any) -> None:
+        """Select a tree node by key and update the detail panel."""
+        tree: Tree[str] = self.query_one("#entropy-tree", Tree)
+        # Find and select the node with matching data
+        for node in tree.root.children:
+            if node.data == key:
+                tree.select_node(node)
+                break
+            for child in node.children:
+                if child.data == key:
+                    tree.select_node(child)
+                    break
+        self._update_detail_panel(interp)
+
     def on_tree_node_selected(self, event: Tree.NodeSelected[str]) -> None:
         """Handle tree node selection."""
         node: TreeNode[str] = event.node
@@ -296,10 +341,15 @@ class EntropyScreen(Screen[None]):
             f"Score: {interp.composite_score:.3f}"
         )
 
-        # Update stacked sections
+        # Get entropy objects for this column
+        entropy_objects = self._entropy_objects_map.get(interp.column_id, [])
+
+        # Update all sections
+        self._update_layer_bars(entropy_objects)
         self._update_overview_section(interp)
         self._update_assumptions_section(interp)
         self._update_actions_section(interp)
+        self._update_raw_table(entropy_objects)
 
     def _update_overview_section(self, interp: Any) -> None:
         """Update the Overview section content."""
@@ -400,3 +450,67 @@ class EntropyScreen(Screen[None]):
                 collapsed=True,
             )
             container.mount(collapsible)
+
+    def _update_layer_bars(self, entropy_objects: Sequence[Any]) -> None:
+        """Update the layer breakdown bars."""
+        container = self.query_one("#layer-bars", Static)
+
+        if not entropy_objects:
+            container.update("[dim]No measurements[/dim]")
+            return
+
+        # Group by layer and calculate averages
+        layer_scores: dict[str, list[float]] = {}
+        for obj in entropy_objects:
+            layer = obj.layer
+            if layer not in layer_scores:
+                layer_scores[layer] = []
+            layer_scores[layer].append(obj.score)
+
+        # Build single line with all layers
+        parts: list[str] = []
+        layer_order = ["structural", "semantic", "value", "computational"]
+        for layer in layer_order:
+            scores = layer_scores.get(layer, [])
+            if not scores:
+                continue  # Skip layers with no data
+            avg_score = sum(scores) / len(scores)
+
+            # Color based on score
+            if avg_score > 0.3:
+                color = "red"
+            elif avg_score > 0.15:
+                color = "yellow"
+            else:
+                color = "green"
+
+            short_label = layer[:3].upper()
+            parts.append(f"[{color}]{short_label}: {avg_score:.2f}[/{color}]")
+
+        container.update(" | ".join(parts) if parts else "[dim]No layer data[/dim]")
+
+    def _update_raw_table(self, entropy_objects: Sequence[Any]) -> None:
+        """Update the raw entropy measurements table."""
+        table = self.query_one("#raw-table", DataTable)
+        table.clear(columns=True)
+
+        table.add_column("Layer", key="layer")
+        table.add_column("Dimension", key="dimension")
+        table.add_column("Sub-dim", key="sub_dimension")
+        table.add_column("Score", key="score")
+        table.add_column("Conf", key="confidence")
+
+        if not entropy_objects:
+            table.add_row("-", "No measurements", "-", "-", "-")
+            return
+
+        for obj in entropy_objects:
+            score_color = "red" if obj.score > 0.3 else "yellow" if obj.score > 0.15 else "green"
+
+            table.add_row(
+                obj.layer[:3].upper(),
+                obj.dimension,
+                obj.sub_dimension or "-",
+                f"[{score_color}]{obj.score:.3f}[/{score_color}]",
+                f"{obj.confidence:.2f}",
+            )
