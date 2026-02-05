@@ -412,36 +412,53 @@ def _print_issues_view(
             return
         console.print(f"[{color}][bold]{icon} {title} ({len(items)})[/bold][/{color}]")
         for item in items:
-            loc = f"{item.table_name}.{item.column_name}"
+            # Handle None column_name (table-level interpretations)
+            if item.column_name:
+                loc = f"{item.table_name}.{item.column_name}"
+            else:
+                loc = f"{item.table_name} (table-level)"
             score = f"{item.composite_score:.3f}"
+
+            # Get assumptions as list (handle dict or list format)
+            assumptions = item.assumptions_json
+            if isinstance(assumptions, dict):
+                assumptions = list(assumptions.values()) if assumptions else []
+            elif not isinstance(assumptions, list):
+                assumptions = []
 
             # Get top dimension issue
             top_issue = ""
-            if item.assumptions_json and len(item.assumptions_json) > 0:
-                first_assumption = item.assumptions_json[0]
-                dim = first_assumption.get("dimension", "")
-                top_issue = f" [{dim}]" if dim else ""
+            if assumptions:
+                first_assumption = assumptions[0]
+                if isinstance(first_assumption, dict):
+                    dim = first_assumption.get("dimension", "")
+                    top_issue = f" [{dim}]" if dim else ""
 
             console.print(f"  [{color}]{icon}[/{color}] {loc}: {score}{top_issue}")
 
             if verbose == 1:
                 # Show first assumption (compact)
-                if item.assumptions_json:
-                    assumption_text = item.assumptions_json[0].get("assumption_text", "")
+                if assumptions and isinstance(assumptions[0], dict):
+                    assumption_text = assumptions[0].get("assumption_text", "")
                     if len(assumption_text) > 70:
                         assumption_text = assumption_text[:67] + "..."
                     console.print(f"      [dim]→ {assumption_text}[/dim]")
 
             if verbose >= 2:
                 # Show all assumptions
-                if item.assumptions_json:
-                    for a in item.assumptions_json:
+                for a in assumptions:
+                    if isinstance(a, dict):
                         dim = a.get("dimension", "")
                         text = a.get("assumption_text", "")
                         console.print(f"      [dim]→ [{dim}] {text}[/dim]")
                 # Show all recommended actions
-                if item.resolution_actions_json:
-                    for action in item.resolution_actions_json:
+                actions = item.resolution_actions_json
+                if isinstance(actions, dict):
+                    actions = list(actions.values()) if actions else []
+                elif not isinstance(actions, list):
+                    actions = []
+                for action in actions:
+                    if isinstance(action, dict):
                         action_desc = action.get("description", "")
                         priority = action.get("priority", "medium")
                         effort = action.get("effort", "")

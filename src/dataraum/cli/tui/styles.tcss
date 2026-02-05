@@ -158,3 +158,50 @@ DataTable > .datatable--cursor {
 #sample-table {
     max-height: 12;
 }
+
+/* Column detail screen */
+.explanation-section {
+    padding: 0 0 1 0;
+}
+
+#explanation-text {
+    padding: 1;
+    background: $surface-darken-1;
+    max-height: 6;
+}
+
+.assumptions-section,
+.actions-section,
+.entropy-objects-section {
+    padding: 1 0;
+}
+
+#assumptions-table,
+#actions-table,
+#entropy-objects-table {
+    max-height: 10;
+}
+
+/* Contract detail screen */
+#description-text {
+    color: $text-muted;
+    padding-bottom: 1;
+}
+
+.dimensions-section,
+.violations-section,
+.warnings-section,
+.compliance-section {
+    padding: 1 0;
+}
+
+#dimensions-table,
+#violations-table {
+    max-height: 12;
+}
+
+#warnings-text,
+#compliance-text {
+    padding: 1;
+    background: $surface-darken-1;
+}

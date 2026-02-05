@@ -27,6 +27,7 @@ class TableScreen(Screen[None]):
         self.output_dir = output_dir
         self.table_name = table_name
         self._data_loaded = False
+        self._column_names: list[str] = []  # For row selection navigation
 
     def compose(self) -> ComposeResult:
         """Create the screen layout."""
@@ -170,6 +171,10 @@ class TableScreen(Screen[None]):
         """Update the columns data table."""
         table = self.query_one("#columns-table", DataTable)
         table.clear(columns=True)
+        table.cursor_type = "row"
+
+        # Store column names for row selection
+        self._column_names = [col.column_name for col in columns]
 
         table.add_column("Column", key="column")
         table.add_column("Type", key="type")
@@ -191,6 +196,26 @@ class TableScreen(Screen[None]):
             status = readiness_icons.get(ei.readiness, "-") if ei else "-"
 
             table.add_row(col.column_name, col_type, entropy, status)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle row selection to navigate to column detail."""
+        if event.data_table.id != "columns-table":
+            return
+
+        if event.cursor_row >= len(self._column_names):
+            return
+
+        column_name = self._column_names[event.cursor_row]
+
+        # Push column detail screen
+        from dataraum.cli.tui.screens.column_detail import ColumnDetailScreen
+
+        screen = ColumnDetailScreen(
+            self.output_dir,
+            self.table_name,
+            column_name,
+        )
+        self.app.push_screen(screen)
 
     def _update_stats(self, table: Any, columns: Sequence[Any]) -> None:
         """Update the statistics section."""
