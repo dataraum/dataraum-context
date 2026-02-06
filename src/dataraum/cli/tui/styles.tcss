@@ -16,6 +16,112 @@ Screen {
     height: 100%;
 }
 
+/* Split layout for entropy/contracts screens */
+.split-layout {
+    width: 100%;
+    height: 1fr;
+}
+
+.left-panel {
+    width: 30%;
+    height: 100%;
+    border-right: solid $primary-background;
+    padding-right: 1;
+}
+
+.right-panel {
+    width: 70%;
+    height: 100%;
+    padding-left: 1;
+}
+
+#entropy-tree {
+    height: 1fr;
+    border: solid $primary-background;
+}
+
+#detail-header {
+    padding: 0 0 1 0;
+    text-style: bold;
+}
+
+#layer-section {
+    height: auto;
+    padding: 0 0 1 0;
+}
+
+#layer-bars {
+    height: auto;
+}
+
+.layer-bar-item {
+    padding: 0 2 0 0;
+}
+
+#detail-tabs {
+    height: 1fr;
+    min-height: 10;
+}
+
+#tab-overview,
+#tab-assumptions,
+#tab-actions {
+    overflow-y: auto;
+}
+
+#raw-section {
+    height: auto;
+    max-height: 12;
+    padding: 1 0 0 0;
+}
+
+#raw-table {
+    height: auto;
+    max-height: 10;
+}
+
+/* Contracts screen */
+#contract-tabs {
+    height: auto;
+}
+
+#contract-tabs ContentSwitcher {
+    height: 0;
+    min-height: 0;
+}
+
+#contract-detail {
+    height: 1fr;
+    padding-top: 1;
+}
+
+#dimensions-section {
+    height: auto;
+    max-height: 12;
+    padding: 1 0 0 0;
+}
+
+#dimensions-table {
+    height: auto;
+    max-height: 10;
+}
+
+#tab-violations,
+#tab-warnings {
+    overflow-y: auto;
+}
+
+/* Violation collapsible content */
+.violation-scroll {
+    height: auto;
+    max-height: 20;
+    padding: 1;
+}
+
+.detail-text {
+    padding: 0 1;
+}
+
 /* Titles */
 .screen-title {
     text-style: bold;
@@ -157,4 +263,51 @@ DataTable > .datatable--cursor {
 
 #sample-table {
     max-height: 12;
+}
+
+/* Column detail screen */
+.explanation-section {
+    padding: 0 0 1 0;
+}
+
+#explanation-text {
+    padding: 1;
+    background: $surface-darken-1;
+    max-height: 6;
+}
+
+.assumptions-section,
+.actions-section,
+.entropy-objects-section {
+    padding: 1 0;
+}
+
+#assumptions-table,
+#actions-table,
+#entropy-objects-table {
+    max-height: 10;
+}
+
+/* Contract detail screen */
+#description-text {
+    color: $text-muted;
+    padding-bottom: 1;
+}
+
+.dimensions-section,
+.violations-section,
+.warnings-section,
+.compliance-section {
+    padding: 1 0;
+}
+
+#dimensions-table,
+#violations-table {
+    max-height: 12;
+}
+
+#warnings-text,
+#compliance-text {
+    padding: 1;
+    background: $surface-darken-1;
 }
