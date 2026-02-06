@@ -40,6 +40,8 @@ class ContractsScreen(Screen[None]):
         self._entropy_by_dim_col: dict[tuple[str, str], list[Any]] = {}
         # Violations/warnings by dimension for tree node -> data mapping
         self._violations_by_dim: dict[str, Any] = {}
+        # Interpretations keyed by column key ("table.column") for LLM resolution actions
+        self._interp_by_col: dict[str, Any] = {}
 
     def compose(self) -> ComposeResult:
         """Create the screen layout with tree and detail panel."""
@@ -75,6 +77,7 @@ class ContractsScreen(Screen[None]):
         self._profiles.clear()
         self._entropy_by_dim_col.clear()
         self._violations_by_dim.clear()
+        self._interp_by_col.clear()
         self._selected_contract = None
         self._load_data()
 
@@ -91,7 +94,7 @@ class ContractsScreen(Screen[None]):
             get_contract,
         )
         from dataraum.entropy.core.storage import EntropyRepository
-        from dataraum.entropy.db_models import EntropyObjectRecord
+        from dataraum.entropy.db_models import EntropyInterpretationRecord, EntropyObjectRecord
         from dataraum.storage import Column, Source, Table
 
         manager = get_manager(self.output_dir)
@@ -167,6 +170,17 @@ class ContractsScreen(Screen[None]):
                             contract_dim = f"{obj.layer}.{obj.dimension}"
                             dim_key = (contract_dim, col_key)
                             self._entropy_by_dim_col.setdefault(dim_key, []).append(obj)
+
+                # Load interpretations keyed by column key for action data
+                interp_result = session.execute(
+                    select(EntropyInterpretationRecord).where(
+                        EntropyInterpretationRecord.source_id == source.source_id,
+                        EntropyInterpretationRecord.column_name.isnot(None),
+                    )
+                )
+                for interp in interp_result.scalars().all():
+                    col_key = f"{interp.table_name}.{interp.column_name}"
+                    self._interp_by_col[col_key] = interp
 
                 # Evaluate all contracts and store
                 self._evaluations = evaluate_all_contracts(column_summaries, compound_risks)
@@ -471,73 +485,130 @@ class ContractsScreen(Screen[None]):
         self.query_one("#evidence-content", Static).update("\n".join(content_parts))
 
     def _update_actions_panel(self, dimension: str, affected_columns: list[str]) -> None:
-        """Show dimension-specific resolution options."""
-        # Collect all unique resolution options across affected columns
-        actions: list[dict[str, Any]] = []
-        seen_actions: set[str] = set()
+        """Show resolution actions from LLM interpretations, filtered by dimension."""
+        content_parts: list[str] = []
+        priority_colors = {"high": "red", "medium": "yellow", "low": "green"}
 
+        # Build cascade lookup from detector resolution_options (secondary source)
+        cascade_by_action: dict[str, list[str]] = {}
+        reduction_by_action: dict[str, float] = {}
         for col_key in affected_columns:
             dim_key = (dimension, col_key)
-            objects = self._entropy_by_dim_col.get(dim_key, [])
-
-            for obj in objects:
+            for obj in self._entropy_by_dim_col.get(dim_key, []):
                 if not obj.resolution_options:
                     continue
-
                 for opt in obj.resolution_options:
                     if not isinstance(opt, dict):
                         continue
-                    action_name = opt.get("action", "Unknown")
-                    if action_name in seen_actions:
-                        continue
-                    seen_actions.add(action_name)
-                    actions.append(opt)
+                    act = opt.get("action", "")
+                    if act and act not in cascade_by_action:
+                        cascade_by_action[act] = opt.get("cascade_dimensions", [])
+                        reduction_by_action[act] = opt.get("expected_entropy_reduction", 0.0)
 
-        content_parts: list[str] = []
+        # Primary source: LLM interpretation actions filtered by dimension
+        for col_key in affected_columns:
+            interp = self._interp_by_col.get(col_key)
+            if not interp:
+                continue
 
-        if not actions:
-            content_parts.append("[dim]No resolution options for this dimension[/dim]")
-            self.query_one("#actions-content", Static).update("\n".join(content_parts))
-            return
+            actions = interp.resolution_actions_json
+            if isinstance(actions, dict):
+                actions = list(actions.values()) if actions else []
+            elif not isinstance(actions, list):
+                continue
 
-        # Sort by effort (low first = highest priority)
-        effort_order = {"low": 0, "medium": 1, "high": 2}
-        actions.sort(key=lambda a: effort_order.get(a.get("effort", "medium"), 1))
+            # Filter to actions relevant to this dimension
+            col_actions = [
+                a
+                for a in actions
+                if isinstance(a, dict) and _action_matches_dimension(a, dimension)
+            ]
 
-        # Color by effort: low=green (easy win), medium=yellow, high=red
-        effort_colors = {"low": "green", "medium": "yellow", "high": "red"}
+            if not col_actions:
+                continue
 
-        for opt in actions:
-            action_name = opt.get("action", "Unknown")
-            description = opt.get("description", "")
-            effort = opt.get("effort", "medium")
-            reduction = opt.get("expected_entropy_reduction", 0.0)
-            cascade = opt.get("cascade_dimensions", [])
-            parameters = opt.get("parameters", {})
+            content_parts.append(f"[cyan bold]{col_key}[/cyan bold]")
 
-            e_color = effort_colors.get(effort, "white")
+            for action in col_actions:
+                priority = action.get("priority", "medium")
+                action_name = action.get("action", "-")
+                description = action.get("description", "")
+                effort = action.get("effort", "-")
+                expected_impact = action.get("expected_impact", "")
+                parameters = action.get("parameters", {})
 
-            # Header: effort tag + action + reduction
-            reduction_str = f"  reduction: {reduction:.0%}" if reduction else ""
-            content_parts.append(
-                f"[{e_color}]{effort.upper()}[/{e_color}] {action_name}{reduction_str}"
-            )
+                p_color = priority_colors.get(str(priority).lower(), "white")
 
-            if description:
-                content_parts.append(f"  {description}")
+                # Header: priority + action + effort
+                content_parts.append(
+                    f"  [{p_color}]{priority.upper()}[/{p_color}] {action_name} "
+                    f"[dim](effort: {effort})[/dim]"
+                )
 
-            # Parameters
-            if parameters and isinstance(parameters, dict):
-                param_str = ", ".join(f"{k}={v}" for k, v in parameters.items())
-                content_parts.append(f"  [dim]params: {param_str}[/dim]")
+                if description:
+                    content_parts.append(f"    {description}")
+                if expected_impact:
+                    content_parts.append(f"    [dim]impact: {expected_impact}[/dim]")
 
-            # Cascade dimensions
-            if cascade:
-                content_parts.append(f"  [dim]cascades: {', '.join(cascade)}[/dim]")
+                # Parameters
+                if parameters and isinstance(parameters, dict):
+                    param_str = ", ".join(f"{k}={v}" for k, v in parameters.items())
+                    content_parts.append(f"    [dim]params: {param_str}[/dim]")
+
+                # Cross-reference cascade from detector data
+                cascade = cascade_by_action.get(action_name, [])
+                reduction = reduction_by_action.get(action_name, 0.0)
+                if cascade:
+                    content_parts.append(f"    [dim]cascades: {', '.join(cascade)}[/dim]")
+                if reduction:
+                    content_parts.append(f"    [dim]reduction: {reduction:.0%}[/dim]")
 
             content_parts.append("")
 
+        if not content_parts:
+            content_parts.append("[dim]No resolution actions for this dimension[/dim]")
+
         self.query_one("#actions-content", Static).update("\n".join(content_parts))
+
+
+def _action_matches_dimension(action: dict[str, Any], dimension: str) -> bool:
+    """Check if an LLM resolution action is relevant to a contract dimension.
+
+    Matches by checking the action's expected_impact and action name against
+    the dimension path (e.g. "structural.types", "semantic.units").
+    """
+    # Extract the sub-dimension part (e.g. "types" from "structural.types")
+    parts = dimension.split(".", 1)
+    sub = parts[1] if len(parts) > 1 else ""
+
+    # Check expected_impact text for dimension references
+    impact = str(action.get("expected_impact", "")).lower()
+    if dimension.lower() in impact or sub.lower() in impact:
+        return True
+
+    # Map common action names to their related dimensions
+    action_name = str(action.get("action", "")).lower()
+    action_to_dim = {
+        "types": ["add_type_declaration", "override_type", "declare_type"],
+        "units": ["declare_unit", "add_unit"],
+        "nulls": ["declare_null_meaning", "filter_nulls", "impute"],
+        "outliers": ["winsorize", "exclude_outliers"],
+        "relations": ["confirm_relationship", "add_fk_constraint"],
+        "business_meaning": ["add_definition", "document_semantics", "document_flag_semantics"],
+        "temporal": ["add_temporal_declaration"],
+        "derived_values": ["declare_formula"],
+    }
+
+    related_actions = action_to_dim.get(sub, [])
+    if any(ra in action_name for ra in related_actions):
+        return True
+
+    # Also match layer-level keywords in the action or description
+    description = str(action.get("description", "")).lower()
+    if sub and sub.lower() in description:
+        return True
+
+    return False
 
 
 def _format_evidence_field(key: str, value: Any) -> str:
