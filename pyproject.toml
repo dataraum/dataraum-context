@@ -160,6 +160,7 @@ target-version = "py314"
 line-length = 100
 extend-exclude = [
     "prototypes/",
+    "*.tcss",
 ]
 
 [tool.ruff.lint]

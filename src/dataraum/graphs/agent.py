@@ -35,7 +35,6 @@ from dataraum.llm.providers.base import LLMProvider
 
 from .entropy_behavior import (
     EntropyBehaviorConfig,
-    format_entropy_sql_comments,
     get_default_config,
 )
 from .models import (
@@ -254,7 +253,7 @@ class GraphAgent(LLMFeature):
 
         # Save to QueryLibrary for cross-agent reuse
         if manager and source_id:
-            self._save_to_library(
+            library_entry_id = self._save_to_library(
                 session=session,
                 manager=manager,
                 source_id=source_id,
@@ -262,6 +261,8 @@ class GraphAgent(LLMFeature):
                 generated_code=generated_code,
                 execution=execution,
             )
+            if library_entry_id:
+                execution.library_entry_id = library_entry_id
 
         return exec_result
 
@@ -432,7 +433,13 @@ class GraphAgent(LLMFeature):
         graph: TransformationGraph,
         parameters: dict[str, Any],
     ) -> Result[GraphExecution]:
-        """Execute generated SQL and capture results."""
+        """Execute generated SQL and capture results.
+
+        Delegates step execution to shared execute_sql_steps(), then enriches
+        the GraphExecution with entropy info, assumptions, and interpretation.
+        """
+        from dataraum.query.execution import SQLStep, execute_sql_steps
+
         # Create execution record
         execution = GraphExecution.create(graph, parameters, context.period)
         execution.is_period_final = context.is_period_final
@@ -450,142 +457,70 @@ class GraphAgent(LLMFeature):
             execution.execution_id, entropy_info, context
         )
 
-        # Add entropy comments to SQL
-        entropy_comments = format_entropy_sql_comments(
-            execution.max_entropy_score,
-            assumptions=[
-                {"dimension": a.dimension, "assumption": a.assumption}
-                for a in execution.assumptions
-            ],
-            warnings=execution.entropy_warnings,
-        )
-
-        # Execute each step, creating temp views for intermediate results
-        # Note: duckdb_conn is actually a cursor (from ConnectionManager.duckdb_cursor())
-        # Temp views on a cursor are isolated to that cursor, so no naming conflicts
-        # with concurrent executions. LLM-generated SQL can reference steps directly
-        # by their step_id (e.g., "SELECT * FROM step_1").
-        step_values: dict[str, Any] = {}
-        created_views: list[str] = []
-
         # Get max repair attempts from config (default 2)
         feature_config = getattr(self.config.features, "sql_repair", None)
         max_repair_attempts = (
             getattr(feature_config, "max_repair_attempts", 2) if feature_config else 2
         )
 
-        try:
-            for step_info in generated_code.steps:
-                step_id = step_info.get("step_id", "unknown")
-                sql = step_info.get("sql", "")
-                step_description = step_info.get("description", "")
+        # Convert generated code steps to shared format
+        steps = [
+            SQLStep(
+                step_id=s.get("step_id", "unknown"),
+                sql=s.get("sql", ""),
+                description=s.get("description", ""),
+            )
+            for s in generated_code.steps
+        ]
 
-                # Prepend entropy comments to first step only
-                if step_info == generated_code.steps[0] and entropy_comments:
-                    sql_with_comments = entropy_comments + sql
-                else:
-                    sql_with_comments = sql
+        # Create repair function that captures context
+        def repair_fn(failed_sql: str, error_msg: str, description: str) -> Result[str]:
+            return self._repair_sql(
+                failed_sql=failed_sql,
+                error_message=error_msg,
+                context=context,
+                step_description=description,
+            )
 
-                # Try to execute, with repair attempts on failure
-                current_sql = sql
-                last_error = None
+        # Execute using shared function
+        exec_result = execute_sql_steps(
+            steps=steps,
+            final_sql=generated_code.final_sql,
+            duckdb_conn=context.duckdb_conn,
+            max_repair_attempts=max_repair_attempts,
+            repair_fn=repair_fn,
+            return_table=False,
+        )
 
-                for attempt in range(max_repair_attempts + 1):
-                    try:
-                        # Create a temp view using step_id as the view name
-                        view_sql = f"CREATE OR REPLACE TEMP VIEW {step_id} AS {current_sql}"
-                        context.duckdb_conn.execute(view_sql)
-                        created_views.append(step_id)
+        if not exec_result.success or not exec_result.value:
+            return Result.fail(exec_result.error or "SQL execution failed")
 
-                        # Execute the view to get the result
-                        result = context.duckdb_conn.execute(f"SELECT * FROM {step_id}").fetchone()
-                        value = result[0] if result else None
-                        step_values[step_id] = value
+        result = exec_result.value
 
-                        # Create step result
-                        step_result = StepResult(
-                            step_id=step_id,
-                            level=1,
-                            step_type=StepType.FORMULA,
-                            source_query=sql_with_comments if attempt == 0 else current_sql,
-                            inputs_used={
-                                "sql": current_sql,
-                                "view_name": step_id,
-                                "repair_attempts": attempt,
-                            },
-                        )
+        # Build StepResult objects from shared execution results
+        for sr in result.step_results:
+            step_result = StepResult(
+                step_id=sr.step_id,
+                level=1,
+                step_type=StepType.FORMULA,
+                source_query=sr.sql_executed,
+                inputs_used={
+                    "sql": sr.sql_executed,
+                    "view_name": sr.step_id,
+                    "repair_attempts": sr.repair_attempts,
+                },
+            )
+            value = sr.value
+            if isinstance(value, (int, float)):
+                step_result.value_scalar = float(value)
+            elif isinstance(value, bool):
+                step_result.value_boolean = value
+            elif isinstance(value, str):
+                step_result.value_string = value
 
-                        if isinstance(value, (int, float)):
-                            step_result.value_scalar = float(value)
-                        elif isinstance(value, bool):
-                            step_result.value_boolean = value
-                        elif isinstance(value, str):
-                            step_result.value_string = value
+            execution.step_results.append(step_result)
 
-                        execution.step_results.append(step_result)
-                        break  # Success, exit retry loop
-
-                    except Exception as e:
-                        last_error = str(e)
-                        if attempt < max_repair_attempts:
-                            # Try to repair the SQL
-                            repair_result = self._repair_sql(
-                                failed_sql=current_sql,
-                                error_message=last_error,
-                                context=context,
-                                step_description=step_description,
-                            )
-                            if repair_result.success and repair_result.value:
-                                current_sql = repair_result.value
-                            else:
-                                # Repair failed, no point retrying
-                                break
-                        else:
-                            # All attempts exhausted
-                            return Result.fail(
-                                f"Step {step_id} failed after {attempt + 1} attempts: {last_error}"
-                            )
-                else:
-                    # Loop completed without break = all repairs failed
-                    return Result.fail(f"Step {step_id} failed: {last_error}")
-
-            # Execute final SQL with repair attempts
-            final_sql = generated_code.final_sql
-            last_error = None
-
-            for attempt in range(max_repair_attempts + 1):
-                try:
-                    final_result = context.duckdb_conn.execute(final_sql).fetchone()
-                    execution.output_value = final_result[0] if final_result else None
-                    break  # Success
-
-                except Exception as e:
-                    last_error = str(e)
-                    if attempt < max_repair_attempts:
-                        repair_result = self._repair_sql(
-                            failed_sql=final_sql,
-                            error_message=last_error,
-                            context=context,
-                            step_description=f"Final calculation for {graph.metadata.name}",
-                        )
-                        if repair_result.success and repair_result.value:
-                            final_sql = repair_result.value
-                        else:
-                            break
-                    else:
-                        return Result.fail(
-                            f"Final SQL failed after {attempt + 1} attempts: {last_error}"
-                        )
-            else:
-                return Result.fail(f"Final SQL failed: {last_error}")
-
-        finally:
-            # Clean up temporary views
-            for view_name in created_views:
-                try:
-                    context.duckdb_conn.execute(f"DROP VIEW IF EXISTS {view_name}")
-                except Exception:
-                    pass  # Ignore cleanup errors
+        execution.output_value = result.final_value
 
         # Add interpretation if available
         if graph.interpretation and execution.output_value is not None:
@@ -1059,7 +994,7 @@ class GraphAgent(LLMFeature):
         graph: TransformationGraph,
         generated_code: GeneratedCode,
         execution: GraphExecution,
-    ) -> None:
+    ) -> str | None:
         """Save graph execution to QueryLibrary for cross-agent reuse.
 
         This enables Query Agent to find and reuse graph-generated SQL
@@ -1072,6 +1007,9 @@ class GraphAgent(LLMFeature):
             graph: The graph specification
             generated_code: Generated SQL code
             execution: Execution result with assumptions
+
+        Returns:
+            The query_id of the saved library entry, or None if save failed
         """
         from dataraum.query.document import QueryDocument
         from dataraum.query.library import QueryLibrary, QueryLibraryError
@@ -1107,7 +1045,7 @@ class GraphAgent(LLMFeature):
 
         try:
             library = QueryLibrary(session, manager)
-            library.save(
+            entry = library.save(
                 source_id=source_id,
                 document=document,
                 graph_id=graph.graph_id,
@@ -1116,8 +1054,11 @@ class GraphAgent(LLMFeature):
                 confidence_level="GREEN",  # Graphs are pre-validated
             )
             logger.info(f"Saved graph '{graph.graph_id}' to query library")
+            return entry.query_id
         except QueryLibraryError as e:
             # Library not available (vectors disabled) - not an error
             logger.debug(f"Skipping library save (vectors not enabled): {e}")
+            return None
         except Exception as e:
             logger.warning(f"Failed to save graph to library: {e}")
+            return None
