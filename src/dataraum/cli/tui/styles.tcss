@@ -33,6 +33,7 @@ Screen {
     width: 70%;
     height: 100%;
     padding-left: 1;
+    overflow-y: auto;
 }
 
 #entropy-tree {
@@ -64,20 +65,10 @@ Screen {
 }
 
 #tab-overview,
+#tab-evidence,
 #tab-assumptions,
 #tab-actions {
     overflow-y: auto;
-}
-
-#raw-section {
-    height: auto;
-    max-height: 12;
-    padding: 1 0 0 0;
-}
-
-#raw-table {
-    height: auto;
-    max-height: 10;
 }
 
 /* Contracts screen */
@@ -90,33 +81,21 @@ Screen {
     min-height: 0;
 }
 
-#contract-detail {
+#blocking-banner {
+    height: auto;
+    padding: 0 0 1 0;
+}
+
+#contracts-tree {
     height: 1fr;
-    padding-top: 1;
+    border: solid $primary-background;
 }
 
-#dimensions-section {
-    height: auto;
-    max-height: 12;
-    padding: 1 0 0 0;
-}
-
-#dimensions-table {
-    height: auto;
-    max-height: 10;
-}
-
-#tab-violations,
-#tab-warnings {
+#tab-evidence,
+#tab-actions {
     overflow-y: auto;
 }
 
-/* Violation collapsible content */
-.violation-scroll {
-    height: auto;
-    max-height: 20;
-    padding: 1;
-}
 
 .detail-text {
     padding: 0 1;
@@ -311,22 +290,4 @@ DataTable > .datatable--cursor {
 #description-text {
     color: $text-muted;
     padding-bottom: 1;
-}
-
-.dimensions-section,
-.violations-section,
-.warnings-section,
-.compliance-section {
-    padding: 1 0;
-}
-
-#dimensions-table,
-#violations-table {
-    max-height: 12;
-}
-
-#warnings-text,
-#compliance-text {
-    padding: 1;
-    background: $surface-darken-1;
 }

@@ -20,7 +20,7 @@ temporal:
   # Preferred time column name for temporal analysis.
   # Small_finance fixture columns: "Transaction date", "Created date", "Due date"
   # If not specified, auto-detects from columns with date/timestamp types.
-  time_column: "Belegdatum der Buchung"
+  time_column: "Transaction date"
 
   # Time granularity: daily, weekly, monthly
   time_grain: monthly
@@ -32,7 +32,7 @@ temporal:
 # Temporal slice analysis settings
 temporal_slice_analysis:
   # Override time column for slice analysis (inherits from temporal if not set)
-  time_column: "Belegdatum der Buchung"
+  time_column: "Transaction date"
 
   # Bottleneck distance threshold for topology drift detection
   bottleneck_threshold: 0.5

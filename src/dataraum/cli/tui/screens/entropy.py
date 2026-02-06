@@ -11,7 +11,6 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Collapsible,
-    DataTable,
     Label,
     ProgressBar,
     Static,
@@ -72,11 +71,15 @@ class EntropyScreen(Screen[None]):
         self.output_dir = output_dir
         self.table_filter = table_filter
         self._data_loaded = False
-        # Store interpretations keyed by "table.column" for lookup
+        # Store interpretations keyed by "table.column" or "table.(table)" for lookup
         self._interp_map: dict[str, Any] = {}
         # Store entropy objects keyed by column_id for lookup
         self._entropy_objects_map: dict[str, list[Any]] = {}
+        # Store table-level entropy objects keyed by "table.(table)" key
+        self._table_entropy_objects: dict[str, list[Any]] = {}
         self._selected_key: str | None = None
+        # Store compound risks keyed by column key ("table.column")
+        self._compound_risks_map: dict[str, list[Any]] = {}
 
     def compose(self) -> ComposeResult:
         """Create the screen layout with tree and detail panel."""
@@ -97,14 +100,12 @@ class EntropyScreen(Screen[None]):
                     with TabbedContent(id="detail-tabs"):
                         with TabPane("Overview", id="tab-overview"):
                             yield Static("", id="overview-content")
+                        with TabPane("Evidence", id="tab-evidence"):
+                            yield Static("", id="evidence-content")
                         with TabPane("Assumptions", id="tab-assumptions"):
                             yield Vertical(id="assumptions-list")
                         with TabPane("Actions", id="tab-actions"):
                             yield Vertical(id="actions-list")
-                    # Raw measurements table (always visible)
-                    with Container(id="raw-section"):
-                        yield Static("[bold]Raw Measurements[/bold]", classes="section-title")
-                        yield DataTable(id="raw-table")
 
     def on_mount(self) -> None:
         """Load data when screen mounts."""
@@ -115,6 +116,8 @@ class EntropyScreen(Screen[None]):
         self._data_loaded = False
         self._interp_map.clear()
         self._entropy_objects_map.clear()
+        self._table_entropy_objects.clear()
+        self._compound_risks_map.clear()
         self._selected_key = None
         self._load_data()
 
@@ -126,11 +129,12 @@ class EntropyScreen(Screen[None]):
         from sqlalchemy import select
 
         from dataraum.entropy.db_models import (
+            CompoundRiskRecord,
             EntropyInterpretationRecord,
             EntropyObjectRecord,
             EntropySnapshotRecord,
         )
-        from dataraum.storage import Source
+        from dataraum.storage import Source, Table
 
         manager = get_manager(self.output_dir)
 
@@ -203,6 +207,39 @@ class EntropyScreen(Screen[None]):
                             self._entropy_objects_map[col_id] = []
                         self._entropy_objects_map[col_id].append(obj)
 
+                # Load table-level entropy objects (column_id IS NULL, table_id set)
+                tables_result = session.execute(
+                    select(Table).where(Table.source_id == source.source_id)
+                )
+                tables = tables_result.scalars().all()
+                table_id_to_name: dict[str, str] = {t.table_id: t.table_name for t in tables}
+                table_ids = list(table_id_to_name.keys())
+
+                if table_ids:
+                    table_obj_result = session.execute(
+                        select(EntropyObjectRecord)
+                        .where(
+                            EntropyObjectRecord.table_id.in_(table_ids),
+                            EntropyObjectRecord.column_id.is_(None),
+                        )
+                        .order_by(EntropyObjectRecord.score.desc())
+                    )
+                    for obj in table_obj_result.scalars().all():
+                        t_name = table_id_to_name.get(obj.table_id or "", "unknown")
+                        table_key = f"{t_name}.(table)"
+                        self._table_entropy_objects.setdefault(table_key, []).append(obj)
+
+                # Load compound risks keyed by column target
+                if table_ids:
+                    cr_result = session.execute(
+                        select(CompoundRiskRecord).where(CompoundRiskRecord.table_id.in_(table_ids))
+                    )
+                    for cr in cr_result.scalars().all():
+                        target = cr.target
+                        if target.startswith("column:"):
+                            col_key = target[7:]  # Remove "column:" prefix
+                            self._compound_risks_map.setdefault(col_key, []).append(cr)
+
                 # Update UI
                 self._update_summary(source.name, snapshot, interpretations)
                 self._update_tree(interpretations)
@@ -247,14 +284,17 @@ class EntropyScreen(Screen[None]):
         high = sum(1 for i in interpretations if i.composite_score > 0.2)
         investigate = sum(1 for i in interpretations if i.readiness == "investigate")
         blocked = sum(1 for i in interpretations if i.readiness == "blocked")
+        table_level = sum(1 for i in interpretations if not i.column_name)
 
         # Build status line with all stats
         parts = [
             f"[{color}]{snapshot.overall_readiness.upper()}[/{color}]",
             f"Score: {snapshot.avg_composite_score:.3f}",
-            f"Columns: {total}",
-            f"High: {high}",
+            f"Columns: {total - table_level}",
         ]
+        if table_level:
+            parts.append(f"Table-level: {table_level}")
+        parts.append(f"High: {high}")
         if investigate:
             parts.append(f"[yellow]Investigate: {investigate}[/yellow]")
         if blocked:
@@ -293,10 +333,18 @@ class EntropyScreen(Screen[None]):
             table_label = f"[{table_color}]{table_name}[/{table_color}]"
             table_node = tree.root.add(table_label, data=f"{table_name}.(table)")
 
+            # Add table-level interpretation node if it exists
+            table_key = f"{table_name}.(table)"
+            if table_key in self._interp_map or table_key in self._table_entropy_objects:
+                table_node.add_leaf(
+                    "[dim](table-level)[/dim]",
+                    data=table_key,
+                )
+
             # Add columns
             for col in columns:
                 if not col.column_name:
-                    continue  # Skip table-level for now
+                    continue  # Already added as table-level node
 
                 col_color = {"ready": "green", "investigate": "yellow", "blocked": "red"}.get(
                     col.readiness, "white"
@@ -323,9 +371,52 @@ class EntropyScreen(Screen[None]):
     def on_tree_node_selected(self, event: Tree.NodeSelected[str]) -> None:
         """Handle tree node selection."""
         node: TreeNode[str] = event.node
-        if node.data and node.data in self._interp_map:
-            self._selected_key = node.data
+        if not node.data:
+            return
+
+        self._selected_key = node.data
+
+        # Check interpretation map first
+        if node.data in self._interp_map:
             self._update_detail_panel(self._interp_map[node.data])
+        elif node.data in self._table_entropy_objects:
+            # Table-level node with entropy objects but no interpretation
+            self._update_table_level_panel(node.data)
+
+    def _update_table_level_panel(self, key: str) -> None:
+        """Update detail panel for table-level entropy objects without interpretation."""
+        header = self.query_one("#detail-header", Static)
+        header.update(
+            f"[bold]{key.replace('.(table)', '')}[/bold] | [dim]Table-level metrics[/dim]"
+        )
+
+        # Get table-level entropy objects
+        objects = self._table_entropy_objects.get(key, [])
+
+        # Update layer bars
+        self._update_layer_bars(objects)
+
+        # Overview: show summary from objects
+        overview = self.query_one("#overview-content", Static)
+        if objects:
+            overview.update(
+                f"Table-level entropy measurements: {len(objects)} objects across "
+                f"{len({o.layer for o in objects})} layers"
+            )
+        else:
+            overview.update("[dim]No table-level measurements[/dim]")
+
+        # Update evidence tab
+        self._update_evidence_section(objects)
+
+        # Clear assumptions/actions
+        container = self.query_one("#assumptions-list", Vertical)
+        container.remove_children()
+        container.mount(Static("[dim]No assumptions for table-level metrics[/dim]"))
+
+        actions_container = self.query_one("#actions-list", Vertical)
+        actions_container.remove_children()
+        actions_container.mount(Static("[dim]No actions for table-level metrics[/dim]"))
 
     def _update_detail_panel(self, interp: Any) -> None:
         """Update the detail panel with the selected interpretation."""
@@ -341,21 +432,104 @@ class EntropyScreen(Screen[None]):
             f"Score: {interp.composite_score:.3f}"
         )
 
-        # Get entropy objects for this column
-        entropy_objects = self._entropy_objects_map.get(interp.column_id, [])
+        # Get entropy objects for this column or table-level
+        if interp.column_id:
+            entropy_objects = self._entropy_objects_map.get(interp.column_id, [])
+        else:
+            table_key = f"{interp.table_name}.(table)"
+            entropy_objects = self._table_entropy_objects.get(table_key, [])
 
         # Update all sections
         self._update_layer_bars(entropy_objects)
         self._update_overview_section(interp)
+        self._update_evidence_section(entropy_objects)
         self._update_assumptions_section(interp)
-        self._update_actions_section(interp)
-        self._update_raw_table(entropy_objects)
+        self._update_actions_section(interp, entropy_objects)
 
     def _update_overview_section(self, interp: Any) -> None:
-        """Update the Overview section content."""
+        """Update the Overview section with explanation and compound risks."""
         overview = self.query_one("#overview-content", Static)
+        parts: list[str] = []
+
+        # LLM explanation
         explanation = interp.explanation or "No explanation available"
-        overview.update(explanation)
+        parts.append(explanation)
+
+        # Compound risks for this column
+        col_key = f"{interp.table_name}.{interp.column_name}" if interp.column_name else ""
+        risks = self._compound_risks_map.get(col_key, [])
+        if risks:
+            parts.append("")
+            parts.append("[bold]Compound Risks[/bold]")
+            for risk in risks:
+                level_colors = {"critical": "red", "high": "yellow", "medium": "white"}
+                r_color = level_colors.get(risk.risk_level, "white")
+                parts.append(
+                    f"  [{r_color}]{risk.risk_level.upper()}[/{r_color}] "
+                    f"({risk.multiplier:.1f}x multiplier) "
+                    f"Score: {risk.combined_score:.3f}"
+                )
+                # Show contributing dimensions
+                dim_scores = risk.dimension_scores or {}
+                if risk.dimensions:
+                    dim_parts = []
+                    for dim in risk.dimensions:
+                        s = dim_scores.get(dim, 0.0)
+                        dim_parts.append(f"{dim}: {s:.2f}")
+                    parts.append(f"    Dimensions: {', '.join(dim_parts)}")
+                if risk.impact:
+                    parts.append(f"    Impact: {risk.impact}")
+
+        overview.update("\n".join(parts))
+
+    def _update_evidence_section(self, entropy_objects: Sequence[Any]) -> None:
+        """Update the Evidence tab with full detector-specific evidence."""
+        content = self.query_one("#evidence-content", Static)
+
+        if not entropy_objects:
+            content.update("[dim]No entropy measurements[/dim]")
+            return
+
+        parts: list[str] = []
+
+        for obj in entropy_objects:
+            # Section header per entropy object
+            score_color = "red" if obj.score > 0.3 else "yellow" if obj.score > 0.15 else "green"
+            parts.append(
+                f"[bold]{obj.layer} > {obj.dimension} > {obj.sub_dimension}[/bold]  "
+                f"[{score_color}]{obj.score:.3f}[/{score_color}]  "
+                f"[dim]confidence: {obj.confidence:.2f}[/dim]"
+            )
+
+            # All evidence fields
+            evidence = obj.evidence or {}
+            if isinstance(evidence, list):
+                evidence = evidence[0] if evidence and isinstance(evidence[0], dict) else {}
+
+            if evidence:
+                for key, value in evidence.items():
+                    parts.append(f"  {_format_evidence_field(key, value)}")
+            else:
+                parts.append("  [dim]No evidence data[/dim]")
+
+            # Resolution options from this detector
+            if obj.resolution_options:
+                for opt in obj.resolution_options:
+                    if not isinstance(opt, dict):
+                        continue
+                    action = opt.get("action", "?")
+                    reduction = opt.get("expected_entropy_reduction", 0)
+                    effort = opt.get("effort", "?")
+                    cascade = opt.get("cascade_dimensions", [])
+                    parts.append(
+                        f"  [dim]-> {action}[/dim]  reduction: {reduction:.0%}, effort: {effort}"
+                    )
+                    if cascade:
+                        parts.append(f"     cascades: {', '.join(cascade)}")
+
+            parts.append("")  # Blank line between objects
+
+        content.update("\n".join(parts))
 
     def _update_assumptions_section(self, interp: Any) -> None:
         """Update the Assumptions section with expandable items."""
@@ -402,7 +576,9 @@ class EntropyScreen(Screen[None]):
             )
             container.mount(collapsible)
 
-    def _update_actions_section(self, interp: Any) -> None:
+    def _update_actions_section(
+        self, interp: Any, entropy_objects: Sequence[Any] | None = None
+    ) -> None:
         """Update the Actions section with expandable items."""
         container = self.query_one("#actions-list", Vertical)
         container.remove_children()
@@ -416,6 +592,21 @@ class EntropyScreen(Screen[None]):
         if not actions:
             container.mount(Static("[dim]No actions recommended[/dim]"))
             return
+
+        # Build cascade lookup from raw entropy objects' resolution_options
+        cascade_by_action: dict[str, list[str]] = {}
+        reduction_by_action: dict[str, float] = {}
+        if entropy_objects:
+            for obj in entropy_objects:
+                if not obj.resolution_options:
+                    continue
+                for opt in obj.resolution_options:
+                    if not isinstance(opt, dict):
+                        continue
+                    act = opt.get("action", "")
+                    if act and act not in cascade_by_action:
+                        cascade_by_action[act] = opt.get("cascade_dimensions", [])
+                        reduction_by_action[act] = opt.get("expected_entropy_reduction", 0.0)
 
         # Sort by priority
         priority_order = {"high": 0, "medium": 1, "low": 2}
@@ -432,16 +623,33 @@ class EntropyScreen(Screen[None]):
             description = action.get("description", "")
             effort = action.get("effort", "-")
             expected_impact = action.get("expected_impact", "")
+            parameters = action.get("parameters", {})
 
             p_color = priority_colors.get(str(priority).lower(), "white")
 
-            # Title for collapsed state
-            title = f"[{p_color}]{priority.upper()}[/{p_color}] {action_name} [dim](effort: {effort})[/dim]"
+            # Title with reduction if available
+            reduction = reduction_by_action.get(action_name, 0.0)
+            reduction_str = f" {reduction:.0%}" if reduction else ""
+            title = (
+                f"[{p_color}]{priority.upper()}[/{p_color}] {action_name} "
+                f"[dim](effort: {effort}{reduction_str})[/dim]"
+            )
 
             # Full content for expanded state
             content = f"[bold]Description:[/bold]\n{description}"
             if expected_impact:
                 content += f"\n\n[bold]Expected Impact:[/bold]\n{expected_impact}"
+
+            # Parameters
+            if parameters and isinstance(parameters, dict):
+                param_lines = [f"  {k}: {v}" for k, v in parameters.items()]
+                content += "\n\n[bold]Parameters:[/bold]\n" + "\n".join(param_lines)
+
+            # Cascade dimensions from raw resolution options
+            cascade = cascade_by_action.get(action_name, [])
+            if cascade:
+                content += "\n\n[bold]Cascades to:[/bold]\n  " + ", ".join(cascade)
+
             content += f"\n\n[dim]Priority: {priority} | Effort: {effort}[/dim]"
 
             collapsible = Collapsible(
@@ -489,28 +697,34 @@ class EntropyScreen(Screen[None]):
 
         container.update(" | ".join(parts) if parts else "[dim]No layer data[/dim]")
 
-    def _update_raw_table(self, entropy_objects: Sequence[Any]) -> None:
-        """Update the raw entropy measurements table."""
-        table = self.query_one("#raw-table", DataTable)
-        table.clear(columns=True)
 
-        table.add_column("Layer", key="layer")
-        table.add_column("Dimension", key="dimension")
-        table.add_column("Sub-dim", key="sub_dimension")
-        table.add_column("Score", key="score")
-        table.add_column("Conf", key="confidence")
+def _format_evidence_field(key: str, value: Any) -> str:
+    """Format a single evidence field with human-readable label and value."""
+    # Human-readable key names
+    label = key.replace("_", " ").title()
 
-        if not entropy_objects:
-            table.add_row("-", "No measurements", "-", "-", "-")
-            return
-
-        for obj in entropy_objects:
-            score_color = "red" if obj.score > 0.3 else "yellow" if obj.score > 0.15 else "green"
-
-            table.add_row(
-                obj.layer[:3].upper(),
-                obj.dimension,
-                obj.sub_dimension or "-",
-                f"[{score_color}]{obj.score:.3f}[/{score_color}]",
-                f"{obj.confidence:.2f}",
-            )
+    if isinstance(value, float):
+        # Show as percentage if it looks like a ratio
+        if key.endswith(("_rate", "_ratio", "_confidence", "confidence")):
+            return f"[dim]{label}:[/dim] {value:.1%}"
+        return f"[dim]{label}:[/dim] {value:.3f}"
+    elif isinstance(value, bool):
+        return f"[dim]{label}:[/dim] {'yes' if value else 'no'}"
+    elif isinstance(value, int):
+        return f"[dim]{label}:[/dim] {value:,}"
+    elif isinstance(value, list):
+        if not value:
+            return f"[dim]{label}:[/dim] (none)"
+        # Show list items inline, truncated
+        items = [str(v) for v in value[:5]]
+        suffix = f" ... +{len(value) - 5}" if len(value) > 5 else ""
+        return f"[dim]{label}:[/dim] {', '.join(items)}{suffix}"
+    elif isinstance(value, dict):
+        # Show dict as key=value pairs
+        items = [f"{k}={v}" for k, v in list(value.items())[:3]]
+        return f"[dim]{label}:[/dim] {', '.join(items)}"
+    else:
+        val_str = str(value)
+        if len(val_str) > 80:
+            val_str = val_str[:77] + "..."
+        return f"[dim]{label}:[/dim] {val_str}"
