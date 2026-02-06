@@ -1,4 +1,4 @@
-"""Contracts screen - contract evaluation with split-panel detail view."""
+"""Contracts screen - contract evaluation with tree navigation and detail view."""
 
 from __future__ import annotations
 
@@ -6,21 +6,21 @@ from pathlib import Path
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Container, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
-    Collapsible,
-    DataTable,
     Static,
     TabbedContent,
     TabPane,
+    Tree,
 )
+from textual.widgets.tree import TreeNode
 
 from dataraum.cli.common import get_manager
 
 
 class ContractsScreen(Screen[None]):
-    """Contracts screen with split-panel layout showing contract list and details."""
+    """Contracts screen with tree navigation and dimension-specific detail panel."""
 
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
@@ -35,31 +35,34 @@ class ContractsScreen(Screen[None]):
         self._evaluations: dict[str, Any] = {}
         self._profiles: dict[str, Any] = {}
         self._selected_contract: str | None = None
-        # Entropy interpretations keyed by "table.column" for showing details
-        self._interpretations: dict[str, Any] = {}
+        # Entropy objects keyed by ("layer.dimension", column_key) for dimension-specific evidence
+        # e.g. ("structural.types", "orders.amount") -> EntropyObjectRecord
+        self._entropy_by_dim_col: dict[tuple[str, str], list[Any]] = {}
+        # Violations/warnings by dimension for tree node -> data mapping
+        self._violations_by_dim: dict[str, Any] = {}
 
     def compose(self) -> ComposeResult:
-        """Create the screen layout with tabbed contract navigation."""
+        """Create the screen layout with tree and detail panel."""
         with Container(classes="screen-container"):
             yield Static("Contract Evaluation", classes="screen-title")
             yield Static("Loading...", id="summary-status")
             # Contract tabs (populated dynamically)
             yield TabbedContent(id="contract-tabs")
-            # Detail panel (updated based on selected contract tab)
-            with Vertical(id="contract-detail"):
-                yield Static("Select a contract", id="detail-header")
-                # Tabs for Overview/Violations/Warnings
-                with TabbedContent(id="detail-tabs"):
-                    with TabPane("Overview", id="tab-overview"):
-                        yield Static("", id="overview-content")
-                    with TabPane("Violations", id="tab-violations"):
-                        yield Vertical(id="violations-list")
-                    with TabPane("Warnings", id="tab-warnings"):
-                        yield Vertical(id="warnings-list")
-                # Dimensions table
-                with Container(id="dimensions-section"):
-                    yield Static("[bold]Dimension Scores[/bold]", classes="section-title")
-                    yield DataTable(id="dimensions-table")
+            # Blocking conditions banner (shown when applicable)
+            yield Static("", id="blocking-banner")
+            # Split layout: dimension tree + detail panel
+            with Horizontal(classes="split-layout"):
+                # Left panel: Dimension tree
+                with Vertical(classes="left-panel"):
+                    yield Tree("", id="contracts-tree")
+                # Right panel: Detail for selected dimension
+                with Vertical(classes="right-panel"):
+                    yield Static("Select a dimension from the tree", id="detail-header")
+                    with TabbedContent(id="detail-tabs"):
+                        with TabPane("Evidence", id="tab-evidence"):
+                            yield Static("", id="evidence-content")
+                        with TabPane("Actions", id="tab-actions"):
+                            yield Static("", id="actions-content")
 
     def on_mount(self) -> None:
         """Load data when screen mounts."""
@@ -70,7 +73,8 @@ class ContractsScreen(Screen[None]):
         self._data_loaded = False
         self._evaluations.clear()
         self._profiles.clear()
-        self._interpretations.clear()
+        self._entropy_by_dim_col.clear()
+        self._violations_by_dim.clear()
         self._selected_contract = None
         self._load_data()
 
@@ -87,8 +91,8 @@ class ContractsScreen(Screen[None]):
             get_contract,
         )
         from dataraum.entropy.core.storage import EntropyRepository
-        from dataraum.entropy.db_models import EntropyInterpretationRecord
-        from dataraum.storage import Source, Table
+        from dataraum.entropy.db_models import EntropyObjectRecord
+        from dataraum.storage import Column, Source, Table
 
         manager = get_manager(self.output_dir)
 
@@ -137,16 +141,32 @@ class ContractsScreen(Screen[None]):
                         for summary in column_summaries.values():
                             compound_risks.extend(summary.compound_risks)
 
-                # Load entropy interpretations for showing findings/actions
-                interp_result = session.execute(
-                    select(EntropyInterpretationRecord).where(
-                        EntropyInterpretationRecord.source_id == source.source_id
+                # Load entropy objects for dimension-specific evidence
+                # Build column_id -> column_key mapping
+                col_id_to_key: dict[str, str] = {}
+                for tbl in tables:
+                    cols_result = session.execute(
+                        select(Column).where(Column.table_id == tbl.table_id)
                     )
-                )
-                for interp in interp_result.scalars().all():
-                    if interp.column_name:
-                        key = f"{interp.table_name}.{interp.column_name}"
-                        self._interpretations[key] = interp
+                    for col in cols_result.scalars().all():
+                        col_id_to_key[col.column_id] = f"{tbl.table_name}.{col.column_name}"
+
+                # Load all entropy objects for source tables
+                # Key by ("layer.dimension", column_key) to match contract dimension format
+                if table_ids:
+                    eo_result = session.execute(
+                        select(EntropyObjectRecord).where(
+                            EntropyObjectRecord.table_id.in_(table_ids)
+                        )
+                    )
+                    for obj in eo_result.scalars().all():
+                        col_key = col_id_to_key.get(obj.column_id, "") if obj.column_id else ""
+                        if col_key:
+                            # Contract dimensions are "layer.dimension" (e.g. "structural.types")
+                            # EntropyObjectRecord stores layer and dimension separately
+                            contract_dim = f"{obj.layer}.{obj.dimension}"
+                            dim_key = (contract_dim, col_key)
+                            self._entropy_by_dim_col.setdefault(dim_key, []).append(obj)
 
                 # Evaluate all contracts and store
                 self._evaluations = evaluate_all_contracts(column_summaries, compound_risks)
@@ -177,7 +197,6 @@ class ContractsScreen(Screen[None]):
 
     def _update_summary(self, source_name: str) -> None:
         """Update the summary line with merged stats."""
-
         self.query_one(".screen-title", Static).update(f"Contract Evaluation: {source_name}")
 
         passing = [e for e in self._evaluations.values() if e.is_compliant]
@@ -231,7 +250,6 @@ class ContractsScreen(Screen[None]):
         self._contract_names = [name for name, _ in sorted_evals]
 
         for name, evaluation in sorted_evals:
-            # Status icon based on confidence
             if evaluation.confidence_level == ConfidenceLevel.GREEN:
                 icon = "●"
             elif evaluation.confidence_level in (
@@ -242,7 +260,6 @@ class ContractsScreen(Screen[None]):
             else:
                 icon = "○"
 
-            # Tab title with icon - add empty Static to avoid showing pane ID
             tab_title = f"{icon} {name}"
             pane = TabPane(tab_title, Static(""), id=f"contract-tab-{name}")
             tabs.add_pane(pane)
@@ -252,231 +269,300 @@ class ContractsScreen(Screen[None]):
         if event.tabbed_content.id != "contract-tabs":
             return
 
-        # Extract contract name from pane id
         pane_id = event.pane.id or ""
         if pane_id.startswith("contract-tab-"):
-            contract_name = pane_id[13:]  # Remove "contract-tab-" prefix
+            contract_name = pane_id[13:]
             self._selected_contract = contract_name
-            self._update_detail_panel(contract_name)
+            self._update_for_contract(contract_name)
 
     def _select_and_update(self, contract_name: str) -> None:
-        """Select a contract tab and update detail panel."""
+        """Select a contract tab and update tree."""
         tabs = self.query_one("#contract-tabs", TabbedContent)
         pane_id = f"contract-tab-{contract_name}"
-        # Activate the tab
         try:
             tabs.active = pane_id
         except Exception:
-            pass  # Tab may not exist yet
-        self._update_detail_panel(contract_name)
+            pass
+        self._update_for_contract(contract_name)
 
-    def _update_detail_panel(self, contract_name: str) -> None:
-        """Update the detail panel with selected contract."""
-        from dataraum.entropy.contracts import ConfidenceLevel
-
+    def _update_for_contract(self, contract_name: str) -> None:
+        """Update tree and detail panel for selected contract."""
         evaluation = self._evaluations.get(contract_name)
         profile = self._profiles.get(contract_name)
 
         if not evaluation or not profile:
             return
 
-        # Update header with status and blocking conditions
-        header = self.query_one("#detail-header", Static)
-        if evaluation.confidence_level == ConfidenceLevel.GREEN:
-            status_str = "[green]PASS[/green]"
-        elif evaluation.confidence_level == ConfidenceLevel.YELLOW:
-            status_str = "[yellow]WARN[/yellow]"
-        elif evaluation.confidence_level == ConfidenceLevel.ORANGE:
-            status_str = "[yellow]LOW[/yellow]"
-        else:
-            status_str = "[red]FAIL[/red]"
+        # Build dimension tree
+        self._build_dimension_tree(evaluation, profile)
 
-        # Collect blocking conditions (violations without dimension)
-        blocking_parts: list[str] = []
+        # Reset detail panel
+        self.query_one("#detail-header", Static).update(
+            "[dim]Select a dimension from the tree[/dim]"
+        )
+        self.query_one("#evidence-content", Static).update("")
+        self.query_one("#actions-content", Static).update("")
+
+    def _build_dimension_tree(self, evaluation: Any, profile: Any) -> None:
+        """Build tree organized by layer > dimension with status colors."""
+        tree: Tree[str] = self.query_one("#contracts-tree", Tree)
+        tree.clear()
+        tree.show_root = False
+        tree.root.expand()
+
+        # Index violations/warnings by dimension for quick lookup
+        self._violations_by_dim = {}
         for v in evaluation.violations:
-            if not v.dimension:
-                # Use details if available, otherwise condition name
-                desc = v.details or v.condition or "Blocked"
-                blocking_parts.append(desc)
+            if v.dimension:
+                self._violations_by_dim[v.dimension] = v
+        for w in evaluation.warnings:
+            if w.dimension and w.dimension not in self._violations_by_dim:
+                self._violations_by_dim[w.dimension] = w
 
-        header_lines = [f"[bold]{profile.display_name}[/bold] | {status_str}"]
-        if blocking_parts:
-            # Show full blocking descriptions on second line
-            for desc in blocking_parts:
-                header_lines.append(f"[red]{desc}[/red]")
-
-        header.update("\n".join(header_lines))
-
-        # Update all sections
-        self._update_overview(evaluation, profile)
-        self._update_violations(evaluation)
-        self._update_warnings(evaluation)
-        self._update_dimensions_table(evaluation, profile)
-
-    def _update_overview(self, evaluation: Any, profile: Any) -> None:
-        """Update the overview tab with description and compliance path."""
-        overview = self.query_one("#overview-content", Static)
-
-        content_parts = [f"[dim]{profile.description}[/dim]", ""]
-
-        if evaluation.is_compliant:
-            content_parts.append("[green]Contract is compliant![/green]")
-        else:
-            content_parts.append("[bold]Path to Compliance:[/bold]")
-            if evaluation.worst_dimension:
-                content_parts.append(
-                    f"Focus on: [cyan]{evaluation.worst_dimension}[/cyan] "
-                    f"(score: {evaluation.worst_dimension_score:.3f})"
-                )
-            if evaluation.estimated_effort_to_comply:
-                content_parts.append(f"Estimated effort: {evaluation.estimated_effort_to_comply}")
-            if evaluation.violations:
-                content_parts.append("")
-                content_parts.append("[bold]Top recommendations:[/bold]")
-                for v in evaluation.violations[:3]:
-                    if v.dimension:
-                        content_parts.append(
-                            f"  • Reduce {v.dimension} from {v.actual:.3f} "
-                            f"to below {v.max_allowed:.3f}"
-                        )
-
-        overview.update("\n".join(content_parts))
-
-    def _update_violations(self, evaluation: Any) -> None:
-        """Update the violations tab with collapsible items showing actionable details."""
-        container = self.query_one("#violations-list", Vertical)
-        container.remove_children()
-
-        # Only show dimension-specific violations (blocking conditions are in header)
-        dimension_violations = [v for v in evaluation.violations if v.dimension]
-
-        if not dimension_violations:
-            container.mount(Static("[dim]No dimension violations[/dim]"))
-            return
-
-        for v in dimension_violations:
-            affected = v.affected_columns or []
-            # Title with dimension, column count, and score
-            title = (
-                f"[red]{v.dimension}[/red] | "
-                f"{len(affected)} columns | "
-                f"{v.actual:.3f} (max: {v.max_allowed:.3f})"
-            )
-
-            # Build content as single string for all affected columns
-            content_parts: list[str] = []
-
-            for col_key in affected:  # Show all columns
-                interp = self._interpretations.get(col_key)
-                if interp:
-                    content_parts.append(f"[cyan bold]{col_key}[/cyan bold]")
-                    # Show full finding (explanation)
-                    if interp.explanation:
-                        content_parts.append(f"[dim]Finding:[/dim] {interp.explanation}")
-                    # Show all recommended actions
-                    if interp.resolution_actions_json:
-                        actions = interp.resolution_actions_json
-                        if actions:
-                            content_parts.append("[dim]Actions:[/dim]")
-                            for action in actions:
-                                action_name = action.get("action", "Unknown")
-                                priority = action.get("priority", "")
-                                description = action.get("description", "")
-                                priority_str = f" [{priority}]" if priority else ""
-                                content_parts.append(
-                                    f"  [green]•[/green] {action_name}{priority_str}"
-                                )
-                                if description:
-                                    content_parts.append(f"    {description}")
-                    content_parts.append("")  # Spacer between columns
-                else:
-                    content_parts.append(f"[dim]{col_key}[/dim] (no interpretation)")
-                    content_parts.append("")
-
-            content_text = "\n".join(content_parts)
-            # Create scrollable container with content, pass to Collapsible
-            scroll = VerticalScroll(
-                Static(content_text),
-                classes="violation-scroll",
-            )
-            collapsible = Collapsible(scroll, title=title, collapsed=True)
-            container.mount(collapsible)
-
-    def _update_warnings(self, evaluation: Any) -> None:
-        """Update the warnings tab with collapsible items showing details."""
-        container = self.query_one("#warnings-list", Vertical)
-        container.remove_children()
-
-        # Only show dimension-specific warnings
-        dimension_warnings = [w for w in evaluation.warnings if w.dimension]
-
-        if not dimension_warnings:
-            container.mount(Static("[dim]No dimension warnings[/dim]"))
-            return
-
-        for w in dimension_warnings:
-            affected = w.affected_columns or []
-            # Title with dimension, column count, and score (approaching threshold)
-            title = (
-                f"[yellow]{w.dimension}[/yellow] | "
-                f"{len(affected)} columns | "
-                f"{w.actual:.3f} (threshold: {w.max_allowed:.3f})"
-            )
-
-            # Build content with per-column findings
-            content_parts: list[str] = []
-
-            for col_key in affected:
-                interp = self._interpretations.get(col_key)
-                if interp:
-                    content_parts.append(f"[cyan bold]{col_key}[/cyan bold]")
-                    if interp.explanation:
-                        content_parts.append(f"[dim]Finding:[/dim] {interp.explanation}")
-                    if interp.resolution_actions_json:
-                        actions = interp.resolution_actions_json
-                        if actions:
-                            content_parts.append("[dim]Actions:[/dim]")
-                            for action in actions:
-                                action_name = action.get("action", "Unknown")
-                                priority = action.get("priority", "")
-                                description = action.get("description", "")
-                                priority_str = f" [{priority}]" if priority else ""
-                                content_parts.append(
-                                    f"  [green]•[/green] {action_name}{priority_str}"
-                                )
-                                if description:
-                                    content_parts.append(f"    {description}")
-                    content_parts.append("")
-                else:
-                    content_parts.append(f"[dim]{col_key}[/dim] (no interpretation)")
-                    content_parts.append("")
-
-            content_text = "\n".join(content_parts)
-            scroll = VerticalScroll(
-                Static(content_text),
-                classes="violation-scroll",
-            )
-            collapsible = Collapsible(scroll, title=title, collapsed=True)
-            container.mount(collapsible)
-
-    def _update_dimensions_table(self, evaluation: Any, profile: Any) -> None:
-        """Update the dimensions score table."""
-        table = self.query_one("#dimensions-table", DataTable)
-        table.clear(columns=True)
-
-        table.add_column("Dimension", key="dimension")
-        table.add_column("Score", key="score")
-        table.add_column("Threshold", key="threshold")
-        table.add_column("Status", key="status")
-
+        # Group contract dimensions by layer
+        layers: dict[str, list[tuple[str, float]]] = {}
         for dim, threshold in profile.dimension_thresholds.items():
-            score = evaluation.dimension_scores.get(dim, 0.0)
+            parts = dim.split(".", 1)
+            layer = parts[0] if len(parts) > 1 else dim
+            layers.setdefault(layer, []).append((dim, threshold))
 
-            if score <= threshold:
-                status = "[green]Pass[/green]"
-            elif score <= threshold * 1.2:
-                status = "[yellow]Warn[/yellow]"
+        # Build tree nodes — layers are direct children of root
+        for layer, dims in layers.items():
+            # Determine layer status from its dimensions
+            layer_status = "pass"
+            for dim, _threshold in dims:
+                v = self._violations_by_dim.get(dim)
+                if v and v.severity == "blocking":
+                    layer_status = "fail"
+                    break
+                elif v:
+                    layer_status = "warn"
+
+            layer_color = {"pass": "green", "warn": "yellow", "fail": "red"}[layer_status]
+            layer_node = tree.root.add(
+                f"[{layer_color}]{layer}[/{layer_color}]",
+                data=f"layer:{layer}",
+            )
+
+            for dim, threshold in dims:
+                score = evaluation.dimension_scores.get(dim, 0.0)
+                v = self._violations_by_dim.get(dim)
+
+                # Determine color from status
+                if v and v.severity == "blocking":
+                    color = "red"
+                elif v:
+                    color = "yellow"
+                else:
+                    color = "green"
+
+                # Sub-dimension label (part after the dot)
+                sub_dim = dim.split(".", 1)[1] if "." in dim else dim
+                affected_count = len(v.affected_columns) if v else 0
+                affected_str = f" ({affected_count})" if affected_count else ""
+
+                label = (
+                    f"[{color}]{sub_dim}[/{color}] "
+                    f"[dim]{score:.2f}/{threshold:.2f}[/dim]"
+                    f"{affected_str}"
+                )
+                layer_node.add_leaf(label, data=f"dim:{dim}")
+
+            layer_node.expand()
+
+        # Update blocking conditions banner (outside tree)
+        blocking_conditions = [v for v in evaluation.violations if not v.dimension]
+        banner = self.query_one("#blocking-banner", Static)
+        if blocking_conditions:
+            parts = []
+            for v in blocking_conditions:
+                desc = v.details or v.condition or "Blocked"
+                parts.append(desc)
+            banner.update("[red bold]Blocking:[/red bold] " + " | ".join(parts))
+        else:
+            banner.update("[green]No blocking conditions[/green]")
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected[str]) -> None:
+        """Handle dimension tree node selection."""
+        node: TreeNode[str] = event.node
+        if not node.data:
+            return
+
+        if node.data.startswith("dim:"):
+            dimension = node.data[4:]
+            v = self._violations_by_dim.get(dimension)
+            evaluation = self._evaluations.get(self._selected_contract or "")
+            profile = self._profiles.get(self._selected_contract or "")
+            if evaluation and profile:
+                score = evaluation.dimension_scores.get(dimension, 0.0)
+                threshold = profile.dimension_thresholds.get(dimension, 0.0)
+                self._show_dimension_detail(dimension, score, threshold, v)
+
+    def _show_dimension_detail(
+        self,
+        dimension: str,
+        score: float,
+        threshold: float,
+        violation: Any | None,
+    ) -> None:
+        """Update right panel for selected dimension."""
+        header = self.query_one("#detail-header", Static)
+
+        # Status tag
+        if violation and violation.severity == "blocking":
+            status_tag = "[red]FAIL[/red]"
+        elif violation:
+            status_tag = "[yellow]WARN[/yellow]"
+        else:
+            status_tag = "[green]PASS[/green]"
+
+        affected_count = len(violation.affected_columns) if violation else 0
+        affected_str = f" | Affected: {affected_count}" if affected_count else ""
+
+        header.update(
+            f"[bold]{dimension}[/bold] | {status_tag} | "
+            f"Score: {score:.3f} | Threshold: {threshold:.3f}{affected_str}"
+        )
+
+        affected_columns = violation.affected_columns if violation else []
+
+        # Update all tabs
+        self._update_evidence_panel(dimension, affected_columns)
+        self._update_actions_panel(dimension, affected_columns)
+
+    def _update_evidence_panel(self, dimension: str, affected_columns: list[str]) -> None:
+        """Show dimension-specific evidence for affected columns."""
+        content_parts: list[str] = []
+
+        for col_key in affected_columns:
+            dim_key = (dimension, col_key)
+            objects = self._entropy_by_dim_col.get(dim_key, [])
+
+            content_parts.append(f"[cyan bold]{col_key}[/cyan bold]")
+
+            if objects:
+                for obj in objects:
+                    score_color = (
+                        "red" if obj.score > 0.3 else "yellow" if obj.score > 0.15 else "green"
+                    )
+                    content_parts.append(
+                        f"  [bold]{obj.sub_dimension}[/bold]  "
+                        f"[{score_color}]{obj.score:.3f}[/{score_color}]  "
+                        f"[dim]confidence: {obj.confidence:.2f}[/dim]"
+                    )
+
+                    # Show all evidence fields
+                    evidence = obj.evidence or {}
+                    if isinstance(evidence, list):
+                        evidence = evidence[0] if evidence and isinstance(evidence[0], dict) else {}
+                    if evidence:
+                        for key, value in evidence.items():
+                            content_parts.append(f"    {_format_evidence_field(key, value)}")
+                    else:
+                        content_parts.append("    [dim]No evidence data[/dim]")
             else:
-                status = "[red]Fail[/red]"
+                content_parts.append("  [dim]No dimension-specific evidence[/dim]")
 
-            table.add_row(dim, f"{score:.3f}", f"{threshold:.3f}", status)
+            content_parts.append("")
+
+        if not content_parts:
+            content_parts.append("[dim]No affected columns for this dimension[/dim]")
+
+        self.query_one("#evidence-content", Static).update("\n".join(content_parts))
+
+    def _update_actions_panel(self, dimension: str, affected_columns: list[str]) -> None:
+        """Show dimension-specific resolution options."""
+        # Collect all unique resolution options across affected columns
+        actions: list[dict[str, Any]] = []
+        seen_actions: set[str] = set()
+
+        for col_key in affected_columns:
+            dim_key = (dimension, col_key)
+            objects = self._entropy_by_dim_col.get(dim_key, [])
+
+            for obj in objects:
+                if not obj.resolution_options:
+                    continue
+
+                for opt in obj.resolution_options:
+                    if not isinstance(opt, dict):
+                        continue
+                    action_name = opt.get("action", "Unknown")
+                    if action_name in seen_actions:
+                        continue
+                    seen_actions.add(action_name)
+                    actions.append(opt)
+
+        content_parts: list[str] = []
+
+        if not actions:
+            content_parts.append("[dim]No resolution options for this dimension[/dim]")
+            self.query_one("#actions-content", Static).update("\n".join(content_parts))
+            return
+
+        # Sort by effort (low first = highest priority)
+        effort_order = {"low": 0, "medium": 1, "high": 2}
+        actions.sort(key=lambda a: effort_order.get(a.get("effort", "medium"), 1))
+
+        # Color by effort: low=green (easy win), medium=yellow, high=red
+        effort_colors = {"low": "green", "medium": "yellow", "high": "red"}
+
+        for opt in actions:
+            action_name = opt.get("action", "Unknown")
+            description = opt.get("description", "")
+            effort = opt.get("effort", "medium")
+            reduction = opt.get("expected_entropy_reduction", 0.0)
+            cascade = opt.get("cascade_dimensions", [])
+            parameters = opt.get("parameters", {})
+
+            e_color = effort_colors.get(effort, "white")
+
+            # Header: effort tag + action + reduction
+            reduction_str = f"  reduction: {reduction:.0%}" if reduction else ""
+            content_parts.append(
+                f"[{e_color}]{effort.upper()}[/{e_color}] {action_name}{reduction_str}"
+            )
+
+            if description:
+                content_parts.append(f"  {description}")
+
+            # Parameters
+            if parameters and isinstance(parameters, dict):
+                param_str = ", ".join(f"{k}={v}" for k, v in parameters.items())
+                content_parts.append(f"  [dim]params: {param_str}[/dim]")
+
+            # Cascade dimensions
+            if cascade:
+                content_parts.append(f"  [dim]cascades: {', '.join(cascade)}[/dim]")
+
+            content_parts.append("")
+
+        self.query_one("#actions-content", Static).update("\n".join(content_parts))
+
+
+def _format_evidence_field(key: str, value: Any) -> str:
+    """Format a single evidence field with human-readable label and value."""
+    label = key.replace("_", " ").title()
+
+    if isinstance(value, float):
+        if key.endswith(("_rate", "_ratio", "_confidence", "confidence")):
+            return f"[dim]{label}:[/dim] {value:.1%}"
+        return f"[dim]{label}:[/dim] {value:.3f}"
+    elif isinstance(value, bool):
+        return f"[dim]{label}:[/dim] {'yes' if value else 'no'}"
+    elif isinstance(value, int):
+        return f"[dim]{label}:[/dim] {value:,}"
+    elif isinstance(value, list):
+        if not value:
+            return f"[dim]{label}:[/dim] (none)"
+        items = [str(v) for v in value[:5]]
+        suffix = f" ... +{len(value) - 5}" if len(value) > 5 else ""
+        return f"[dim]{label}:[/dim] {', '.join(items)}{suffix}"
+    elif isinstance(value, dict):
+        items = [f"{k}={v}" for k, v in list(value.items())[:3]]
+        return f"[dim]{label}:[/dim] {', '.join(items)}"
+    else:
+        val_str = str(value)
+        if len(val_str) > 80:
+            val_str = val_str[:77] + "..."
+        return f"[dim]{label}:[/dim] {val_str}"

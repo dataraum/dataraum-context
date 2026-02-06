@@ -563,6 +563,9 @@ def evaluate_contract(
                 worst_dimension = dimension
         elif actual_score > max_score * (1 - contract.warning_margin):
             # Approaching threshold - warning
+            affected = _find_affected_columns(
+                column_summaries, dimension, max_score * (1 - contract.warning_margin)
+            )
             warnings.append(
                 Violation(
                     violation_type="dimension",
@@ -571,6 +574,7 @@ def evaluate_contract(
                     max_allowed=max_score,
                     actual=actual_score,
                     details=f"{dimension} approaching threshold ({actual_score:.2f}/{max_score:.2f})",
+                    affected_columns=affected[:10],
                 )
             )
             dimensions_passing += 1

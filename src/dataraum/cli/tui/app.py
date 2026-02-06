@@ -30,6 +30,7 @@ class DataraumApp(App[None]):
         Binding("h", "switch_screen('home')", "Home", show=True),
         Binding("e", "switch_screen('entropy')", "Entropy", show=True),
         Binding("c", "switch_screen('contracts')", "Contracts", show=True),
+        Binding("t", "show_table_picker", "Tables", show=True),
         Binding("/", "switch_screen('query')", "Query", show=True),
         Binding("?", "show_help", "Help", show=True),
     ]
@@ -109,10 +110,16 @@ class DataraumApp(App[None]):
         # Push the requested screen
         self.push_screen(screen_name)
 
+    def action_show_table_picker(self) -> None:
+        """Show table selection screen."""
+        from dataraum.cli.tui.screens.table_picker import TablePickerScreen
+
+        self.push_screen(TablePickerScreen(self.output_dir))
+
     def action_show_help(self) -> None:
         """Show help dialog."""
         self.notify(
-            "Keys: [h]ome, [e]ntropy, [c]ontracts, [/]query, [q]uit\n"
+            "Keys: [h]ome, [e]ntropy, [c]ontracts, [t]ables, [/]query, [q]uit\n"
             "Use arrow keys to navigate, Enter to select",
             title="Help",
             timeout=5,
