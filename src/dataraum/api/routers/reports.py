@@ -37,6 +37,28 @@ def _confidence_label(confidence_level: str) -> str:
     return mapping.get(confidence_level.upper(), confidence_level)
 
 
+def _action_label(action: str | None) -> str:
+    """Map entropy action to human-readable label."""
+    mapping = {
+        "answer_confidently": "Data quality is high for this query",
+        "answer_with_assumptions": "Some assumptions were needed due to data uncertainty",
+        "ask_or_caveat": "Significant data uncertainty — review assumptions carefully",
+        "refuse": "Data quality insufficient for reliable answer",
+    }
+    return mapping.get(action or "", "")
+
+
+def _action_alert_class(action: str | None) -> str:
+    """Map entropy action to daisyUI alert class."""
+    mapping = {
+        "answer_confidently": "alert-success",
+        "answer_with_assumptions": "alert-warning",
+        "ask_or_caveat": "alert-error",
+        "refuse": "alert-error",
+    }
+    return mapping.get(action or "", "")
+
+
 @router.get("/reports/query/{execution_id}", response_class=HTMLResponse)
 async def query_report(execution_id: str, request: Request) -> HTMLResponse:
     """Render an HTML report for a query execution.
@@ -117,6 +139,9 @@ async def query_report(execution_id: str, request: Request) -> HTMLResponse:
                 "assumptions": normalized_assumptions,
                 "columns": columns,
                 "data": data,
+                "entropy_action": execution.entropy_action,
+                "entropy_action_label": _action_label(execution.entropy_action),
+                "entropy_action_class": _action_alert_class(execution.entropy_action),
             }
 
             # Enrich from library entry if available
