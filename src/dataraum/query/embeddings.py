@@ -30,6 +30,17 @@ _model_name = "all-MiniLM-L6-v2"
 _embedding_dim = 384
 
 
+def _get_cache_dir() -> str:
+    """Get local cache directory for model files."""
+    from pathlib import Path
+
+    # Store next to the config directory at project root
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    cache_dir = project_root / ".cache" / "models"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return str(cache_dir)
+
+
 def _get_model() -> Any:
     """Get or load the sentence-transformers model (lazy loading)."""
     global _model
@@ -37,8 +48,9 @@ def _get_model() -> Any:
         try:
             from sentence_transformers import SentenceTransformer
 
-            logger.info(f"Loading embedding model: {_model_name}")
-            _model = SentenceTransformer(_model_name)
+            cache_dir = _get_cache_dir()
+            logger.info(f"Loading embedding model: {_model_name} (cache: {cache_dir})")
+            _model = SentenceTransformer(_model_name, cache_folder=cache_dir)
             logger.info("Embedding model loaded")
         except ImportError as e:
             raise ImportError(

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         StatisticalProfile,
         StatisticalQualityMetrics,
     )
+    from dataraum.analysis.temporal.db_models import TemporalColumnProfile
     from dataraum.analysis.typing.db_models import (
         TypeCandidate,
         TypeDecision,
@@ -140,6 +141,11 @@ class Column(Base):
     # Semantic context relationships
     semantic_annotation: Mapped[SemanticAnnotation | None] = relationship(
         back_populates="column", uselist=False, cascade="all, delete-orphan"
+    )
+
+    # Temporal analysis
+    temporal_profiles: Mapped[list[TemporalColumnProfile]] = relationship(
+        back_populates="column", cascade="all, delete-orphan"
     )
 
     # Relationship tracking

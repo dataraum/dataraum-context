@@ -340,7 +340,15 @@ class ConnectionManager:
             yield session
             # Serialize commits across all threads to prevent SQLite lock contention.
             # Retry on transient "database is locked" errors (WAL checkpoint contention).
-            # After rollback, pending objects are detached — we must re-add them.
+            #
+            # IMPORTANT: Capture session.new BEFORE commit, not after failure.
+            # session.commit() calls flush() internally, which can move objects
+            # out of session.new into the identity map. If that flush fails
+            # with "database is locked", session.new may already be empty,
+            # making post-failure capture useless.
+            pending = list(session.new)
+            modified = [obj for obj in session.dirty if session.is_modified(obj)]
+
             max_retries = 3
             for attempt in range(max_retries + 1):
                 try:
@@ -358,15 +366,15 @@ class ConnectionManager:
                             f"(attempt {attempt + 1}/{max_retries + 1}), "
                             f"retrying in {wait}s..."
                         )
-                        # Preserve pending objects before rollback clears them
-                        pending = list(session.new)
-                        modified = [obj for obj in session.dirty if session.is_modified(obj)]
                         session.rollback()
                         # Re-attach objects so the next commit can flush them
                         for obj in pending:
                             session.add(obj)
                         for obj in modified:
                             session.add(obj)
+                        # Re-capture for next retry
+                        pending = list(session.new)
+                        modified = [obj for obj in session.dirty if session.is_modified(obj)]
                         time.sleep(wait)
                     else:
                         raise
