@@ -7,6 +7,7 @@ from dataraum.api.routers import (
     graphs,
     pipeline,
     query,
+    reports,
     sources,
     tables,
 )
@@ -20,4 +21,5 @@ __all__ = [
     "entropy",
     "graphs",
     "query",
+    "reports",
 ]

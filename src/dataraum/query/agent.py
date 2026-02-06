@@ -752,10 +752,8 @@ class QueryAgent(LLMFeature):
     ) -> Result[tuple[list[str], list[dict[str, Any]]]]:
         """Execute query with step-by-step temp view creation.
 
-        Similar to GraphAgent execution model:
-        1. Create temp view for each step
-        2. Execute final_sql that references the views
-        3. Repair SQL on failure (up to 2 attempts)
+        Delegates to shared execute_sql_steps() for the common pattern of
+        creating temp views per step, executing final SQL, and cleanup.
 
         Args:
             analysis_output: Generated query analysis with steps
@@ -765,86 +763,40 @@ class QueryAgent(LLMFeature):
         Returns:
             Result with (columns, data) on success
         """
-        created_views: list[str] = []
-        max_repair_attempts = 2
+        from dataraum.query.execution import SQLStep, execute_sql_steps
 
-        try:
-            # Execute each step as a temp view
-            for step in analysis_output.steps:
-                step_id = step.step_id
-                current_sql = step.sql
-                last_error: str | None = None
+        # Convert analysis steps to shared format
+        steps = [
+            SQLStep(step_id=s.step_id, sql=s.sql, description=s.description)
+            for s in analysis_output.steps
+        ]
 
-                for attempt in range(max_repair_attempts + 1):
-                    try:
-                        view_sql = f"CREATE OR REPLACE TEMP VIEW {step_id} AS {current_sql}"
-                        duckdb_conn.execute(view_sql)
-                        created_views.append(step_id)
-                        break
-                    except Exception as e:
-                        last_error = str(e)
-                        if attempt < max_repair_attempts:
-                            logger.info(
-                                f"Step '{step_id}' failed (attempt {attempt + 1}), attempting repair: {e}"
-                            )
-                            repair_result = self._repair_sql(
-                                failed_sql=current_sql,
-                                error_message=str(e),
-                                step_description=step.description,
-                                execution_context=execution_context,
-                            )
-                            if repair_result.success and repair_result.value:
-                                current_sql = repair_result.value
-                                logger.info(f"Repaired SQL for step '{step_id}'")
-                            else:
-                                return Result.fail(
-                                    f"Step '{step_id}' failed and repair failed: {e}"
-                                )
-                        else:
-                            return Result.fail(
-                                f"Step '{step_id}' failed after {max_repair_attempts} repairs: {last_error}"
-                            )
+        # Create repair function that captures execution_context
+        def repair_fn(failed_sql: str, error_msg: str, description: str) -> Result[str]:
+            return self._repair_sql(
+                failed_sql=failed_sql,
+                error_message=error_msg,
+                step_description=description,
+                execution_context=execution_context,
+            )
 
-            # Execute final SQL
-            final_sql = analysis_output.final_sql
+        result = execute_sql_steps(
+            steps=steps,
+            final_sql=analysis_output.final_sql,
+            duckdb_conn=duckdb_conn,
+            max_repair_attempts=2,
+            repair_fn=repair_fn,
+            return_table=True,
+        )
 
-            for attempt in range(max_repair_attempts + 1):
-                try:
-                    result = duckdb_conn.execute(final_sql)
-                    columns = [desc[0] for desc in result.description]
-                    rows = result.fetchall()
-                    data = [dict(zip(columns, row, strict=True)) for row in rows]
-                    return Result.ok((columns, data))
-                except Exception as e:
-                    if attempt < max_repair_attempts:
-                        logger.info(
-                            f"Final SQL failed (attempt {attempt + 1}), attempting repair: {e}"
-                        )
-                        repair_result = self._repair_sql(
-                            failed_sql=final_sql,
-                            error_message=str(e),
-                            step_description="Combine step results into final answer",
-                            execution_context=execution_context,
-                        )
-                        if repair_result.success and repair_result.value:
-                            final_sql = repair_result.value
-                            logger.info("Repaired final SQL")
-                        else:
-                            return Result.fail(f"Final SQL failed and repair failed: {e}")
-                    else:
-                        return Result.fail(
-                            f"Final SQL failed after {max_repair_attempts} repairs: {e}"
-                        )
+        if not result.success or not result.value:
+            return Result.fail(result.error or "Execution failed")
 
-        finally:
-            # Clean up temp views
-            for view_name in created_views:
-                try:
-                    duckdb_conn.execute(f"DROP VIEW IF EXISTS {view_name}")
-                except Exception:
-                    pass
-
-        return Result.fail("Unexpected execution path")
+        exec_result = result.value
+        columns = exec_result.columns or []
+        rows = exec_result.rows or []
+        data = [dict(zip(columns, row, strict=True)) for row in rows]
+        return Result.ok((columns, data))
 
     def _repair_sql(
         self,

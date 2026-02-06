@@ -1,4 +1,4 @@
-"""Table detail screen - column details and entropy breakdown."""
+"""Table detail screen - column details, semantics, relationships, and quality."""
 
 from __future__ import annotations
 
@@ -7,15 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container
 from textual.screen import Screen
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Static, TabbedContent, TabPane
 
 from dataraum.cli.common import get_manager
 
 
 class TableScreen(Screen[None]):
-    """Table detail screen showing columns, types, and entropy."""
+    """Table detail screen with columns table, tabbed details, and sample data."""
 
     BINDINGS = [
         ("escape", "app.pop_screen", "Back"),
@@ -27,40 +27,33 @@ class TableScreen(Screen[None]):
         self.output_dir = output_dir
         self.table_name = table_name
         self._data_loaded = False
-        self._column_names: list[str] = []  # For row selection navigation
+        self._column_names: list[str] = []
 
     def compose(self) -> ComposeResult:
         """Create the screen layout."""
-        yield Container(
-            Vertical(
-                Static(f"Table: {self.table_name}", classes="screen-title"),
-                Static("Loading...", id="table-info"),
-                # Columns section
-                Container(
-                    Static("Columns", classes="section-title"),
-                    DataTable(id="columns-table"),
-                    classes="columns-section",
-                ),
-                # Statistics section
-                Container(
-                    Static("Statistics", classes="section-title"),
-                    Horizontal(
-                        Static("", id="stats-left"),
-                        Static("", id="stats-right"),
-                        classes="stats-row",
-                    ),
-                    classes="stats-section",
-                ),
-                # Sample data section
-                Container(
-                    Static("Sample Data", classes="section-title"),
-                    DataTable(id="sample-table"),
-                    classes="sample-section",
-                ),
-                classes="main-content",
-            ),
-            classes="screen-container",
-        )
+        with Container(classes="screen-container"):
+            yield Static(f"Table: {self.table_name}", classes="screen-title")
+            yield Static("Loading...", id="table-info")
+            # Columns section
+            with Container(classes="columns-section"):
+                yield Static("Columns", classes="section-title")
+                yield DataTable(id="columns-table")
+            # Tabbed detail panels
+            with TabbedContent(id="table-detail-tabs"):
+                with TabPane("Statistics", id="tab-statistics"):
+                    yield DataTable(id="stats-table")
+                with TabPane("Semantics", id="tab-semantics"):
+                    yield DataTable(id="semantics-table")
+                with TabPane("Relationships", id="tab-relationships"):
+                    yield DataTable(id="relationships-table")
+                with TabPane("Quality", id="tab-quality"):
+                    yield DataTable(id="quality-table")
+                with TabPane("Entity", id="tab-entity"):
+                    yield Static("", id="entity-content")
+            # Sample data section
+            with Container(classes="sample-section"):
+                yield Static("Sample Data", classes="section-title")
+                yield DataTable(id="sample-table")
 
     def on_mount(self) -> None:
         """Load data when screen mounts."""
@@ -78,6 +71,9 @@ class TableScreen(Screen[None]):
 
         from sqlalchemy import select
 
+        from dataraum.analysis.relationships.db_models import Relationship
+        from dataraum.analysis.semantic.db_models import SemanticAnnotation, TableEntity
+        from dataraum.analysis.statistics.db_models import StatisticalProfile
         from dataraum.analysis.typing.db_models import TypeDecision
         from dataraum.entropy.db_models import EntropyInterpretationRecord
         from dataraum.storage import Column, Source, Table
@@ -115,8 +111,11 @@ class TableScreen(Screen[None]):
                 )
                 columns = columns_result.scalars().all()
 
+                # Build column_id -> column_name map
+                col_name_map = {c.column_id: c.column_name for c in columns}
+
                 # Get type decisions
-                type_decisions = {}
+                type_decisions: dict[str, Any] = {}
                 for col in columns:
                     td_result = session.execute(
                         select(TypeDecision).where(TypeDecision.column_id == col.column_id)
@@ -126,7 +125,7 @@ class TableScreen(Screen[None]):
                         type_decisions[col.column_id] = td
 
                 # Get entropy interpretations
-                entropy_interps = {}
+                entropy_interps: dict[str, Any] = {}
                 for col in columns:
                     ei_result = session.execute(
                         select(EntropyInterpretationRecord).where(
@@ -137,10 +136,64 @@ class TableScreen(Screen[None]):
                     if ei:
                         entropy_interps[col.column_id] = ei
 
+                # Get semantic annotations
+                semantic_annotations: dict[str, Any] = {}
+                for col in columns:
+                    sa_result = session.execute(
+                        select(SemanticAnnotation).where(
+                            SemanticAnnotation.column_id == col.column_id
+                        )
+                    )
+                    sa = sa_result.scalar_one_or_none()
+                    if sa:
+                        semantic_annotations[col.column_id] = sa
+
+                # Get relationships (from this table)
+                relationships_result = session.execute(
+                    select(Relationship).where(
+                        Relationship.from_table_id == table.table_id,
+                    )
+                )
+                relationships_from = relationships_result.scalars().all()
+
+                # Also get relationships TO this table
+                relationships_to_result = session.execute(
+                    select(Relationship).where(
+                        Relationship.to_table_id == table.table_id,
+                    )
+                )
+                relationships_to = relationships_to_result.scalars().all()
+                all_relationships = list(relationships_from) + list(relationships_to)
+
+                # Get statistical profiles
+                stat_profiles: dict[str, Any] = {}
+                for col in columns:
+                    sp_result = session.execute(
+                        select(StatisticalProfile)
+                        .where(StatisticalProfile.column_id == col.column_id)
+                        .order_by(StatisticalProfile.profiled_at.desc())
+                        .limit(1)
+                    )
+                    sp = sp_result.scalar_one_or_none()
+                    if sp:
+                        stat_profiles[col.column_id] = sp
+
+                # Get table entity
+                entity_result = session.execute(
+                    select(TableEntity).where(TableEntity.table_id == table.table_id)
+                )
+                table_entity = entity_result.scalar_one_or_none()
+
                 # Update UI
                 self._update_table_info(table)
-                self._update_columns_table(columns, type_decisions, entropy_interps)
-                self._update_stats(table, columns)
+                self._update_columns_table(
+                    columns, type_decisions, entropy_interps, semantic_annotations
+                )
+                self._update_statistics_tab(columns, stat_profiles)
+                self._update_semantics_tab(columns, semantic_annotations)
+                self._update_relationships_tab(all_relationships, col_name_map)
+                self._update_quality_tab(columns, stat_profiles)
+                self._update_entity_tab(table_entity)
 
                 # Load sample data
                 with manager.duckdb_cursor() as cursor:
@@ -167,17 +220,18 @@ class TableScreen(Screen[None]):
         columns: Sequence[Any],
         type_decisions: dict[str, Any],
         entropy_interps: dict[str, Any],
+        semantic_annotations: dict[str, Any],
     ) -> None:
-        """Update the columns data table."""
+        """Update the columns data table with Role column."""
         table = self.query_one("#columns-table", DataTable)
         table.clear(columns=True)
         table.cursor_type = "row"
 
-        # Store column names for row selection
         self._column_names = [col.column_name for col in columns]
 
         table.add_column("Column", key="column")
         table.add_column("Type", key="type")
+        table.add_column("Role", key="role")
         table.add_column("Entropy", key="entropy")
         table.add_column("Status", key="status")
 
@@ -190,12 +244,14 @@ class TableScreen(Screen[None]):
         for col in columns:
             td = type_decisions.get(col.column_id)
             ei = entropy_interps.get(col.column_id)
+            sa = semantic_annotations.get(col.column_id)
 
             col_type = td.decided_type if td else col.inferred_type or "-"
+            role = sa.semantic_role if sa else "-"
             entropy = f"{ei.composite_score:.3f}" if ei else "-"
             status = readiness_icons.get(ei.readiness, "-") if ei else "-"
 
-            table.add_row(col.column_name, col_type, entropy, status)
+            table.add_row(col.column_name, col_type, role, entropy, status)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection to navigate to entropy screen for this table."""
@@ -205,27 +261,155 @@ class TableScreen(Screen[None]):
         if event.cursor_row >= len(self._column_names):
             return
 
-        # Push entropy screen filtered to this table
         from dataraum.cli.tui.screens.entropy import EntropyScreen
 
         screen = EntropyScreen(self.output_dir, table_filter=self.table_name)
         self.app.push_screen(screen)
 
-    def _update_stats(self, table: Any, columns: Sequence[Any]) -> None:
-        """Update the statistics section."""
-        stats_left = self.query_one("#stats-left", Static)
-        stats_right = self.query_one("#stats-right", Static)
+    def _update_statistics_tab(self, columns: Sequence[Any], stat_profiles: dict[str, Any]) -> None:
+        """Update the Statistics tab with per-column type counts and basic stats."""
+        table = self.query_one("#stats-table", DataTable)
+        table.clear(columns=True)
 
-        stats_left.update(f"Total columns: {len(columns)}\nRow count: {table.row_count or '?'}")
+        table.add_column("Column", key="column")
+        table.add_column("Total", key="total")
+        table.add_column("Nulls", key="nulls")
+        table.add_column("Distinct", key="distinct")
+        table.add_column("Unique", key="unique")
 
-        # Count by type
-        type_counts: dict[str, int] = {}
         for col in columns:
-            t = col.inferred_type or "unknown"
-            type_counts[t] = type_counts.get(t, 0) + 1
+            sp = stat_profiles.get(col.column_id)
+            if sp:
+                is_unique = "Yes" if sp.is_unique else "No"
+                table.add_row(
+                    col.column_name,
+                    str(sp.total_count),
+                    str(sp.null_count),
+                    str(sp.distinct_count or "-"),
+                    is_unique,
+                )
+            else:
+                table.add_row(col.column_name, "-", "-", "-", "-")
 
-        type_summary = "\n".join(f"{t}: {c}" for t, c in sorted(type_counts.items())[:5])
-        stats_right.update(f"Types:\n{type_summary}")
+    def _update_semantics_tab(
+        self, columns: Sequence[Any], semantic_annotations: dict[str, Any]
+    ) -> None:
+        """Update the Semantics tab with business names and descriptions."""
+        table = self.query_one("#semantics-table", DataTable)
+        table.clear(columns=True)
+
+        table.add_column("Column", key="column")
+        table.add_column("Business Name", key="business_name")
+        table.add_column("Entity", key="entity")
+        table.add_column("Concept", key="concept")
+        table.add_column("Conf", key="confidence")
+
+        has_data = False
+        for col in columns:
+            sa = semantic_annotations.get(col.column_id)
+            if sa:
+                has_data = True
+                conf = f"{sa.confidence:.2f}" if sa.confidence else "-"
+                table.add_row(
+                    col.column_name,
+                    sa.business_name or "-",
+                    sa.entity_type or "-",
+                    sa.business_concept or "-",
+                    conf,
+                )
+
+        if not has_data:
+            table.add_row("-", "No semantic annotations", "-", "-", "-")
+
+    def _update_relationships_tab(
+        self, relationships: Sequence[Any], col_name_map: dict[str, str]
+    ) -> None:
+        """Update the Relationships tab."""
+        table = self.query_one("#relationships-table", DataTable)
+        table.clear(columns=True)
+
+        table.add_column("From", key="from_col")
+        table.add_column("To", key="to_col")
+        table.add_column("Type", key="type")
+        table.add_column("Cardinality", key="cardinality")
+        table.add_column("Conf", key="confidence")
+        table.add_column("Method", key="method")
+
+        if not relationships:
+            table.add_row("-", "No relationships detected", "-", "-", "-", "-")
+            return
+
+        for rel in relationships:
+            from_name = col_name_map.get(rel.from_column_id, rel.from_column_id[:8])
+            to_name = col_name_map.get(rel.to_column_id, rel.to_column_id[:8])
+            table.add_row(
+                from_name,
+                to_name,
+                rel.relationship_type or "-",
+                rel.cardinality or "-",
+                f"{rel.confidence:.2f}",
+                rel.detection_method or "-",
+            )
+
+    def _update_quality_tab(self, columns: Sequence[Any], stat_profiles: dict[str, Any]) -> None:
+        """Update the Quality tab with null ratios, cardinality, uniqueness."""
+        table = self.query_one("#quality-table", DataTable)
+        table.clear(columns=True)
+
+        table.add_column("Column", key="column")
+        table.add_column("Null %", key="null_ratio")
+        table.add_column("Cardinality", key="cardinality")
+        table.add_column("Numeric", key="numeric")
+
+        for col in columns:
+            sp = stat_profiles.get(col.column_id)
+            if sp:
+                null_pct = f"{sp.null_ratio * 100:.1f}%" if sp.null_ratio is not None else "-"
+                card = f"{sp.cardinality_ratio:.3f}" if sp.cardinality_ratio is not None else "-"
+                numeric = "Yes" if sp.is_numeric else "No"
+                table.add_row(col.column_name, null_pct, card, numeric)
+            else:
+                table.add_row(col.column_name, "-", "-", "-")
+
+    def _update_entity_tab(self, table_entity: Any | None) -> None:
+        """Update the Entity tab with table-level entity detection."""
+        content = self.query_one("#entity-content", Static)
+
+        if not table_entity:
+            content.update("[dim]No entity detection available[/dim]")
+            return
+
+        parts: list[str] = []
+        parts.append(f"[bold]Detected Entity:[/bold] {table_entity.detected_entity_type}")
+
+        if table_entity.description:
+            parts.append(f"\n{table_entity.description}")
+
+        parts.append("")
+
+        if table_entity.confidence is not None:
+            parts.append(f"[bold]Confidence:[/bold] {table_entity.confidence:.2f}")
+
+        # Fact/Dimension classification
+        if table_entity.is_fact_table:
+            parts.append("[bold]Classification:[/bold] [cyan]Fact Table[/cyan]")
+        elif table_entity.is_dimension_table:
+            parts.append("[bold]Classification:[/bold] [cyan]Dimension Table[/cyan]")
+
+        # Grain columns
+        if table_entity.grain_columns:
+            grain = table_entity.grain_columns
+            if isinstance(grain, list):
+                parts.append(f"\n[bold]Grain Columns:[/bold] {', '.join(str(g) for g in grain)}")
+            elif isinstance(grain, dict):
+                parts.append("\n[bold]Grain Columns:[/bold]")
+                for k, v in grain.items():
+                    parts.append(f"  {k}: {v}")
+
+        if table_entity.detection_source:
+            parts.append(f"\n[dim]Source: {table_entity.detection_source}[/dim]")
+
+        content.update("\n".join(parts))
 
     def _load_sample_data(self, cursor: Any, table_name: str, columns: Sequence[Any]) -> None:
         """Load sample data from DuckDB."""
@@ -233,18 +417,15 @@ class TableScreen(Screen[None]):
         sample_table.clear(columns=True)
 
         try:
-            # Query sample data
-            col_names = [c.column_name for c in columns[:10]]  # Limit columns
+            col_names = [c.column_name for c in columns[:10]]
             cols_sql = ", ".join(f'"{c}"' for c in col_names)
             cursor.execute(f'SELECT {cols_sql} FROM "{table_name}" LIMIT 10')
             rows = cursor.fetchall()
 
-            # Add columns
             for col_name in col_names:
                 display_name = col_name[:15] + "..." if len(col_name) > 15 else col_name
                 sample_table.add_column(display_name, key=col_name)
 
-            # Add rows
             for row in rows:
                 sample_table.add_row(*[str(v)[:30] if v is not None else "" for v in row])
 

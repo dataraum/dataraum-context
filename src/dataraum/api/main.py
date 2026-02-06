@@ -7,6 +7,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from jinja2 import Environment, FileSystemLoader
 
 from dataraum.api import routers
 from dataraum.api.routers.pipeline import mark_interrupted_runs
@@ -21,6 +23,10 @@ logger = get_logger(__name__)
 
 # Module-level manager reference for lifespan cleanup
 _app_manager: ConnectionManager | None = None
+
+# Template and static file directories
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -87,6 +93,16 @@ def create_app(
     if output_dir:
         app.state.output_dir = output_dir
 
+    # Set up Jinja2 template environment
+    app.state.templates = Environment(
+        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        autoescape=True,
+    )
+
+    # Mount static files
+    if _STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
     # Configure CORS
     if cors_origins is None:
         cors_origins = ["*"]
@@ -99,7 +115,7 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # Include routers
+    # Include API routers
     app.include_router(routers.sources.router, prefix="/api/v1", tags=["sources"])
     app.include_router(routers.pipeline.router, prefix="/api/v1", tags=["pipeline"])
     app.include_router(routers.tables.router, prefix="/api/v1", tags=["tables"])
@@ -108,6 +124,9 @@ def create_app(
     app.include_router(routers.entropy.router, prefix="/api/v1", tags=["entropy"])
     app.include_router(routers.graphs.router, prefix="/api/v1", tags=["graphs"])
     app.include_router(routers.query.router, prefix="/api/v1", tags=["query"])
+
+    # Include reports router (HTML pages, no API prefix)
+    app.include_router(routers.reports.router, tags=["reports"])
 
     @app.get("/health")  # type: ignore[untyped-decorator]
     async def health_check() -> dict[str, str]:

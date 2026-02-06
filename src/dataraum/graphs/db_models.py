@@ -111,6 +111,13 @@ class GraphExecutionRecord(Base):
         index=True,
     )
 
+    # Link to query library entry (bidirectional with query library)
+    library_entry_id: Mapped[str | None] = mapped_column(
+        ForeignKey("query_library.query_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Relationships
     step_results: Mapped[list[StepResultRecord]] = relationship(
         "StepResultRecord",
@@ -121,6 +128,10 @@ class GraphExecutionRecord(Base):
         "GeneratedCodeRecord",
         back_populates="executions",
         foreign_keys=[generated_code_id],
+    )
+    library_entry: Mapped[Any | None] = relationship(
+        "QueryLibraryEntry",
+        foreign_keys=[library_entry_id],
     )
 
 
