@@ -254,6 +254,18 @@ class QueryScreen(Screen[None]):
             )
             parts.append(f"Entropy: [{e_color}]{query_result.entropy_score:.3f}[/{e_color}]")
 
+        if query_result.entropy_action:
+            action_labels = {
+                "answer_confidently": ("green", "Confident"),
+                "answer_with_assumptions": ("yellow", "With Assumptions"),
+                "ask_or_caveat": ("dark_orange", "Review Carefully"),
+                "refuse": ("red", "Insufficient Data"),
+            }
+            a_color, a_label = action_labels.get(
+                query_result.entropy_action, ("white", query_result.entropy_action)
+            )
+            parts.append(f"[{a_color}]{a_label}[/{a_color}]")
+
         if query_result.was_reused:
             sim = query_result.similarity_score
             sim_str = f" ({sim:.0%})" if sim else ""
@@ -363,6 +375,23 @@ class QueryScreen(Screen[None]):
             parts.append("[bold]Column Mappings:[/bold]")
             for concept, column in query_result.column_mappings.items():
                 parts.append(f"  {concept} → {column}")
+            parts.append("")
+
+        # Entropy assessment
+        if query_result.entropy_action:
+            action_labels = {
+                "answer_confidently": "Confident",
+                "answer_with_assumptions": "With Assumptions",
+                "ask_or_caveat": "Review Carefully",
+                "refuse": "Insufficient Data",
+            }
+            ea_label = action_labels.get(query_result.entropy_action, query_result.entropy_action)
+            parts.append("[bold]Entropy Assessment:[/bold]")
+            parts.append(f"  Action: {ea_label}")
+            if query_result.assumptions:
+                parts.append(
+                    f"  Query clarity: {len(query_result.assumptions)} assumption(s) needed"
+                )
             parts.append("")
 
         # Validation notes

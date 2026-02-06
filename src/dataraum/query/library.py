@@ -253,6 +253,7 @@ class QueryLibrary:
         error_message: str | None = None,
         confidence_level: str = "GREEN",
         contract_name: str | None = None,
+        entropy_action: str | None = None,
     ) -> QueryExecutionRecord:
         """Record a query execution.
 
@@ -267,6 +268,7 @@ class QueryLibrary:
             error_message: Error if failed
             confidence_level: Confidence level
             contract_name: Contract used
+            entropy_action: Entropy action determined at query time
 
         Returns:
             Created QueryExecutionRecord
@@ -283,6 +285,7 @@ class QueryLibrary:
             error_message=error_message,
             confidence_level=confidence_level,
             contract_name=contract_name,
+            entropy_action=entropy_action,
             similarity_score=similarity_score,
         )
 

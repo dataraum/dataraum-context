@@ -19,6 +19,18 @@
         </div>
     </div>
 
+    <!-- Entropy assessment -->
+    {% if entropy_action_label %}
+    <div class="alert {{ entropy_action_class }} shadow-lg">
+        <div>
+            <span>{{ entropy_action_label }}</span>
+            {% if assumptions|length > 0 %}
+            <span class="text-sm opacity-70">· {{ assumptions|length }} assumption(s) made</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Answer card -->
     {% if answer %}
     <div class="card bg-base-100 shadow-xl">

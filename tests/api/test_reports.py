@@ -67,6 +67,32 @@ class TestQueryReport:
         assert "Simple query" in response.text
         assert "Moderate Confidence" in response.text
 
+    def test_renders_entropy_action_alert(self, test_client: TestClient, seeded_source: dict):
+        """Renders entropy action alert card when entropy_action is set."""
+        from dataraum.core.connections import get_connection_manager
+        from dataraum.query.db_models import QueryExecutionRecord
+
+        manager = get_connection_manager()
+        with manager.session_scope() as session:
+            execution = QueryExecutionRecord(
+                execution_id="test-exec-ea",
+                source_id=seeded_source["source_id"],
+                question="Revenue with assumptions",
+                sql_executed="SELECT SUM(value) FROM test_data",
+                success=True,
+                confidence_level="YELLOW",
+                entropy_action="answer_with_assumptions",
+                executed_at=datetime.now(UTC),
+            )
+            session.add(execution)
+            session.commit()
+
+        response = test_client.get("/reports/query/test-exec-ea")
+        assert response.status_code == 200
+        html = response.text
+        assert "Some assumptions were needed due to data uncertainty" in html
+        assert "alert-warning" in html
+
     def test_renders_with_library_entry_and_assumptions(
         self, test_client: TestClient, seeded_source: dict
     ):

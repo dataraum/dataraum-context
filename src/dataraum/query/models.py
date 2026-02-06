@@ -121,6 +121,9 @@ class QueryResult:
     # Confidence and quality
     confidence_level: ConfidenceLevel = ConfidenceLevel.YELLOW
     entropy_score: float | None = None  # Overall entropy for columns touched (None = not computed)
+    entropy_action: str | None = (
+        None  # EntropyAction value: answer_confidently, answer_with_assumptions, etc.
+    )
     assumptions: list[QueryAssumption] = field(default_factory=list)
 
     # Contract evaluation (if contract specified)
@@ -158,6 +161,7 @@ class QueryResult:
             "entropy_score": round(self.entropy_score, 3)
             if self.entropy_score is not None
             else None,
+            "entropy_action": self.entropy_action,
             "assumptions": [
                 {
                     "dimension": a.dimension,
@@ -192,6 +196,17 @@ class QueryResult:
         label = self.confidence_level.label
         contract_name = self.contract or "default"
         lines.append(f"{emoji} Data Quality: {label} for {contract_name}")
+
+        if self.entropy_action:
+            action_labels = {
+                "answer_confidently": "Confident",
+                "answer_with_assumptions": "With Assumptions",
+                "ask_or_caveat": "Review Carefully",
+                "refuse": "Insufficient Data",
+            }
+            action_label = action_labels.get(self.entropy_action, self.entropy_action)
+            lines.append(f"   Entropy Assessment: {action_label}")
+
         lines.append("")
 
         if not self.success:

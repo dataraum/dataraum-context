@@ -139,6 +139,9 @@ class QueryExecutionRecord(Base):
     confidence_level: Mapped[str] = mapped_column(String, nullable=False, default="GREEN")
     contract_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    # Entropy action determined at execution time
+    entropy_action: Mapped[str | None] = mapped_column(String, nullable=True)
+
     # Similarity score (if reused from library)
     similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 

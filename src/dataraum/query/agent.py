@@ -186,6 +186,22 @@ class QueryAgent(LLMFeature):
             contract_evaluation = entropy_context.contract_evaluation
             contract = entropy_context.contract_name
 
+        # Determine entropy action
+        entropy_action: str | None = None
+        if entropy_context:
+            from dataraum.graphs.entropy_behavior import get_default_config
+
+            behavior_config = get_default_config("balanced")
+            max_entropy = entropy_context.overall_entropy_score or 0.0
+            has_critical = entropy_context.critical_entropy_count > 0
+            has_high = entropy_context.high_entropy_count > 0
+            action = behavior_config.determine_action(
+                max_entropy=max_entropy,
+                has_critical_compound_risk=has_critical,
+                has_high_compound_risk=has_high,
+            )
+            entropy_action = action.value
+
         # Check if query is blocked
         if confidence_level == ConfidenceLevel.RED and contract_evaluation:
             return Result.ok(
@@ -194,6 +210,7 @@ class QueryAgent(LLMFeature):
                     question=question,
                     success=False,
                     confidence_level=ConfidenceLevel.RED,
+                    entropy_action=entropy_action,
                     contract=contract,
                     contract_evaluation=contract_evaluation,
                     answer=self._format_blocked_response(contract_evaluation),
@@ -345,6 +362,7 @@ class QueryAgent(LLMFeature):
                 error_message=exec_error,
                 confidence_level=confidence_level,
                 contract=contract,
+                entropy_action=entropy_action,
             )
 
         return Result.ok(
@@ -358,6 +376,7 @@ class QueryAgent(LLMFeature):
                 columns=columns,
                 confidence_level=confidence_level,
                 entropy_score=entropy_score,
+                entropy_action=entropy_action,
                 assumptions=assumptions,
                 contract=contract,
                 contract_evaluation=contract_evaluation,
@@ -672,6 +691,7 @@ class QueryAgent(LLMFeature):
         error_message: str | None,
         confidence_level: ConfidenceLevel,
         contract: str | None,
+        entropy_action: str | None = None,
     ) -> None:
         """Record a query execution.
 
@@ -688,6 +708,7 @@ class QueryAgent(LLMFeature):
             error_message: Error if failed
             confidence_level: Confidence level
             contract: Contract name
+            entropy_action: Entropy action determined at query time
         """
         from dataraum.query.library import QueryLibrary
 
@@ -703,6 +724,7 @@ class QueryAgent(LLMFeature):
             error_message=error_message,
             confidence_level=confidence_level.value,
             contract_name=contract,
+            entropy_action=entropy_action,
         )
 
     def _search_library_for_inspiration(
