@@ -19,7 +19,7 @@ import duckdb
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from dataraum.analysis.typing.db_models import TypeDecision
+from dataraum.analysis.typing.db_models import TypeCandidate, TypeDecision
 from dataraum.analysis.typing.models import ColumnCastResult, TypeResolutionResult
 from dataraum.analysis.typing.patterns import Pattern, load_pattern_config
 from dataraum.core.models.base import ColumnRef, DataType, Result
@@ -252,9 +252,11 @@ def resolve_types(
     session.add(quarantine_table_record)
 
     # Create column records for typed table
+    typed_column_map: dict[str, str] = {}  # column_name -> typed_column_id
     for i, spec in enumerate(specs):
+        typed_col_id = str(uuid4())
         typed_col = Column(
-            column_id=str(uuid4()),
+            column_id=typed_col_id,
             table_id=typed_table_record.table_id,
             column_name=spec.column_name,
             column_position=i,
@@ -262,6 +264,7 @@ def resolve_types(
             resolved_type=spec.data_type.value,
         )
         session.add(typed_col)
+        typed_column_map[spec.column_name] = typed_col_id
 
     # Create column records for quarantine table (all columns + _quarantined_at)
     for i, spec in enumerate(specs):
@@ -285,6 +288,46 @@ def resolve_types(
         resolved_type="TIMESTAMP",
     )
     session.add(quarantine_meta_col)
+
+    # Copy TypeDecision and TypeCandidate from raw columns to typed columns.
+    # Raw columns keep originals (audit trail); typed columns get copies so
+    # downstream consumers can query by typed column_id directly.
+    for raw_col in table.columns:
+        target_col_id = typed_column_map.get(raw_col.column_name)
+        if target_col_id is None:
+            continue
+
+        if raw_col.type_decision:
+            td = raw_col.type_decision
+            session.add(
+                TypeDecision(
+                    decision_id=str(uuid4()),
+                    column_id=target_col_id,
+                    decided_type=td.decided_type,
+                    decision_source=td.decision_source,
+                    decided_at=td.decided_at,
+                    decided_by=td.decided_by,
+                    previous_type=td.previous_type,
+                    decision_reason=td.decision_reason,
+                )
+            )
+
+        for tc in raw_col.type_candidates:
+            session.add(
+                TypeCandidate(
+                    candidate_id=str(uuid4()),
+                    column_id=target_col_id,
+                    detected_at=tc.detected_at,
+                    data_type=tc.data_type,
+                    confidence=tc.confidence,
+                    parse_success_rate=tc.parse_success_rate,
+                    failed_examples=tc.failed_examples,
+                    detected_pattern=tc.detected_pattern,
+                    pattern_match_rate=tc.pattern_match_rate,
+                    detected_unit=tc.detected_unit,
+                    unit_confidence=tc.unit_confidence,
+                )
+            )
 
     # Build column results
     column_results = []

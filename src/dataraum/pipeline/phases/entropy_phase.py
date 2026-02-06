@@ -157,62 +157,22 @@ class EntropyPhase(BasePhase):
         for qm in (ctx.session.execute(quality_stmt)).scalars().all():
             quality_metrics[qm.column_id] = qm
 
-        # Load typing info from RAW table columns
-        # TypeDecision and TypeCandidate are linked to raw columns, not typed columns
-        # We map them to typed columns by (table_name, column_name)
-        raw_tables_stmt = select(Table).where(
-            Table.layer == "raw", Table.source_id == ctx.source_id
-        )
-        raw_tables = (ctx.session.execute(raw_tables_stmt)).scalars().all()
-        raw_table_ids = [t.table_id for t in raw_tables]
-
-        # Build mappings from (table_name, column_name) to TypeDecision and TypeCandidate
-        type_decisions_by_name: dict[tuple[str, str], TypeDecision] = {}
-        type_candidates_by_name: dict[tuple[str, str], TypeCandidate] = {}
-
-        if raw_table_ids:
-            # Get raw columns
-            raw_cols_stmt = select(Column).where(Column.table_id.in_(raw_table_ids))
-            raw_columns = (ctx.session.execute(raw_cols_stmt)).scalars().all()
-            raw_column_ids = [c.column_id for c in raw_columns]
-
-            # Build mapping from raw column_id to (table_name, column_name)
-            raw_col_to_name: dict[str, tuple[str, str]] = {}
-            raw_table_names = {t.table_id: t.table_name for t in raw_tables}
-            for col in raw_columns:
-                table_name = raw_table_names.get(col.table_id, "")
-                raw_col_to_name[col.column_id] = (table_name, col.column_name)
-
-            if raw_column_ids:
-                # Load TypeDecisions for raw columns (primary source - the final decision)
-                td_stmt = select(TypeDecision).where(TypeDecision.column_id.in_(raw_column_ids))
-                for td in (ctx.session.execute(td_stmt)).scalars().all():
-                    name_key = raw_col_to_name.get(td.column_id)
-                    if name_key:
-                        type_decisions_by_name[name_key] = td
-
-                # Load TypeCandidates for raw columns (for additional detail: pattern, unit info)
-                tc_stmt = (
-                    select(TypeCandidate)
-                    .where(TypeCandidate.column_id.in_(raw_column_ids))
-                    .order_by(TypeCandidate.confidence.desc())
-                )
-                for tc in (ctx.session.execute(tc_stmt)).scalars().all():
-                    name_key = raw_col_to_name.get(tc.column_id)
-                    if name_key and name_key not in type_candidates_by_name:
-                        type_candidates_by_name[name_key] = tc
-
-        # Create lookups from typed column_id to TypeDecision and TypeCandidate
+        # Load type decisions (copied to typed columns during resolve_types)
         type_decisions: dict[str, TypeDecision] = {}
+        td_stmt = select(TypeDecision).where(TypeDecision.column_id.in_(column_ids))
+        for td in (ctx.session.execute(td_stmt)).scalars().all():
+            type_decisions[td.column_id] = td
+
+        # Load type candidates (best per column by confidence)
         type_candidates: dict[str, TypeCandidate] = {}
-        typed_table_names = {t.table_id: t.table_name for t in typed_tables}
-        for col in all_columns:
-            table_name = typed_table_names.get(col.table_id, "")
-            name_key = (table_name, col.column_name)
-            if name_key in type_decisions_by_name:
-                type_decisions[col.column_id] = type_decisions_by_name[name_key]
-            if name_key in type_candidates_by_name:
-                type_candidates[col.column_id] = type_candidates_by_name[name_key]
+        tc_stmt = (
+            select(TypeCandidate)
+            .where(TypeCandidate.column_id.in_(column_ids))
+            .order_by(TypeCandidate.confidence.desc())
+        )
+        for tc in (ctx.session.execute(tc_stmt)).scalars().all():
+            if tc.column_id not in type_candidates:
+                type_candidates[tc.column_id] = tc
 
         # Load semantic annotations
         semantic_annotations: dict[str, SemanticAnnotation] = {}
