@@ -62,6 +62,7 @@ def init_database(engine: Engine) -> None:
     from dataraum.graphs import db_models as _graphs_models  # noqa: F401
     from dataraum.llm import db_models as _llm_models  # noqa: F401
     from dataraum.pipeline import db_models as _pipeline_models  # noqa: F401
+    from dataraum.query import db_models as _query_models  # noqa: F401
     from dataraum.storage import models as _storage_models  # noqa: F401
 
     with engine.begin() as conn:
@@ -98,6 +99,7 @@ def reset_database(engine: Engine) -> None:
     from dataraum.graphs import db_models as _graphs_models  # noqa: F401
     from dataraum.llm import db_models as _llm_models  # noqa: F401
     from dataraum.pipeline import db_models as _pipeline_models  # noqa: F401
+    from dataraum.query import db_models as _query_models  # noqa: F401
     from dataraum.storage import models as _storage_models  # noqa: F401
 
     with engine.begin() as conn:

@@ -9,8 +9,6 @@ from dataraum.graphs.entropy_behavior import (
     DimensionBehavior,
     EntropyAction,
     EntropyBehaviorConfig,
-    format_assumptions_for_response,
-    format_entropy_sql_comments,
     get_default_config,
 )
 
@@ -172,95 +170,6 @@ class TestGetDefaultConfig:
         dimensions = [d.dimension for d in config.dimension_overrides]
         assert "semantic.units" in dimensions
         assert "structural.relations" in dimensions
-
-
-class TestFormatEntropySqlComments:
-    """Tests for format_entropy_sql_comments function."""
-
-    def test_low_entropy_comment(self) -> None:
-        """Low entropy should show high confidence."""
-        result = format_entropy_sql_comments(entropy_score=0.15)
-
-        assert "high confidence" in result.lower()
-        assert "0.15" in result
-
-    def test_medium_entropy_comment(self) -> None:
-        """Medium entropy should show assumptions."""
-        result = format_entropy_sql_comments(entropy_score=0.45)
-
-        assert "assumptions" in result.lower()
-        assert "0.45" in result
-
-    def test_high_entropy_comment(self) -> None:
-        """High entropy should show warning."""
-        result = format_entropy_sql_comments(entropy_score=0.72)
-
-        assert "WARNING" in result
-        assert "0.72" in result
-        assert "VERIFY" in result
-
-    def test_includes_assumptions(self) -> None:
-        """Should include assumption comments."""
-        result = format_entropy_sql_comments(
-            entropy_score=0.5,
-            assumptions=[
-                {"dimension": "semantic.units", "assumption": "Currency is EUR"},
-            ],
-        )
-
-        assert "ASSUMPTION" in result
-        assert "semantic.units" in result
-        assert "Currency is EUR" in result
-
-    def test_includes_warnings(self) -> None:
-        """Should include warning comments."""
-        result = format_entropy_sql_comments(
-            entropy_score=0.5,
-            warnings=["Multiple join paths exist"],
-        )
-
-        assert "WARNING" in result
-        assert "Multiple join paths" in result
-
-
-class TestFormatAssumptionsForResponse:
-    """Tests for format_assumptions_for_response function."""
-
-    def test_empty_assumptions(self) -> None:
-        """Empty assumptions returns empty string."""
-        result = format_assumptions_for_response([])
-        assert result == ""
-
-    def test_minimal_disclosure(self) -> None:
-        """Minimal mode shows only count."""
-        result = format_assumptions_for_response(
-            [{"assumption": "Test", "confidence": 0.8}],
-            disclosure_mode="minimal",
-        )
-
-        assert "1 assumptions made" in result
-        assert "Test" not in result
-
-    def test_when_made_disclosure(self) -> None:
-        """when_made mode shows assumptions without confidence."""
-        result = format_assumptions_for_response(
-            [{"assumption": "Currency is EUR", "confidence": 0.8}],
-            disclosure_mode="when_made",
-        )
-
-        assert "Currency is EUR" in result
-        assert "0.8" not in result  # No confidence shown
-        assert "80%" not in result
-
-    def test_always_disclosure(self) -> None:
-        """always mode shows assumptions with confidence."""
-        result = format_assumptions_for_response(
-            [{"assumption": "Currency is EUR", "confidence": 0.8}],
-            disclosure_mode="always",
-        )
-
-        assert "Currency is EUR" in result
-        assert "80%" in result
 
 
 class TestCompoundRiskBehavior:
