@@ -54,8 +54,6 @@ from .entropy_behavior import (
     DimensionBehavior,
     EntropyAction,
     EntropyBehaviorConfig,
-    format_assumptions_for_response,
-    format_entropy_sql_comments,
     get_default_config,
 )
 from .export import export_graph_definition, export_to_react_flow
@@ -113,8 +111,6 @@ __all__ = [
     "DimensionBehavior",
     "CompoundRiskAction",
     "CompoundRiskBehavior",
-    "format_entropy_sql_comments",
-    "format_assumptions_for_response",
     "get_default_config",
     # Enums
     "GraphType",

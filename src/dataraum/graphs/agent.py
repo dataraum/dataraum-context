@@ -264,7 +264,7 @@ class GraphAgent(LLMFeature):
             if library_entry_id:
                 execution.library_entry_id = library_entry_id
 
-        return exec_result
+        return Result.ok(execution)
 
     def _generate_sql(
         self,

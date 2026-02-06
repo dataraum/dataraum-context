@@ -1,5 +1,6 @@
 data/
 test_output/
+pipeline_output/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

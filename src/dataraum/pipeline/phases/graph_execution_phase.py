@@ -14,6 +14,7 @@ from sqlalchemy import select
 from dataraum.graphs.agent import ExecutionContext, GraphAgent
 from dataraum.graphs.field_mapping import can_execute_metric, load_semantic_mappings
 from dataraum.graphs.loader import GraphLoader
+from dataraum.graphs.persistence import GraphExecutionRepository
 from dataraum.llm import create_provider, load_llm_config
 from dataraum.llm.cache import LLMCache
 from dataraum.llm.prompts import PromptRenderer
@@ -181,6 +182,11 @@ class GraphExecutionPhase(BasePhase):
 
                 if exec_result.success and exec_result.value is not None:
                     execution = exec_result.value
+
+                    # Persist execution record to database
+                    repo = GraphExecutionRepository(ctx.session)
+                    repo.save_execution(execution)
+
                     calculated_metrics.append(
                         {
                             "graph_id": graph.graph_id,

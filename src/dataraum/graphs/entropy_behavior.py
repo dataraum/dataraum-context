@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 
 class BehaviorMode(str, Enum):
@@ -204,86 +203,3 @@ def get_default_config(mode: str = "balanced") -> EntropyBehaviorConfig:
 
     config.dimension_overrides = DEFAULT_DIMENSION_OVERRIDES.copy()
     return config
-
-
-def format_entropy_sql_comments(
-    entropy_score: float,
-    assumptions: list[dict[str, Any]] | None = None,
-    warnings: list[str] | None = None,
-) -> str:
-    """Format entropy information as SQL comments.
-
-    Per ENTROPY_QUERY_BEHAVIOR.md, generated SQL should include comments
-    noting the entropy level and any assumptions made.
-
-    Args:
-        entropy_score: The composite entropy score
-        assumptions: List of assumptions made (dicts with 'dimension', 'assumption')
-        warnings: List of warning messages
-
-    Returns:
-        SQL comment block to prepend to generated SQL
-    """
-    lines = []
-
-    # Entropy level indicator
-    if entropy_score < 0.3:
-        lines.append(f"-- Generated with high confidence (entropy: {entropy_score:.2f})")
-    elif entropy_score < 0.6:
-        lines.append(f"-- Generated with assumptions (entropy: {entropy_score:.2f})")
-    else:
-        lines.append(f"-- ⚠️ HIGH ENTROPY WARNING (entropy: {entropy_score:.2f})")
-
-    # Add assumptions as comments
-    if assumptions:
-        for assumption in assumptions:
-            dimension = assumption.get("dimension", "unknown")
-            text = assumption.get("assumption", "")
-            lines.append(f"-- ASSUMPTION ({dimension}): {text}")
-
-    # Add warnings
-    if warnings:
-        for warning in warnings:
-            lines.append(f"-- WARNING: {warning}")
-
-    # Add verification note for high entropy
-    if entropy_score >= 0.6:
-        lines.append("-- VERIFY: Results before using in reports")
-
-    if lines:
-        lines.append("")  # Empty line before SQL
-
-    return "\n".join(lines)
-
-
-def format_assumptions_for_response(
-    assumptions: list[dict[str, Any]],
-    disclosure_mode: str = "when_made",
-) -> str:
-    """Format assumptions for inclusion in user-facing response.
-
-    Args:
-        assumptions: List of assumptions made
-        disclosure_mode: "always", "when_made", or "minimal"
-
-    Returns:
-        Formatted assumptions section for response
-    """
-    if not assumptions:
-        return ""
-
-    if disclosure_mode == "minimal":
-        # Just note that assumptions were made
-        return f"\n*({len(assumptions)} assumptions made)*"
-
-    lines = ["\n**Assumptions made:**"]
-    for assumption in assumptions:
-        text = assumption.get("assumption", "")
-        confidence = assumption.get("confidence", 0.0)
-
-        if disclosure_mode == "always":
-            lines.append(f"- {text} (confidence: {confidence:.0%})")
-        else:
-            lines.append(f"- {text}")
-
-    return "\n".join(lines)
