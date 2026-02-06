@@ -301,9 +301,11 @@ def _evaluate_condition(condition: str, context: dict[str, Any]) -> bool:
             if value is None and key in condition:
                 return False
 
-        # Replace variable names
+        # Replace variable names (longest keys first to avoid substring collisions,
+        # e.g. "null_ratio" must not corrupt "max_null_ratio" or "warn_null_ratio")
         expr = condition
-        for key, value in context.items():
+        for key in sorted(context, key=len, reverse=True):
+            value = context[key]
             if isinstance(value, bool):
                 expr = expr.replace(key, str(value))
             elif isinstance(value, (int, float)):

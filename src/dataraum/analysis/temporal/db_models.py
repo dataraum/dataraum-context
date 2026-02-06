@@ -8,13 +8,18 @@ Naming convention (consistent with statistics module):
 - TemporalTableSummary: Per-table aggregated summary
 """
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from dataraum.storage import Base
+
+if TYPE_CHECKING:
+    from dataraum.storage import Column
 
 
 class TemporalColumnProfile(Base):
@@ -37,6 +42,9 @@ class TemporalColumnProfile(Base):
     profile_id: Mapped[str] = mapped_column(String, primary_key=True)
     column_id: Mapped[str] = mapped_column(ForeignKey("columns.column_id"), nullable=False)
     profiled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # Relationships
+    column: Mapped[Column] = relationship(back_populates="temporal_profiles")
 
     # STRUCTURED: Queryable core dimensions
     min_timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
