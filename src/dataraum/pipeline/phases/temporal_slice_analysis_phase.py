@@ -11,6 +11,7 @@ Non-LLM temporal + topology analysis on slices:
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from sqlalchemy import select
@@ -27,6 +28,17 @@ from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.storage import Column, Table
+
+
+def _sanitize_name(value: str) -> str:
+    """Sanitize a value for matching against slice table names.
+
+    Must match the convention in slice_runner._sanitize_name().
+    """
+    safe = re.sub(r"[^a-zA-Z0-9]", "_", str(value))
+    safe = re.sub(r"_+", "_", safe).strip("_").lower()
+    return safe
+
 
 logger = get_logger(__name__)
 
@@ -226,7 +238,28 @@ class TemporalSliceAnalysisPhase(BasePhase):
         total_topology_drift = 0
         errors = []
 
+        # Pre-compute which typed tables actually have the time column,
+        # so we skip slice definitions from tables without it (e.g. dimension tables).
+        tables_with_time_col: set[str] = set()
+        for tt in typed_tables:
+            col_check = select(Column).where(
+                Column.table_id == tt.table_id,
+                Column.column_name == time_column,
+            )
+            if ctx.session.execute(col_check).scalar_one_or_none():
+                tables_with_time_col.add(tt.table_id)
+
         for slice_def in slice_definitions:
+            # Skip slices from tables that don't have the time column
+            if slice_def.table_id not in tables_with_time_col:
+                logger.info(
+                    "skipping_slice_def_no_time_column",
+                    slice_def_id=slice_def.slice_id,
+                    table_id=slice_def.table_id,
+                    time_column=time_column,
+                )
+                continue
+
             # Get slice tables for this definition
             slice_tables_stmt = select(Table).where(
                 Table.layer == "slice",
@@ -242,21 +275,34 @@ class TemporalSliceAnalysisPhase(BasePhase):
             )
 
             # Build slice info list
+            # Look up slice column once (same for all tables in this definition)
+            slice_column_stmt = select(Column).where(Column.column_id == slice_def.column_id)
+            slice_col = (ctx.session.execute(slice_column_stmt)).scalar_one_or_none()
+            if not slice_col:
+                logger.warning(
+                    "slice_column_not_found",
+                    slice_def_id=slice_def.slice_id,
+                    column_id=slice_def.column_id,
+                )
+                continue
+
+            # Sanitize column name to match the slice table naming convention
+            # (slice_runner uses _sanitize_name which lowercases and replaces
+            # non-alphanumeric chars with underscores)
+            sanitized_col_name = _sanitize_name(slice_col.column_name)
+
+            prefix = f"slice_{sanitized_col_name}_"
             slice_infos = []
             for st in slice_tables:
-                # Check if this slice table is related to the slice definition
-                # by matching the naming convention
-                slice_column_stmt = select(Column).where(Column.column_id == slice_def.column_id)
-                slice_col = (ctx.session.execute(slice_column_stmt)).scalar_one_or_none()
-
                 logger.debug(
                     "checking_slice_table_match",
                     slice_table=st.table_name,
-                    slice_column=slice_col.column_name if slice_col else None,
-                    matches=slice_col and slice_col.column_name.lower() in st.table_name.lower(),
+                    slice_column=slice_col.column_name,
+                    prefix=prefix,
+                    matches=st.table_name.lower().startswith(prefix),
                 )
 
-                if slice_col and slice_col.column_name.lower() in st.table_name.lower():
+                if st.table_name.lower().startswith(prefix):
                     # Find source table for this slice
                     source_table = next(
                         (t for t in typed_tables if t.table_id == slice_def.table_id), None
@@ -268,9 +314,7 @@ class TemporalSliceAnalysisPhase(BasePhase):
                             source_table_id=slice_def.table_id,
                             source_table_name=source_table.table_name if source_table else "",
                             slice_column_name=slice_col.column_name,
-                            slice_value=st.table_name.replace(
-                                f"slice_{slice_col.column_name.lower()}_", ""
-                            ),
+                            slice_value=st.table_name[len(prefix) :],
                             row_count=st.row_count or 0,
                         )
                     )
