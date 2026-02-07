@@ -198,13 +198,18 @@ def resolve_types(
     specs = _select_best_candidates(table.columns, min_confidence)
 
     # Persist TypeDecision records for columns that don't already have one
-    # (columns with pre-existing TypeDecision are human overrides, don't overwrite)
+    # (columns with pre-existing TypeDecision are human overrides, don't overwrite).
+    # Use relationship assignment (column=raw_col) instead of FK assignment
+    # (column_id=...) so that back_populates fires and raw_col.type_decision
+    # is populated for the copy step below.
+    raw_col_by_id = {col.column_id: col for col in table.columns}
     columns_with_decision = {col.column_id for col in table.columns if col.type_decision}
     for spec in specs:
         if spec.column_id not in columns_with_decision:
+            raw_col = raw_col_by_id[spec.column_id]
             type_decision = TypeDecision(
                 decision_id=str(uuid4()),
-                column_id=spec.column_id,
+                column=raw_col,
                 decided_type=spec.data_type.value,
                 decision_source=spec.decision_source,
                 decided_at=datetime.now(UTC),

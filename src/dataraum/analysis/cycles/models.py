@@ -193,7 +193,9 @@ class BusinessCycleAnalysisOutput(BaseModel):
     This is the structured output the LLM must provide when done analyzing.
     """
 
-    cycles: list[DetectedCycleOutput] = Field(description="List of detected business cycles")
+    cycles: list[DetectedCycleOutput] = Field(
+        default_factory=list, description="List of detected business cycles"
+    )
     business_summary: str = Field(
         description="Overall interpretation of the business model and its cycles"
     )
