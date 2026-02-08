@@ -38,8 +38,12 @@ class TemporalPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        # Temporal only needs typed tables, can run in parallel with statistics
-        return ["typing"]
+        # Temporal must run after column_eligibility to avoid FK violations.
+        # Column eligibility can delete columns from typed tables, and temporal
+        # profiles reference column_ids. If temporal runs in parallel with
+        # column_eligibility, it may try to insert profiles for columns that
+        # were deleted by column_eligibility, causing FK constraint failures.
+        return ["column_eligibility"]
 
     @property
     def outputs(self) -> list[str]:

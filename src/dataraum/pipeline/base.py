@@ -199,7 +199,7 @@ PIPELINE_DAG: list[PhaseDefinition] = [
     PhaseDefinition(
         name="temporal",
         description="Temporal column analysis",
-        dependencies=["typing"],
+        dependencies=["column_eligibility"],
         outputs=["temporal_profiles"],
         parallel_group="post_typing",
     ),
