@@ -28,7 +28,6 @@ class TestSchemaInitialization:
             "table_entities",
             "relationships",
             "temporal_column_profiles",
-            "llm_cache",
         ]
 
         for table in expected_tables:

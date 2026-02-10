@@ -103,7 +103,6 @@ def mock_agent() -> QueryAgent:
         config=mock_config,
         provider=MagicMock(),
         prompt_renderer=MagicMock(),
-        cache=MagicMock(),
     )
 
 
@@ -351,7 +350,6 @@ class TestQueryAgentIntegration:
             config=mock_config,
             provider=mock_provider,
             prompt_renderer=mock_renderer,
-            cache=MagicMock(),
         )
 
         # Create mock tool response
@@ -401,7 +399,6 @@ class TestQueryAgentIntegration:
             config=mock_config,
             provider=MagicMock(),
             prompt_renderer=mock_renderer,
-            cache=MagicMock(),
         )
 
         # Response without tool calls
@@ -433,7 +430,6 @@ class TestQueryAgentIntegration:
             config=mock_config,
             provider=MagicMock(),
             prompt_renderer=mock_renderer,
-            cache=MagicMock(),
         )
 
         # Tool call with wrong name
@@ -469,7 +465,6 @@ class TestQueryAgentIntegration:
             config=mock_config,
             provider=MagicMock(),
             prompt_renderer=mock_renderer,
-            cache=MagicMock(),
         )
 
         # LLM returns failure
@@ -497,7 +492,6 @@ class TestQueryAgentIntegration:
             config=mock_config,
             provider=MagicMock(),
             prompt_renderer=mock_renderer,
-            cache=MagicMock(),
         )
 
         result = agent._generate_query(

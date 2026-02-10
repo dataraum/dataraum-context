@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 
 from dataraum.analysis.validation import ValidationAgent
 from dataraum.analysis.validation.db_models import ValidationRunRecord
-from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.storage import Table
@@ -101,7 +101,6 @@ class ValidationPhase(BasePhase):
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
         # Create other components
-        cache = LLMCache()
         renderer = PromptRenderer()
 
         # Create validation agent
@@ -109,7 +108,6 @@ class ValidationPhase(BasePhase):
             config=config,
             provider=provider,
             prompt_renderer=renderer,
-            cache=cache,
         )
 
         # Get optional category filter from config

@@ -15,6 +15,12 @@ import:
     - "column0"
     - "column00"
 
+# Semantic analysis settings
+semantic:
+  # Ontology to use for business concept mapping.
+  # Must match a file in config/ontologies/<name>.yaml
+  ontology: financial_reporting
+
 # Temporal analysis settings
 temporal:
   # Preferred time column name for temporal analysis.

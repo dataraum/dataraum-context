@@ -27,7 +27,6 @@ from sqlalchemy.orm import Session
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
 from dataraum.graphs.db_models import GeneratedCodeRecord
-from dataraum.llm.cache import LLMCache
 from dataraum.llm.config import LLMConfig
 from dataraum.llm.features._base import LLMFeature
 from dataraum.llm.prompts import PromptRenderer
@@ -176,10 +175,9 @@ class GraphAgent(LLMFeature):
         config: LLMConfig,
         provider: LLMProvider,
         prompt_renderer: PromptRenderer,
-        cache: LLMCache,
     ):
         """Initialize the graph agent."""
-        super().__init__(config, provider, prompt_renderer, cache)
+        super().__init__(config, provider, prompt_renderer)
         self._code_cache: dict[str, GeneratedCode] = {}  # In-memory cache
 
     def execute(

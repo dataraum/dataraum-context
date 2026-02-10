@@ -58,19 +58,12 @@ def mock_prompt_renderer():
 
 
 @pytest.fixture
-def mock_cache():
-    """Create a mock LLM cache."""
-    return MagicMock()
-
-
-@pytest.fixture
-def validation_agent(mock_llm_config, mock_provider, mock_prompt_renderer, mock_cache):
+def validation_agent(mock_llm_config, mock_provider, mock_prompt_renderer):
     """Create a validation agent with mocked dependencies."""
     return ValidationAgent(
         config=mock_llm_config,
         provider=mock_provider,
         prompt_renderer=mock_prompt_renderer,
-        cache=mock_cache,
     )
 
 

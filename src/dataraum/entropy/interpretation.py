@@ -21,7 +21,6 @@ from dataraum.entropy.analysis.aggregator import ColumnSummary
 from dataraum.entropy.models import CompoundRisk
 
 if TYPE_CHECKING:
-    from dataraum.llm.cache import LLMCache
     from dataraum.llm.config import LLMConfig
     from dataraum.llm.prompts import PromptRenderer
     from dataraum.llm.providers.base import LLMProvider
@@ -255,7 +254,6 @@ class EntropyInterpreter:
         config: LLMConfig,
         provider: LLMProvider,
         prompt_renderer: PromptRenderer,
-        cache: LLMCache,
     ) -> None:
         """Initialize entropy interpreter.
 
@@ -263,12 +261,10 @@ class EntropyInterpreter:
             config: LLM configuration
             provider: LLM provider instance
             prompt_renderer: Prompt template renderer
-            cache: Response cache
         """
         self.config = config
         self.provider = provider
         self.renderer = prompt_renderer
-        self.cache = cache
 
     def interpret_batch(
         self,

@@ -15,7 +15,7 @@ from dataraum.analysis.relationships.utils import load_relationship_candidates_f
 from dataraum.analysis.semantic.agent import SemanticAgent
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.semantic.processor import enrich_semantic
-from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.storage import Column, Table
@@ -152,7 +152,6 @@ class SemanticPhase(BasePhase):
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
         # Create other components
-        cache = LLMCache()
         renderer = PromptRenderer()
 
         # Create semantic agent
@@ -160,7 +159,6 @@ class SemanticPhase(BasePhase):
             config=config,
             provider=provider,
             prompt_renderer=renderer,
-            cache=cache,
         )
 
         # Load relationship candidates from relationships phase
@@ -170,8 +168,13 @@ class SemanticPhase(BasePhase):
             detection_method="candidate",
         )
 
-        # Get ontology from config (default to 'financial_reporting')
-        ontology = ctx.config.get("ontology", "financial_reporting")
+        # Get ontology from pipeline config (set in config/system/pipeline.yaml → semantic.ontology)
+        ontology = ctx.config.get("ontology")
+        if not ontology:
+            return PhaseResult.failed(
+                "No ontology configured. Set 'ontology' in config/system/pipeline.yaml "
+                "under the 'semantic' section."
+            )
 
         # Run semantic enrichment
         enrich_result = enrich_semantic(

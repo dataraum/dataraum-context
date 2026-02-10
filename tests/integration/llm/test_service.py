@@ -5,7 +5,7 @@ import pytest
 # Skip all tests if anthropic is not installed
 pytest.importorskip("anthropic", reason="anthropic package not installed")
 
-from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 
 
 @pytest.fixture
@@ -30,12 +30,6 @@ def test_llm_provider_creation(mock_anthropic_key):
     provider = create_provider(config.active_provider, provider_config.model_dump())
 
     assert provider is not None
-
-
-def test_llm_cache_initialization():
-    """Test that LLM cache initializes correctly."""
-    cache = LLMCache()
-    assert cache is not None
 
 
 def test_prompt_renderer_loads_templates(mock_anthropic_key):

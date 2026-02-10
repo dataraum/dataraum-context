@@ -369,15 +369,6 @@ def mock_prompt_renderer() -> MagicMock:
 
 
 @pytest.fixture
-def mock_llm_cache() -> MagicMock:
-    """Mock LLM cache."""
-    cache = MagicMock()
-    cache.get.return_value = None
-    cache.put.return_value = None
-    return cache
-
-
-@pytest.fixture
 def vectors_conn() -> duckdb.DuckDBPyConnection:
     """In-memory DuckDB connection with VSS extension for query library tests."""
     conn = duckdb.connect(":memory:")

@@ -16,7 +16,6 @@ from dataraum.graphs.field_mapping import can_execute_metric, load_semantic_mapp
 from dataraum.graphs.loader import GraphLoader
 from dataraum.graphs.persistence import GraphExecutionRepository
 from dataraum.llm import create_provider, load_llm_config
-from dataraum.llm.cache import LLMCache
 from dataraum.llm.prompts import PromptRenderer
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -122,13 +121,11 @@ class GraphExecutionPhase(BasePhase):
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
         renderer = PromptRenderer()
-        cache = LLMCache()
 
         agent = GraphAgent(
             config=config,
             provider=provider,
             prompt_renderer=renderer,
-            cache=cache,
         )
 
         # Find primary fact table for execution

@@ -89,28 +89,11 @@ class ConversationResponse(BaseModel):
 
 
 class LLMProvider(ABC):
-    """Abstract base for LLM providers.
-
-    All LLM providers (Anthropic, OpenAI, Local) must implement this interface.
-    """
+    """Abstract base for LLM providers."""
 
     @abstractmethod
-    def complete(self, request: LLMRequest) -> Result[LLMResponse]:
-        """Send completion request to provider.
-
-        Args:
-            request: The LLM request with prompt and parameters
-
-        Returns:
-            Result containing LLMResponse or error message
-        """
-        pass
-
     def converse(self, request: ConversationRequest) -> Result[ConversationResponse]:
         """Send a conversation request with optional tool use.
-
-        This is the preferred method for agentic interactions.
-        Default implementation raises NotImplementedError.
 
         Args:
             request: Conversation request with messages, tools, etc.
@@ -118,9 +101,7 @@ class LLMProvider(ABC):
         Returns:
             Result containing ConversationResponse or error message
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support conversation/tool use"
-        )
+        pass
 
     @abstractmethod
     def get_model_for_tier(self, tier: str) -> str:

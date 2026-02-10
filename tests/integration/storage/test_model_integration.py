@@ -18,7 +18,6 @@ from dataraum.analysis.typing.db_models import (
     TypeCandidate,
     TypeDecision,
 )
-from dataraum.llm.db_models import LLMCache
 from dataraum.storage import Column, Source, Table
 
 
@@ -321,36 +320,3 @@ class TestTemporalModels:
         assert saved.detected_granularity == "day"
         assert saved.completeness_ratio == 0.96
         assert saved.has_seasonality is True
-
-
-class TestLLMCache:
-    """Test LLM cache model."""
-
-    def test_create_llm_cache(self, session: Session):
-        source = Source(name="test_source", source_type="csv")
-        session.add(source)
-        session.flush()
-
-        cache = LLMCache(
-            cache_key="abc123",
-            feature="semantic_analysis",
-            source_id=source.source_id,
-            table_ids=["table1", "table2"],
-            ontology="financial_reporting",
-            provider="anthropic",
-            model="claude-sonnet-4",
-            prompt_hash="prompt123",
-            response_json={"annotations": []},
-            input_tokens=1000,
-            output_tokens=500,
-            is_valid=True,
-        )
-        session.add(cache)
-        session.commit()
-
-        result = session.execute(select(LLMCache).where(LLMCache.cache_key == "abc123"))
-        saved = result.scalar_one()
-
-        assert saved.feature == "semantic_analysis"
-        assert saved.provider == "anthropic"
-        assert saved.input_tokens == 1000

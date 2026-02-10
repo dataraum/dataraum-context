@@ -182,7 +182,6 @@ class TestGraphAgentCaching:
             config=MagicMock(),
             provider=MagicMock(),
             prompt_renderer=MagicMock(),
-            cache=MagicMock(),
         )
 
         key1 = agent._cache_key(sample_graph, "mapping-1")
@@ -198,7 +197,6 @@ class TestGraphAgentCaching:
             config=MagicMock(),
             provider=MagicMock(),
             prompt_renderer=MagicMock(),
-            cache=MagicMock(),
         )
 
         # Create generated code
@@ -241,7 +239,6 @@ class TestGraphAgentCaching:
             config=MagicMock(),
             provider=MagicMock(),
             prompt_renderer=MagicMock(),
-            cache=MagicMock(),
         )
 
         loaded = agent._load_from_db(
@@ -263,7 +260,6 @@ class TestGraphAgentExecution:
             config=MagicMock(),
             provider=MagicMock(),
             prompt_renderer=MagicMock(),
-            cache=MagicMock(),
         )
 
         context = ExecutionContext(
@@ -291,7 +287,6 @@ class TestGraphAgentExecution:
             config=MagicMock(),
             provider=MagicMock(),
             prompt_renderer=MagicMock(),
-            cache=MagicMock(),
         )
 
         context = ExecutionContext(
@@ -322,7 +317,6 @@ class TestGraphAgentExecution:
             config=MagicMock(),
             provider=MagicMock(),
             prompt_renderer=MagicMock(),
-            cache=MagicMock(),
         )
 
         context = ExecutionContext(
@@ -363,11 +357,6 @@ class TestGraphAgentIntegration:
         mock_provider = MagicMock()
         mock_provider.get_model_for_tier.return_value = "test-model"
 
-        # Mock LLM call
-        mock_cache = MagicMock()
-        mock_cache.get = MagicMock(return_value=None)
-        mock_cache.put = MagicMock()
-
         # Create agent
         mock_config = MagicMock()
         mock_config.limits.max_output_tokens_per_request = 4000
@@ -380,7 +369,6 @@ class TestGraphAgentIntegration:
             config=mock_config,
             provider=mock_provider,
             prompt_renderer=mock_renderer,
-            cache=mock_cache,
         )
 
         # Mock the LLM converse call with tool response
@@ -431,10 +419,6 @@ class TestGraphAgentIntegration:
         mock_provider = MagicMock()
         mock_provider.get_model_for_tier.return_value = "test-model"
 
-        mock_cache = MagicMock()
-        mock_cache.get = MagicMock(return_value=None)
-        mock_cache.put = MagicMock()
-
         mock_config = MagicMock()
         mock_config.limits.max_output_tokens_per_request = 4000
         mock_config.limits.cache_ttl_seconds = 3600
@@ -446,7 +430,6 @@ class TestGraphAgentIntegration:
             config=mock_config,
             provider=mock_provider,
             prompt_renderer=mock_renderer,
-            cache=mock_cache,
         )
 
         # Mock the LLM converse call with tool response

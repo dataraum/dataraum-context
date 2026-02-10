@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from dataraum.analysis.slicing.agent import SlicingAgent
 from dataraum.analysis.slicing.db_models import SliceDefinition, SlicingAnalysisRun
-from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.storage import Column, Table
@@ -130,7 +130,6 @@ class SlicingPhase(BasePhase):
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
         # Create other components
-        cache = LLMCache()
         renderer = PromptRenderer()
 
         # Create slicing agent
@@ -138,7 +137,6 @@ class SlicingPhase(BasePhase):
             config=config,
             provider=provider,
             prompt_renderer=renderer,
-            cache=cache,
         )
 
         # Build context data for the agent

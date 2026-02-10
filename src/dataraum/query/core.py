@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
-from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.storage import Source, Table
 
 from .agent import QueryAgent
@@ -106,7 +106,6 @@ def answer_question(
 
         provider = create_provider(config.active_provider, provider_config.model_dump())
         renderer = PromptRenderer()
-        cache = LLMCache()
     except Exception as e:
         logger.error(f"Failed to initialize LLM: {e}")
         return Result.fail(f"Failed to initialize LLM: {e}")
@@ -116,7 +115,6 @@ def answer_question(
         config=config,
         provider=provider,
         prompt_renderer=renderer,
-        cache=cache,
     )
 
     return agent.analyze(
