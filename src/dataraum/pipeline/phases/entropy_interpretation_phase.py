@@ -21,7 +21,7 @@ from dataraum.entropy import (
 from dataraum.entropy.analysis.aggregator import ColumnSummary
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.db_models import EntropyInterpretationRecord, EntropyObjectRecord
-from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.storage import Column, Table
@@ -172,7 +172,6 @@ class EntropyInterpretationPhase(BasePhase):
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
         # Create other components
-        cache = LLMCache()
         renderer = PromptRenderer()
 
         # Create interpreter
@@ -180,7 +179,6 @@ class EntropyInterpretationPhase(BasePhase):
             config=config,
             provider=provider,
             prompt_renderer=renderer,
-            cache=cache,
         )
 
         # Build interpretation inputs

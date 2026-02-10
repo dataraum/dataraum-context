@@ -18,7 +18,7 @@ from dataraum.analysis.quality_summary.agent import QualitySummaryAgent
 from dataraum.analysis.quality_summary.db_models import QualitySummaryRun
 from dataraum.analysis.quality_summary.processor import summarize_quality
 from dataraum.analysis.slicing.db_models import SliceDefinition
-from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.llm.config import LLMConfig
 from dataraum.llm.providers.base import LLMProvider
 from dataraum.pipeline.base import PhaseContext, PhaseResult
@@ -64,13 +64,11 @@ def _process_slice_definition(
     """
     try:
         # Create LLM components (cache and renderer are lightweight)
-        cache = LLMCache()
         renderer = PromptRenderer()
         agent = QualitySummaryAgent(
             config=config,
             provider=provider,
             prompt_renderer=renderer,
-            cache=cache,
         )
 
         # Use session factory to get a dedicated session for this thread
@@ -249,13 +247,11 @@ class QualitySummaryPhase(BasePhase):
                         errors.append(f"Slice {proc_result.slice_id}: {proc_result.error}")
         else:
             # Sequential processing (fallback)
-            cache = LLMCache()
             renderer = PromptRenderer()
             agent = QualitySummaryAgent(
                 config=config,
                 provider=provider,
                 prompt_renderer=renderer,
-                cache=cache,
             )
 
             for slice_def in slice_definitions:

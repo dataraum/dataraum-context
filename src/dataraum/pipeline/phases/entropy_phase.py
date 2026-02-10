@@ -609,7 +609,7 @@ def _run_dimensional_entropy(
     summary_agent = None
     try:
         from dataraum.entropy.summary_agent import DimensionalSummaryAgent
-        from dataraum.llm import LLMCache, PromptRenderer, create_provider, load_llm_config
+        from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 
         llm_config = load_llm_config()
         feature_config = llm_config.features.dimensional_summary
@@ -617,13 +617,11 @@ def _run_dimensional_entropy(
             provider_config = llm_config.providers.get(llm_config.active_provider)
             if provider_config:
                 provider = create_provider(llm_config.active_provider, provider_config.model_dump())
-                cache = LLMCache()
                 renderer = PromptRenderer()
                 summary_agent = DimensionalSummaryAgent(
                     config=llm_config,
                     provider=provider,
                     prompt_renderer=renderer,
-                    cache=cache,
                 )
                 logger.info("dimensional_summary_agent_initialized")
     except Exception as e:

@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from dataraum.entropy.detectors.semantic.dimensional_entropy import (
         DatasetDimensionalSummary,
     )
-    from dataraum.llm.cache import LLMCache
     from dataraum.llm.config import LLMConfig
     from dataraum.llm.prompts import PromptRenderer
     from dataraum.llm.providers.base import LLMProvider
@@ -61,7 +60,6 @@ class DimensionalSummaryAgent:
         config: LLMConfig,
         provider: LLMProvider,
         prompt_renderer: PromptRenderer,
-        cache: LLMCache,
     ) -> None:
         """Initialize dimensional summary agent.
 
@@ -69,12 +67,10 @@ class DimensionalSummaryAgent:
             config: LLM configuration
             provider: LLM provider instance
             prompt_renderer: Prompt template renderer
-            cache: Response cache
         """
         self.config = config
         self.provider = provider
         self.renderer = prompt_renderer
-        self.cache = cache
 
     def summarize(
         self,

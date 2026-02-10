@@ -21,7 +21,6 @@ from dataraum.core.models.base import DecisionSource, Result
 from dataraum.llm.features._base import LLMFeature
 
 if TYPE_CHECKING:
-    from dataraum.llm.cache import LLMCache
     from dataraum.llm.config import LLMConfig
     from dataraum.llm.prompts import PromptRenderer
     from dataraum.llm.providers.base import LLMProvider
@@ -47,7 +46,6 @@ class SlicingAgent(LLMFeature):
         config: LLMConfig,
         provider: LLMProvider,
         prompt_renderer: PromptRenderer,
-        cache: LLMCache,
     ) -> None:
         """Initialize slicing agent.
 
@@ -55,9 +53,8 @@ class SlicingAgent(LLMFeature):
             config: LLM configuration
             provider: LLM provider instance
             prompt_renderer: Prompt template renderer
-            cache: Response cache
         """
-        super().__init__(config, provider, prompt_renderer, cache)
+        super().__init__(config, provider, prompt_renderer)
 
     def analyze(
         self,

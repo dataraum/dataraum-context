@@ -292,7 +292,6 @@ class ConnectionManager:
         from dataraum.analysis.validation import db_models as _validation  # noqa: F401
         from dataraum.entropy import db_models as _entropy  # noqa: F401
         from dataraum.graphs import db_models as _graphs  # noqa: F401
-        from dataraum.llm import db_models as _llm  # noqa: F401
         from dataraum.pipeline import db_models as _pipeline  # noqa: F401
         from dataraum.query import db_models as _query  # noqa: F401
 

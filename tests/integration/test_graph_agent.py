@@ -212,14 +212,12 @@ class TestGraphAgentSQLGeneration:
         mock_llm_config,
         mock_llm_provider,
         mock_prompt_renderer,
-        mock_llm_cache,
     ) -> GraphAgent:
         """Create a GraphAgent with mocked LLM dependencies."""
         return GraphAgent(
             config=mock_llm_config,
             provider=mock_llm_provider,
             prompt_renderer=mock_prompt_renderer,
-            cache=mock_llm_cache,
         )
 
     @pytest.fixture

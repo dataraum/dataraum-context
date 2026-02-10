@@ -49,7 +49,6 @@ from dataraum.llm.providers.base import (
 from dataraum.storage import Column, Table
 
 if TYPE_CHECKING:
-    from dataraum.llm.cache import LLMCache
     from dataraum.llm.config import LLMConfig
     from dataraum.llm.prompts import PromptRenderer
     from dataraum.llm.providers.base import LLMProvider
@@ -68,7 +67,7 @@ class SemanticAgent(LLMFeature):
 
     This agent follows the same pattern as GraphAgent:
     - Extends LLMFeature for LLM infrastructure access
-    - Can be instantiated directly with LLM config, provider, renderer, cache
+    - Can be instantiated directly with LLM config, provider, renderer
     - Does not depend on LLMService facade
     """
 
@@ -77,7 +76,6 @@ class SemanticAgent(LLMFeature):
         config: LLMConfig,
         provider: LLMProvider,
         prompt_renderer: PromptRenderer,
-        cache: LLMCache,
         ontologies_dir: Path | None = None,
     ) -> None:
         """Initialize semantic agent.
@@ -86,11 +84,10 @@ class SemanticAgent(LLMFeature):
             config: LLM configuration
             provider: LLM provider instance
             prompt_renderer: Prompt template renderer
-            cache: Response cache
             ontologies_dir: Directory containing ontology YAML files.
                           If None, uses config/ontologies/
         """
-        super().__init__(config, provider, prompt_renderer, cache)
+        super().__init__(config, provider, prompt_renderer)
         self._ontology_loader = OntologyLoader(ontologies_dir)
 
     def analyze(
@@ -771,7 +768,7 @@ class SemanticAgent(LLMFeature):
                 elif rel.cardinality == "one_to_many":
                     cardinality = Cardinality.ONE_TO_MANY
                 elif rel.cardinality == "many_to_one":
-                    cardinality = Cardinality.ONE_TO_MANY  # Flip perspective
+                    cardinality = Cardinality.MANY_TO_ONE
                 elif rel.cardinality == "many_to_many":
                     cardinality = Cardinality.MANY_TO_MANY
 

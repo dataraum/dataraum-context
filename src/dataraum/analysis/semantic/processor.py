@@ -19,7 +19,10 @@ from dataraum.analysis.semantic.db_models import (
 )
 from dataraum.analysis.semantic.models import SemanticEnrichmentResult
 from dataraum.analysis.semantic.utils import load_column_mappings, load_table_mappings
+from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
+
+logger = get_logger(__name__)
 
 
 def _build_candidate_metrics_lookup(
@@ -197,9 +200,15 @@ def enrich_semantic(
                 for key, value in ri_metrics.items():
                     if value is not None:
                         evidence[key] = value
-            except Exception:
-                # If computation fails, continue without metrics
-                pass
+            except Exception as e:
+                logger.warning(
+                    "ri_metrics_computation_failed",
+                    from_table=rel.from_table,
+                    from_column=rel.from_column,
+                    to_table=rel.to_table,
+                    to_column=rel.to_column,
+                    error=str(e),
+                )
 
         db_rel = RelationshipModel(
             relationship_id=rel.relationship_id,

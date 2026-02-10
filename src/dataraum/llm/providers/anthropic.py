@@ -12,8 +12,6 @@ from dataraum.llm.providers.base import (
     ConversationRequest,
     ConversationResponse,
     LLMProvider,
-    LLMRequest,
-    LLMResponse,
     Message,
     ToolCall,
     ToolResult,
@@ -62,81 +60,6 @@ class AnthropicProvider(LLMProvider):
 
         # Create sync client
         self.client = anthropic.Anthropic(api_key=api_key)
-
-    def complete(self, request: LLMRequest) -> Result[LLMResponse]:
-        """Send completion request to Claude API.
-
-        Args:
-            request: The LLM request
-
-        Returns:
-            Result containing LLMResponse or error message
-        """
-        try:
-            model = self.config.default_model
-
-            # Build messages
-            messages: list[MessageParam] = [
-                cast(MessageParam, {"role": "user", "content": request.prompt})
-            ]
-
-            # Handle JSON mode via system prompt
-            # Claude doesn't have native JSON mode like OpenAI, so we use system prompt
-            system_prompt = None
-            if request.response_format == "json":
-                system_prompt = (
-                    "Respond with valid JSON only. "
-                    "Do not use markdown code blocks or any other formatting. "
-                    "Your entire response should be parseable as JSON."
-                )
-
-            # Make API call
-            if system_prompt:
-                response = self.client.messages.create(
-                    model=model,
-                    max_tokens=request.max_tokens,
-                    temperature=request.temperature,
-                    messages=messages,
-                    system=system_prompt,
-                )
-            else:
-                response = self.client.messages.create(
-                    model=model,
-                    max_tokens=request.max_tokens,
-                    temperature=request.temperature,
-                    messages=messages,
-                )
-
-            # Extract text content from response
-            # Response.content is a list of ContentBlock objects
-            content_blocks = []
-            for block in response.content:
-                if block.type == "text":
-                    content_blocks.append(block.text)
-
-            content = "".join(content_blocks)
-
-            if not content:
-                return Result.fail(
-                    f"No text content in response. Content blocks: {[b.type for b in response.content]}"
-                )
-
-            # Create response
-            llm_response = LLMResponse(
-                content=content,
-                model=response.model,
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-                cached=False,
-                provider_cached=False,  # Anthropic doesn't expose cache hits in API
-            )
-
-            return Result.ok(llm_response)
-
-        except anthropic.APIError as e:
-            return Result.fail(f"Anthropic API error: {e}")
-        except Exception as e:
-            return Result.fail(f"Unexpected error calling Anthropic: {e}")
 
     def get_model_for_tier(self, tier: str) -> str:
         """Get Claude model name for tier.
