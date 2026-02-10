@@ -33,10 +33,10 @@ logger = get_logger(__name__)
 # Module-level TDA extractor instance
 _extractor = TableTopologyExtractor()
 
-_CONFIG_CACHE: dict[str, object] | None = None
+_CONFIG_CACHE: dict[str, Any] | None = None
 
 
-def _load_config() -> dict[str, object]:
+def _load_config() -> dict[str, Any]:
     """Load topology config from YAML (cached)."""
     global _CONFIG_CACHE
     if _CONFIG_CACHE is None:
