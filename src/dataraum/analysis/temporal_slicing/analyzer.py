@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from datetime import date, timedelta
+from typing import Any
 from uuid import uuid4
 
 import duckdb
@@ -45,10 +46,10 @@ from dataraum.storage import Column, Table
 
 logger = get_logger(__name__)
 
-_CONFIG_CACHE: dict[str, object] | None = None
+_CONFIG_CACHE: dict[str, Any] | None = None
 
 
-def _load_config() -> dict[str, object]:
+def _load_config() -> dict[str, Any]:
     """Load temporal_slicing config from YAML (cached)."""
     global _CONFIG_CACHE
     if _CONFIG_CACHE is None:
