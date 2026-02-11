@@ -142,6 +142,8 @@ The LLM returns free-form `cycle_type` strings. `map_to_canonical_type()` maps t
 
 ## Roadmap
 
-- **Prompt template externalization**: System/user prompts are hardcoded; could move to `config/system/prompts/`
+- **Anomaly detection post-processing**: Detect anomalies after cycle detection — missing expected cycles (domain-based), low completion rates (<50%), unclassified cycles (don't match vocabulary), excessive cycle count (>15). Requires `CycleAnomaly` model, `detect_cycle_anomalies()` function, and integration into `BusinessCycleAgent.analyze()` after `_parse_tool_output()`.
+- **Anomaly detection configuration**: Add `anomaly_detection` section to `config/verticals/finance/cycles.yaml` with thresholds (low_completion_threshold, excessive_cycles_threshold), severity mappings, and domain-specific anomaly rules. Dependency for anomaly detection implementation.
+- **Prompt template externalization**: System/user prompts are hardcoded in `agent.py` (lines 54-130); move text content to `config/system/prompts/cycles_detection.yaml`. Tool logic stays in Python. Multi-turn agent pattern differs from other agents' single-shot templates.
 - **LLMFeature alignment**: Agent doesn't extend `LLMFeature`; could align for consistent config handling
 - **Cross-run comparison**: Track cycle detection changes across pipeline runs

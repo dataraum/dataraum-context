@@ -212,3 +212,6 @@ Data readiness contracts by use case (executive_dashboard, operational_report, e
 - **Topology persistence**: Persist topology results to `TemporalTopologyAnalysis`
 - **Detector extensibility**: Plugin system for custom detectors
 - **Cross-run trending**: Track entropy changes across pipeline runs
+- **Custom contracts with `extends` support**: Config `contracts.yaml` has a commented example (lines 156-159) of `extends: regulatory_reporting` with threshold overrides, but no parsing logic exists. Add `_parse_custom_contracts()` to handle inheritance and dimension override.
+- **Path to compliance** (`get_path_to_compliance()`): Ordered list of resolutions to achieve contract compliance. `ContractEvaluation.recommendations` field exists but is never populated. Needs resolution cascade logic, priority scoring, and effort estimation per dimension.
+- **Graph/query agent contract integration**: `execute_with_contract_check()` for graph agent to validate entropy levels before execution. Depends on graph/query agent stabilization.
