@@ -373,36 +373,6 @@ def get_contract(name: str, config_path: Path | None = None) -> ContractProfile 
     return contracts.get(name)
 
 
-def _get_layer_from_dimension(dimension: str) -> str | None:
-    """Extract layer name from dimension path using convention.
-
-    Convention: dimension format is "layer.subdimension" (e.g., "structural.types").
-    The first part before '.' is the layer.
-
-    Args:
-        dimension: Dimension path like "structural.types"
-
-    Returns:
-        Layer name or None if dimension has no dot.
-    """
-    if "." in dimension:
-        return dimension.split(".")[0]
-    return None
-
-
-def _get_layer_score(summary: ColumnSummary, layer: str) -> float:
-    """Get the entropy score for a specific layer from a column summary.
-
-    Args:
-        summary: Column entropy summary
-        layer: Layer name (structural, semantic, value, computational)
-
-    Returns:
-        Layer score or 0.0 if layer not recognized.
-    """
-    return summary.layer_scores.get(layer, 0.0)
-
-
 def _get_dimension_score(
     column_summaries: dict[str, ColumnSummary],
     dimension: str,
@@ -410,6 +380,7 @@ def _get_dimension_score(
     """Get the score for a specific dimension from column summaries.
 
     Aggregates scores across all columns for the dimension.
+    Only includes columns that actually have data for this dimension.
     Supports prefix matching: "semantic.dimensional" matches
     "semantic.dimensional.overall_score", etc.
 
@@ -418,12 +389,9 @@ def _get_dimension_score(
         dimension: Dimension path like "structural.types" or "semantic.dimensional"
 
     Returns:
-        Average score for this dimension across all columns (0.0 if no data).
+        Average score for this dimension across columns that have it (0.0 if no data).
     """
     scores: list[float] = []
-
-    # Extract layer from dimension using convention (first part before '.')
-    layer = _get_layer_from_dimension(dimension)
 
     for summary in column_summaries.values():
         # First check dimension_scores for exact match
@@ -440,9 +408,8 @@ def _get_dimension_score(
             if matching_scores:
                 # Use the average of all sub-dimensions
                 scores.append(sum(matching_scores) / len(matching_scores))
-            # Fall back to layer-level score
-            elif layer:
-                scores.append(_get_layer_score(summary, layer))
+            # No score for this dimension on this column — skip it
+            # (detector didn't run, not a reason to use layer average)
 
     return sum(scores) / len(scores) if scores else 0.0
 
@@ -454,6 +421,7 @@ def _find_affected_columns(
 ) -> list[str]:
     """Find columns that exceed threshold for a dimension.
 
+    Only considers columns that actually have data for this dimension.
     Supports prefix matching: "semantic.dimensional" matches
     "semantic.dimensional.overall_score", etc.
 
@@ -467,11 +435,8 @@ def _find_affected_columns(
     """
     affected: list[str] = []
 
-    # Extract layer from dimension using convention (first part before '.')
-    layer = _get_layer_from_dimension(dimension)
-
     for key, summary in column_summaries.items():
-        score = 0.0
+        score: float | None = None
 
         if dimension in summary.dimension_scores:
             score = summary.dimension_scores[dimension]
@@ -484,10 +449,8 @@ def _find_affected_columns(
             ]
             if matching_scores:
                 score = sum(matching_scores) / len(matching_scores)
-            elif layer:
-                score = _get_layer_score(summary, layer)
 
-        if score > threshold:
+        if score is not None and score > threshold:
             affected.append(key)
 
     return affected

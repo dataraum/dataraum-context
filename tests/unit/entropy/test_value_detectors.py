@@ -54,7 +54,7 @@ class TestNullRatioDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        assert results[0].score == pytest.approx(0.04, abs=0.01)
+        assert results[0].score == pytest.approx(0.02, abs=0.01)
         assert results[0].evidence[0]["null_impact"] == "minimal"
 
     def test_high_nulls(self, detector: NullRatioDetector):
@@ -64,8 +64,8 @@ class TestNullRatioDetector:
             column_name="discount",
             analysis_results={
                 "statistics": {
-                    "null_ratio": 0.35,
-                    "null_count": 350,
+                    "null_ratio": 0.5,
+                    "null_count": 500,
                     "total_count": 1000,
                 }
             },
@@ -74,21 +74,21 @@ class TestNullRatioDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        assert results[0].score == pytest.approx(0.7, abs=0.01)
-        assert results[0].evidence[0]["null_impact"] == "significant"
+        assert results[0].score == pytest.approx(0.5, abs=0.01)
+        assert results[0].evidence[0]["null_impact"] == "critical"
         # Should have resolution options
         actions = [opt.action for opt in results[0].resolution_options]
         assert "declare_null_meaning" in actions
         assert "filter_nulls" in actions
 
-    def test_max_entropy_at_50_percent(self, detector: NullRatioDetector):
-        """Test entropy caps at 1.0 for 50% or more nulls."""
+    def test_max_entropy_at_full_nulls(self, detector: NullRatioDetector):
+        """Test entropy is 1.0 for fully null column."""
         context = DetectorContext(
             table_name="test",
             column_name="col",
             analysis_results={
                 "statistics": {
-                    "null_ratio": 0.5,
+                    "null_ratio": 1.0,
                 }
             },
         )
@@ -148,7 +148,8 @@ class TestOutlierRateDetector:
                         "iqr_lower_fence": 10.0,
                         "iqr_upper_fence": 100.0,
                     }
-                }
+                },
+                "semantic": {"semantic_role": "measure"},
             },
         )
 
@@ -169,7 +170,8 @@ class TestOutlierRateDetector:
                         "iqr_outlier_ratio": 0.005,
                         "iqr_outlier_count": 5,
                     }
-                }
+                },
+                "semantic": {"semantic_role": "measure"},
             },
         )
 
@@ -190,7 +192,8 @@ class TestOutlierRateDetector:
                         "iqr_outlier_ratio": 0.08,
                         "iqr_outlier_count": 80,
                     }
-                }
+                },
+                "semantic": {"semantic_role": "measure"},
             },
         )
 
@@ -214,7 +217,8 @@ class TestOutlierRateDetector:
                     "outlier_detection": {
                         "iqr_outlier_ratio": 0.15,
                     }
-                }
+                },
+                "semantic": {"semantic_role": "measure"},
             },
         )
 
@@ -232,7 +236,8 @@ class TestOutlierRateDetector:
                 "statistics": {
                     "iqr_outlier_ratio": 0.03,
                     "iqr_outlier_count": 30,
-                }
+                },
+                "semantic": {"semantic_role": "measure"},
             },
         )
 
@@ -241,9 +246,74 @@ class TestOutlierRateDetector:
         assert len(results) == 1
         assert results[0].score == pytest.approx(0.3, abs=0.01)
 
+    def test_skip_key_column(self, detector: OutlierRateDetector):
+        """Test outlier detection is skipped for key columns."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="order_id",
+            analysis_results={
+                "statistics": {
+                    "outlier_detection": {
+                        "iqr_outlier_ratio": 0.05,
+                        "iqr_outlier_count": 50,
+                    }
+                },
+                "semantic": {
+                    "semantic_role": "key",
+                },
+            },
+        )
+
+        results = detector.detect(context)
+
+        assert len(results) == 0
+
+    def test_skip_foreign_key_column(self, detector: OutlierRateDetector):
+        """Test outlier detection is skipped for foreign key columns."""
+        context = DetectorContext(
+            table_name="order_items",
+            column_name="order_id",
+            analysis_results={
+                "statistics": {
+                    "outlier_detection": {
+                        "iqr_outlier_ratio": 0.08,
+                    }
+                },
+                "semantic": {
+                    "semantic_role": "foreign_key",
+                },
+            },
+        )
+
+        results = detector.detect(context)
+
+        assert len(results) == 0
+
+    def test_runs_for_measure_column(self, detector: OutlierRateDetector):
+        """Test outlier detection runs normally for measure columns."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="amount",
+            analysis_results={
+                "statistics": {
+                    "outlier_detection": {
+                        "iqr_outlier_ratio": 0.05,
+                    }
+                },
+                "semantic": {
+                    "semantic_role": "measure",
+                },
+            },
+        )
+
+        results = detector.detect(context)
+
+        assert len(results) == 1
+        assert results[0].score > 0
+
     def test_detector_properties(self, detector: OutlierRateDetector):
         """Test detector has correct properties."""
         assert detector.detector_id == "outlier_rate"
         assert detector.layer == "value"
         assert detector.dimension == "outliers"
-        assert detector.required_analyses == ["statistics"]
+        assert detector.required_analyses == ["statistics", "semantic"]
