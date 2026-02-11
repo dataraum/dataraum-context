@@ -153,6 +153,7 @@ concepts:
 
 ## Roadmap
 
+- **Cross-column unit detection**: Detect when a dimension column defines the unit for measure columns (e.g., a "Currency" column defining the unit for "Amount", "Debit", "Credit"). This is common in financial data where the currency is a separate dimension rather than embedded in values. The semantic agent should identify these unit-defining relationships and store them so the entropy unit detector can use inferred units instead of scoring 0.8 for "missing". Requires: new relationship type in semantic output, ontology concept hints for unit-bearing dimensions, wiring into `UnitEntropyDetector`.
 - **Incremental re-analysis**: Support re-analyzing specific tables without re-running the full phase
 - **Confidence calibration**: Validate LLM confidence scores against ground truth in test datasets
 - **Two-tier LLM annotation**: Split column annotation (fast model) from relationship evaluation (capable model) — see below

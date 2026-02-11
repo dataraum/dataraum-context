@@ -129,7 +129,7 @@ class TestBusinessMeaningDetector:
         assert results[0].score == pytest.approx(0.2, abs=0.01)
 
     def test_full_documentation(self, detector: BusinessMeaningDetector):
-        """Test low entropy for fully documented column."""
+        """Test zero entropy for fully documented column (description + business_name + entity_type)."""
         context = DetectorContext(
             table_name="orders",
             column_name="amount",
@@ -148,7 +148,8 @@ class TestBusinessMeaningDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        assert results[0].score == pytest.approx(0.2, abs=0.01)
+        assert results[0].score == pytest.approx(0.0, abs=0.01)
+        assert results[0].evidence[0]["assessment"] == "fully_documented"
 
     def test_raw_metrics_collected(self, detector: BusinessMeaningDetector):
         """Test that raw metrics are collected for LLM interpretation."""

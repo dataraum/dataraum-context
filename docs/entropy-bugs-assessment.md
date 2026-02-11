@@ -4,21 +4,21 @@ Assessed against `data/metadata.db` from small_finance fixture run on `refactor/
 
 ## Priority Table
 
-| # | Bug | Severity | Effort | Priority |
-|---|-----|----------|--------|----------|
-| 7 | Table actions all generic "review" | High | Medium | P1 |
-| 1 | naming_clarity always 0.2 | Medium | Low | P2 |
-| 2 | Units ignores currency context | Medium | Medium | P2 |
-| 6 | Dimensional not in column interpretations | Medium | Medium | P2 |
-| 8 | Action parameters always empty | Medium | Low | P2 |
-| 11 | Table summary only dimensional | Medium | Medium | P2 |
-| 12 | Compound risks misclassify columns | Medium | Medium | P2 |
-| 13 | Contract summaries not business-focused | Medium | Low | P2 |
-| 4 | Benford not computed | Low | High | P3 |
-| 5 | Outliers on ID columns | Low | Low | P3 |
-| 3 | Null score formula | Not a bug | — | — |
-| 9 | Evidence missing column name | Not a bug | — | — |
-| 10 | Type decision duplicates | Not a bug | — | — |
+| # | Bug | Severity | Effort | Priority | Status |
+|---|-----|----------|--------|----------|--------|
+| 7 | Table actions all generic "review" | High | Medium | P1 | **Backlogged** → `docs/specs/entropy.md` roadmap. Root cause: `DimensionalSummaryAgent` output has no structured actions, `entropy_phase.py:942` wraps text in hardcoded "review". Fix overlaps with quality context pipeline redesign. |
+| 1 | naming_clarity always 0.2 | Medium | Low | P2 | **Fixed** — added `score_fully_documented: 0.0` tier |
+| 2 | Units ignores currency context | Medium | Medium | P2 | **Backlogged** → `docs/specs/semantic.md` roadmap (cross-column unit detection) |
+| 6 | Dimensional not in column interpretations | Not a bug | — | — | Scores ARE included via semantic layer average. But audit revealed deeper issue: quality context (issues, recommendations, grades) gets lost in pipeline. See `docs/specs/entropy.md` roadmap "Fix quality context pipeline". |
+| 8 | Action parameters always empty | Medium | Low | P2 | **Backlogged** → `docs/specs/entropy.md` roadmap. `ResolutionActionOutput` Pydantic schema has no `parameters` field — LLM is never asked for them. Also `to_dict()` doesn't serialize parameters. Fix with interpretation pipeline redesign. |
+| 11 | Table summary only dimensional | Medium | Medium | P2 | **Backlogged** → `docs/specs/entropy.md` roadmap. Table-level entropy objects skipped in interpretation phase (`column_id is None: continue`). Only `DimensionalSummaryAgent` produces table interpretations. No aggregation of column-level nulls/outliers/types into table summary. Part of interpretation pipeline redesign. |
+| 12 | Compound risks misclassify columns | Medium | Medium | P2 | **Fixed** — `_get_dimension_score()` fell back to layer average for missing dimensions, causing false compound risks. Now returns 0.0 for missing dimensions. |
+| 13 | Contract summaries not business-focused | Medium | Low | P2 | **Partially fixed** — removed layer-level fallback bug in `contracts.py` `_get_dimension_score()` and `_find_affected_columns()` (same pattern as Bug #12). Business-focused violation text is a larger redesign — backlogged. |
+| 4 | Benford not computed | Low | High | P3 | **Backlogged** → `docs/specs/entropy.md` roadmap. Benford IS computed in statistics/quality.py, just not wired into entropy. |
+| 5 | Outliers on ID columns | Low | Low | P3 | **Fixed** — skip columns with semantic_role `key`/`foreign_key` |
+| 3 | Null score formula | Medium | Low | P2 | **Fixed** — removed 2x multiplier, score = null_ratio directly |
+| 9 | Evidence missing column name | Low | Low | P3 | **Backlogged** → `docs/specs/entropy.md` roadmap. DB schema is fine (`column_id` FK + `target` has `"column:table.col"`). But evidence JSON itself is not self-identifying — no column/table name inside. Minor readability issue for debugging/TUI/LLM context. |
+| 10 | Type decision duplicates | Not a bug | — | — | Intentional: TypeDecision/TypeCandidate are copied from raw→typed columns during `resolve_types()`. Entropy phase queries typed column IDs exclusively (`entropy_phase.py:128,162,170`), so copies are required. **Backlogged** → `docs/specs/typing.md` roadmap (eliminate copy via `raw_column_id` FK). |
 
 ---
 

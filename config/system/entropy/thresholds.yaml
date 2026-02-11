@@ -54,10 +54,8 @@ detectors:
   # --------------------------------------------------------------------------
   # NULL RATIO DETECTOR (value.nulls.null_ratio)
   # --------------------------------------------------------------------------
-  # Formula: entropy = min(1.0, null_ratio * multiplier)
+  # Score equals null_ratio directly (already 0.0–1.0)
   null_ratio:
-    # Multiplier: 50% nulls = max entropy
-    multiplier: 2.0
     # Impact classification thresholds
     impact_minimal: 0.05 # < 5% nulls = minimal impact
     impact_moderate: 0.20 # < 20% nulls = moderate impact
@@ -141,6 +139,7 @@ detectors:
     score_missing: 1.0 # No description = high entropy
     score_partial: 0.6 # Description only, no business_name/entity_type
     score_documented: 0.2 # Has description + business_name or entity_type
+    score_fully_documented: 0.0 # Has description + business_name + entity_type
     # Confidence weighting (low LLM confidence increases entropy)
     confidence_weight: 0.3 # How much LLM confidence affects score
     ontology_bonus: 0.1 # Reduction if business_concept is present

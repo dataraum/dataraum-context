@@ -54,6 +54,7 @@ class BusinessMeaningDetector(EntropyDetector):
         score_missing = detector_config.get("score_missing", 1.0)
         score_partial = detector_config.get("score_partial", 0.6)
         score_documented = detector_config.get("score_documented", 0.2)
+        score_fully_documented = detector_config.get("score_fully_documented", 0.0)
         reduction_description = detector_config.get("reduction_add_description", 0.8)
         reduction_business_name = detector_config.get("reduction_add_business_name", 0.2)
         reduction_entity_type = detector_config.get("reduction_add_entity_type", 0.15)
@@ -101,8 +102,10 @@ class BusinessMeaningDetector(EntropyDetector):
             base_score = score_missing  # No description = high entropy
         elif not raw_metrics["has_business_name"] and not raw_metrics["has_entity_type"]:
             base_score = score_partial  # Description but no other context
+        elif raw_metrics["has_business_name"] and raw_metrics["has_entity_type"]:
+            base_score = score_fully_documented  # All metadata present
         else:
-            base_score = score_documented  # Has description and additional context
+            base_score = score_documented  # Has description + one of the two
 
         # 2. Confidence factor: low confidence increases entropy
         # confidence_factor of 1.0 means no adjustment, >1.0 increases score
@@ -134,8 +137,10 @@ class BusinessMeaningDetector(EntropyDetector):
                 "assessment": (
                     "missing"
                     if not raw_metrics["has_description"]
+                    else "fully_documented"
+                    if raw_metrics["has_business_name"] and raw_metrics["has_entity_type"]
                     else "partial"
-                    if base_score > 0.3
+                    if not raw_metrics["has_business_name"] and not raw_metrics["has_entity_type"]
                     else "documented"
                 ),
             }

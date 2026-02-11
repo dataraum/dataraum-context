@@ -199,6 +199,10 @@ class CompoundRiskDetector:
 
         Handles both full paths (structural.types.type_fidelity) and
         partial paths (structural.types).
+
+        Returns 0.0 if the dimension has no score — a missing dimension
+        means the detector didn't run for this column, not that the
+        layer average should be used.
         """
         # First try exact match in dimension_scores
         if dimension in summary.dimension_scores:
@@ -209,9 +213,8 @@ class CompoundRiskDetector:
             if dim_path.startswith(dimension):
                 return score
 
-        # Fall back to layer-level scores
-        layer = dimension.split(".")[0] if "." in dimension else dimension
-        return summary.layer_scores.get(layer, 0.0)
+        # No score for this dimension — detector didn't produce results
+        return 0.0
 
 
 def detect_compound_risks_for_column(

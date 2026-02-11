@@ -16,10 +16,7 @@ class NullRatioDetector(EntropyDetector):
     Higher null ratios mean more uncertainty in aggregations.
 
     Source: statistics/ColumnProfile.null_ratio
-    Formula: entropy = min(1.0, null_ratio * multiplier)
-
-    Multiplier is configurable in config/entropy/thresholds.yaml.
-    Default: 2x (50% nulls = max entropy).
+    Score equals null_ratio directly (already 0.0–1.0).
     """
 
     detector_id = "null_ratio"
@@ -43,7 +40,6 @@ class NullRatioDetector(EntropyDetector):
         detector_config = config.detector("null_ratio")
 
         # Get configurable thresholds
-        multiplier = detector_config.get("multiplier", 2.0)
         impact_minimal = detector_config.get("impact_minimal", 0.05)
         impact_moderate = detector_config.get("impact_moderate", 0.20)
         impact_significant = detector_config.get("impact_significant", 0.50)
@@ -66,8 +62,8 @@ class NullRatioDetector(EntropyDetector):
             null_count = stats.get("null_count", 0)
             total_count = stats.get("total_count", 0)
 
-        # Calculate entropy using configurable multiplier
-        score = min(1.0, null_ratio * multiplier)
+        # Score equals null_ratio directly (already 0.0–1.0)
+        score = null_ratio
 
         # Classify null impact using configurable thresholds
         if null_ratio == 0:

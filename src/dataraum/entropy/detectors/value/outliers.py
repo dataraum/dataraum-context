@@ -27,18 +27,34 @@ class OutlierRateDetector(EntropyDetector):
     layer = "value"
     dimension = "outliers"
     sub_dimension = "outlier_rate"
-    required_analyses = ["statistics"]
+    required_analyses = ["statistics", "semantic"]
     description = "Measures uncertainty from outlier values"
+
+    # Semantic roles where outlier detection is meaningless
+    _SKIP_ROLES = frozenset({"key", "foreign_key"})
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect outlier rate entropy.
 
+        Skips columns with semantic_role key/foreign_key (outliers are
+        meaningless for identifiers).
+
         Args:
-            context: Detector context with statistics/quality analysis
+            context: Detector context with statistics and semantic analysis
 
         Returns:
-            List with single EntropyObject for outlier rate
+            List with single EntropyObject for outlier rate,
+            or empty list if not applicable
         """
+        # Skip identifier columns — outliers are meaningless for keys
+        semantic = context.get_analysis("semantic", {})
+        if hasattr(semantic, "semantic_role"):
+            role = semantic.semantic_role
+        else:
+            role = semantic.get("semantic_role")
+        if role in self._SKIP_ROLES:
+            return []
+
         # Load configuration
         config = get_entropy_config()
         detector_config = config.detector("outlier_rate")

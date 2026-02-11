@@ -88,5 +88,6 @@ Each pattern:
 
 ## Roadmap / Planned Features
 
+- **Eliminate TypeCandidate/TypeDecision copy to typed layer**: Currently `resolve_types()` copies all TypeCandidate and TypeDecision records from raw columns to typed columns (~2x records) because downstream phases (entropy) query by typed column IDs. Instead, add a `raw_column_id` FK on the Column model linking typed columns back to their raw counterpart. Downstream phases follow this FK when they need inference data (parse_success_rate, detected_unit, failed_examples). Single source of truth, no staleness risk, no copy code. TypeCandidate/TypeDecision stay on raw columns only — where the inference actually happened.
 - **Parquet/PostgreSQL loaders** — Strong type systems can skip inference, just validate
 - **Standardization expressions** — More pattern-specific DuckDB SQL for complex date formats

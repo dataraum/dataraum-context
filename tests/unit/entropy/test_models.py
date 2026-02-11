@@ -1,7 +1,10 @@
 """Tests for entropy models."""
 
+from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.compound_risk import CompoundRiskDetector
 from dataraum.entropy.models import (
     CompoundRisk,
+    CompoundRiskDefinition,
     EntropyObject,
     ResolutionCascade,
     ResolutionOption,
@@ -96,3 +99,84 @@ class TestResolutionCascade:
         assert cascade.total_reduction == 0.8
         assert cascade.dimensions_improved == 2
         assert priority == 0.8  # 0.8 / 1.0 (low effort factor)
+
+
+class TestCompoundRiskDetector:
+    """Tests for CompoundRiskDetector dimension score lookup."""
+
+    def test_missing_dimension_returns_zero(self):
+        """Missing dimension should return 0.0, not fall back to layer score."""
+        detector = CompoundRiskDetector()
+        summary = ColumnSummary(
+            column_id="col1",
+            column_name="amount",
+            table_id="t1",
+            table_name="orders",
+            layer_scores={"semantic": 0.8},
+            dimension_scores={
+                "semantic.units.unit_declaration": 0.8,
+            },
+        )
+
+        # semantic.temporal has no score — should be 0.0
+        score = detector._get_dimension_score(summary, "semantic.temporal")
+        assert score == 0.0
+
+    def test_non_temporal_column_no_false_compound_risk(self):
+        """Non-temporal column with high semantic entropy should not trigger temporal compound risk."""
+        detector = CompoundRiskDetector()
+        detector.risk_definitions = [
+            CompoundRiskDefinition(
+                risk_type="temporal_nulls",
+                dimensions=["semantic.temporal", "value.nulls"],
+                threshold=0.5,
+                risk_level="high",
+                impact_template="Timestamp columns have null values.",
+                multiplier=1.5,
+            ),
+        ]
+        detector.config_loaded = True
+
+        # Measure column: high null entropy, high semantic (from units), NO temporal
+        summary = ColumnSummary(
+            column_id="col1",
+            column_name="quantity",
+            table_id="t1",
+            table_name="orders",
+            layer_scores={"semantic": 0.8, "value": 0.7},
+            dimension_scores={
+                "semantic.units.unit_declaration": 0.8,
+                "value.nulls.null_ratio": 0.7,
+            },
+        )
+
+        risks = detector.detect_risks(summary)
+        assert len(risks) == 0
+
+    def test_exact_dimension_match(self):
+        """Exact dimension path match returns correct score."""
+        detector = CompoundRiskDetector()
+        summary = ColumnSummary(
+            column_id="col1",
+            column_name="amount",
+            table_id="t1",
+            table_name="orders",
+            dimension_scores={"semantic.temporal.time_role": 0.6},
+        )
+
+        score = detector._get_dimension_score(summary, "semantic.temporal.time_role")
+        assert score == 0.6
+
+    def test_partial_dimension_match(self):
+        """Partial prefix match returns correct score."""
+        detector = CompoundRiskDetector()
+        summary = ColumnSummary(
+            column_id="col1",
+            column_name="created_at",
+            table_id="t1",
+            table_name="orders",
+            dimension_scores={"semantic.temporal.time_role": 0.6},
+        )
+
+        score = detector._get_dimension_score(summary, "semantic.temporal")
+        assert score == 0.6
