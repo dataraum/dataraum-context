@@ -118,6 +118,9 @@ extraction:
 
 ## Roadmap
 
-- **DB persistence**: Topology results are computed but not stored; could add a `TopologicalAnalysis` DB model
+- **DB persistence (`TopologicalMetrics` model)**: Topology results are computed but not stored. Add SQLAlchemy model with queryable columns (`betti_0`, `betti_1`, `betti_2`, `bottleneck_distance`, `is_stable`) plus JSONB for full reconstruction. Include `previous_metric_id` FK for time-series stability tracking.
+- **Multi-table topology analysis**: `analyze_topological_quality_multi_table()` for cross-table topology with graph-level Betti numbers and table-level relationship cycles. Currently only single-table `analyze_topological_quality()` exists.
+- **Formatter thresholds externalization**: `config/system/topology.yaml` has `anomaly_detection` thresholds but no formatter thresholds (`betti_0_thresholds`, `bottleneck_thresholds`, `persistence_thresholds`). Extract from code into YAML.
+- **Financial domain consolidation (Phase 8B)**: Consolidate `domains/financial/cycles/` submodule with detector, rules, classifier, interpreter. Create `domains/financial/cycles/{detector,rules,classifier,interpreter}.py` and single config loader at `domains/financial/config.py`. Currently pending per BACKLOG.md.
 - **Column-level topology exposure**: Column relationships detected by TDA could feed into relationship detection
 - **Dependency audit**: ripser + persim are heavy dependencies; evaluate if topology is providing enough value

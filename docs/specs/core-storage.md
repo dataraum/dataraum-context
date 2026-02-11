@@ -159,3 +159,5 @@ metrics = end_phase_metrics()  # duration, tables, rows, LLM calls, etc.
 - **PostgreSQL support** — Settings support it, ConnectionManager needs testing with PostgreSQL + asyncpg.
 - **Ontology directory rethink** — Current `config/ontologies/` compat shim should be replaced by proper vertical-aware ontology loading during semantic module cleanup.
 - **Metrics export** — Phase/pipeline metrics are collected but only logged. Future: export to JSON/Prometheus for monitoring.
+- **Missing foreign keys** — `validation_runs.table_ids` → `tables.table_id` (normalize from JSON), `temporal_slice_analyses.run_id` → `temporal_slice_runs.run_id`, `temporal_drift_analyses.run_id` → `temporal_slice_runs.run_id`, `slice_time_matrix_entries.run_id` → `temporal_slice_runs.run_id`.
+- **Missing indexes** — Add indexes on: `semantic_annotations.column_id`, `table_entities.table_id`, `column_quality_reports.source_column_id`, `column_quality_reports.slice_column_id`, `quality_summary_runs.source_table_id`, `quality_summary_runs.slice_column_id`, `detected_business_cycles.analysis_id`, `slice_definitions.table_id`, `slice_definitions.column_id`.

@@ -165,3 +165,7 @@ max_batch_workers: 4
 
 - **Vertical-specific scoring**: Quality scoring penalties could vary by domain (finance vs marketing)
 - **Trend tracking**: Compare quality grades across pipeline runs to detect quality regression
+- **Duplicate row detection** — Identify exact duplicate rows across all columns per slice. Fundamental data quality signal. Consider near-duplicate detection (fuzzy string similarity) for catching data entry errors.
+- **Format validation metrics** — `email_format_valid_ratio`, `phone_format_valid_ratio`, `date_format_consistency`. Reuse pattern definitions from `config/system/typing.yaml`.
+- **Statistical quality formatter** — LLM-interpreted formatter for Benford's Law, outlier rates, and distribution shape. Raw metrics already exist in `statistics/quality.py`; missing interpretation layer with business-context recommendations.
+- **Temporal quality formatter** — LLM-interpreted formatter for seasonality, trends, gaps, staleness. Raw metrics exist in `temporal/` and `cycles/`; missing interpretation layer.

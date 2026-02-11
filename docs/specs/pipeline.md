@@ -173,3 +173,4 @@ Config is loaded via `load_pipeline_config()`, flattened via `flatten_pipeline_c
 - **Progress callbacks**: Real-time progress for TUI/API consumers
 - **Graph/query re-introduction**: Re-enable `GraphExecutionPhase` after agent cleanup
 - **Cross-table quality**: Evaluate if `CrossTableQualityPhase` feeds into entropy
+- **Print→logger migration**: ~233 `print()` calls remain in codebase (mostly in `pipeline/runner.py`). Convert to `get_logger()` for consistency.

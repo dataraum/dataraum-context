@@ -79,3 +79,6 @@ top_k_values: 20
 ## Roadmap / Planned Features
 
 - **Distribution type detection** — Classify columns as normal, log-normal, exponential, etc.
+- **Shannon entropy** — Per-column information content metric: `-Σ(p_i * log2(p_i))`. Histogram data already computed; add entropy formula on top. Enables feature selection and predictability analysis. Also add normalized entropy (scaled to [0,1]) for cross-column comparison.
+- **Primary key violation count** — Explicit `pk_violation_count` metric for duplicate PK detection, building on existing `is_unique` flag in `StatisticalProfile`.
+- **Ordering properties** — Detection of `is_sorted`, `is_monotonic_increasing`, `is_monotonic_decreasing` for index and time-series identification.

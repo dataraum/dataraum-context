@@ -106,6 +106,7 @@ sample_percent: 10.0       # Percentage of rows to sample for uniqueness calcula
 
 ## Roadmap / Planned Features
 
+- **Context assembly for semantic agent** — Function to assemble text context combining column statistics, intra-table correlations/dependencies, and join candidates for the semantic analysis LLM. `graphs/context.py` has `RelationshipContext` dataclass but lacks the assembly logic that combines relationship evidence with statistics and correlations for richer semantic annotation.
 - **Composite key detection** — multi-column join candidates
 - **Name-based hints** — boost confidence for columns with similar names (e.g., `customer_id` in both tables)
 - **Cross-source relationships** — detect joins across different source types (Parquet, SQLite, PostgreSQL, APIs). Currently limited to tables within a single DuckDB instance. Multi-source would require a federation layer: DuckDB can attach Parquet files and PostgreSQL databases natively, so the Jaccard/RI queries could work across sources if tables are registered in the same DuckDB catalog. Key challenges: type normalization across source dialects, sampling strategies for remote sources (API pagination, PostgreSQL cursors), and handling schema drift when sources are updated independently.
