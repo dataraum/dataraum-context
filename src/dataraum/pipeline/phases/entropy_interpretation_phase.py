@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.typing.db_models import TypeDecision
@@ -119,19 +119,39 @@ class EntropyInterpretationPhase(BasePhase):
         column_map = {c.column_id: c for c in all_columns}
 
         # Load entropy records grouped by column
+        # Include both column-level records AND table-level records (column_id is NULL)
         entropy_stmt = select(EntropyObjectRecord).where(
-            EntropyObjectRecord.column_id.in_(column_ids)
+            or_(
+                EntropyObjectRecord.column_id.in_(column_ids),
+                # Include table-level entropy records (e.g., dimensional entropy)
+                EntropyObjectRecord.table_id.in_(table_ids)
+                & EntropyObjectRecord.column_id.is_(None),
+            )
         )
         entropy_records = (ctx.session.execute(entropy_stmt)).scalars().all()
+
+        # Separate table-level entropy records (for later distribution to columns)
+        table_level_records: list[EntropyObjectRecord] = []
 
         # Group entropy records by column
         entropy_by_column: dict[str, list[EntropyObjectRecord]] = {}
         for record in entropy_records:
             if record.column_id is None:
+                # Table-level record - store for later distribution
+                table_level_records.append(record)
                 continue
             if record.column_id not in entropy_by_column:
                 entropy_by_column[record.column_id] = []
             entropy_by_column[record.column_id].append(record)
+
+        # Distribute table-level entropy records to all columns of that table
+        # This allows dimensional entropy (table-level) to be included in column interpretations
+        for record in table_level_records:
+            for col in all_columns:
+                if col.table_id == record.table_id:
+                    if col.column_id not in entropy_by_column:
+                        entropy_by_column[col.column_id] = []
+                    entropy_by_column[col.column_id].append(record)
 
         if not entropy_by_column:
             return PhaseResult.success(
@@ -189,13 +209,15 @@ class EntropyInterpretationPhase(BasePhase):
         column_metadata: dict[str, dict[str, str]] = {}
 
         for column_id, entropy_records in entropy_by_column.items():
-            col = column_map.get(column_id)
-            if not col:
+            col_or_none = column_map.get(column_id)
+            if not col_or_none:
                 continue
+            col = col_or_none
 
-            table = table_map.get(col.table_id)
-            if not table:
+            table_or_none = table_map.get(col.table_id)
+            if not table_or_none:
                 continue
+            table = table_or_none
 
             # Build ColumnSummary from records
             # Aggregate scores by layer
