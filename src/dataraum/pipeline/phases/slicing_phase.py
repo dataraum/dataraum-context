@@ -41,7 +41,7 @@ class SlicingPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["semantic"]
+        return ["enriched_views"]
 
     @property
     def outputs(self) -> list[str]:

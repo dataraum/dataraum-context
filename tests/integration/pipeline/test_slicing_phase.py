@@ -20,7 +20,7 @@ class TestSlicingPhase:
         phase = SlicingPhase()
         assert phase.name == "slicing"
         assert phase.description == "LLM-powered slice dimension identification"
-        assert phase.dependencies == ["semantic"]
+        assert phase.dependencies == ["enriched_views"]
         assert phase.outputs == ["slice_definitions", "slice_queries"]
         assert phase.is_llm_phase is True
 
