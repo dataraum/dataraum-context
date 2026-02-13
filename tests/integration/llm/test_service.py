@@ -53,6 +53,7 @@ def test_prompt_renderer_renders_template(mock_anthropic_key):
         "ontology_name": "financial_reporting",
         "ontology_concepts": "- revenue: Total income from sales",
         "relationship_candidates": "No candidates detected",
+        "column_annotations": "No annotations available",
         "within_table_correlations": "No correlations detected",
     }
 

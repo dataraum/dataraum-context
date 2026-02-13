@@ -205,8 +205,15 @@ module = [
     "pyarrow.*",
     "networkx.*",
     "textual.*",
+    "fastapi.*",
+    "uvicorn.*",
 ]
 ignore_missing_imports = true
+
+# API module uses fastapi decorators that produce untyped-decorator warnings
+[[tool.mypy.overrides]]
+module = "dataraum.api.*"
+disallow_untyped_decorators = false
 
 # Unfinished features that depend on not-yet-implemented context module
 [[tool.mypy.overrides]]
