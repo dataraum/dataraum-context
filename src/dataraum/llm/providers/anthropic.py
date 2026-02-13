@@ -118,6 +118,9 @@ class AnthropicProvider(LLMProvider):
             if tools:
                 kwargs["tools"] = tools
 
+            if request.tool_choice:
+                kwargs["tool_choice"] = request.tool_choice
+
             response = self.client.messages.create(**kwargs)
 
             # Extract content and tool calls from response

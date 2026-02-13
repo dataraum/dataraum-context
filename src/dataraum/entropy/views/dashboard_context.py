@@ -345,7 +345,6 @@ def _load_interpretations(
             composite_score=record.composite_score,
             readiness=record.readiness,
             model_used=record.model_used,
-            from_cache=bool(record.from_cache),
         )
 
         key = f"{record.table_name}.{record.column_name}"

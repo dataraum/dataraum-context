@@ -992,7 +992,6 @@ def _run_dimensional_entropy(
                         }
                         for r in summary.recommendations
                     ],
-                    from_cache=False,
                 )
                 ctx.session.add(interp_record)
                 logger.info(

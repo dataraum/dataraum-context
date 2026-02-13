@@ -403,7 +403,6 @@ class EntropyInterpretationPhase(BasePhase):
                 assumptions_json=assumptions_json,
                 resolution_actions_json=resolution_actions_json,
                 model_used=interp.model_used,
-                from_cache=interp.from_cache,
             )
             ctx.session.add(interp_record)
             records_created += 1
@@ -533,7 +532,6 @@ class EntropyInterpretationPhase(BasePhase):
                         assumptions_json=assumptions_json,
                         resolution_actions_json=resolution_actions_json,
                         model_used=interp.model_used,
-                        from_cache=interp.from_cache,
                     )
                     ctx.session.add(interp_record)
                     records_created += 1

@@ -51,6 +51,7 @@ class ConversationRequest(BaseModel):
     messages: list[Message]
     system: str | None = None
     tools: list[ToolDefinition] = Field(default_factory=list)
+    tool_choice: dict[str, str] | None = None  # e.g. {"type": "tool", "name": "..."}
     max_tokens: int = 4096
     temperature: float = 0.0
     model: str | None = None  # Override default model

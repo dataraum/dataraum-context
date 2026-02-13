@@ -76,7 +76,6 @@ class EntropyInterpretation:
 
     # Metadata
     model_used: str | None = None
-    from_cache: bool = False
 
     def to_dashboard_dict(self) -> dict[str, Any]:
         """Convert interpretation to dashboard-friendly dictionary.
@@ -113,7 +112,6 @@ class EntropyInterpretation:
             ],
             "metadata": {
                 "model_used": self.model_used,
-                "from_cache": self.from_cache,
             },
         }
 
@@ -461,6 +459,7 @@ class EntropyInterpreter:
             messages=[Message(role="user", content=user_prompt)],
             system=system_prompt,
             tools=[tool],
+            tool_choice={"type": "tool", "name": "interpret_entropy"},
             max_tokens=self.config.limits.max_output_tokens_per_request,
             temperature=temperature,
         )
@@ -569,7 +568,6 @@ class EntropyInterpreter:
                 composite_score=inp.composite_score,
                 readiness=inp.readiness,
                 model_used=model,
-                from_cache=False,
             )
 
         return Result.ok(interpretations)
@@ -673,6 +671,7 @@ class EntropyInterpreter:
             messages=[Message(role="user", content=user_prompt)],
             system=system_prompt,
             tools=[tool],
+            tool_choice={"type": "tool", "name": "interpret_table_entropy"},
             max_tokens=self.config.limits.max_output_tokens_per_request,
             temperature=temperature,
         )
@@ -763,7 +762,6 @@ class EntropyInterpreter:
                 composite_score=inp.avg_composite_score,
                 readiness=inp.readiness,
                 model_used=model,
-                from_cache=False,
             )
 
         return Result.ok(interpretations)

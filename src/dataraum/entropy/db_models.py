@@ -212,7 +212,6 @@ class EntropyInterpretationRecord(Base):
 
     # Metadata
     model_used: Mapped[str | None] = mapped_column(String)
-    from_cache: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)  # SQLite bool
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
