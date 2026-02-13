@@ -27,6 +27,7 @@ class TestEntropyPhase:
             "relationships",
             "correlations",
             "quality_summary",
+            "temporal_slice_analysis",
         ]
         assert phase.outputs == ["entropy_profiles", "compound_risks"]
         assert phase.is_llm_phase is False
