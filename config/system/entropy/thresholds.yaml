@@ -270,3 +270,21 @@ effort_factors:
   low: 1.0
   medium: 2.0
   high: 4.0
+
+# ============================================================================
+# DIMENSION DISPLAY LABELS
+# ============================================================================
+# Human-readable labels for dimension paths. Used in contract violations,
+# dashboards, and reports. Falls back to title-casing the last segment.
+
+dimension_labels:
+  structural.types: "Type Consistency"
+  structural.relations: "Relationship Clarity"
+  semantic.business_meaning: "Business Documentation"
+  semantic.units: "Unit Documentation"
+  semantic.temporal: "Temporal Clarity"
+  value.nulls: "Data Completeness"
+  value.outliers: "Outlier Impact"
+  value.temporal: "Temporal Stability"
+  value.distribution: "Distribution Conformance"
+  computational.derived_values: "Computation Reliability"

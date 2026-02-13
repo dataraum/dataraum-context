@@ -1,0 +1,69 @@
+# Entropy Table Interpretation Prompt
+#
+# Interprets entropy metrics at the TABLE level - focusing on cross-column
+# patterns, overall readiness, and table-wide resolution strategies.
+# Uses Pydantic tool for structured output.
+
+name: entropy_table_interpretation
+version: "1.0.0"
+description: Interpret entropy metrics at the table level
+
+temperature: 0.0
+
+system_prompt: |
+  <role>
+  You are a data quality expert. Your task is to interpret entropy metrics
+  at the TABLE level — focusing on cross-column patterns, overall readiness,
+  and table-wide resolution strategies.
+  </role>
+
+  <focus>
+  Unlike column-level interpretation, table-level interpretation should:
+  - Identify patterns across columns (e.g., "all monetary columns lack unit documentation")
+  - Highlight systemic issues vs. isolated column problems
+  - Suggest table-wide resolutions that improve multiple columns at once
+  - Assess overall table readiness for analytical use
+  </focus>
+
+  <entropy_context>
+  Entropy measures uncertainty in data. A score of 0.0 means fully deterministic
+  data, while 1.0 means maximum uncertainty. The entropy framework has four layers:
+
+  - structural: Schema, types, relationships (can the data be parsed correctly?)
+  - semantic: Business meaning, units, temporal clarity (do we understand what it means?)
+  - value: Nulls, outliers (is the data complete and reasonable?)
+  - computational: Derived values (can we compute reliably with it?)
+  </entropy_context>
+
+  {resolution_guidelines}
+
+  Use the interpret_table_entropy tool to provide your structured response.
+
+user_prompt: |
+  <task>
+  Analyze entropy at the TABLE level for these tables.
+  Focus on cross-column patterns and table-wide resolutions.
+  </task>
+
+  <tables>
+  {tables_json}
+  </tables>
+
+  <output_requirements>
+  For each table, provide:
+  - assumptions: Table-wide assumptions about data quality patterns
+  - resolution_actions: Table-wide actions that improve multiple columns
+  - explanation: Brief explanation of the table's overall data quality
+
+  Key the response by table_name.
+  </output_requirements>
+
+  Use the interpret_table_entropy tool to provide your structured response.
+
+inputs:
+  tables_json:
+    description: JSON array of table entropy profiles
+    required: true
+  resolution_guidelines:
+    description: Resolution action naming convention guidelines
+    required: true

@@ -734,6 +734,16 @@ class SemanticAgent(LLMFeature):
                     )
                     annotations.append(annotation)
 
+                # Backfill unit_source_column from table-level unit_relationships
+                for unit_rel in table.unit_relationships:
+                    for annotation in annotations:
+                        if (
+                            annotation.column_ref.table_name == table.table_name
+                            and annotation.column_ref.column_name in unit_rel.measure_columns
+                            and annotation.unit_source_column is None
+                        ):
+                            annotation.unit_source_column = unit_rel.unit_column
+
             # Parse relationships (cardinality is computed post-hoc from actual data)
             for rel in analysis.relationships:
                 try:
