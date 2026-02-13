@@ -134,6 +134,26 @@ class TemporalSliceAnalysisPhase(BasePhase):
         # Find temporal column - from config or auto-detect
         time_column = ctx.config.get("time_column")
 
+        # Verify that the configured time column exists in at least one typed table
+        if time_column:
+            time_col_exists = False
+            for tt in typed_tables:
+                col_check = select(Column).where(
+                    Column.table_id == tt.table_id,
+                    Column.column_name == time_column,
+                )
+                if ctx.session.execute(col_check).scalar_one_or_none():
+                    time_col_exists = True
+                    break
+
+            if not time_col_exists:
+                logger.info(
+                    "configured_time_column_not_found",
+                    configured_column=time_column,
+                    message="Falling back to auto-detection",
+                )
+                time_column = None  # Reset to trigger auto-detection
+
         if not time_column:
             column_ids = []
             cols_stmt = select(Column.column_id).where(Column.table_id.in_(table_ids))
