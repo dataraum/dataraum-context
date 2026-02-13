@@ -92,6 +92,9 @@ class EntropyConfig:
         }
     )
 
+    # Human-readable dimension labels
+    dimension_labels: dict[str, str] = field(default_factory=dict)
+
     def detector(self, detector_id: str) -> DetectorConfig:
         """Get configuration for a specific detector.
 
@@ -207,6 +210,10 @@ def _parse_config(raw: dict[str, Any]) -> EntropyConfig:
     if "effort_factors" in raw:
         config.effort_factors = dict(raw["effort_factors"])
 
+    # Parse dimension labels
+    if "dimension_labels" in raw:
+        config.dimension_labels = dict(raw["dimension_labels"])
+
     return config
 
 
@@ -238,3 +245,33 @@ def get_entropy_config(config_path: Path | None = None) -> EntropyConfig:
     _config_cache = load_entropy_config(path)
     _config_path_cache = path
     return _config_cache
+
+
+def get_dimension_label(dimension_path: str) -> str:
+    """Get business-friendly label for a dimension path.
+
+    Looks up labels from config with exact match first, then prefix match
+    (first two segments), falling back to title-casing the last segment.
+
+    Args:
+        dimension_path: Dot-separated dimension path, e.g. "semantic.units.unit_declaration"
+
+    Returns:
+        Human-readable label string.
+    """
+    config = get_entropy_config()
+    labels = config.dimension_labels
+
+    # Try exact match
+    if dimension_path in labels:
+        return labels[dimension_path]
+
+    # Try prefix match (first two segments)
+    parts = dimension_path.split(".")
+    if len(parts) >= 2:
+        prefix = f"{parts[0]}.{parts[1]}"
+        if prefix in labels:
+            return labels[prefix]
+
+    # Fallback: title-case the last segment
+    return parts[-1].replace("_", " ").title()

@@ -6,7 +6,7 @@ models and prompt context building.
 
 import json
 
-from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.interpretation import (
     Assumption,
@@ -14,6 +14,7 @@ from dataraum.entropy.interpretation import (
     InterpretationInput,
     ResolutionAction,
     ResolutionActionOutput,
+    TableInterpretationInput,
 )
 from dataraum.entropy.models import CompoundRisk
 
@@ -325,3 +326,121 @@ class TestResolutionActionOutputSchema:
             parameters={"column_name": "amount", "unit": "EUR"},
         )
         assert output.parameters == {"column_name": "amount", "unit": "EUR"}
+
+
+class TestEntropyInterpretationDashboardDict:
+    """Tests for to_dashboard_dict method."""
+
+    def test_column_level_key(self):
+        """Column-level interpretation uses table.column key."""
+        interp = EntropyInterpretation(
+            column_name="amount",
+            table_name="orders",
+            assumptions=[],
+            resolution_actions=[],
+            explanation="Test",
+            composite_score=0.5,
+            readiness="investigate",
+        )
+        result = interp.to_dashboard_dict()
+        assert result["column_key"] == "orders.amount"
+
+    def test_table_level_key(self):
+        """Table-level interpretation (column_name=None) uses table name as key."""
+        interp = EntropyInterpretation(
+            column_name=None,
+            table_name="orders",
+            assumptions=[],
+            resolution_actions=[],
+            explanation="Table-level interpretation",
+            composite_score=0.35,
+            readiness="investigate",
+        )
+        result = interp.to_dashboard_dict()
+        assert result["column_key"] == "orders"
+        assert result["column_name"] is None
+        assert result["table_name"] == "orders"
+
+
+class TestTableInterpretationInput:
+    """Tests for TableInterpretationInput model."""
+
+    def test_from_summary(self):
+        """Create TableInterpretationInput from a TableSummary."""
+        col1 = ColumnSummary(
+            column_id="c1",
+            column_name="amount",
+            table_id="t1",
+            table_name="orders",
+            composite_score=0.45,
+            readiness="investigate",
+            layer_scores={"structural": 0.1, "semantic": 0.6, "value": 0.5, "computational": 0.2},
+            dimension_scores={
+                "semantic.units.unit_declaration": 0.8,
+                "value.nulls.null_ratio": 0.3,
+            },
+            high_entropy_dimensions=["semantic.units.unit_declaration"],
+        )
+        col2 = ColumnSummary(
+            column_id="c2",
+            column_name="name",
+            table_id="t1",
+            table_name="orders",
+            composite_score=0.2,
+            readiness="ready",
+            layer_scores={"structural": 0.1, "semantic": 0.2, "value": 0.1, "computational": 0.0},
+            dimension_scores={
+                "semantic.units.unit_declaration": 0.1,
+                "value.nulls.null_ratio": 0.05,
+            },
+            high_entropy_dimensions=[],
+        )
+
+        table_summary = TableSummary(
+            table_id="t1",
+            table_name="orders",
+            columns=[col1, col2],
+            avg_composite_score=0.325,
+            max_composite_score=0.45,
+            avg_layer_scores={
+                "structural": 0.1,
+                "semantic": 0.4,
+                "value": 0.3,
+                "computational": 0.1,
+            },
+            readiness="investigate",
+            high_entropy_columns=["amount"],
+            blocked_columns=[],
+        )
+
+        result = TableInterpretationInput.from_summary(table_summary)
+
+        assert result.table_name == "orders"
+        assert result.avg_composite_score == 0.325
+        assert result.max_composite_score == 0.45
+        assert result.readiness == "investigate"
+        assert result.column_count == 2
+        assert result.high_entropy_columns == ["amount"]
+        assert result.blocked_columns == []
+
+        # Dimension score ranges should be computed from both columns
+        assert "semantic.units.unit_declaration" in result.dimension_score_ranges
+        unit_range = result.dimension_score_ranges["semantic.units.unit_declaration"]
+        assert unit_range == (0.1, 0.8)
+
+        null_range = result.dimension_score_ranges["value.nulls.null_ratio"]
+        assert null_range == (0.05, 0.3)
+
+    def test_from_summary_empty_columns(self):
+        """Create TableInterpretationInput from summary with no columns."""
+        table_summary = TableSummary(
+            table_id="t1",
+            table_name="empty_table",
+            columns=[],
+        )
+
+        result = TableInterpretationInput.from_summary(table_summary)
+
+        assert result.table_name == "empty_table"
+        assert result.column_count == 0
+        assert result.dimension_score_ranges == {}

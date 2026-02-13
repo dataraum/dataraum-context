@@ -17,6 +17,7 @@ from dataraum.entropy.interpretation import (
     EntropyInterpretation,
     EntropyInterpreter,
     InterpretationInput,
+    TableInterpretationInput,
 )
 from dataraum.entropy.summary_agent import DimensionalSummaryAgent
 from dataraum.entropy.views import (
@@ -44,6 +45,7 @@ __all__ = [
     "EntropyInterpretation",
     "EntropyInterpreter",
     "InterpretationInput",
+    "TableInterpretationInput",
     # Dimensional summary
     "DimensionalSummaryAgent",
 ]

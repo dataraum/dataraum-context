@@ -33,6 +33,7 @@ import yaml
 
 from dataraum.core.config import get_config_file
 from dataraum.core.logging import get_logger
+from dataraum.entropy.config import get_dimension_label
 from dataraum.entropy.models import CompoundRisk, ResolutionOption
 
 if TYPE_CHECKING:
@@ -512,7 +513,7 @@ def evaluate_contract(
                 dimension=dimension,
                 max_allowed=max_score,
                 actual=actual_score,
-                details=f"{dimension} score {actual_score:.2f} exceeds threshold {max_score:.2f}",
+                details=f"{get_dimension_label(dimension)} score ({actual_score:.2f}) exceeds acceptable level ({max_score:.2f})",
                 affected_columns=affected[:10],  # Limit to 10
             )
 
@@ -537,7 +538,7 @@ def evaluate_contract(
                     dimension=dimension,
                     max_allowed=max_score,
                     actual=actual_score,
-                    details=f"{dimension} approaching threshold ({actual_score:.2f}/{max_score:.2f})",
+                    details=f"{get_dimension_label(dimension)} approaching limit ({actual_score:.2f}/{max_score:.2f})",
                     affected_columns=affected[:10],
                 )
             )
@@ -558,7 +559,7 @@ def evaluate_contract(
                 severity="blocking",
                 max_allowed=contract.overall_threshold,
                 actual=overall_score,
-                details=f"Overall entropy {overall_score:.2f} exceeds threshold {contract.overall_threshold:.2f}",
+                details=f"Overall data uncertainty ({overall_score:.2f}) exceeds acceptable level ({contract.overall_threshold:.2f})",
             )
         )
 
@@ -583,7 +584,7 @@ def evaluate_contract(
                     severity="blocking",
                     condition=condition.condition_type,
                     details=condition.description
-                    or f"Blocking condition triggered: {condition.condition_type}",
+                    or f"Data readiness blocked: {condition.condition_type.replace('_', ' ')}",
                 )
             )
 

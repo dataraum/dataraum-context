@@ -18,9 +18,10 @@ from dataraum.entropy import (
     EntropyInterpreter,
     InterpretationInput,
 )
-from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.db_models import EntropyInterpretationRecord, EntropyObjectRecord
+from dataraum.entropy.interpretation import TableInterpretationInput
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -407,18 +408,153 @@ class EntropyInterpretationPhase(BasePhase):
             ctx.session.add(interp_record)
             records_created += 1
 
+        # =====================================================================
+        # Table-level interpretation
+        # =====================================================================
+        table_interp_count = 0
+        table_interp_errors: list[str] = []
+
+        # Build TableSummary objects from column summaries we already computed
+        # Group column summaries by table
+        summaries_by_table: dict[str, list[ColumnSummary]] = {}
+        for inp in inputs:
+            summaries_by_table.setdefault(inp.table_name, []).append(
+                ColumnSummary(
+                    column_id="",  # Not needed for table summary
+                    column_name=inp.column_name,
+                    table_id="",
+                    table_name=inp.table_name,
+                    composite_score=inp.composite_score,
+                    readiness=inp.readiness,
+                    layer_scores={
+                        "structural": inp.structural_entropy,
+                        "semantic": inp.semantic_entropy,
+                        "value": inp.value_entropy,
+                        "computational": inp.computational_entropy,
+                    },
+                    dimension_scores=inp.dimension_scores,
+                    high_entropy_dimensions=inp.high_entropy_dimensions,
+                    compound_risks=inp.compound_risks,
+                )
+            )
+
+        table_inputs: list[TableInterpretationInput] = []
+        table_id_map: dict[str, str] = {}  # table_name -> table_id
+
+        for table in typed_tables:
+            col_summaries = summaries_by_table.get(table.table_name, [])
+            if not col_summaries:
+                continue
+
+            # Build a TableSummary for this table
+            avg_composite = sum(c.composite_score for c in col_summaries) / len(col_summaries)
+            max_composite = max(c.composite_score for c in col_summaries)
+
+            avg_layers: dict[str, float] = {}
+            for layer in ["structural", "semantic", "value", "computational"]:
+                vals = [c.layer_scores.get(layer, 0.0) for c in col_summaries]
+                avg_layers[layer] = sum(vals) / len(vals) if vals else 0.0
+
+            entropy_config = get_entropy_config()
+            table_readiness = entropy_config.get_readiness(avg_composite)
+
+            high_entropy_cols = [
+                c.column_name
+                for c in col_summaries
+                if entropy_config.is_high_entropy(c.composite_score)
+            ]
+            blocked_cols = [
+                c.column_name
+                for c in col_summaries
+                if entropy_config.is_critical_entropy(c.composite_score)
+            ]
+
+            # Collect compound risks across columns
+            all_risks = []
+            for c in col_summaries:
+                all_risks.extend(c.compound_risks)
+
+            table_summary = TableSummary(
+                table_id=table.table_id,
+                table_name=table.table_name,
+                columns=col_summaries,
+                avg_composite_score=avg_composite,
+                max_composite_score=max_composite,
+                avg_layer_scores=avg_layers,
+                readiness=table_readiness,
+                high_entropy_columns=high_entropy_cols,
+                blocked_columns=blocked_cols,
+                compound_risks=all_risks,
+            )
+
+            table_input = TableInterpretationInput.from_summary(table_summary)
+            table_inputs.append(table_input)
+            table_id_map[table.table_name] = table.table_id
+
+        if table_inputs:
+            table_result = interpreter.interpret_tables(session=ctx.session, inputs=table_inputs)
+            if table_result.success:
+                for tbl_name, interp in table_result.unwrap().items():
+                    tbl_id = table_id_map.get(tbl_name)
+                    if not tbl_id:
+                        continue
+
+                    assumptions_json = [
+                        {
+                            "dimension": a.dimension,
+                            "assumption_text": a.assumption_text,
+                            "confidence": a.confidence,
+                            "impact": a.impact,
+                            "basis": a.basis,
+                        }
+                        for a in interp.assumptions
+                    ]
+                    resolution_actions_json = [
+                        {
+                            "action": r.action,
+                            "description": r.description,
+                            "priority": r.priority,
+                            "effort": r.effort,
+                            "expected_impact": r.expected_impact,
+                            "parameters": r.parameters,
+                        }
+                        for r in interp.resolution_actions
+                    ]
+
+                    interp_record = EntropyInterpretationRecord(
+                        source_id=ctx.source_id,
+                        table_id=tbl_id,
+                        column_id=None,
+                        table_name=interp.table_name,
+                        column_name=None,
+                        composite_score=interp.composite_score,
+                        readiness=interp.readiness,
+                        explanation=interp.explanation,
+                        assumptions_json=assumptions_json,
+                        resolution_actions_json=resolution_actions_json,
+                        model_used=interp.model_used,
+                        from_cache=interp.from_cache,
+                    )
+                    ctx.session.add(interp_record)
+                    records_created += 1
+                    table_interp_count += 1
+            else:
+                table_interp_errors.append(f"Table interpretation: {table_result.error}")
+
+        all_errors = errors + table_interp_errors
         outputs: dict[str, int | list[str]] = {
-            "interpretations": len(all_interpretations),
+            "interpretations": len(all_interpretations) + table_interp_count,
             "assumptions": total_assumptions,
             "resolution_actions": total_actions,
             "columns_interpreted": len(inputs),
+            "tables_interpreted": table_interp_count,
         }
-        if errors:
-            outputs["batch_errors"] = errors
+        if all_errors:
+            outputs["batch_errors"] = all_errors
 
         return PhaseResult.success(
             outputs=outputs,
             records_processed=len(inputs),
             records_created=records_created,
-            warnings=errors if errors else None,
+            warnings=all_errors if all_errors else None,
         )

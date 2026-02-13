@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from dataraum.core.models.base import Result
-from dataraum.entropy.analysis.aggregator import ColumnSummary
+from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
 from dataraum.entropy.models import CompoundRisk
 
 if TYPE_CHECKING:
@@ -84,7 +84,9 @@ class EntropyInterpretation:
         Returns a clean structure suitable for JSON serialization and UI display.
         """
         return {
-            "column_key": f"{self.table_name}.{self.column_name}",
+            "column_key": f"{self.table_name}.{self.column_name}"
+            if self.column_name
+            else self.table_name,
             "table_name": self.table_name,
             "column_name": self.column_name,
             "explanation": self.explanation,
@@ -185,6 +187,56 @@ class InterpretationInput:
         )
 
 
+@dataclass
+class TableInterpretationInput:
+    """Input data for table-level entropy interpretation."""
+
+    table_name: str
+    avg_composite_score: float
+    max_composite_score: float
+    readiness: str
+    avg_layer_scores: dict[str, float]
+    high_entropy_columns: list[str]
+    blocked_columns: list[str]
+    compound_risks: list[CompoundRisk]
+    column_count: int
+    # Summary of per-column dimension scores for pattern detection
+    dimension_score_ranges: dict[str, tuple[float, float]]  # dim -> (min, max)
+
+    @classmethod
+    def from_summary(cls, summary: TableSummary) -> TableInterpretationInput:
+        """Create from a TableSummary.
+
+        Args:
+            summary: Table entropy summary with column data.
+
+        Returns:
+            TableInterpretationInput ready for LLM.
+        """
+        # Compute dimension score ranges across all columns
+        dim_ranges: dict[str, tuple[float, float]] = {}
+        for col in summary.columns:
+            for dim, score in col.dimension_scores.items():
+                if dim in dim_ranges:
+                    cur_min, cur_max = dim_ranges[dim]
+                    dim_ranges[dim] = (min(cur_min, score), max(cur_max, score))
+                else:
+                    dim_ranges[dim] = (score, score)
+
+        return cls(
+            table_name=summary.table_name,
+            avg_composite_score=summary.avg_composite_score,
+            max_composite_score=summary.max_composite_score,
+            readiness=summary.readiness,
+            avg_layer_scores=summary.avg_layer_scores,
+            high_entropy_columns=summary.high_entropy_columns,
+            blocked_columns=summary.blocked_columns,
+            compound_risks=summary.compound_risks,
+            column_count=len(summary.columns),
+            dimension_score_ranges=dim_ranges,
+        )
+
+
 # =============================================================================
 # Pydantic models for LLM tool output
 # =============================================================================
@@ -260,6 +312,26 @@ class EntropyInterpretationOutput(BaseModel):
 
     columns: dict[str, ColumnInterpretationOutput] = Field(
         description="Interpretations keyed by 'table_name.column_name'"
+    )
+
+
+class TableInterpretationLLMOutput(BaseModel):
+    """Pydantic model for a single table interpretation in LLM tool output."""
+
+    assumptions: list[AssumptionOutput] = Field(
+        default_factory=list, description="List of table-wide assumptions"
+    )
+    resolution_actions: list[ResolutionActionOutput] = Field(
+        default_factory=list, description="List of table-wide actions to reduce uncertainty"
+    )
+    explanation: str = Field(description="Brief explanation of the table's overall data quality")
+
+
+class TableEntropyInterpretationOutput(BaseModel):
+    """Pydantic model for LLM tool output - batch table interpretation."""
+
+    tables: dict[str, TableInterpretationLLMOutput] = Field(
+        description="Interpretations keyed by table_name"
     )
 
 
@@ -502,16 +574,213 @@ class EntropyInterpreter:
 
         return Result.ok(interpretations)
 
+    def interpret_tables(
+        self,
+        session: Session,
+        inputs: list[TableInterpretationInput],
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Interpret entropy at the table level.
+
+        Makes a single batch LLM call for all tables using tool-based output.
+
+        Args:
+            session: Database session
+            inputs: List of TableInterpretationInput for each table
+
+        Returns:
+            Result containing dict mapping table_name to interpretations
+        """
+        from dataraum.llm.providers.base import (
+            ConversationRequest,
+            Message,
+            ToolDefinition,
+        )
+
+        if not inputs:
+            return Result.fail("No inputs provided for table interpretation")
+
+        feature_config = self.config.features.entropy_interpretation
+        if not feature_config or not feature_config.enabled:
+            return Result.fail("entropy_interpretation is disabled in config")
+
+        # Build tables JSON for prompt
+        tables_data = []
+        for inp in inputs:
+            tables_data.append(
+                {
+                    "table_name": inp.table_name,
+                    "avg_composite_score": round(inp.avg_composite_score, 3),
+                    "max_composite_score": round(inp.max_composite_score, 3),
+                    "readiness": inp.readiness,
+                    "avg_layer_scores": {k: round(v, 3) for k, v in inp.avg_layer_scores.items()},
+                    "column_count": inp.column_count,
+                    "high_entropy_columns": inp.high_entropy_columns,
+                    "blocked_columns": inp.blocked_columns,
+                    "dimension_score_ranges": {
+                        k: {"min": round(v[0], 3), "max": round(v[1], 3)}
+                        for k, v in inp.dimension_score_ranges.items()
+                    },
+                    "compound_risks": [
+                        {
+                            "dimensions": r.dimensions,
+                            "risk_level": r.risk_level,
+                            "impact": r.impact,
+                        }
+                        for r in inp.compound_risks
+                    ],
+                }
+            )
+
+        # Extract resolution guidelines from column prompt for reuse
+        resolution_guidelines = ""
+        try:
+            _, full_system, _ = self.renderer.render_split(
+                "entropy_interpretation", {"columns_json": "[]"}
+            )
+            # Extract resolution_guidelines section if present
+            if "<resolution_guidelines>" in full_system:
+                start = full_system.index("<resolution_guidelines>")
+                end = full_system.index("</resolution_guidelines>") + len(
+                    "</resolution_guidelines>"
+                )
+                resolution_guidelines = full_system[start:end]
+        except Exception:
+            pass
+
+        context: dict[str, str] = {
+            "tables_json": json.dumps(tables_data, indent=2),
+            "resolution_guidelines": resolution_guidelines,
+        }
+
+        # Render prompt
+        try:
+            system_prompt, user_prompt, temperature = self.renderer.render_split(
+                "entropy_table_interpretation", context
+            )
+        except Exception as e:
+            return Result.fail(f"Failed to render table interpretation prompt: {e}")
+
+        # Define tool for structured output
+        tool = ToolDefinition(
+            name="interpret_table_entropy",
+            description="Provide structured interpretation of entropy metrics for the tables",
+            input_schema=TableEntropyInterpretationOutput.model_json_schema(),
+        )
+
+        model = self.provider.get_model_for_tier(feature_config.model_tier)
+
+        request = ConversationRequest(
+            messages=[Message(role="user", content=user_prompt)],
+            system=system_prompt,
+            tools=[tool],
+            max_tokens=self.config.limits.max_output_tokens_per_request,
+            temperature=temperature,
+        )
+
+        # Retry logic
+        max_retries = 2
+        last_error = None
+
+        for _attempt in range(max_retries + 1):
+            result = self.provider.converse(request)
+            if not result.success or not result.value:
+                last_error = result.error or "LLM call failed"
+                continue
+
+            response = result.value
+
+            if not response.tool_calls:
+                if response.content:
+                    try:
+                        response_data = json.loads(response.content)
+                        output = TableEntropyInterpretationOutput.model_validate(response_data)
+                        return self._convert_table_output(inputs, output, model)
+                    except Exception:
+                        last_error = f"LLM did not use tool. Response: {response.content[:200]}"
+                        continue
+                else:
+                    last_error = "LLM did not use the interpret_table_entropy tool"
+                    continue
+
+            tool_call = response.tool_calls[0]
+            if tool_call.name != "interpret_table_entropy":
+                last_error = f"Unexpected tool call: {tool_call.name}"
+                continue
+
+            try:
+                output = TableEntropyInterpretationOutput.model_validate(tool_call.input)
+                return self._convert_table_output(inputs, output, model)
+            except Exception as e:
+                last_error = f"Failed to validate tool response: {e}"
+                continue
+
+        return Result.fail(last_error or "All retry attempts failed")
+
+    def _convert_table_output(
+        self,
+        inputs: list[TableInterpretationInput],
+        output: TableEntropyInterpretationOutput,
+        model: str,
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Convert table LLM output to EntropyInterpretation dataclasses."""
+        inputs_by_name = {inp.table_name: inp for inp in inputs}
+        interpretations: dict[str, EntropyInterpretation] = {}
+
+        for table_name, table_output in output.tables.items():
+            inp = inputs_by_name.get(table_name)
+            if not inp:
+                continue
+
+            assumptions = [
+                Assumption(
+                    dimension=a.dimension,
+                    assumption_text=a.assumption_text,
+                    confidence=a.confidence,
+                    impact=a.impact,
+                    basis="inferred",
+                )
+                for a in table_output.assumptions
+            ]
+
+            resolution_actions = [
+                ResolutionAction(
+                    action=r.action,
+                    description=r.description,
+                    priority=r.priority,
+                    effort=r.effort,
+                    expected_impact=r.expected_impact,
+                    parameters=r.parameters,
+                )
+                for r in table_output.resolution_actions
+            ]
+
+            interpretations[table_name] = EntropyInterpretation(
+                column_name=None,
+                table_name=table_name,
+                assumptions=assumptions,
+                resolution_actions=resolution_actions,
+                explanation=table_output.explanation,
+                composite_score=inp.avg_composite_score,
+                readiness=inp.readiness,
+                model_used=model,
+                from_cache=False,
+            )
+
+        return Result.ok(interpretations)
+
 
 __all__ = [
     "Assumption",
     "ResolutionAction",
     "EntropyInterpretation",
     "InterpretationInput",
+    "TableInterpretationInput",
     "EntropyInterpreter",
     # Pydantic output models for tool use
     "AssumptionOutput",
     "ResolutionActionOutput",
     "ColumnInterpretationOutput",
     "EntropyInterpretationOutput",
+    "TableInterpretationLLMOutput",
+    "TableEntropyInterpretationOutput",
 ]
