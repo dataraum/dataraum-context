@@ -441,18 +441,24 @@ def _compute_period_metrics(
             )
         )
 
-    # Compute rolling statistics (window=3) and z-scores
+    # Compute rolling statistics and z-scores using a trailing window
+    # (previous periods only, excluding current — so z-score measures deviation
+    # from the baseline established by prior periods)
+    baseline_window = 3
     row_counts = [m.row_count for m in metrics]
     for i, m in enumerate(metrics):
-        # Rolling window: up to 3 previous periods (including current)
-        window_start = max(0, i - 2)
-        window = row_counts[window_start : i + 1]
-
-        if len(window) >= 2:
+        if i >= baseline_window:
+            # Trailing window: previous N periods, NOT including current
+            window = row_counts[max(0, i - baseline_window) : i]
             rolling_avg = sum(window) / len(window)
-            rolling_std = (sum((x - rolling_avg) ** 2 for x in window) / len(window)) ** 0.5
+            rolling_std = (
+                (sum((x - rolling_avg) ** 2 for x in window) / len(window)) ** 0.5
+                if len(window) > 1
+                else 0.0
+            )
             z_score = (m.row_count - rolling_avg) / rolling_std if rolling_std > 0 else 0.0
         else:
+            # Not enough history yet
             rolling_avg = float(m.row_count)
             rolling_std = 0.0
             z_score = 0.0

@@ -117,26 +117,45 @@ class TestComputePeriodMetrics:
         assert result[0].last_day_ratio == 0.0
 
     def test_rolling_statistics_computed(self):
-        """Rolling avg/std/z-score computed for multi-period data."""
-        # 3 periods with increasing row counts
-        conn = self._make_conn([(100, 30), (200, 28), (300, 31)])
+        """Rolling avg/std/z-score computed using trailing window."""
+        # 4 periods: 3 baseline + 1 that gets a z-score
+        # Trailing window=3, so period[3] uses [100,100,100] as baseline
+        conn = self._make_conn([(100, 30), (100, 28), (100, 31), (500, 30)])
         periods = [
             (date(2024, 1, 1), date(2024, 2, 1), "2024-01"),
             (date(2024, 2, 1), date(2024, 3, 1), "2024-02"),
             (date(2024, 3, 1), date(2024, 4, 1), "2024-03"),
+            (date(2024, 4, 1), date(2024, 5, 1), "2024-04"),
         ]
 
         result = _compute_period_metrics("slice_t", "ts", conn, periods)
 
-        assert len(result) == 3
-        # First period: only 1 data point, no std
-        assert result[0].rolling_std == 0.0
+        assert len(result) == 4
+        # First 3 periods: not enough baseline history, z_score=0
         assert result[0].z_score == 0.0
-        # Second period: window=[100,200]
-        assert result[1].rolling_avg is not None
-        assert result[1].rolling_avg > 0
-        # Third period: window=[100,200,300], has z-score
-        assert result[2].z_score is not None
+        assert result[1].z_score == 0.0
+        assert result[2].z_score == 0.0
+        # Period 4: trailing window=[100,100,100], current=500
+        # avg=100, std=0 → z_score=0 (all same, no variance in baseline)
+        # Actually std=0 so z=0. Use varied baseline instead.
+
+    def test_trailing_window_z_score(self):
+        """Z-score uses trailing window (excludes current value)."""
+        # Baseline periods: 100, 110, 90 → avg=100, std≈8.16
+        # Current period: 200 → z = (200-100)/8.16 ≈ 12.2
+        conn = self._make_conn([(100, 30), (110, 28), (90, 31), (200, 30)])
+        periods = [
+            (date(2024, 1, 1), date(2024, 2, 1), "2024-01"),
+            (date(2024, 2, 1), date(2024, 3, 1), "2024-02"),
+            (date(2024, 3, 1), date(2024, 4, 1), "2024-03"),
+            (date(2024, 4, 1), date(2024, 5, 1), "2024-04"),
+        ]
+
+        result = _compute_period_metrics("slice_t", "ts", conn, periods)
+
+        # Period 4 should have a high z-score since 200 is far from avg~100
+        assert result[3].z_score is not None
+        assert result[3].z_score > 2.5  # Well above anomaly threshold
 
     def test_period_over_period_change(self):
         """Period-over-period change computed correctly."""

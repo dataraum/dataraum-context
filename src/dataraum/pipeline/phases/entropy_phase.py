@@ -778,7 +778,8 @@ def _run_dimensional_entropy(
                 )
 
         # Load period analyses (completeness + volume anomalies) for slice tables
-        period_analyses: list[Any] = []
+        # and aggregate into temporal_columns for the dimensional detector
+        temporal_columns: dict[str, dict[str, Any]] = {}
         if slice_table_names:
             from dataraum.analysis.temporal_slicing.db_models import TemporalSliceAnalysis
 
@@ -786,6 +787,29 @@ def _run_dimensional_entropy(
                 TemporalSliceAnalysis.slice_table_name.in_(slice_table_names)
             )
             period_analyses = list(ctx.session.execute(period_stmt).scalars().all())
+
+            for ta in period_analyses:
+                col_name = ta.time_column
+                if col_name not in temporal_columns:
+                    temporal_columns[col_name] = {
+                        "is_interesting": False,
+                        "reasons": [],
+                        "coverage_ratio": ta.coverage_ratio,
+                        "last_day_ratio": ta.last_day_ratio,
+                        "is_volume_anomaly": bool(ta.is_volume_anomaly),
+                    }
+                if (
+                    (ta.coverage_ratio is not None and ta.coverage_ratio < 0.5)
+                    or (ta.last_day_ratio is not None and ta.last_day_ratio > 1.5)
+                    or ta.is_volume_anomaly
+                ):
+                    temporal_columns[col_name]["is_interesting"] = True
+                    if ta.coverage_ratio is not None and ta.coverage_ratio < 0.5:
+                        temporal_columns[col_name]["reasons"].append("low_coverage")
+                    if ta.last_day_ratio is not None and ta.last_day_ratio > 1.5:
+                        temporal_columns[col_name]["reasons"].append("period_end_spike")
+                    if ta.is_volume_anomaly:
+                        temporal_columns[col_name]["reasons"].append("volume_anomaly")
 
         # Build detector context
         context = DetectorContext(
@@ -796,11 +820,10 @@ def _run_dimensional_entropy(
                 "slice_variance": {
                     "columns": columns_data,
                     "slice_data": slice_data,
-                    "temporal_columns": {},
+                    "temporal_columns": temporal_columns,
                     "temporal_drift": temporal_drift,
                 },
                 "drift_summaries": drift_summaries,
-                "period_analyses": period_analyses,
             },
         )
 
