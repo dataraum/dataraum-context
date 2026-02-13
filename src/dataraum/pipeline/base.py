@@ -269,16 +269,16 @@ PIPELINE_DAG: list[PhaseDefinition] = [
     ),
     PhaseDefinition(
         name="slice_analysis",
-        description="Analysis on slice tables (includes TDA topology)",
+        description="Statistical analysis on slice tables",
         dependencies=["slicing"],
-        outputs=["slice_profiles", "slice_topology"],
+        outputs=["slice_profiles"],
         requires_llm=True,
     ),
     PhaseDefinition(
         name="temporal_slice_analysis",
-        description="Temporal + topology analysis on slices",
+        description="Distribution drift analysis on slices",
         dependencies=["slice_analysis", "temporal"],
-        outputs=["temporal_slice_profiles", "slice_topology", "topology_drift"],
+        outputs=["drift_summaries"],
     ),
     # ============================================================
     # ENTROPY PHASES

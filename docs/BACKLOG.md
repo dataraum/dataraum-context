@@ -31,8 +31,8 @@ Bottom-up cleanup: each module gets dead code removal, config streamlining, logg
 | 11 | `analysis/slicing/` | ✅ Done |
 | 12 | `analysis/cycles/` | ✅ Done |
 | 13 | `analysis/quality_summary/` | ✅ Done |
-| 14 | `analysis/temporal_slicing/` | **Next** |
-| 15 | `analysis/topology/` | Pending |
+| 14 | `analysis/temporal_slicing/` | ✅ Done |
+| 15 | `analysis/topology/` | ✅ Removed (TDA unused, relationships/graph_topology covers schema graph) |
 | 16 | `entropy/` | Pending |
 | 17 | `llm/` | Pending |
 | 18 | `pipeline/` | Pending |
@@ -41,7 +41,7 @@ Bottom-up cleanup: each module gets dead code removal, config streamlining, logg
 ### After All Modules (Part 4)
 - [ ] Verify TUI screens with cleaned models
 - [ ] Verify MCP tools with cleaned context assembly
-- [ ] Dependency audit (pandas vs pyarrow, ripser/persim, ruptures, networkx)
+- [ ] Dependency audit (pandas vs pyarrow, ruptures, networkx)
 - [ ] Retire stale docs, move completed specs to `docs/archive/`
 
 ---

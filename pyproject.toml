@@ -33,10 +33,8 @@ dependencies = [
     "mcp>=1.0.0",
     # Configuration
     "pyyaml>=6.0.0",
-    # TDA (Topological Data Analysis)
+    # Scientific computing
     "scipy>=1.11.0",
-    "ripser>=0.6.0",
-    "persim>=0.3.0",
     # Time Series Analysis
     "statsmodels>=0.14.0",
     "ruptures>=1.1.0",
@@ -200,8 +198,6 @@ module = [
     "openai.*",
     "sdv.*",
     "hamilton.*",
-    "ripser.*",
-    "persim.*",
     "scipy.*",
     "sklearn.*",
     "statsmodels.*",
