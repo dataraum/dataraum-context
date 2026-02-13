@@ -4,6 +4,7 @@ import pytest
 
 from dataraum.entropy.detectors import (
     BUILTIN_DETECTORS,
+    BenfordDetector,
     BusinessMeaningDetector,
     DerivedValueDetector,
     DetectorRegistry,
@@ -33,6 +34,7 @@ class TestBuiltinDetectors:
             NullRatioDetector,
             OutlierRateDetector,
             TemporalDriftDetector,
+            BenfordDetector,
             # Semantic
             BusinessMeaningDetector,
             UnitEntropyDetector,
@@ -58,6 +60,7 @@ class TestBuiltinDetectors:
         assert "null_ratio" in detector_ids
         assert "outlier_rate" in detector_ids
         assert "temporal_drift" in detector_ids
+        assert "benford" in detector_ids
         assert "business_meaning" in detector_ids
         assert "unit_entropy" in detector_ids
         assert "temporal_entropy" in detector_ids
@@ -104,11 +107,12 @@ class TestBuiltinDetectors:
         register_builtin_detectors(registry)
 
         value_detectors = registry.get_detectors_for_layer("value")
-        assert len(value_detectors) == 3
+        assert len(value_detectors) == 4
         detector_ids = [d.detector_id for d in value_detectors]
         assert "null_ratio" in detector_ids
         assert "outlier_rate" in detector_ids
         assert "temporal_drift" in detector_ids
+        assert "benford" in detector_ids
 
     def test_semantic_detectors(self):
         """Test semantic layer detectors."""

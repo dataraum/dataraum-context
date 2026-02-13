@@ -137,13 +137,19 @@ class EntropyDetector(ABC):
         Returns:
             Configured EntropyObject
         """
+        # Inject context identifiers into evidence for self-identification
+        enriched_evidence = evidence or []
+        for ev in enriched_evidence:
+            ev["_column_name"] = context.column_name
+            ev["_table_name"] = context.table_name
+
         return EntropyObject(
             layer=self.layer,
             dimension=self.dimension,
             sub_dimension=self.sub_dimension,
             target=context.target_ref,
             score=score,
-            evidence=evidence or [],
+            evidence=enriched_evidence,
             resolution_options=resolution_options or [],
             detector_id=self.detector_id,
             source_analysis_ids=[],
@@ -302,11 +308,13 @@ def _register_builtin_detectors(registry: DetectorRegistry) -> None:
     registry.register(RelationshipEntropyDetector())
 
     # Value layer detectors
+    from dataraum.entropy.detectors.value.benford import BenfordDetector
     from dataraum.entropy.detectors.value.null_semantics import NullRatioDetector
     from dataraum.entropy.detectors.value.outliers import OutlierRateDetector
 
     registry.register(NullRatioDetector())
     registry.register(OutlierRateDetector())
+    registry.register(BenfordDetector())
 
     # Semantic layer detectors
     from dataraum.entropy.detectors.semantic.business_meaning import BusinessMeaningDetector

@@ -105,6 +105,7 @@ class EntropyInterpretation:
                     "description": r.description,
                     "priority": r.priority,
                     "effort": r.effort,
+                    "parameters": r.parameters,
                 }
                 for r in self.resolution_actions
             ],
@@ -216,6 +217,10 @@ class ResolutionActionOutput(BaseModel):
     priority: Literal["high", "medium", "low"] = Field(description="Priority of this action")
     effort: Literal["low", "medium", "high"] = Field(description="Effort required to implement")
     expected_impact: str = Field(description="What entropy dimensions this will improve")
+    parameters: dict[str, str] = Field(
+        default_factory=dict,
+        description="Actionable parameters (e.g., column_name, threshold, strategy, target_table)",
+    )
 
     @field_validator("action")
     @classmethod
@@ -471,6 +476,7 @@ class EntropyInterpreter:
                     priority=r.priority,
                     effort=r.effort,
                     expected_impact=r.expected_impact,
+                    parameters=r.parameters,
                 )
                 for r in col_output.resolution_actions
             ]

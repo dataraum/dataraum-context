@@ -1,6 +1,8 @@
 """Tests for entropy models."""
 
-from dataraum.entropy.analysis.aggregator import ColumnSummary
+import pytest
+
+from dataraum.entropy.analysis.aggregator import ColumnSummary, EntropyAggregator
 from dataraum.entropy.compound_risk import CompoundRiskDetector
 from dataraum.entropy.models import (
     CompoundRisk,
@@ -180,3 +182,191 @@ class TestCompoundRiskDetector:
 
         score = detector._get_dimension_score(summary, "semantic.temporal")
         assert score == 0.6
+
+    def test_compound_risk_gradient_preservation(self):
+        """Boost-above-threshold preserves gradient instead of clamping to 1.0."""
+        detector = CompoundRiskDetector()
+        detector.risk_definitions = [
+            CompoundRiskDefinition(
+                risk_type="test_risk",
+                dimensions=["semantic.units", "computational.derived_values"],
+                threshold=0.5,
+                risk_level="critical",
+                impact_template="Test impact",
+                multiplier=2.0,
+            ),
+        ]
+        detector.config_loaded = True
+
+        # Test with scores that average to 0.6 (above threshold 0.5)
+        # excess = 0.6 - 0.5 = 0.1; boosted = 0.5 + 0.1 * 2.0 = 0.7
+        summary = ColumnSummary(
+            column_id="col1",
+            column_name="amount",
+            table_id="t1",
+            table_name="orders",
+            dimension_scores={
+                "semantic.units.unit_declaration": 0.6,
+                "computational.derived_values.formula_match": 0.6,
+            },
+        )
+        risks = detector.detect_risks(summary)
+        assert len(risks) == 1
+        assert risks[0].combined_score == pytest.approx(0.7, abs=0.01)
+
+    def test_compound_risk_at_threshold(self):
+        """At exactly the threshold, combined_score equals threshold."""
+        detector = CompoundRiskDetector()
+        detector.risk_definitions = [
+            CompoundRiskDefinition(
+                risk_type="test_risk",
+                dimensions=["semantic.units", "computational.derived_values"],
+                threshold=0.5,
+                risk_level="critical",
+                impact_template="Test impact",
+                multiplier=2.0,
+            ),
+        ]
+        detector.config_loaded = True
+
+        summary = ColumnSummary(
+            column_id="col1",
+            column_name="amount",
+            table_id="t1",
+            table_name="orders",
+            dimension_scores={
+                "semantic.units.unit_declaration": 0.5,
+                "computational.derived_values.formula_match": 0.5,
+            },
+        )
+        risks = detector.detect_risks(summary)
+        assert len(risks) == 1
+        # excess = 0.5 - 0.5 = 0; boosted = 0.5 + 0 * 2.0 = 0.5
+        assert risks[0].combined_score == pytest.approx(0.5, abs=0.01)
+
+
+class TestAggregatorEmptyLayerNormalization:
+    """Tests for EntropyAggregator empty layer normalization."""
+
+    def test_only_structural_data(self):
+        """Column with only structural data should normalize to structural score."""
+        aggregator = EntropyAggregator()
+        objects = [
+            EntropyObject(
+                layer="structural",
+                dimension="types",
+                sub_dimension="type_fidelity",
+                target="column:test.col",
+                score=0.5,
+                detector_id="type_fidelity",
+            ),
+        ]
+        summary = aggregator.summarize_column(
+            column_id="col1",
+            column_name="col",
+            table_id="t1",
+            table_name="test",
+            entropy_objects=objects,
+        )
+        # Only structural populated (weight 0.25), so composite = 0.5 * 0.25 / 0.25 = 0.5
+        assert summary.composite_score == pytest.approx(0.5, abs=0.01)
+        assert "semantic" in summary.empty_layers
+        assert "value" in summary.empty_layers
+        assert "computational" in summary.empty_layers
+        assert "structural" not in summary.empty_layers
+
+    def test_two_layers_populated(self):
+        """Two populated layers normalize weights to those two."""
+        aggregator = EntropyAggregator()
+        objects = [
+            EntropyObject(
+                layer="structural",
+                dimension="types",
+                sub_dimension="type_fidelity",
+                target="column:test.col",
+                score=0.4,
+                detector_id="type_fidelity",
+            ),
+            EntropyObject(
+                layer="value",
+                dimension="nulls",
+                sub_dimension="null_ratio",
+                target="column:test.col",
+                score=0.6,
+                detector_id="null_ratio",
+            ),
+        ]
+        summary = aggregator.summarize_column(
+            column_id="col1",
+            column_name="col",
+            table_id="t1",
+            table_name="test",
+            entropy_objects=objects,
+        )
+        # structural weight=0.25, value weight=0.30
+        # normalized: structural = 0.25/0.55, value = 0.30/0.55
+        # composite = 0.4 * (0.25/0.55) + 0.6 * (0.30/0.55)
+        expected = 0.4 * (0.25 / 0.55) + 0.6 * (0.30 / 0.55)
+        assert summary.composite_score == pytest.approx(expected, abs=0.01)
+
+    def test_all_layers_populated(self):
+        """All four layers populated uses standard weights."""
+        aggregator = EntropyAggregator()
+        objects = [
+            EntropyObject(
+                layer="structural",
+                dimension="types",
+                sub_dimension="tf",
+                target="t",
+                score=0.2,
+                detector_id="d1",
+            ),
+            EntropyObject(
+                layer="semantic",
+                dimension="bm",
+                sub_dimension="nc",
+                target="t",
+                score=0.3,
+                detector_id="d2",
+            ),
+            EntropyObject(
+                layer="value",
+                dimension="nulls",
+                sub_dimension="nr",
+                target="t",
+                score=0.4,
+                detector_id="d3",
+            ),
+            EntropyObject(
+                layer="computational",
+                dimension="dv",
+                sub_dimension="fm",
+                target="t",
+                score=0.1,
+                detector_id="d4",
+            ),
+        ]
+        summary = aggregator.summarize_column(
+            column_id="col1",
+            column_name="col",
+            table_id="t1",
+            table_name="test",
+            entropy_objects=objects,
+        )
+        # All weights sum to 1.0, no normalization needed
+        expected = 0.2 * 0.25 + 0.3 * 0.30 + 0.4 * 0.30 + 0.1 * 0.15
+        assert summary.composite_score == pytest.approx(expected, abs=0.01)
+        assert summary.empty_layers == []
+
+    def test_no_entropy_objects(self):
+        """No entropy objects should give 0 composite and 'ready' status."""
+        aggregator = EntropyAggregator()
+        summary = aggregator.summarize_column(
+            column_id="col1",
+            column_name="col",
+            table_id="t1",
+            table_name="test",
+            entropy_objects=[],
+        )
+        assert summary.composite_score == 0.0
+        assert summary.readiness == "ready"

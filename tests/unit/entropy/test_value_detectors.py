@@ -3,6 +3,7 @@
 import pytest
 
 from dataraum.entropy.detectors import (
+    BenfordDetector,
     DetectorContext,
     NullRatioDetector,
     OutlierRateDetector,
@@ -165,7 +166,7 @@ class TestOutlierRateDetector:
         assert results[0].evidence[0]["outlier_impact"] == "none"
 
     def test_few_outliers(self, detector: OutlierRateDetector):
-        """Test low entropy for few outliers."""
+        """Test low entropy for few outliers (piecewise scoring)."""
         context = DetectorContext(
             table_name="orders",
             column_name="amount",
@@ -183,11 +184,12 @@ class TestOutlierRateDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        assert results[0].score == pytest.approx(0.05, abs=0.01)
+        # 0.5% is halfway through the 0-1% (minimal) band → score ~0.075
+        assert results[0].score == pytest.approx(0.075, abs=0.01)
         assert results[0].evidence[0]["outlier_impact"] == "minimal"
 
     def test_significant_outliers(self, detector: OutlierRateDetector):
-        """Test high entropy for significant outliers."""
+        """Test moderate entropy for significant outliers (piecewise scoring)."""
         context = DetectorContext(
             table_name="orders",
             column_name="amount",
@@ -205,22 +207,23 @@ class TestOutlierRateDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        assert results[0].score == pytest.approx(0.8, abs=0.01)
+        # 8% is 60% through the 5-10% (significant) band → score ~0.55
+        assert results[0].score == pytest.approx(0.55, abs=0.01)
         assert results[0].evidence[0]["outlier_impact"] == "significant"
         # Should have resolution options
         actions = [opt.action for opt in results[0].resolution_options]
         assert "transform_winsorize" in actions
         assert "transform_exclude_outliers" in actions
 
-    def test_max_entropy_at_10_percent(self, detector: OutlierRateDetector):
-        """Test entropy caps at 1.0 for 10% or more outliers."""
+    def test_high_outliers(self, detector: OutlierRateDetector):
+        """Test high entropy for 20%+ outliers (piecewise scoring reaches 1.0)."""
         context = DetectorContext(
             table_name="test",
             column_name="col",
             analysis_results={
                 "statistics": {
                     "outlier_detection": {
-                        "iqr_outlier_ratio": 0.15,
+                        "iqr_outlier_ratio": 0.20,
                     }
                 },
                 "semantic": {"semantic_role": "measure"},
@@ -232,8 +235,34 @@ class TestOutlierRateDetector:
         assert results[0].score == pytest.approx(1.0, abs=0.01)
         assert results[0].evidence[0]["outlier_impact"] == "critical"
 
+    def test_piecewise_scoring_curve(self, detector: OutlierRateDetector):
+        """Test piecewise scoring at key breakpoints."""
+        test_cases = [
+            (0.0, 0.0),  # 0% → 0.0
+            (0.01, 0.15),  # 1% → 0.15
+            (0.05, 0.40),  # 5% → 0.40
+            (0.10, 0.65),  # 10% → 0.65
+            (0.20, 1.0),  # 20% → 1.0
+            (0.50, 1.0),  # 50% → capped at 1.0
+        ]
+        for ratio, expected_score in test_cases:
+            context = DetectorContext(
+                table_name="test",
+                column_name="col",
+                analysis_results={
+                    "statistics": {
+                        "outlier_detection": {"iqr_outlier_ratio": ratio},
+                    },
+                    "semantic": {"semantic_role": "measure"},
+                },
+            )
+            results = detector.detect(context)
+            assert results[0].score == pytest.approx(expected_score, abs=0.01), (
+                f"ratio={ratio}: expected {expected_score}, got {results[0].score}"
+            )
+
     def test_direct_stats_format(self, detector: OutlierRateDetector):
-        """Test detector works with direct stats format."""
+        """Test detector works with direct stats format (piecewise scoring)."""
         context = DetectorContext(
             table_name="test",
             column_name="col",
@@ -249,7 +278,8 @@ class TestOutlierRateDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        assert results[0].score == pytest.approx(0.3, abs=0.01)
+        # 3% is halfway through the 1-5% (moderate) band → score ~0.275
+        assert results[0].score == pytest.approx(0.275, abs=0.01)
 
     def test_skip_key_column(self, detector: OutlierRateDetector):
         """Test outlier detection is skipped for key columns."""
@@ -472,3 +502,127 @@ class TestTemporalDriftDetector:
         assert detector.layer == "value"
         assert detector.dimension == "temporal"
         assert detector.required_analyses == ["drift_summaries"]
+
+
+class TestBenfordDetector:
+    """Tests for BenfordDetector."""
+
+    @pytest.fixture
+    def detector(self) -> BenfordDetector:
+        """Create detector instance."""
+        return BenfordDetector()
+
+    def test_skip_non_measure_column(self, detector: BenfordDetector):
+        """Benford only applies to measure columns."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="order_id",
+            analysis_results={
+                "statistics": {
+                    "quality": {
+                        "benford_compliant": True,
+                        "benford_analysis": {
+                            "is_compliant": True,
+                            "chi_square": 5.0,
+                            "p_value": 0.8,
+                        },
+                    },
+                },
+                "semantic": {"semantic_role": "key"},
+            },
+        )
+        results = detector.detect(context)
+        assert len(results) == 0
+
+    def test_skip_no_benford_data(self, detector: BenfordDetector):
+        """Skip if no Benford analysis available."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="amount",
+            analysis_results={
+                "statistics": {"quality": {}},
+                "semantic": {"semantic_role": "measure"},
+            },
+        )
+        results = detector.detect(context)
+        assert len(results) == 0
+
+    def test_compliant(self, detector: BenfordDetector):
+        """Compliant column gets low entropy."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="amount",
+            analysis_results={
+                "statistics": {
+                    "quality": {
+                        "benford_compliant": True,
+                        "benford_analysis": {
+                            "is_compliant": True,
+                            "chi_square": 5.0,
+                            "p_value": 0.8,
+                            "digit_distribution": [0.301, 0.176, 0.125],
+                            "interpretation": "Data follows Benford's Law",
+                        },
+                    },
+                },
+                "semantic": {"semantic_role": "measure"},
+            },
+        )
+        results = detector.detect(context)
+        assert len(results) == 1
+        assert results[0].score == pytest.approx(0.1, abs=0.01)
+        assert results[0].evidence[0]["is_compliant"] is True
+        assert len(results[0].resolution_options) == 0
+
+    def test_non_compliant(self, detector: BenfordDetector):
+        """Non-compliant column gets high entropy."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="amount",
+            analysis_results={
+                "statistics": {
+                    "quality": {
+                        "benford_compliant": False,
+                        "benford_analysis": {
+                            "is_compliant": False,
+                            "chi_square": 50.0,
+                            "p_value": 0.001,
+                            "digit_distribution": [0.11, 0.11, 0.11],
+                            "interpretation": "Significant deviation from Benford's Law",
+                        },
+                    },
+                },
+                "semantic": {"semantic_role": "measure"},
+            },
+        )
+        results = detector.detect(context)
+        assert len(results) == 1
+        assert results[0].score == pytest.approx(0.7, abs=0.01)
+        assert results[0].evidence[0]["is_compliant"] is False
+        actions = [opt.action for opt in results[0].resolution_options]
+        assert "investigate_benford_deviation" in actions
+
+    def test_boolean_only_fallback(self, detector: BenfordDetector):
+        """Works with only benford_compliant boolean (no full analysis)."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="amount",
+            analysis_results={
+                "statistics": {
+                    "quality": {
+                        "benford_compliant": False,
+                    },
+                },
+                "semantic": {"semantic_role": "measure"},
+            },
+        )
+        results = detector.detect(context)
+        assert len(results) == 1
+        assert results[0].score == pytest.approx(0.7, abs=0.01)
+
+    def test_detector_properties(self, detector: BenfordDetector):
+        """Test detector has correct properties."""
+        assert detector.detector_id == "benford"
+        assert detector.layer == "value"
+        assert detector.dimension == "distribution"
+        assert detector.required_analyses == ["statistics", "semantic"]

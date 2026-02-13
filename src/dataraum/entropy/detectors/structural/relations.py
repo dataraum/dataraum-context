@@ -93,8 +93,10 @@ class JoinPathDeterminismDetector(EntropyDetector):
             score = score_orphan
             path_status = "orphan"
         elif ambiguous_tables:
-            # Multiple paths to at least one table - ambiguous
-            score = score_ambiguous
+            # Proportional: ratio of ambiguous tables to total connections
+            ambiguity_ratio = len(ambiguous_tables) / total_connections
+            # Scale between score_deterministic and score_ambiguous
+            score = score_deterministic + (score_ambiguous - score_deterministic) * ambiguity_ratio
             path_status = "ambiguous"
         else:
             # Each connected table has exactly one path - deterministic (star schema OK)

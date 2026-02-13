@@ -72,10 +72,9 @@ detectors:
   # --------------------------------------------------------------------------
   # OUTLIER RATE DETECTOR (value.outliers.outlier_rate)
   # --------------------------------------------------------------------------
-  # Formula: entropy = min(1.0, outlier_ratio * multiplier)
+  # Formula: piecewise-linear mapping aligned with impact thresholds
+  # 0% → 0.0, 1% → 0.15, 5% → 0.4, 10% → 0.65, 20%+ → 1.0
   outlier_rate:
-    # Multiplier: 10% outliers = max entropy
-    multiplier: 10.0
     # Impact classification thresholds (based on ratio, not score)
     impact_minimal: 0.01 # < 1% outliers = minimal impact
     impact_moderate: 0.05 # < 5% outliers = moderate impact
@@ -115,6 +114,11 @@ detectors:
     score_unconfirmed: 0.3 # Known type but not human-confirmed
     score_unknown_type: 0.6 # Unknown relationship type
     reduction_verify_relationship: 0.6
+    # Component weights for weighted average (replaces MAX aggregation)
+    component_weights:
+      referential_integrity: 0.5
+      cardinality: 0.3
+      semantic_clarity: 0.2
 
   # --------------------------------------------------------------------------
   # DERIVED VALUE DETECTOR (computational.derived_values.formula_match)
@@ -159,6 +163,15 @@ detectors:
     score_declared: 0.1 # Unit declared with high confidence
     confidence_threshold: 0.5 # Below this = low confidence
     reduction_declare_unit: 0.8
+
+  # --------------------------------------------------------------------------
+  # BENFORD DETECTOR (value.distribution.benford_compliance)
+  # --------------------------------------------------------------------------
+  # Measures deviation from Benford's Law for numeric measure columns
+  benford:
+    score_compliant: 0.1       # Benford-compliant = low entropy
+    score_non_compliant: 0.7   # Non-compliant = high entropy
+    reduction_investigate: 0.5
 
   # --------------------------------------------------------------------------
   # TEMPORAL ENTROPY DETECTOR (semantic.temporal.time_role)

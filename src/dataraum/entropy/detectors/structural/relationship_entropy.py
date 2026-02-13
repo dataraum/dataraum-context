@@ -65,6 +65,12 @@ class RelationshipEntropyDetector(EntropyDetector):
         score_unknown_type = detector_config.get("score_unknown_type", 0.6)
         reduction_verify = detector_config.get("reduction_verify_relationship", 0.6)
 
+        # Component weights for weighted average (replaces MAX aggregation)
+        component_weights = detector_config.get("component_weights", {})
+        ri_weight = component_weights.get("referential_integrity", 0.5)
+        card_weight = component_weights.get("cardinality", 0.3)
+        semantic_weight = component_weights.get("semantic_clarity", 0.2)
+
         relationships = context.get_analysis("relationships", [])
 
         # Handle different input formats
@@ -121,8 +127,12 @@ class RelationshipEntropyDetector(EntropyDetector):
             else:
                 semantic_entropy = score_unknown_type  # Unknown type
 
-            # Overall score is the maximum component (worst case)
-            score = max(ri_entropy, card_entropy, semantic_entropy)
+            # Weighted average of components (replaces MAX aggregation)
+            score = (
+                ri_entropy * ri_weight
+                + card_entropy * card_weight
+                + semantic_entropy * semantic_weight
+            )
 
             # Build evidence
             from_table = self._get_value(rel, "from_table", "unknown")
@@ -138,6 +148,12 @@ class RelationshipEntropyDetector(EntropyDetector):
                 "ri_entropy": round(ri_entropy, 3),
                 "card_entropy": round(card_entropy, 3),
                 "semantic_entropy": round(semantic_entropy, 3),
+                "aggregation_method": "weighted_avg",
+                "component_weights": {
+                    "referential_integrity": ri_weight,
+                    "cardinality": card_weight,
+                    "semantic_clarity": semantic_weight,
+                },
                 "evaluation_metrics": {
                     "left_referential_integrity": left_ri,
                     "orphan_count": orphan_count,

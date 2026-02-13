@@ -54,6 +54,7 @@ from dataraum.entropy.detectors.structural import (
 
 # Value layer detectors
 from dataraum.entropy.detectors.value import (
+    BenfordDetector,
     NullRatioDetector,
     OutlierRateDetector,
     TemporalDriftDetector,
@@ -70,6 +71,7 @@ BUILTIN_DETECTORS: list[type[EntropyDetector]] = [
     NullRatioDetector,
     OutlierRateDetector,
     TemporalDriftDetector,
+    BenfordDetector,
     # Semantic
     BusinessMeaningDetector,
     UnitEntropyDetector,
@@ -108,6 +110,7 @@ __all__ = [
     "JoinPathDeterminismDetector",
     "RelationshipEntropyDetector",
     # Value detectors
+    "BenfordDetector",
     "NullRatioDetector",
     "OutlierRateDetector",
     "TemporalDriftDetector",

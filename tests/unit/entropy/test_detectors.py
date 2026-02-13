@@ -171,6 +171,34 @@ class TestEntropyDetector:
         assert obj.detector_id == "mock_detector"
 
 
+class TestEvidenceSelfIdentification:
+    """Tests that evidence includes column/table identifiers."""
+
+    def test_evidence_contains_column_and_table_name(
+        self, sample_detector_context: DetectorContext
+    ):
+        """Test that create_entropy_object injects _column_name and _table_name."""
+        detector = MockDetector()
+        results = detector.detect(sample_detector_context)
+
+        assert len(results) == 1
+        evidence = results[0].evidence[0]
+        assert evidence["_column_name"] == "amount"
+        assert evidence["_table_name"] == "orders"
+
+    def test_evidence_self_id_empty_context(self):
+        """Test evidence still gets identifiers even with empty names."""
+        detector = MockDetector()
+        context = DetectorContext(
+            table_name="",
+            column_name="",
+            analysis_results={"typing": {"parse_success_rate": 0.9}},
+        )
+        results = detector.detect(context)
+        assert results[0].evidence[0]["_column_name"] == ""
+        assert results[0].evidence[0]["_table_name"] == ""
+
+
 class TestDefaultRegistry:
     """Tests for the default registry."""
 

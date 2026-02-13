@@ -300,15 +300,21 @@ class EntropyPhase(BasePhase):
                     # Add quality metrics (outlier detection, Benford's Law)
                     if col.column_id in quality_metrics:
                         qm = quality_metrics[col.column_id]
+                        qd = qm.quality_data or {}
+                        outlier_data = qd.get("outlier_detection", {})
                         stats_dict["quality"] = {
                             "outlier_detection": {
                                 "iqr_outlier_ratio": qm.iqr_outlier_ratio or 0.0,
+                                "iqr_outlier_count": outlier_data.get("iqr_outlier_count", 0),
+                                "iqr_lower_fence": outlier_data.get("iqr_lower_fence"),
+                                "iqr_upper_fence": outlier_data.get("iqr_upper_fence"),
                                 "isolation_forest_anomaly_ratio": qm.isolation_forest_anomaly_ratio,
                                 "has_outliers": bool(qm.has_outliers),
                             },
                             "benford_compliant": bool(qm.benford_compliant)
                             if qm.benford_compliant is not None
                             else None,
+                            "benford_analysis": qd.get("benford_analysis"),
                             "quality_data": qm.quality_data,
                         }
 

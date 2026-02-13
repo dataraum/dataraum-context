@@ -13,6 +13,7 @@ from dataraum.entropy.interpretation import (
     EntropyInterpretation,
     InterpretationInput,
     ResolutionAction,
+    ResolutionActionOutput,
 )
 from dataraum.entropy.models import CompoundRisk
 
@@ -291,3 +292,36 @@ class TestInterpretationInputFields:
         # Verify it can be JSON serialized
         json_str = json.dumps(column_data)
         assert "orders.amount" in json_str
+
+
+class TestResolutionActionOutputSchema:
+    """Tests for ResolutionActionOutput Pydantic model."""
+
+    def test_parameters_field_in_schema(self):
+        """Parameters field exists in the JSON schema for LLM tool use."""
+        schema = ResolutionActionOutput.model_json_schema()
+        assert "parameters" in schema["properties"]
+        assert schema["properties"]["parameters"]["type"] == "object"
+
+    def test_parameters_default_empty(self):
+        """Parameters defaults to empty dict when not provided."""
+        output = ResolutionActionOutput(
+            action="document_unit",
+            description="Declare unit",
+            priority="high",
+            effort="low",
+            expected_impact="Reduces semantic.units entropy",
+        )
+        assert output.parameters == {}
+
+    def test_parameters_populated(self):
+        """Parameters populated when provided."""
+        output = ResolutionActionOutput(
+            action="document_unit",
+            description="Declare unit",
+            priority="high",
+            effort="low",
+            expected_impact="Reduces semantic.units entropy",
+            parameters={"column_name": "amount", "unit": "EUR"},
+        )
+        assert output.parameters == {"column_name": "amount", "unit": "EUR"}

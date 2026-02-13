@@ -172,9 +172,11 @@ class CompoundRiskDetector:
         # Risk detected - create CompoundRisk
         impact = definition.impact_template
 
-        # Calculate combined score with multiplier
+        # Calculate combined score: boost above threshold preserves gradient
+        # e.g., threshold=0.5, multiplier=2.0: 0.5→0.5, 0.6→0.7, 0.7→0.9, 0.8→1.0
         avg_score = sum(dimension_scores.values()) / len(dimension_scores)
-        combined_score = min(1.0, avg_score * definition.multiplier)
+        excess = avg_score - definition.threshold
+        combined_score = min(1.0, definition.threshold + excess * definition.multiplier)
 
         # Extract relevant resolution options from entropy objects
         mitigation_options: list[ResolutionOption] = []

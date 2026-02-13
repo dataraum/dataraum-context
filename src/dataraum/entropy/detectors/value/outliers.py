@@ -17,10 +17,10 @@ class OutlierRateDetector(EntropyDetector):
     that can skew aggregations.
 
     Source: statistics/quality.iqr_outlier_ratio
-    Formula: entropy = min(1.0, outlier_ratio * multiplier)
+    Formula: piecewise-linear mapping aligned with impact thresholds.
+    0% → 0.0, 1% → 0.15, 5% → 0.4, 10% → 0.65, 20%+ → 1.0
 
-    Multiplier is configurable in config/entropy/thresholds.yaml.
-    Default: 10x (10% outliers = max entropy).
+    Impact thresholds configurable in config/entropy/thresholds.yaml.
     """
 
     detector_id = "outlier_rate"
@@ -60,7 +60,6 @@ class OutlierRateDetector(EntropyDetector):
         detector_config = config.detector("outlier_rate")
 
         # Get configurable thresholds
-        multiplier = detector_config.get("multiplier", 10.0)
         impact_minimal = detector_config.get("impact_minimal", 0.01)
         impact_moderate = detector_config.get("impact_moderate", 0.05)
         impact_significant = detector_config.get("impact_significant", 0.10)
@@ -101,8 +100,26 @@ class OutlierRateDetector(EntropyDetector):
             lower_fence = stats.get("iqr_lower_fence")
             upper_fence = stats.get("iqr_upper_fence")
 
-        # Calculate entropy using configurable multiplier
-        score = min(1.0, outlier_ratio * multiplier)
+        # Calculate entropy using piecewise-linear mapping aligned with impact thresholds
+        # 0% → 0.0, impact_minimal → 0.15, impact_moderate → 0.4,
+        # impact_significant → 0.65, 2×impact_significant → 1.0
+        if outlier_ratio == 0:
+            score = 0.0
+        elif outlier_ratio < impact_minimal:
+            score = (outlier_ratio / impact_minimal) * 0.15
+        elif outlier_ratio < impact_moderate:
+            score = (
+                0.15 + (outlier_ratio - impact_minimal) / (impact_moderate - impact_minimal) * 0.25
+            )
+        elif outlier_ratio < impact_significant:
+            score = (
+                0.40
+                + (outlier_ratio - impact_moderate) / (impact_significant - impact_moderate) * 0.25
+            )
+        else:
+            score = min(
+                1.0, 0.65 + (outlier_ratio - impact_significant) / impact_significant * 0.35
+            )
 
         # Classify outlier impact using configurable thresholds
         if outlier_ratio == 0:
