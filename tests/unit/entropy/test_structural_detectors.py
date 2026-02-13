@@ -198,7 +198,7 @@ class TestJoinPathDeterminismDetector:
         assert "document_join_path" in actions
 
     def test_mixed_deterministic_and_ambiguous(self, detector: JoinPathDeterminismDetector):
-        """Test HIGH entropy when ANY table has multiple paths."""
+        """Test proportional entropy when some tables have multiple paths."""
         context = DetectorContext(
             table_name="orders",
             column_name="id",
@@ -214,9 +214,69 @@ class TestJoinPathDeterminismDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # Any ambiguity = high entropy
-        assert results[0].score == pytest.approx(0.7, abs=0.01)
+        # 1 ambiguous out of 2 tables → 0.1 + 0.6 * 0.5 = 0.4
+        assert results[0].score == pytest.approx(0.4, abs=0.01)
         assert results[0].evidence[0]["path_status"] == "ambiguous"
+
+    def test_proportional_ambiguity_scoring(self, detector: JoinPathDeterminismDetector):
+        """Test proportional scoring based on ambiguity ratio."""
+        # 1 ambiguous out of 5 tables → 0.1 + 0.6 * 0.2 = 0.22
+        context = DetectorContext(
+            table_name="fact",
+            column_name="id",
+            analysis_results={
+                "relationships": [
+                    {"from_table": "fact", "to_table": "dim_a"},
+                    {"from_table": "fact", "to_table": "dim_a"},  # Ambiguous
+                    {"from_table": "fact", "to_table": "dim_b"},
+                    {"from_table": "fact", "to_table": "dim_c"},
+                    {"from_table": "fact", "to_table": "dim_d"},
+                    {"from_table": "fact", "to_table": "dim_e"},
+                ]
+            },
+        )
+        results = detector.detect(context)
+        assert results[0].score == pytest.approx(0.22, abs=0.01)
+
+    def test_proportional_high_ambiguity(self, detector: JoinPathDeterminismDetector):
+        """Test proportional scoring with high ambiguity."""
+        # 3 ambiguous out of 5 tables → 0.1 + 0.6 * 0.6 = 0.46
+        context = DetectorContext(
+            table_name="fact",
+            column_name="id",
+            analysis_results={
+                "relationships": [
+                    {"from_table": "fact", "to_table": "dim_a"},
+                    {"from_table": "fact", "to_table": "dim_a"},  # Ambiguous
+                    {"from_table": "fact", "to_table": "dim_b"},
+                    {"from_table": "fact", "to_table": "dim_b"},  # Ambiguous
+                    {"from_table": "fact", "to_table": "dim_c"},
+                    {"from_table": "fact", "to_table": "dim_c"},  # Ambiguous
+                    {"from_table": "fact", "to_table": "dim_d"},
+                    {"from_table": "fact", "to_table": "dim_e"},
+                ]
+            },
+        )
+        results = detector.detect(context)
+        assert results[0].score == pytest.approx(0.46, abs=0.01)
+
+    def test_full_ambiguity_equals_max(self, detector: JoinPathDeterminismDetector):
+        """Test all tables ambiguous produces maximum ambiguity score."""
+        # All tables ambiguous → 0.1 + 0.6 * 1.0 = 0.7
+        context = DetectorContext(
+            table_name="fact",
+            column_name="id",
+            analysis_results={
+                "relationships": [
+                    {"from_table": "fact", "to_table": "dim_a"},
+                    {"from_table": "fact", "to_table": "dim_a"},
+                    {"from_table": "fact", "to_table": "dim_b"},
+                    {"from_table": "fact", "to_table": "dim_b"},
+                ]
+            },
+        )
+        results = detector.detect(context)
+        assert results[0].score == pytest.approx(0.7, abs=0.01)
 
     def test_detector_properties(self, detector: JoinPathDeterminismDetector):
         """Test detector has correct properties."""

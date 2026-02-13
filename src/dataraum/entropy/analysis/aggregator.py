@@ -45,6 +45,9 @@ class ColumnSummary:
     layer_scores: dict[str, float] = field(default_factory=dict)
     # Keys: "structural", "semantic", "value", "computational"
 
+    # Layers that had no detector data (score 0.0 means "no data", not "low entropy")
+    empty_layers: list[str] = field(default_factory=list)
+
     # Dimension-level scores
     dimension_scores: dict[str, float] = field(default_factory=dict)
     # Keys: "structural.types.type_fidelity", etc.
@@ -199,14 +202,27 @@ class EntropyAggregator:
         summary.layer_scores = layer_scores
         summary.dimension_scores = dimension_scores
 
-        # Calculate composite score using config weights
+        # Track which layers had no data (for transparency)
+        summary.empty_layers = [
+            layer
+            for layer in ["structural", "semantic", "value", "computational"]
+            if not layer_scores_raw[layer]
+        ]
+
+        # Calculate composite score using only populated layers
+        # Normalize weights so they sum to 1.0 across layers with data
         weights = self._config.composite_weights
-        summary.composite_score = (
-            layer_scores.get("structural", 0.0) * weights["structural"]
-            + layer_scores.get("semantic", 0.0) * weights["semantic"]
-            + layer_scores.get("value", 0.0) * weights["value"]
-            + layer_scores.get("computational", 0.0) * weights["computational"]
-        )
+        active_layers = {
+            layer: score for layer, score in layer_scores.items() if layer_scores_raw[layer]
+        }
+
+        if active_layers:
+            active_weight_sum = sum(weights[layer] for layer in active_layers)
+            summary.composite_score = sum(
+                score * weights[layer] / active_weight_sum for layer, score in active_layers.items()
+            )
+        else:
+            summary.composite_score = 0.0
 
         # Identify high-entropy dimensions
         high_threshold = self._config.high_entropy_threshold
