@@ -363,6 +363,26 @@ class EntropyInterpreter:
         self.provider = provider
         self.renderer = prompt_renderer
 
+    @staticmethod
+    def _validate_column_output(data: dict) -> EntropyInterpretationOutput:
+        """Validate column output, auto-wrapping if LLM omitted 'columns' key."""
+        try:
+            return EntropyInterpretationOutput.model_validate(data)
+        except Exception:
+            if "columns" not in data:
+                return EntropyInterpretationOutput.model_validate({"columns": data})
+            raise
+
+    @staticmethod
+    def _validate_table_output(data: dict) -> TableEntropyInterpretationOutput:
+        """Validate table output, auto-wrapping if LLM omitted 'tables' key."""
+        try:
+            return TableEntropyInterpretationOutput.model_validate(data)
+        except Exception:
+            if "tables" not in data:
+                return TableEntropyInterpretationOutput.model_validate({"tables": data})
+            raise
+
     def interpret_batch(
         self,
         session: Session,
@@ -485,7 +505,7 @@ class EntropyInterpreter:
                 if response.content:
                     try:
                         response_data = json.loads(response.content)
-                        output = EntropyInterpretationOutput.model_validate(response_data)
+                        output = self._validate_column_output(response_data)
                         return self._convert_output_to_interpretations(inputs, output, model)
                     except Exception:
                         last_error = f"LLM did not use tool. Response: {response.content[:200]}"
@@ -501,8 +521,7 @@ class EntropyInterpreter:
                 continue
 
             try:
-                output = EntropyInterpretationOutput.model_validate(tool_call.input)
-                # Success - return the result
+                output = self._validate_column_output(tool_call.input)
                 return self._convert_output_to_interpretations(inputs, output, model)
             except Exception as e:
                 last_error = f"Failed to validate tool response: {e}"
@@ -720,7 +739,7 @@ class EntropyInterpreter:
                 if response.content:
                     try:
                         response_data = json.loads(response.content)
-                        output = TableEntropyInterpretationOutput.model_validate(response_data)
+                        output = self._validate_table_output(response_data)
                         return self._convert_table_output(inputs, output, model)
                     except Exception:
                         last_error = f"LLM did not use tool. Response: {response.content[:200]}"
@@ -735,7 +754,7 @@ class EntropyInterpreter:
                 continue
 
             try:
-                output = TableEntropyInterpretationOutput.model_validate(tool_call.input)
+                output = self._validate_table_output(tool_call.input)
                 return self._convert_table_output(inputs, output, model)
             except Exception as e:
                 last_error = f"Failed to validate tool response: {e}"
