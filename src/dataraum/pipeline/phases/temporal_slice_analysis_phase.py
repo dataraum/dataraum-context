@@ -8,7 +8,7 @@ Drift-only analysis on slices:
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 
@@ -133,68 +133,77 @@ class TemporalSliceAnalysisPhase(BasePhase):
                 records_created=0,
             )
 
-        # Find temporal column - from config or auto-detect
+        # Find temporal column - from config or auto-detect.
+        # The temporal phase already identified temporal columns and stored
+        # TemporalColumnProfile records with min/max timestamps. We reuse
+        # that data instead of re-querying DuckDB.
         time_column = ctx.config.get("time_column")
+        time_profile: TemporalColumnProfile | None = None
 
-        # Verify that the configured time column exists in at least one typed table
+        # Load all temporal profiles for this source's typed columns
+        column_ids = list(
+            (ctx.session.execute(select(Column.column_id).where(Column.table_id.in_(table_ids))))
+            .scalars()
+            .all()
+        )
+
+        all_temporal_profiles: list[TemporalColumnProfile] = []
+        if column_ids:
+            temp_stmt = select(TemporalColumnProfile).where(
+                TemporalColumnProfile.column_id.in_(column_ids)
+            )
+            all_temporal_profiles = list((ctx.session.execute(temp_stmt)).scalars().all())
+
+        # Build column lookup: column_id → Column
+        col_by_id: dict[str, Column] = {}
+        if all_temporal_profiles:
+            profile_col_ids = [tc.column_id for tc in all_temporal_profiles]
+            col_stmt = select(Column).where(Column.column_id.in_(profile_col_ids))
+            for col in (ctx.session.execute(col_stmt)).scalars().all():
+                col_by_id[col.column_id] = col
+
+        # Verify configured time column exists in temporal profiles
         if time_column:
-            time_col_exists = False
-            for tt in typed_tables:
-                col_check = select(Column).where(
-                    Column.table_id == tt.table_id,
-                    Column.column_name == time_column,
-                )
-                if ctx.session.execute(col_check).scalar_one_or_none():
-                    time_col_exists = True
+            for tc in all_temporal_profiles:
+                matched_col = col_by_id.get(tc.column_id)
+                if matched_col and matched_col.column_name == time_column:
+                    time_profile = tc
                     break
 
-            if not time_col_exists:
+            if not time_profile:
                 logger.info(
                     "configured_time_column_not_found",
                     configured_column=time_column,
                     message="Falling back to auto-detection",
                 )
-                time_column = None  # Reset to trigger auto-detection
+                time_column = None
 
-        if not time_column:
-            column_ids = []
-            cols_stmt = select(Column.column_id).where(Column.table_id.in_(table_ids))
-            for col_id in (ctx.session.execute(cols_stmt)).scalars().all():
-                column_ids.append(col_id)
+        # Auto-detect: pick the temporal column with the lowest null ratio
+        if not time_column and all_temporal_profiles:
+            from dataraum.analysis.statistics.db_models import StatisticalProfile
 
-            if column_ids:
-                temp_stmt = select(TemporalColumnProfile).where(
-                    TemporalColumnProfile.column_id.in_(column_ids)
+            best_profile = None
+            best_null_ratio = 1.0
+
+            for tc in all_temporal_profiles:
+                stat_stmt = (
+                    select(StatisticalProfile)
+                    .where(StatisticalProfile.column_id == tc.column_id)
+                    .order_by(StatisticalProfile.profiled_at.desc())
+                    .limit(1)
                 )
-                temporal_cols = (ctx.session.execute(temp_stmt)).scalars().all()
+                stat = (ctx.session.execute(stat_stmt)).scalar_one_or_none()
+                null_ratio = stat.null_ratio if stat and stat.null_ratio is not None else 1.0
 
-                if temporal_cols:
-                    from dataraum.analysis.statistics.db_models import StatisticalProfile
+                if null_ratio < best_null_ratio:
+                    best_null_ratio = null_ratio
+                    best_profile = tc
 
-                    best_col = None
-                    best_null_ratio = 1.0
-
-                    for tc in temporal_cols:
-                        stat_stmt = (
-                            select(StatisticalProfile)
-                            .where(StatisticalProfile.column_id == tc.column_id)
-                            .order_by(StatisticalProfile.profiled_at.desc())
-                            .limit(1)
-                        )
-                        stat = (ctx.session.execute(stat_stmt)).scalar_one_or_none()
-                        null_ratio = (
-                            stat.null_ratio if stat and stat.null_ratio is not None else 1.0
-                        )
-
-                        col_stmt = select(Column).where(Column.column_id == tc.column_id)
-                        col = (ctx.session.execute(col_stmt)).scalar_one_or_none()
-
-                        if null_ratio < best_null_ratio:
-                            best_null_ratio = null_ratio
-                            best_col = col
-
-                    if best_col:
-                        time_column = best_col.column_name
+            if best_profile:
+                best_col = col_by_id.get(best_profile.column_id)
+                if best_col:
+                    time_column = best_col.column_name
+                    time_profile = best_profile
 
         if not time_column:
             return PhaseResult.success(
@@ -216,48 +225,14 @@ class TemporalSliceAnalysisPhase(BasePhase):
         if isinstance(period_end, str):
             period_end = date.fromisoformat(period_end)
 
-        # Auto-detect from data if not configured
-        if not period_start or not period_end:
-            # Find a typed table that actually has the time column
-            source_table = None
-            for tt in typed_tables:
-                col_check = select(Column).where(
-                    Column.table_id == tt.table_id,
-                    Column.column_name == time_column,
-                )
-                if ctx.session.execute(col_check).scalar_one_or_none():
-                    source_table = tt
-                    break
-
-            if source_table is None:
-                return PhaseResult.success(
-                    outputs={
-                        "message": f"No typed table contains time column '{time_column}'",
-                        "drift_summaries": 0,
-                    },
-                    records_processed=0,
-                    records_created=0,
-                )
-
-            try:
-                range_row = ctx.duckdb_conn.execute(f"""
-                    SELECT MIN(CAST("{time_column}" AS DATE)),
-                           MAX(CAST("{time_column}" AS DATE))
-                    FROM "{source_table.duckdb_path}"
-                    WHERE "{time_column}" IS NOT NULL
-                """).fetchone()
-                if range_row and range_row[0] and range_row[1]:
-                    if not period_start:
-                        period_start = range_row[0]
-                        if isinstance(period_start, str):
-                            period_start = date.fromisoformat(period_start)
-                        period_start = date(period_start.year, period_start.month, 1)
-                    if not period_end:
-                        period_end = range_row[1]
-                        if isinstance(period_end, str):
-                            period_end = date.fromisoformat(period_end)
-            except Exception as e:
-                logger.warning("time_range_detection_failed", error=str(e))
+        # Derive time range from the temporal profile (already computed by temporal phase)
+        if (not period_start or not period_end) and time_profile:
+            if not period_start:
+                ts = time_profile.min_timestamp
+                period_start = date(ts.year, ts.month, 1)
+            if not period_end:
+                ts = time_profile.max_timestamp
+                period_end = ts.date() if isinstance(ts, datetime) else ts
 
         if not period_start:
             period_start = date(date.today().year - 1, 1, 1)
