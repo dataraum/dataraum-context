@@ -8,10 +8,10 @@ from dataraum.analysis.semantic import OntologyLoader
 class TestOntologyLoader:
     """Test OntologyLoader."""
 
-    def test_load_financial_reporting_ontology(self):
-        """Test loading the financial_reporting ontology from config."""
+    def test_load_finance_ontology(self):
+        """Test loading the finance vertical ontology from config."""
         loader = OntologyLoader()
-        ontology = loader.load("financial_reporting")
+        ontology = loader.load("finance")
 
         assert ontology is not None
         assert ontology.name == "financial_reporting"
@@ -19,24 +19,24 @@ class TestOntologyLoader:
         assert len(ontology.concepts) > 0
         assert len(ontology.metrics) > 0
 
-    def test_load_nonexistent_ontology_returns_none(self):
-        """Test that loading a nonexistent ontology returns None."""
+    def test_load_nonexistent_vertical_returns_none(self):
+        """Test that loading a nonexistent vertical returns None."""
         loader = OntologyLoader()
-        ontology = loader.load("nonexistent_ontology")
+        ontology = loader.load("nonexistent_vertical")
 
         assert ontology is None
 
-    def test_list_ontologies(self):
-        """Test listing available ontologies."""
+    def test_list_verticals(self):
+        """Test listing available verticals."""
         loader = OntologyLoader()
-        ontologies = loader.list_ontologies()
+        verticals = loader.list_verticals()
 
-        assert "financial_reporting" in ontologies
+        assert "finance" in verticals
 
     def test_format_concepts_for_prompt(self):
         """Test formatting concepts for LLM prompt."""
         loader = OntologyLoader()
-        ontology = loader.load("financial_reporting")
+        ontology = loader.load("finance")
 
         formatted = loader.format_concepts_for_prompt(ontology)
 
@@ -56,9 +56,9 @@ class TestOntologyLoader:
         loader = OntologyLoader()
 
         # First load
-        ontology1 = loader.load("financial_reporting")
+        ontology1 = loader.load("finance")
         # Second load (should hit cache)
-        ontology2 = loader.load("financial_reporting")
+        ontology2 = loader.load("finance")
 
         # Should be the same object (cached)
         assert ontology1 is ontology2
@@ -68,19 +68,21 @@ class TestOntologyLoader:
         loader = OntologyLoader()
 
         # Load to populate cache
-        ontology1 = loader.load("financial_reporting")
+        ontology1 = loader.load("finance")
         loader.clear_cache()
 
         # Load again (should be new object)
-        ontology2 = loader.load("financial_reporting")
+        ontology2 = loader.load("finance")
 
         # Different objects after cache clear
         assert ontology1 is not ontology2
 
-    def test_custom_ontologies_dir(self, tmp_path: Path) -> None:
-        """Test using a custom ontologies directory."""
-        # Create a test ontology file
-        ontology_file = tmp_path / "test_ontology.yaml"
+    def test_custom_verticals_dir(self, tmp_path: Path) -> None:
+        """Test using a custom verticals directory."""
+        # Create a test vertical with ontology file
+        vertical_dir = tmp_path / "test_vertical"
+        vertical_dir.mkdir()
+        ontology_file = vertical_dir / "ontology.yaml"
         ontology_file.write_text("""
 name: test_ontology
 version: "1.0.0"
@@ -96,8 +98,8 @@ quality_rules: []
 semantic_hints: []
 """)
 
-        loader = OntologyLoader(ontologies_dir=tmp_path)
-        ontology = loader.load("test_ontology")
+        loader = OntologyLoader(verticals_dir=tmp_path)
+        ontology = loader.load("test_vertical")
 
         assert ontology is not None
         assert ontology.name == "test_ontology"
@@ -107,7 +109,7 @@ semantic_hints: []
     def test_concept_properties(self):
         """Test that concept properties are correctly loaded."""
         loader = OntologyLoader()
-        ontology = loader.load("financial_reporting")
+        ontology = loader.load("finance")
 
         assert ontology is not None
         revenue_concept = next((c for c in ontology.concepts if c.name == "revenue"), None)
@@ -121,7 +123,7 @@ semantic_hints: []
     def test_metric_properties(self):
         """Test that metric properties are correctly loaded."""
         loader = OntologyLoader()
-        ontology = loader.load("financial_reporting")
+        ontology = loader.load("finance")
 
         assert ontology is not None
         gross_profit = next((m for m in ontology.metrics if m.name == "gross_profit"), None)

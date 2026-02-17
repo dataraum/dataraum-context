@@ -1,6 +1,6 @@
 """Ontology loading from configuration files.
 
-Loads ontology definitions from config/ontologies/*.yaml files.
+Loads ontology definitions from config/verticals/<vertical>/ontology.yaml.
 Follows the same pattern as PromptRenderer for YAML config loading.
 """
 
@@ -75,35 +75,35 @@ class OntologyDefinition(BaseModel):
 class OntologyLoader:
     """Load ontology definitions from YAML configuration files.
 
-    Loads ontologies from config/ontologies/*.yaml and caches them in memory.
+    Loads ontologies from config/verticals/<vertical>/ontology.yaml.
     """
 
-    def __init__(self, ontologies_dir: Path | None = None):
+    def __init__(self, verticals_dir: Path | None = None):
         """Initialize ontology loader.
 
         Args:
-            ontologies_dir: Directory containing ontology YAML files.
-                          If None, uses config/ontologies/
+            verticals_dir: Root verticals directory.
+                          If None, uses config/verticals/
         """
-        if ontologies_dir is None:
-            ontologies_dir = get_config_dir("ontologies")
+        if verticals_dir is None:
+            verticals_dir = get_config_dir("verticals")
 
-        self.ontologies_dir = ontologies_dir
+        self.verticals_dir = verticals_dir
         self._cache: dict[str, OntologyDefinition] = {}
 
-    def load(self, name: str) -> OntologyDefinition | None:
-        """Load and cache an ontology definition.
+    def load(self, vertical: str) -> OntologyDefinition | None:
+        """Load and cache an ontology definition for a vertical.
 
         Args:
-            name: Ontology name (without .yaml extension)
+            vertical: Vertical name (e.g. 'finance')
 
         Returns:
             Loaded ontology definition, or None if not found
         """
-        if name in self._cache:
-            return self._cache[name]
+        if vertical in self._cache:
+            return self._cache[vertical]
 
-        ontology_path = self.ontologies_dir / f"{name}.yaml"
+        ontology_path = self.verticals_dir / vertical / "ontology.yaml"
         if not ontology_path.exists():
             return None
 
@@ -111,15 +111,15 @@ class OntologyLoader:
             data = yaml.safe_load(f)
 
         ontology = OntologyDefinition(**data)
-        self._cache[name] = ontology
+        self._cache[vertical] = ontology
         return ontology
 
-    def list_ontologies(self) -> list[str]:
-        """List available ontology names."""
-        if not self.ontologies_dir.exists():
+    def list_verticals(self) -> list[str]:
+        """List available verticals with ontology definitions."""
+        if not self.verticals_dir.exists():
             return []
 
-        return [p.stem for p in self.ontologies_dir.glob("*.yaml")]
+        return [p.parent.name for p in self.verticals_dir.glob("*/ontology.yaml")]
 
     def format_concepts_for_prompt(self, ontology: OntologyDefinition | None) -> str:
         """Format ontology concepts for inclusion in LLM prompts.

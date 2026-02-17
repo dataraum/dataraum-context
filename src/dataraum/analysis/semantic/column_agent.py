@@ -58,10 +58,10 @@ class ColumnAnnotationAgent(LLMFeature):
         config: LLMConfig,
         provider: LLMProvider,
         prompt_renderer: PromptRenderer,
-        ontologies_dir: Path | None = None,
+        verticals_dir: Path | None = None,
     ) -> None:
         super().__init__(config, provider, prompt_renderer)
-        self._ontology_loader = OntologyLoader(ontologies_dir)
+        self._ontology_loader = OntologyLoader(verticals_dir)
 
     def annotate(
         self,
@@ -107,8 +107,8 @@ class ColumnAnnotationAgent(LLMFeature):
         # Load ontology
         ontology_def = self._ontology_loader.load(ontology)
         if ontology_def is None:
-            available = self._ontology_loader.list_ontologies()
-            return Result.fail(f"Ontology '{ontology}' not found. Available: {available}")
+            available = self._ontology_loader.list_verticals()
+            return Result.fail(f"Vertical '{ontology}' not found. Available: {available}")
 
         context = {
             "tables_json": json.dumps(tables_json),

@@ -144,6 +144,12 @@ class SlicingPhase(BasePhase):
         # Build context data for the agent
         context_data = self._build_context_data(ctx, unsliced_tables)
 
+        # Pass config constraints so the prompt can reference them
+        context_data["constraints"] = {
+            "max_cardinality": ctx.config.get("max_cardinality", 15),
+            "max_recommendations": ctx.config.get("max_recommendations", 4),
+        }
+
         # Run slicing analysis
         analysis_result = agent.analyze(
             session=ctx.session,
