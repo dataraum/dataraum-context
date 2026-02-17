@@ -188,9 +188,9 @@ def _get_entropy(output_dir: Path, table_name: str | None = None) -> str:
 
     from dataraum.cli.common import get_manager
     from dataraum.entropy.db_models import (
-        EntropyInterpretationRecord,
         EntropySnapshotRecord,
     )
+    from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
     from dataraum.storage import Source
 
     manager = get_manager(output_dir)

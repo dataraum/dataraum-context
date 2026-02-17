@@ -285,12 +285,12 @@ def _load_interpretations(
     """
     from sqlalchemy import select
 
-    from dataraum.entropy.db_models import EntropyInterpretationRecord
     from dataraum.entropy.interpretation import (
         Assumption,
         EntropyInterpretation,
         ResolutionAction,
     )
+    from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
 
     interpretations: dict[str, EntropyInterpretation] = {}
 

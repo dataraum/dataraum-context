@@ -34,6 +34,8 @@ from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.slicing.db_models import SliceDefinition
 from dataraum.analysis.statistics.db_models import (
     StatisticalProfile,
+)
+from dataraum.analysis.statistics.quality_db_models import (
     StatisticalQualityMetrics,
 )
 from dataraum.analysis.temporal_slicing.db_models import ColumnDriftSummary

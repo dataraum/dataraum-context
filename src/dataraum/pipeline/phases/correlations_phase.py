@@ -10,6 +10,8 @@ downstream consumer acts on them.
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import select
 
 from dataraum.analysis.correlation import analyze_correlations
@@ -43,6 +45,12 @@ class CorrelationsPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["correlations", "derived_columns"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.correlation import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all tables already have derived column analysis."""

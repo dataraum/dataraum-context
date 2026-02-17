@@ -114,9 +114,9 @@ class ActionsScreen(Screen[None]):
         from dataraum.entropy.contracts import evaluate_all_contracts
         from dataraum.entropy.core.storage import EntropyRepository
         from dataraum.entropy.db_models import (
-            EntropyInterpretationRecord,
             EntropyObjectRecord,
         )
+        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.storage import Column, Source, Table
 
         manager = get_manager(self.output_dir)

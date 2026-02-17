@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     )
     from dataraum.analysis.statistics.db_models import (
         StatisticalProfile,
+    )
+    from dataraum.analysis.statistics.quality_db_models import (
         StatisticalQualityMetrics,
     )
     from dataraum.analysis.temporal.db_models import TemporalColumnProfile

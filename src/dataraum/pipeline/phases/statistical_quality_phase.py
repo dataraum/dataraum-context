@@ -7,10 +7,12 @@ Runs advanced statistical quality checks on typed data:
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import func, select
 
 from dataraum.analysis.statistics import assess_statistical_quality
-from dataraum.analysis.statistics.db_models import StatisticalQualityMetrics
+from dataraum.analysis.statistics.quality_db_models import StatisticalQualityMetrics
 from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -43,6 +45,12 @@ class StatisticalQualityPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["quality_metrics"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.statistics import quality_db_models
+
+        return [quality_db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all numeric columns already have quality metrics."""

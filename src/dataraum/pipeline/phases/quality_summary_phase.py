@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from types import ModuleType
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
@@ -133,6 +134,12 @@ class QualitySummaryPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["quality_reports", "quality_grades"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.quality_summary import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no slice definitions exist or summaries already generated."""

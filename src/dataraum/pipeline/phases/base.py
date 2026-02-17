@@ -6,6 +6,7 @@ Provides common functionality for all pipeline phases.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from types import ModuleType
 
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 
@@ -45,6 +46,15 @@ class BasePhase(ABC):
     def outputs(self) -> list[str]:
         """List of output keys this phase produces."""
         ...
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        """Modules containing SQLAlchemy models owned by this phase.
+
+        Default: empty. Override to declare ownership.
+        Lazy imports inside the property avoid circular imports at decoration time.
+        """
+        return []
 
     def run(self, ctx: PhaseContext) -> PhaseResult:
         """Execute the phase.

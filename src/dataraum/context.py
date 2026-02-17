@@ -189,9 +189,9 @@ class EntropyAccessor:
         from sqlalchemy import select
 
         from dataraum.entropy.db_models import (
-            EntropyInterpretationRecord,
             EntropySnapshotRecord,
         )
+        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.storage import Source
 
         with self._ctx.manager.session_scope() as session:

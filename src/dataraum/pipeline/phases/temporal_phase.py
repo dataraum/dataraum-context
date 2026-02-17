@@ -11,6 +11,8 @@ Analyzes temporal columns for:
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import func, select
 
 from dataraum.analysis.temporal import TemporalColumnProfile, profile_temporal
@@ -50,6 +52,12 @@ class TemporalPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["temporal_profiles"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.temporal import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no temporal columns or all already profiled."""

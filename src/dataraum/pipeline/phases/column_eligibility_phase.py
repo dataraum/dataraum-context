@@ -6,6 +6,7 @@ Thin orchestrator — business logic lives in analysis/eligibility/evaluator.py.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import ModuleType
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -54,6 +55,12 @@ class ColumnEligibilityPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["eligible", "warned", "dropped"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.eligibility import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all columns already have eligibility records."""
