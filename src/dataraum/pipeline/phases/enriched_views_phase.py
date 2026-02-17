@@ -13,6 +13,7 @@ Post-creation: verifies row count matches fact table. Drops view if grain violat
 from __future__ import annotations
 
 from collections.abc import Sequence
+from types import ModuleType
 from typing import Any
 
 from sqlalchemy import select
@@ -58,6 +59,12 @@ class EnrichedViewsPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["enriched_views"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.views import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if enriched views already exist for all fact tables."""

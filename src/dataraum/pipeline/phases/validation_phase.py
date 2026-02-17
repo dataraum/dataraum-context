@@ -6,6 +6,8 @@ to identify relevant columns and generate appropriate SQL.
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import func, select
 
 from dataraum.analysis.validation import ValidationAgent
@@ -43,6 +45,12 @@ class ValidationPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["validation_results"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.validation import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if validations have already been run for this source."""

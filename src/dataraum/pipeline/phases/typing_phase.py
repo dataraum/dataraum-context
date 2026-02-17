@@ -8,6 +8,8 @@ This phase:
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -52,6 +54,12 @@ class TypingPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["typed_tables", "type_decisions"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.typing import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if typed tables already exist for all raw tables."""

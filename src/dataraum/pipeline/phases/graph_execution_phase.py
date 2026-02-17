@@ -7,6 +7,7 @@ inferring column mappings from semantic annotations.
 
 from __future__ import annotations
 
+from types import ModuleType
 from typing import Any
 
 from sqlalchemy import select
@@ -59,6 +60,12 @@ class GraphExecutionPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["metrics_calculated", "metrics_skipped", "execution_context"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.graphs import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no typed tables found."""

@@ -150,10 +150,10 @@ class EntropyScreen(Screen[None]):
 
         from dataraum.entropy.db_models import (
             CompoundRiskRecord,
-            EntropyInterpretationRecord,
             EntropyObjectRecord,
             EntropySnapshotRecord,
         )
+        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.storage import Column, Source, Table
 
         manager = get_manager(self.output_dir)

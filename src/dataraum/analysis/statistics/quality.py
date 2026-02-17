@@ -26,13 +26,13 @@ from scipy import stats
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from dataraum.analysis.statistics.db_models import (
-    StatisticalQualityMetrics as DBStatisticalQualityMetrics,
-)
 from dataraum.analysis.statistics.models import (
     BenfordAnalysis,
     OutlierDetection,
     StatisticalQualityResult,
+)
+from dataraum.analysis.statistics.quality_db_models import (
+    StatisticalQualityMetrics as DBStatisticalQualityMetrics,
 )
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import ColumnRef, Result

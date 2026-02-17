@@ -12,6 +12,8 @@ unit detection, and reviewing low-confidence annotations.
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import func, select
 
 from dataraum.analysis.relationships.utils import load_relationship_candidates_for_semantic
@@ -56,6 +58,12 @@ class SemanticPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["annotations", "entities", "confirmed_relationships"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.semantic import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all columns already have semantic annotations."""

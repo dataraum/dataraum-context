@@ -8,6 +8,7 @@ LLM-powered analysis to identify optimal data slicing dimensions:
 
 from __future__ import annotations
 
+from types import ModuleType
 from typing import Any
 
 from sqlalchemy import select
@@ -47,6 +48,12 @@ class SlicingPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["slice_definitions", "slice_queries"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.slicing import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all tables already have slice definitions."""

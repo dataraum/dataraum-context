@@ -8,6 +8,7 @@ LLM-powered interpretation of entropy metrics to generate:
 
 from __future__ import annotations
 
+from types import ModuleType
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -22,8 +23,9 @@ from dataraum.entropy import (
 )
 from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.db_models import EntropyInterpretationRecord, EntropyObjectRecord
+from dataraum.entropy.db_models import EntropyObjectRecord
 from dataraum.entropy.interpretation import TableInterpretationInput
+from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -58,6 +60,12 @@ class EntropyInterpretationPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["interpretations", "assumptions", "resolution_actions"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.entropy import interpretation_db_models
+
+        return [interpretation_db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no entropy records exist or all columns already have interpretations."""

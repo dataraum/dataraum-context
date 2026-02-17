@@ -80,9 +80,9 @@ def _entropy_json(output_dir: Path, table_filter: str | None, status_filter: str
     from sqlalchemy import select
 
     from dataraum.entropy.db_models import (
-        EntropyInterpretationRecord,
         EntropySnapshotRecord,
     )
+    from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
     from dataraum.storage import Source
 
     manager = get_manager(output_dir)
@@ -166,10 +166,10 @@ def _entropy_rich(
     from sqlalchemy import select
 
     from dataraum.entropy.db_models import (
-        EntropyInterpretationRecord,
         EntropyObjectRecord,
         EntropySnapshotRecord,
     )
+    from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
     from dataraum.storage import Source
 
     manager = get_manager(output_dir)

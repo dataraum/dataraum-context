@@ -53,6 +53,22 @@ def get_phase_class(name: str) -> type[BasePhase] | None:
     return get_registry().get(name)
 
 
+def import_all_phase_models() -> None:
+    """Import all db_model modules declared by registered phases.
+
+    Accessing instance.db_models triggers lazy imports inside each phase's
+    property, which registers the models with Base.metadata. No importlib needed.
+    """
+    registry = get_registry()
+    seen: set[str] = set()
+    for cls in registry.values():
+        instance = cls()
+        for module in instance.db_models:
+            mod_name = module.__name__
+            if mod_name not in seen:
+                seen.add(mod_name)
+
+
 def get_all_dependencies(phase_name: str) -> set[str]:
     """Get all transitive dependencies for a phase.
 

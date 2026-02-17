@@ -98,7 +98,8 @@ class ContractsScreen(Screen[None]):
             get_contract,
         )
         from dataraum.entropy.core.storage import EntropyRepository
-        from dataraum.entropy.db_models import EntropyInterpretationRecord, EntropyObjectRecord
+        from dataraum.entropy.db_models import EntropyObjectRecord
+        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.storage import Column, Source, Table
 
         manager = get_manager(self.output_dir)

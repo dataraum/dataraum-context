@@ -7,6 +7,8 @@ and identifies cycles based on entity flows, status columns, and relationships.
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import func, select
 
 from dataraum.analysis.cycles import BusinessCycleAgent
@@ -47,6 +49,12 @@ class BusinessCyclesPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["detected_cycles", "business_processes"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.cycles import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if business cycles have already been detected."""

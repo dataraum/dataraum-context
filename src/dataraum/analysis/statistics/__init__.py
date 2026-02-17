@@ -15,7 +15,6 @@ Statistical Quality (moved from quality/ in Phase 9A):
 
 from dataraum.analysis.statistics.db_models import (
     StatisticalProfile,
-    StatisticalQualityMetrics,
 )
 from dataraum.analysis.statistics.models import (
     BenfordAnalysis,
@@ -34,6 +33,9 @@ from dataraum.analysis.statistics.quality import (
     check_benford_law,
     detect_outliers_iqr,
     detect_outliers_isolation_forest,
+)
+from dataraum.analysis.statistics.quality_db_models import (
+    StatisticalQualityMetrics,
 )
 
 __all__ = [

@@ -226,6 +226,8 @@ def build_execution_context(
     from dataraum.analysis.slicing.db_models import SliceDefinition
     from dataraum.analysis.statistics.db_models import (
         StatisticalProfile,
+    )
+    from dataraum.analysis.statistics.quality_db_models import (
         StatisticalQualityMetrics,
     )
     from dataraum.analysis.temporal import TemporalColumnProfile

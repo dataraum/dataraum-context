@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from types import ModuleType
 
 from sqlalchemy import select
 
@@ -68,6 +69,12 @@ class TemporalSliceAnalysisPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["drift_summaries", "period_analyses"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.temporal_slicing import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no slice definitions or no temporal columns."""

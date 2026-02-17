@@ -7,6 +7,7 @@ Runs detectors to quantify uncertainty in each column and table.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from types import ModuleType
 from typing import Any
 
 from sqlalchemy import func, select
@@ -15,7 +16,8 @@ from dataraum.analysis.correlation.db_models import DerivedColumn
 from dataraum.analysis.quality_summary.db_models import ColumnQualityReport, ColumnSliceProfile
 from dataraum.analysis.relationships.db_models import Relationship
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
-from dataraum.analysis.statistics.db_models import StatisticalProfile, StatisticalQualityMetrics
+from dataraum.analysis.statistics.db_models import StatisticalProfile
+from dataraum.analysis.statistics.quality_db_models import StatisticalQualityMetrics
 from dataraum.analysis.temporal_slicing.db_models import ColumnDriftSummary
 from dataraum.analysis.typing.db_models import TypeCandidate, TypeDecision
 from dataraum.core.logging import get_logger
@@ -72,6 +74,12 @@ class EntropyPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["entropy_profiles", "compound_risks"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.entropy import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all columns already have entropy profiles."""

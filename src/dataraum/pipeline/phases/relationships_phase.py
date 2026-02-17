@@ -9,6 +9,8 @@ Detects relationships between typed tables:
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import func, select
 
 from dataraum.analysis.relationships import detect_relationships
@@ -46,6 +48,12 @@ class RelationshipsPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["relationship_candidates"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.relationships import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if relationships already detected for this source."""

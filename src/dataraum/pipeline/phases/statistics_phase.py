@@ -11,6 +11,8 @@ Computes statistical profiles for typed tables:
 
 from __future__ import annotations
 
+from types import ModuleType
+
 from sqlalchemy import select
 
 from dataraum.analysis.statistics import profile_statistics
@@ -44,6 +46,12 @@ class StatisticsPhase(BasePhase):
     @property
     def outputs(self) -> list[str]:
         return ["statistical_profiles"]
+
+    @property
+    def db_models(self) -> list[ModuleType]:
+        from dataraum.analysis.statistics import db_models
+
+        return [db_models]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if all typed tables already have profiles."""
