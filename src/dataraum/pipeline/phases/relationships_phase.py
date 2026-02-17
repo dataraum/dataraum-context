@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 
 from dataraum.analysis.relationships import detect_relationships
 from dataraum.analysis.relationships.db_models import Relationship
-from dataraum.core.config import load_yaml_config
+from dataraum.core.config import load_phase_config
 from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -103,8 +103,11 @@ class RelationshipsPhase(BasePhase):
 
         table_ids = [t.table_id for t in typed_tables]
 
-        # Configuration from YAML
-        config = load_yaml_config("system/relationships.yaml")
+        # Configuration from phase config (fallback to file for standalone usage)
+        if "min_confidence" in ctx.config:
+            config = ctx.config
+        else:
+            config = load_phase_config("relationships")
         min_confidence = config["min_confidence"]
         sample_percent = config["sample_percent"]
 

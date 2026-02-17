@@ -142,7 +142,7 @@ quality_summary:
   variance_filter: {...}  # See quality_summary spec
 ```
 
-Config is loaded via `load_pipeline_config()`, flattened via `flatten_pipeline_config()`, and passed as `run_config` dict to all phases via `PhaseContext.config`.
+Config is loaded by convention: `load_pipeline_config()` reads orchestrator settings from `config/pipeline.yaml`, and `load_phase_config(name)` reads per-phase config from `config/phases/<name>.yaml`. Each phase receives its own scoped config via `PhaseContext.config`.
 
 ## Consumers
 

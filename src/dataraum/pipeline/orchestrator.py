@@ -106,6 +106,8 @@ class PipelineConfig:
     max_parallel: int = 4
     fail_fast: bool = True
     skip_completed: bool = True
+    max_retries: int = 2
+    backoff_base: float = 2.0
 
 
 @dataclass
@@ -158,7 +160,8 @@ class Pipeline:
         source_id: str,
         table_ids: list[str] | None = None,
         target_phase: str | None = None,
-        run_config: dict[str, Any] | None = None,
+        phase_configs: dict[str, dict[str, Any]] | None = None,
+        runtime_config: dict[str, Any] | None = None,
         run_id: str | None = None,
     ) -> dict[str, PhaseResult]:
         """Run the pipeline.
@@ -172,18 +175,31 @@ class Pipeline:
             source_id: Source identifier
             table_ids: Optional list of table IDs to process
             target_phase: Optional target phase (runs phase + dependencies)
-            run_config: Optional configuration overrides
+            phase_configs: Per-phase config dicts keyed by phase name.
+                Each phase gets its own scoped config from this mapping.
+            runtime_config: Runtime overrides (source_path, source_name)
+                merged into every phase's config.
             run_id: Optional run ID (generated if not provided)
 
         Returns:
             Dict mapping phase names to their results
         """
+        # Store phase configs for use in _execute_phase
+        self._phase_configs = phase_configs or {}
+        self._runtime_config = runtime_config or {}
+
         # Reset state
         self._completed = set()
         self._running = set()
         self._failed = set()
         self._skipped = set()
         self._outputs = {}
+
+        # Build a serializable record of the full config for the DB
+        stored_config = {
+            "phase_configs": self._phase_configs,
+            "runtime_config": self._runtime_config,
+        }
 
         # Create pipeline run record (needs its own session)
         # Generate run_id if not provided
@@ -194,7 +210,7 @@ class Pipeline:
                 run_id=run_id,
                 source_id=source_id,
                 target_phase=target_phase,
-                config=run_config or {},
+                config=stored_config,
             )
             session.add(run)
 
@@ -232,7 +248,6 @@ class Pipeline:
                                 source_id,
                                 table_ids or [],
                                 run_id,
-                                run_config or {},
                                 self._outputs.copy(),
                             )
                             active_futures[future] = name
@@ -376,7 +391,6 @@ class Pipeline:
         source_id: str,
         table_ids: list[str],
         run_id: str,
-        run_config: dict[str, Any],
         previous_outputs: dict[str, dict[str, Any]],
     ) -> PhaseResult:
         """Run a single phase with retry on transient SQLite errors.
@@ -391,14 +405,13 @@ class Pipeline:
             source_id: Source identifier
             table_ids: List of table IDs to process
             run_id: Pipeline run ID
-            run_config: Runtime configuration
             previous_outputs: Outputs from previous phases
 
         Returns:
             PhaseResult from the phase execution
         """
-        max_retries = run_config.get("max_retries", 2)
-        backoff_base = run_config.get("backoff_base", 2.0)
+        max_retries = self.config.max_retries
+        backoff_base = self.config.backoff_base
         for attempt in range(max_retries + 1):
             try:
                 return self._execute_phase(
@@ -407,7 +420,6 @@ class Pipeline:
                     source_id,
                     table_ids,
                     run_id,
-                    run_config,
                     previous_outputs,
                 )
             except OperationalError as e:
@@ -431,7 +443,6 @@ class Pipeline:
         source_id: str,
         table_ids: list[str],
         run_id: str,
-        run_config: dict[str, Any],
         previous_outputs: dict[str, dict[str, Any]],
     ) -> PhaseResult:
         """Execute a single phase in its own thread with its own session.
@@ -445,7 +456,6 @@ class Pipeline:
             source_id: Source identifier
             table_ids: List of table IDs to process
             run_id: Pipeline run ID
-            run_config: Runtime configuration
             previous_outputs: Outputs from previous phases
 
         Returns:
@@ -469,6 +479,10 @@ class Pipeline:
             # DuckDB cursors are thread-safe for reads
             with manager.session_scope() as session:
                 with manager.duckdb_cursor() as cursor:
+                    # Build scoped config: phase-specific + runtime overrides
+                    phase_section = self._phase_configs.get(phase_name, {})
+                    scoped_config = {**phase_section, **self._runtime_config}
+
                     # Build context with this phase's session and cursor
                     ctx = PhaseContext(
                         session=session,
@@ -476,7 +490,7 @@ class Pipeline:
                         source_id=source_id,
                         table_ids=table_ids,
                         previous_outputs=previous_outputs,
-                        config=run_config,
+                        config=scoped_config,
                         session_factory=manager.session_scope,
                         manager=manager,
                     )
@@ -668,7 +682,8 @@ def run_pipeline(
     table_ids: list[str] | None = None,
     target_phase: str | None = None,
     config: PipelineConfig | None = None,
-    run_config: dict[str, Any] | None = None,
+    phase_configs: dict[str, dict[str, Any]] | None = None,
+    runtime_config: dict[str, Any] | None = None,
     run_id: str | None = None,
 ) -> dict[str, PhaseResult]:
     """Run the pipeline.
@@ -681,7 +696,8 @@ def run_pipeline(
         table_ids: Optional list of table IDs
         target_phase: Optional target phase (runs phase + dependencies)
         config: Pipeline configuration
-        run_config: Runtime configuration overrides
+        phase_configs: Per-phase config dicts keyed by phase name
+        runtime_config: Runtime overrides merged into every phase's config
         run_id: Optional run ID (generated if not provided)
 
     Returns:
@@ -696,6 +712,7 @@ def run_pipeline(
         source_id=source_id,
         table_ids=table_ids,
         target_phase=target_phase,
-        run_config=run_config,
+        phase_configs=phase_configs,
+        runtime_config=runtime_config,
         run_id=run_id,
     )

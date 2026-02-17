@@ -15,7 +15,6 @@ from enum import Enum
 from typing import Any
 
 from dataraum.analysis.quality_summary.models import AggregatedColumnData
-from dataraum.core.config import load_yaml_config
 from dataraum.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -27,7 +26,9 @@ def _load_config() -> dict[str, Any]:
     """Load quality_summary config from YAML (cached)."""
     global _CONFIG_CACHE
     if _CONFIG_CACHE is None:
-        _CONFIG_CACHE = load_yaml_config("system/quality_summary.yaml")
+        from dataraum.core.config import load_phase_config
+
+        _CONFIG_CACHE = load_phase_config("quality_summary")
     return _CONFIG_CACHE
 
 
@@ -83,7 +84,7 @@ class SliceVarianceMetrics:
 class SliceFilterConfig:
     """Configuration for slice variance thresholds.
 
-    Loaded from config/system/quality_summary.yaml under variance_filter.
+    Loaded from config/phases/quality_summary.yaml under variance_filter.
     """
 
     # Null ratio spread threshold (10% = field is conditionally populated)
@@ -109,9 +110,17 @@ class SliceFilterConfig:
     enabled: bool = True
 
 
-def get_filter_config() -> SliceFilterConfig:
-    """Load filter config from system/quality_summary.yaml."""
-    cfg = _load_config()
+def get_filter_config(config_dict: dict[str, Any] | None = None) -> SliceFilterConfig:
+    """Load filter config.
+
+    Args:
+        config_dict: Pre-loaded config dict (from ctx.config). If None or missing
+            'variance_filter' key, loads from config file.
+    """
+    if config_dict is not None and "variance_filter" in config_dict:
+        cfg = config_dict
+    else:
+        cfg = _load_config()
     vf = cfg.get("variance_filter", {})
     return SliceFilterConfig(
         null_spread_threshold=vf.get("null_spread_threshold", 0.10),

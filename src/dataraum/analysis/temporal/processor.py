@@ -207,8 +207,8 @@ def profile_temporal(
         table_id: Table ID to profile
         duckdb_conn: DuckDB connection
         session: SQLAlchemy session
-        config: Temporal config dict (from config/system/temporal.yaml).
-            If None, loads from config/system/temporal.yaml.
+        config: Temporal config dict (from config/phases/temporal.yaml).
+            If None, loads from config/phases/temporal.yaml.
 
     Returns:
         Result containing TemporalProfileResult with all column profiles
@@ -216,7 +216,7 @@ def profile_temporal(
     try:
         # Load config if not provided
         if config is None:
-            config = load_yaml_config("system/temporal.yaml")
+            config = load_yaml_config("phases/temporal.yaml")
 
         max_workers = config["processing"]["max_workers"]
         # Get table from metadata

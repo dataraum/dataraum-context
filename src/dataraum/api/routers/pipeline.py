@@ -19,6 +19,7 @@ from dataraum.api.schemas import (
     PipelineRunResponse,
     PipelineStatusResponse,
 )
+from dataraum.core.config import load_phase_config, load_pipeline_config
 from dataraum.core.connections import get_connection_manager
 from dataraum.pipeline.db_models import PhaseCheckpoint, PipelineRun
 from dataraum.pipeline.orchestrator import PipelineConfig, run_pipeline
@@ -391,11 +392,17 @@ def _run_pipeline_with_cleanup(
     global _current_run_id
 
     try:
+        # Load per-phase configs by convention
+        pipeline_yaml = load_pipeline_config()
+        active_phases = pipeline_yaml.get("phases", [])
+        phase_configs = {name: load_phase_config(name) for name in active_phases}
+
         return run_pipeline(
             manager=manager,
             source_id=source_id,
             target_phase=target_phase,
             config=config,
+            phase_configs=phase_configs,
             run_id=run_id,
         )
     finally:

@@ -105,7 +105,7 @@ class TypingPhase(BasePhase):
         if not raw_table_ids:
             return PhaseResult.failed("No raw tables to process")
 
-        typing_config = load_typing_config()
+        typing_config = load_typing_config(ctx.config)
         min_confidence = typing_config["min_confidence"]
 
         typed_tables: list[str] = []

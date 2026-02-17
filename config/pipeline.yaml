@@ -1,0 +1,45 @@
+# Pipeline Configuration
+#
+# Orchestrator settings only. Per-phase config lives in config/phases/<name>.yaml.
+
+version: "1.0.0"
+
+# Active phases (display order; actual execution order determined by dependencies).
+# Comment out a phase to disable it. Dependencies are defined in the phase classes.
+phases:
+  - import
+  - typing
+  - statistics
+  - column_eligibility
+  - statistical_quality
+  - relationships
+  - correlations
+  - temporal
+  - semantic
+  - enriched_views
+  - slicing
+  - slice_analysis
+  - temporal_slice_analysis
+  - quality_summary
+  - entropy
+  - entropy_interpretation
+  # De-configured phases (uncomment to enable):
+  # - cross_table_quality
+  # - validation
+  # - business_cycles
+  # - graph_execution
+
+# Pipeline orchestrator settings
+pipeline:
+  # Maximum phases to run in parallel (ThreadPoolExecutor workers)
+  max_parallel: 4
+  # Stop pipeline on first phase failure
+  fail_fast: true
+  # Skip phases that already have completed checkpoints
+  skip_completed: true
+
+  # Retry configuration for transient SQLite contention errors
+  retry:
+    max_retries: 2
+    # Exponential backoff: backoff_base * (2^attempt) seconds
+    backoff_base: 2.0

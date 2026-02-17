@@ -1,7 +1,0 @@
-# Temporal slice analysis configuration
-# Used by analysis/temporal_slicing/
-
-# --- Default thresholds for TemporalSliceConfig ---
-# These are defaults; callers can override per-analysis via TemporalSliceConfig fields.
-defaults:
-  drift_threshold: 0.1              # JS divergence threshold

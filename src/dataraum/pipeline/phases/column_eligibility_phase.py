@@ -92,7 +92,7 @@ class ColumnEligibilityPhase(BasePhase):
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
         """Run column eligibility evaluation."""
-        config = load_eligibility_config()
+        config = load_eligibility_config(ctx.config)
 
         # Get typed tables
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)

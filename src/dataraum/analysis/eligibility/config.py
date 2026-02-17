@@ -70,13 +70,19 @@ class EligibilityConfig:
         )
 
 
-def load_eligibility_config() -> EligibilityConfig:
-    """Load eligibility configuration from YAML.
+def load_eligibility_config(config_dict: dict[str, Any] | None = None) -> EligibilityConfig:
+    """Load eligibility configuration.
+
+    Args:
+        config_dict: Pre-loaded config dict (from ctx.config in pipeline).
+            If None or missing required keys, loads from config file.
 
     Returns:
         EligibilityConfig instance
     """
-    from dataraum.core.config import load_yaml_config
+    if config_dict is not None and "thresholds" in config_dict:
+        return EligibilityConfig.from_dict(config_dict)
+    from dataraum.core.config import load_phase_config
 
-    data = load_yaml_config("system/column_eligibility.yaml")
+    data = load_phase_config("column_eligibility")
     return EligibilityConfig.from_dict(data)

@@ -1,7 +1,7 @@
 """Pattern detection for type inference.
 
 This module provides value-based pattern matching for type inference.
-Patterns are defined in config/system/typing.yaml.
+Patterns are defined in config/phases/typing.yaml.
 
 IMPORTANT: Type inference is based ONLY on value patterns, NOT column names.
 Column names are semantically meaningful but fragile for type inference
@@ -132,22 +132,31 @@ class PatternConfig:
         return matches
 
 
-def load_typing_config() -> dict[str, Any]:
-    """Load the full typing configuration from YAML.
+def load_typing_config(config_dict: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Load the full typing configuration.
+
+    Args:
+        config_dict: Pre-loaded config dict (from ctx.config in pipeline).
+            If None or missing required keys, loads from config file.
 
     Returns:
         Dict with typing config (patterns + settings like min_confidence)
     """
-    from dataraum.core.config import load_yaml_config
+    if config_dict is not None and "min_confidence" in config_dict:
+        return config_dict
+    from dataraum.core.config import load_phase_config
 
-    return load_yaml_config("system/typing.yaml")
+    return load_phase_config("typing")
 
 
-def load_pattern_config() -> PatternConfig:
-    """Load pattern configuration from YAML.
+def load_pattern_config(config_dict: dict[str, Any] | None = None) -> PatternConfig:
+    """Load pattern configuration.
+
+    Args:
+        config_dict: Pre-loaded config dict. If None, loads from file.
 
     Returns:
         PatternConfig instance
     """
-    config_dict = load_typing_config()
-    return PatternConfig(config_dict)
+    resolved = load_typing_config(config_dict)
+    return PatternConfig(resolved)

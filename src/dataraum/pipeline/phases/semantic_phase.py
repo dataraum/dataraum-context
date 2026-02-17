@@ -169,8 +169,7 @@ class SemanticPhase(BasePhase):
         ontology = ctx.config.get("ontology")
         if not ontology:
             return PhaseResult.failed(
-                "No ontology configured. Set 'ontology' in config/system/pipeline.yaml "
-                "under the 'semantic' section."
+                "No ontology configured. Set 'ontology' in config/phases/semantic.yaml."
             )
 
         # ========================================================

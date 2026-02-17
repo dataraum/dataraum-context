@@ -39,7 +39,6 @@ from dataraum.analysis.statistics.quality_db_models import (
     StatisticalQualityMetrics,
 )
 from dataraum.analysis.temporal_slicing.db_models import ColumnDriftSummary
-from dataraum.core.config import load_yaml_config
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
 from dataraum.storage import Column, Table
@@ -57,7 +56,9 @@ def _load_config() -> dict[str, Any]:
     """Load quality_summary config from YAML (cached)."""
     global _CONFIG_CACHE
     if _CONFIG_CACHE is None:
-        _CONFIG_CACHE = load_yaml_config("system/quality_summary.yaml")
+        from dataraum.core.config import load_phase_config
+
+        _CONFIG_CACHE = load_phase_config("quality_summary")
     return _CONFIG_CACHE
 
 
