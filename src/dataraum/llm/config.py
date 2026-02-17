@@ -70,7 +70,6 @@ class LLMConfig(BaseModel):
     features: LLMFeatures
     limits: LLMLimits
     privacy: LLMPrivacy
-    fallback: dict[str, str] = Field(default_factory=dict)
 
 
 def load_llm_config(config_path: Path | None = None) -> LLMConfig:

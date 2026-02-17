@@ -105,10 +105,6 @@ features:
       Repair SQL that failed validation or execution by sending
       the error back to the LLM for correction.
 
-# Fallback when LLM disabled or unavailable
-fallback:
-  semantic_analysis: manual_only # Require config/semantic_overrides.yaml
-
 # Cost and rate controls
 limits:
   max_input_tokens_per_request: 16000
