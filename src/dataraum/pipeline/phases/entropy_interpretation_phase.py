@@ -355,17 +355,13 @@ class EntropyInterpretationPhase(BasePhase):
                 "source_id": ctx.source_id,
             }
 
-        # Get batch size from LLM feature config or pipeline config
+        # Get batch size from LLM feature config or phase config
         feature_batch_size = getattr(config.features.entropy_interpretation, "batch_size", None)
-        batch_size = feature_batch_size or ctx.config.get(
-            "batch_size", ctx.config.get("interpretation_batch_size", 10)
-        )
+        batch_size = feature_batch_size or ctx.config.get("batch_size", 10)
 
         # Get max parallel batches (default 4 for rate limiting)
         max_parallel = getattr(config.features.entropy_interpretation, "max_parallel", None)
-        max_parallel = max_parallel or ctx.config.get(
-            "workers", ctx.config.get("interpretation_max_parallel", 4)
-        )
+        max_parallel = max_parallel or ctx.config.get("workers", 4)
 
         # Split inputs into batches
         batches = []

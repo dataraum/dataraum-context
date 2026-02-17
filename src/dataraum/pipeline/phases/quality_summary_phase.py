@@ -221,10 +221,8 @@ class QualitySummaryPhase(BasePhase):
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
         # Get settings from phase config
-        skip_existing = ctx.config.get(
-            "skip_existing", ctx.config.get("skip_existing_summaries", True)
-        )
-        max_workers = ctx.config.get("workers", ctx.config.get("quality_summary_workers", 4))
+        skip_existing = ctx.config.get("skip_existing", True)
+        max_workers = ctx.config.get("workers", 4)
 
         # Process slice definitions
         total_reports = 0

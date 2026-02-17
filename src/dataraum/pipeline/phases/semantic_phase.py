@@ -165,11 +165,11 @@ class SemanticPhase(BasePhase):
 
         renderer = PromptRenderer()
 
-        # Get ontology from pipeline config
-        ontology = ctx.config.get("ontology")
+        # Get vertical from pipeline config
+        ontology = ctx.config.get("vertical")
         if not ontology:
             return PhaseResult.failed(
-                "No ontology configured. Set 'ontology' in config/phases/semantic.yaml."
+                "No vertical configured. Set 'vertical' in config/phases/semantic.yaml."
             )
 
         # ========================================================

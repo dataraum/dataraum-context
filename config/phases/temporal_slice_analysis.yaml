@@ -5,8 +5,5 @@ time_column: "Transaction date"
 # Time granularity: daily, weekly, monthly
 time_grain: monthly
 
-# Bottleneck distance threshold for topology drift detection
-bottleneck_threshold: 0.5
-
 # JS divergence threshold for drift detection
 drift_threshold: 0.1

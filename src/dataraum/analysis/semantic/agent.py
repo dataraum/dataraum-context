@@ -84,7 +84,7 @@ class SemanticAgent(LLMFeature):
         config: LLMConfig,
         provider: LLMProvider,
         prompt_renderer: PromptRenderer,
-        ontologies_dir: Path | None = None,
+        verticals_dir: Path | None = None,
     ) -> None:
         """Initialize semantic agent.
 
@@ -92,11 +92,11 @@ class SemanticAgent(LLMFeature):
             config: LLM configuration
             provider: LLM provider instance
             prompt_renderer: Prompt template renderer
-            ontologies_dir: Directory containing ontology YAML files.
-                          If None, uses config/ontologies/
+            verticals_dir: Root verticals directory.
+                          If None, uses config/verticals/
         """
         super().__init__(config, provider, prompt_renderer)
-        self._ontology_loader = OntologyLoader(ontologies_dir)
+        self._ontology_loader = OntologyLoader(verticals_dir)
 
     def analyze(
         self,
@@ -157,11 +157,11 @@ class SemanticAgent(LLMFeature):
 
         # Ontology is required for business_concept mapping
         if ontology_def is None:
-            available = self._ontology_loader.list_ontologies()
+            available = self._ontology_loader.list_verticals()
             return Result.fail(
-                f"Ontology '{ontology}' not found. "
-                f"Available ontologies: {available}. "
-                f"Create config/ontologies/{ontology}.yaml or use an existing ontology."
+                f"Vertical '{ontology}' not found. "
+                f"Available verticals: {available}. "
+                f"Create config/verticals/{ontology}/ontology.yaml or use an existing vertical."
             )
 
         # Compute graph topology from relationship candidates
