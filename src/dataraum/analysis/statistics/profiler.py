@@ -248,6 +248,7 @@ def profile_statistics(
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: Session,
     max_workers: int = 4,
+    config: dict[str, Any] | None = None,
 ) -> Result[StatisticsProfileResult]:
     """Profile typed data to compute all row-based statistics.
 
@@ -275,7 +276,10 @@ def profile_statistics(
         Result containing StatisticsProfileResult
     """
     start_time = time.time()
-    stats_config = load_statistics_config()
+    if config is not None and "top_k_values" in config:
+        stats_config = config
+    else:
+        stats_config = load_statistics_config()
 
     try:
         # session.get() checks the identity map first, so pending objects
@@ -414,6 +418,6 @@ def load_statistics_config() -> dict[str, Any]:
     Returns:
         Dict with statistics config (top_k_values, etc.)
     """
-    from dataraum.core.config import load_yaml_config
+    from dataraum.core.config import load_phase_config
 
-    return load_yaml_config("system/statistics.yaml")
+    return load_phase_config("statistics")

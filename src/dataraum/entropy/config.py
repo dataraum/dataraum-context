@@ -22,7 +22,7 @@ from dataraum.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-ENTROPY_THRESHOLDS_CONFIG = "system/entropy/thresholds.yaml"
+ENTROPY_THRESHOLDS_CONFIG = "entropy/thresholds.yaml"
 
 
 @dataclass
@@ -217,17 +217,26 @@ def _parse_config(raw: dict[str, Any]) -> EntropyConfig:
     return config
 
 
-def get_entropy_config(config_path: Path | None = None) -> EntropyConfig:
+def get_entropy_config(
+    config_path: Path | None = None,
+    config_dict: dict[str, Any] | None = None,
+) -> EntropyConfig:
     """Get entropy configuration, using cache if available.
 
     Args:
         config_path: Optional absolute path to override default config location.
                     If different from cached path, reloads config.
+        config_dict: Optional pre-loaded config dict (from ctx.config in pipeline).
+                    If provided with required keys, parsed directly (no caching).
 
     Returns:
         Cached or newly loaded EntropyConfig.
     """
     global _config_cache, _config_path_cache
+
+    # If a config dict is provided with entropy-specific keys, use it directly
+    if config_dict is not None and "composite_weights" in config_dict:
+        return _parse_config(config_dict)
 
     # Resolve path: explicit arg or central config
     if config_path is not None:

@@ -134,6 +134,7 @@ class StatisticsPhase(BasePhase):
                 table_id=typed_table.table_id,
                 duckdb_conn=ctx.duckdb_conn,
                 session=ctx.session,
+                config=ctx.config,
             )
 
             if not stats_result.success:

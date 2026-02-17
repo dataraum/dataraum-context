@@ -51,5 +51,5 @@ def load_null_value_config() -> NullValueConfig:
     Returns:
         NullValueConfig instance
     """
-    config_dict = load_yaml_config("system/null_values.yaml")
+    config_dict = load_yaml_config("null_values.yaml")
     return NullValueConfig(config_dict)

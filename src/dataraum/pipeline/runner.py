@@ -30,10 +30,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import yaml
 from sqlalchemy import select
 
-from dataraum.core.config import get_config_file
+from dataraum.core.config import load_phase_config, load_pipeline_config
 from dataraum.core.connections import ConnectionConfig, ConnectionManager
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
@@ -43,54 +42,6 @@ from dataraum.pipeline.orchestrator import Pipeline, PipelineConfig, get_pipelin
 from dataraum.storage import Source
 
 logger = get_logger(__name__)
-
-
-def load_pipeline_config() -> dict[str, Any]:
-    """Load pipeline configuration from YAML file.
-
-    Returns:
-        Dict with pipeline configuration.
-
-    Raises:
-        FileNotFoundError: If config/system/pipeline.yaml is missing.
-    """
-    config_path = get_config_file("system/pipeline.yaml")
-
-    with open(config_path) as f:
-        config = yaml.safe_load(f) or {}
-    logger.info("pipeline_config_loaded", path=str(config_path))
-    return config
-
-
-def flatten_pipeline_config(config: dict[str, Any]) -> dict[str, Any]:
-    """Flatten nested pipeline config for phase access.
-
-    Converts:
-        temporal_slice_analysis:
-          time_column: "Belegdatum"
-          time_grain: monthly
-
-    To:
-        time_column: "Belegdatum"
-        time_grain: monthly
-
-    Phase-specific settings override general settings.
-    """
-    flat: dict[str, Any] = {}
-
-    # First, add any top-level non-dict values
-    for key, value in config.items():
-        if not isinstance(value, dict):
-            flat[key] = value
-
-    # Then merge nested sections (phase-specific configs)
-    for _section_name, section_config in config.items():
-        if isinstance(section_config, dict):
-            for key, value in section_config.items():
-                # Phase-specific overrides general
-                flat[key] = value
-
-    return flat
 
 
 @dataclass
@@ -216,10 +167,13 @@ def create_pipeline(config: RunConfig, pipeline_yaml: dict[str, Any] | None = No
         pipeline_yaml = load_pipeline_config()
 
     pcfg = pipeline_yaml.get("pipeline", {})
+    retry_cfg = pcfg.get("retry", {})
     pipeline_config = PipelineConfig(
         skip_completed=pcfg.get("skip_completed", True),
         fail_fast=pcfg.get("fail_fast", True),
         max_parallel=pcfg.get("max_parallel", 4),
+        max_retries=retry_cfg.get("max_retries", 2),
+        backoff_base=retry_cfg.get("backoff_base", 2.0),
     )
 
     # Active phases from YAML config (or all registered if not specified)
@@ -287,11 +241,12 @@ def run(config: RunConfig) -> Result[RunResult]:
         # Create pipeline with YAML-loaded settings
         pipeline = create_pipeline(config, pipeline_yaml=pipeline_yaml_config)
 
-        flat_config = flatten_pipeline_config(pipeline_yaml_config)
+        # Load per-phase configs by convention
+        active_phases = pipeline_yaml_config.get("phases", [])
+        phase_configs = {name: load_phase_config(name) for name in active_phases}
 
-        # Build run configuration - merge YAML config with runtime overrides
-        run_config = {
-            **flat_config,  # YAML config as base
+        # Runtime config passed to every phase
+        runtime_config = {
             "source_path": str(config.source_path),
             "source_name": config.source_name or config.source_path.stem,
         }
@@ -301,7 +256,8 @@ def run(config: RunConfig) -> Result[RunResult]:
             manager=manager,
             source_id=source_id,
             target_phase=config.target_phase,
-            run_config=run_config,
+            phase_configs=phase_configs,
+            runtime_config=runtime_config,
         )
 
         duration = time.time() - start_time

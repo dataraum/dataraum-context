@@ -52,7 +52,7 @@ def analyze_seasonality(
     Args:
         time_series: Time series data (pandas Series with datetime index)
         period: Seasonal period (auto-detected if None)
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Result containing SeasonalityAnalysis
@@ -231,7 +231,7 @@ def analyze_trend(
 
     Args:
         time_series: Time series data
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Result containing TrendAnalysis
@@ -324,7 +324,7 @@ def detect_change_points(
 
     Args:
         time_series: Time series data
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Result containing list of ChangePointResult
@@ -445,7 +445,7 @@ def analyze_update_frequency(
 
     Args:
         time_series: Time series data
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Result containing UpdateFrequencyAnalysis
@@ -514,7 +514,7 @@ def detect_fiscal_calendar(
 
     Args:
         time_series: Time series data
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Result containing FiscalCalendarAnalysis
@@ -603,7 +603,7 @@ def analyze_distribution_stability(
 
     Args:
         time_series: Time series data
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Result containing DistributionStabilityAnalysis

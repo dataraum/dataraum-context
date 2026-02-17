@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-ENTROPY_CONTRACTS_CONFIG = "system/entropy/contracts.yaml"
+ENTROPY_CONTRACTS_CONFIG = "entropy/contracts.yaml"
 
 
 class ConfidenceLevel(str, Enum):

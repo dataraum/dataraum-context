@@ -1,0 +1,3 @@
+# Business cycles phase settings
+domain: financial
+max_tool_calls: 10

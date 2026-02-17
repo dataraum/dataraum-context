@@ -59,7 +59,7 @@ class CompoundRiskDetector:
         # If explicit path provided, or thresholds.yaml didn't have compound_risks,
         # try the dedicated compound_risks.yaml file
         if config_path is None:
-            config_path = get_config_file("system/entropy/compound_risks.yaml")
+            config_path = get_config_file("entropy/compound_risks.yaml")
 
         if not config_path.exists():
             if not self.config_loaded:

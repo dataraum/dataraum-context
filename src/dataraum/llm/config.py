@@ -89,7 +89,7 @@ def load_llm_config(config_path: Path | None = None) -> LLMConfig:
     if config_path is None:
         from dataraum.core.config import get_config_file
 
-        config_path = get_config_file("system/llm.yaml")
+        config_path = get_config_file("llm/config.yaml")
 
     if not config_path.exists():
         raise FileNotFoundError(

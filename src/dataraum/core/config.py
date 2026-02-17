@@ -7,10 +7,14 @@ Usage:
     from dataraum.core.config import get_config_file, load_yaml_config
 
     # Get a resolved path to a config file
-    path = get_config_file("system/llm.yaml")
+    path = get_config_file("llm/config.yaml")
 
     # Load and parse a YAML config file
-    data = load_yaml_config("system/entropy/thresholds.yaml")
+    data = load_yaml_config("entropy/thresholds.yaml")
+
+    # Load per-phase config by convention
+    from dataraum.core.config import load_phase_config
+    cfg = load_phase_config("statistics")  # -> config/phases/statistics.yaml
 """
 
 import os
@@ -56,7 +60,7 @@ def get_config_file(relative_path: str) -> Path:
     Modules should use this instead of constructing paths themselves.
 
     Args:
-        relative_path: Path relative to config/, e.g. "system/llm.yaml"
+        relative_path: Path relative to config/, e.g. "llm/config.yaml"
                        or "verticals/finance/ontology.yaml"
 
     Returns:
@@ -80,7 +84,7 @@ def get_config_dir(relative_path: str) -> Path:
 
     Args:
         relative_path: Directory path relative to config/,
-                       e.g. "system/prompts" or "verticals/finance/validations"
+                       e.g. "llm/prompts" or "verticals/finance/validations"
 
     Returns:
         Resolved absolute Path to the config directory.
@@ -104,7 +108,7 @@ def load_yaml_config(relative_path: str) -> dict[str, Any]:
     Convenience function that combines get_config_file() + yaml.safe_load().
 
     Args:
-        relative_path: Path relative to config/, e.g. "system/llm.yaml"
+        relative_path: Path relative to config/, e.g. "llm/config.yaml"
 
     Returns:
         Parsed YAML content as a dict.
@@ -120,3 +124,49 @@ def load_yaml_config(relative_path: str) -> dict[str, Any]:
         return {}
     result: dict[str, Any] = data
     return result
+
+
+def load_phase_config(phase_name: str) -> dict[str, Any]:
+    """Load config for a pipeline phase by convention.
+
+    Looks for config/phases/<phase_name>.yaml. Returns empty dict if the
+    file doesn't exist (some phases have no config).
+
+    Args:
+        phase_name: Phase name, e.g. "statistics" -> config/phases/statistics.yaml
+
+    Returns:
+        Parsed YAML content as a dict, or empty dict if file doesn't exist.
+
+    Raises:
+        yaml.YAMLError: If the file exists but contains invalid YAML.
+    """
+    config_root = _get_config_root()
+    path = config_root / "phases" / f"{phase_name}.yaml"
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return data if data else {}
+
+
+def load_pipeline_config() -> dict[str, Any]:
+    """Load pipeline orchestrator configuration.
+
+    Loads config/pipeline.yaml which contains only orchestrator settings
+    (active phases, max_parallel, retry config). Per-phase config lives in
+    config/phases/<name>.yaml and is loaded via load_phase_config().
+
+    Returns:
+        Parsed pipeline config dict.
+
+    Raises:
+        FileNotFoundError: If config/pipeline.yaml is missing.
+    """
+    config_root = _get_config_root()
+    path = config_root / "pipeline.yaml"
+    if not path.exists():
+        raise FileNotFoundError(f"Pipeline config not found: {path} (config root: {config_root})")
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return data

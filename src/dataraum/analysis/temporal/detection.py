@@ -37,7 +37,7 @@ def infer_granularity(
         median_gap_seconds: Median gap between consecutive timestamps in seconds
         min_gap_seconds: Minimum gap (optional, used for confidence)
         max_gap_seconds: Maximum gap (optional, used for confidence)
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Tuple of (granularity_name, confidence)
@@ -134,7 +134,7 @@ def analyze_basic_temporal(
         duckdb_conn: DuckDB connection
         table_name: DuckDB table name (e.g., 'typed_sales')
         column_name: Column name
-        config: Temporal config dict (from config/system/temporal.yaml)
+        config: Temporal config dict (from config/phases/temporal.yaml)
 
     Returns:
         Result containing basic temporal analysis dict
