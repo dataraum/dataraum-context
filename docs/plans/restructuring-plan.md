@@ -1,6 +1,6 @@
 # DataRaum Context Engine - Restructuring Plan
 
-> **Status (2026-02-17):** Parts 1-3 complete (modules 1-15 done, module 15/topology removed). Modules 16-18 substantially done through other work (~95%/70%/75%). Part 4 (overarching cleanup) not started — §4.1 (config-driven pipeline) is now Phase 2 of the [testdata roadmap](./testdata-and-calibration-roadmap.md).
+> **Status (2026-02-17):** Parts 1-3 complete (all 18 modules done). Part 4 (overarching cleanup) partially addressed — §4.1 (config-driven pipeline) is Phase 2 of the [testdata roadmap](./testdata-and-calibration-roadmap.md). §4.9 (doc retirement) done in Phase 0. Remaining Part 4 items (config audit, test cleanup, dependency audit) deferred — will be addressed as needed during Phase 2.
 
 ## Context
 

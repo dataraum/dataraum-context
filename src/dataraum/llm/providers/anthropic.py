@@ -7,6 +7,7 @@ import anthropic
 from anthropic.types import MessageParam, ToolParam, ToolResultBlockParam, ToolUseBlockParam
 from pydantic import BaseModel
 
+from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
 from dataraum.llm.providers.base import (
     ConversationRequest,
@@ -24,6 +25,9 @@ class AnthropicConfig(BaseModel):
     api_key_env: str
     default_model: str
     models: dict[str, str]
+
+
+logger = get_logger(__name__)
 
 
 class AnthropicProvider(LLMProvider):
@@ -151,8 +155,10 @@ class AnthropicProvider(LLMProvider):
             )
 
         except anthropic.APIError as e:
+            logger.error("anthropic_api_error", error=str(e), model=model)
             return Result.fail(f"Anthropic API error: {e}")
         except Exception as e:
+            logger.error("anthropic_unexpected_error", error=str(e), model=model)
             return Result.fail(f"Unexpected error calling Anthropic: {e}")
 
     def _convert_messages(self, messages: list[Message]) -> list[MessageParam]:
