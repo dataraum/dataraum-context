@@ -124,6 +124,8 @@ def create_app(
     app.include_router(routers.entropy.router, prefix="/api/v1", tags=["entropy"])
     app.include_router(routers.graphs.router, prefix="/api/v1", tags=["graphs"])
     app.include_router(routers.query.router, prefix="/api/v1", tags=["query"])
+    app.include_router(routers.actions.router, prefix="/api/v1", tags=["actions"])
+    app.include_router(routers.upload.router, prefix="/api/v1", tags=["upload"])
 
     # Include reports router (HTML pages, no API prefix)
     app.include_router(routers.reports.router, tags=["reports"])

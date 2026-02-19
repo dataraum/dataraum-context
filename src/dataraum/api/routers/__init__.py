@@ -1,6 +1,7 @@
 """API routers."""
 
 from dataraum.api.routers import (
+    actions,
     context,
     contracts,
     entropy,
@@ -10,9 +11,11 @@ from dataraum.api.routers import (
     reports,
     sources,
     tables,
+    upload,
 )
 
 __all__ = [
+    "actions",
     "sources",
     "pipeline",
     "tables",
@@ -22,4 +25,5 @@ __all__ = [
     "graphs",
     "query",
     "reports",
+    "upload",
 ]

@@ -469,3 +469,45 @@ class QueryLibrarySearchResponse(BaseModel):
 
     results: list[QueryLibrarySearchResult]
     query: str = Field(description="Original query text")
+
+
+# --- Resolution Actions schemas ---
+
+
+class ResolutionActionResponse(BaseModel):
+    """A single resolution action."""
+
+    action: str = Field(description="Action identifier (e.g., document_null_semantics)")
+    priority: str = Field(description="high, medium, low")
+    description: str
+    effort: str = Field(description="low, medium, high")
+    expected_impact: str
+    affected_columns: list[str]
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    priority_score: float = Field(description="Computed priority score for ranking")
+    from_llm: bool = Field(default=False, description="Whether action came from LLM interpretation")
+    from_detector: bool = Field(default=False, description="Whether action came from detector")
+    fixes_violations: list[str] = Field(default_factory=list)
+
+
+class ActionsResponse(BaseModel):
+    """Response for resolution actions."""
+
+    source_id: str
+    actions: list[ResolutionActionResponse]
+    summary: dict[str, int] = Field(description="Count by priority: {high: N, medium: N, low: N}")
+    prompt_text: str = Field(description="Formatted actions for LLM consumption")
+
+
+# --- File Upload schemas ---
+
+
+class FileUploadResponse(BaseModel):
+    """Response after uploading a file."""
+
+    source_id: str
+    source_name: str
+    file_name: str
+    message: str
+    pipeline_status: str = Field(description="pending, running, completed")
+    run_id: str | None = None
