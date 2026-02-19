@@ -29,8 +29,8 @@ rules:
 
   - id: "single_value"
     condition: "distinct_count == 1 and eliminate_single_value"
-    status: "INELIGIBLE"
-    reason: "Column has single value - no variance for analysis"
+    status: "WARN"
+    reason: "Column has single value - no variance for statistical analysis"
 
   # Warning rules - column kept but flagged
   - id: "high_null"
