@@ -131,7 +131,7 @@ inputs:
     required: true
 
   ontology_name:
-    description: Name of the target ontology (must exist in config/ontologies/)
+    description: Name of the target vertical (must have config/verticals/<name>/ontology.yaml)
     required: true
 
   ontology_concepts:
