@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "dataraum": {
+      "command": "/Users/florianphilippi/Documents/FPAuto/dataraum-context/.venv/bin/dataraum-mcp",
+      "env": {
+        "DATARAUM_OUTPUT_DIR": "/Users/florianphilippi/Documents/FPAuto/dataraum-context/pipeline_output"
+      }
+    }
+  }
+}
