@@ -4,8 +4,6 @@ Tests the sources.parquet module which implements strongly-typed Parquet loading
 Uses dynamically generated Parquet fixtures via PyArrow.
 """
 
-from pathlib import Path
-
 import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -202,7 +200,7 @@ class TestParquetLoader:
             ORDER BY ordinal_position
         """).fetchall()
 
-        type_map = {col: dtype for col, dtype in schema}
+        type_map = dict(schema)
         assert type_map["id"] == "BIGINT"
         assert type_map["name"] == "VARCHAR"
         assert type_map["amount"] == "DOUBLE"
