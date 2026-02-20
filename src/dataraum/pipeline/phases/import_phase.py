@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 
@@ -124,7 +125,7 @@ class ImportPhase(BasePhase):
                     junk_columns=junk_columns,
                 )
 
-    def _detect_source_type(self, path: Path, config: dict) -> str:
+    def _detect_source_type(self, path: Path, config: dict[str, Any]) -> str:
         """Detect source type from file extension or directory contents.
 
         Args:
