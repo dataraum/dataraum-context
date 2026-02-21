@@ -38,7 +38,7 @@ from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
 from dataraum.pipeline.base import PhaseStatus
 from dataraum.pipeline.db_models import PhaseCheckpoint
-from dataraum.pipeline.orchestrator import Pipeline, PipelineConfig, get_pipeline
+from dataraum.pipeline.orchestrator import Pipeline, PipelineConfig, ProgressCallback, get_pipeline
 from dataraum.storage import Source
 
 logger = get_logger(__name__)
@@ -52,6 +52,7 @@ class RunConfig:
     output_dir: Path = field(default_factory=lambda: Path("./pipeline_output"))
     source_name: str | None = None
     target_phase: str | None = None
+    progress_callback: ProgressCallback | None = None
 
 
 @dataclass
@@ -258,6 +259,7 @@ def run(config: RunConfig) -> Result[RunResult]:
             target_phase=config.target_phase,
             phase_configs=phase_configs,
             runtime_config=runtime_config,
+            progress_callback=config.progress_callback,
         )
 
         duration = time.time() - start_time

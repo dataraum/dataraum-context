@@ -91,9 +91,11 @@ class ColumnSemanticOutput(BaseModel):
     unit_source_column: str | None = Field(
         default=None,
         description=(
-            "Column name that defines the unit for this measure (e.g., 'currency_code'). "
-            "Only set for measure columns whose unit is determined by a dimension column "
-            "in the same table."
+            "Column that defines the unit for this measure. "
+            "For same-table references, use just the column name (e.g., 'currency_code'). "
+            "For cross-table references via a confirmed FK relationship, use "
+            "'table_name.column_name' (e.g., 'chart_of_accounts.currency'). "
+            "Only set when there is a concrete dimension column — never guess a unit."
         ),
     )
 
