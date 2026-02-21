@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -39,6 +40,9 @@ from dataraum.pipeline.db_models import PhaseCheckpoint, PipelineRun
 from dataraum.pipeline.registry import get_all_dependencies, get_registry
 
 logger = get_logger(__name__)
+
+# Sync callback: (current_step, total_steps, message) -> None
+ProgressCallback = Callable[[int, int, str], None]
 
 
 def _sanitize_for_json(obj: Any) -> Any:
@@ -136,6 +140,21 @@ class Pipeline:
         """Register a phase implementation."""
         self.phases[phase.name] = phase
 
+    @staticmethod
+    def _notify_progress(
+        callback: ProgressCallback | None,
+        current: int,
+        total: int,
+        message: str,
+    ) -> None:
+        """Send a progress notification, swallowing any errors."""
+        if callback is None:
+            return
+        try:
+            callback(current, total, message)
+        except Exception:
+            pass  # Never let progress reporting crash the pipeline
+
     def get_phases_to_run(self, target_phase: str | None = None) -> list[str]:
         """Get phases to run based on registered phases.
 
@@ -163,6 +182,7 @@ class Pipeline:
         phase_configs: dict[str, dict[str, Any]] | None = None,
         runtime_config: dict[str, Any] | None = None,
         run_id: str | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> dict[str, PhaseResult]:
         """Run the pipeline.
 
@@ -180,6 +200,8 @@ class Pipeline:
             runtime_config: Runtime overrides (source_path, source_name)
                 merged into every phase's config.
             run_id: Optional run ID (generated if not provided)
+            progress_callback: Optional callback for progress notifications.
+                Called with (current_step, total_steps, message).
 
         Returns:
             Dict mapping phase names to their results
@@ -221,6 +243,8 @@ class Pipeline:
         # Get phases to run
         phases_to_run = self.get_phases_to_run(target_phase)
         results: dict[str, PhaseResult] = {}
+        total_phases = len(phases_to_run)
+        completed_step = 0  # Counter for progress notifications
 
         start_time = time.time()
 
@@ -241,6 +265,12 @@ class Pipeline:
 
                         for name in batch:
                             self._running.add(name)
+                            self._notify_progress(
+                                progress_callback,
+                                completed_step,
+                                total_phases,
+                                f"Running {name}...",
+                            )
                             future = pool.submit(
                                 self._run_phase,
                                 name,
@@ -283,6 +313,13 @@ class Pipeline:
                         if phase_result.status == PhaseStatus.COMPLETED:
                             self._completed.add(name)
                             self._outputs[name] = phase_result.outputs
+                            completed_step += 1
+                            self._notify_progress(
+                                progress_callback,
+                                completed_step,
+                                total_phases,
+                                f"Completed {name}",
+                            )
                             logger.info(
                                 f"Phase {name} completed in {phase_result.duration_seconds:.1f}s"
                             )
@@ -294,9 +331,23 @@ class Pipeline:
                             self._logged_waiting.clear()
                         elif phase_result.status == PhaseStatus.SKIPPED:
                             self._skipped.add(name)
+                            completed_step += 1
+                            self._notify_progress(
+                                progress_callback,
+                                completed_step,
+                                total_phases,
+                                f"Skipped {name}",
+                            )
                             logger.info(f"Phase {name} skipped: {phase_result.error}")
                         else:
                             self._failed.add(name)
+                            completed_step += 1
+                            self._notify_progress(
+                                progress_callback,
+                                completed_step,
+                                total_phases,
+                                f"Failed {name}: {phase_result.error}",
+                            )
                             logger.error(f"Phase {name} failed: {phase_result.error}")
                             # Log any warnings from failed phase
                             if phase_result.warnings:
@@ -311,6 +362,14 @@ class Pipeline:
 
                     if self.config.fail_fast and self._failed:
                         break
+
+            # Final progress notification
+            self._notify_progress(
+                progress_callback,
+                completed_step,
+                total_phases,
+                "Pipeline complete",
+            )
 
             # End pipeline metrics collection
             final_metrics = end_pipeline_metrics()
@@ -685,6 +744,7 @@ def run_pipeline(
     phase_configs: dict[str, dict[str, Any]] | None = None,
     runtime_config: dict[str, Any] | None = None,
     run_id: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[str, PhaseResult]:
     """Run the pipeline.
 
@@ -699,6 +759,7 @@ def run_pipeline(
         phase_configs: Per-phase config dicts keyed by phase name
         runtime_config: Runtime overrides merged into every phase's config
         run_id: Optional run ID (generated if not provided)
+        progress_callback: Optional callback for progress notifications.
 
     Returns:
         Dict mapping phase names to their results
@@ -715,4 +776,5 @@ def run_pipeline(
         phase_configs=phase_configs,
         runtime_config=runtime_config,
         run_id=run_id,
+        progress_callback=progress_callback,
     )

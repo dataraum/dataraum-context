@@ -6,13 +6,16 @@ Output directory is resolved from DATARAUM_OUTPUT_DIR env var or passed to creat
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
 
 from mcp.server import Server
+from mcp.server.experimental.request_context import Experimental
+from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution
 
 from dataraum.mcp.formatters import (
     format_actions_report,
@@ -22,6 +25,30 @@ from dataraum.mcp.formatters import (
     format_pipeline_result,
     format_query_result,
 )
+from dataraum.pipeline.orchestrator import ProgressCallback
+
+
+def _make_task_progress_callback(
+    task: ServerTaskContext,
+    loop: asyncio.AbstractEventLoop,
+) -> ProgressCallback:
+    """Create a sync callback that bridges to async task.update_status().
+
+    Called from the pipeline thread (sync context) to push progress updates
+    to the MCP task (async context) via run_coroutine_threadsafe.
+    """
+
+    def _callback(current: int, total: int, message: str) -> None:
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                task.update_status(f"[{current}/{total}] {message}"),
+                loop,
+            )
+            future.result(timeout=5.0)
+        except Exception:
+            pass  # Never let notification failures break the pipeline
+
+    return _callback
 
 
 def create_server(output_dir: Path | None = None) -> Server:
@@ -35,6 +62,7 @@ def create_server(output_dir: Path | None = None) -> Server:
         output_dir = Path(os.environ.get("DATARAUM_OUTPUT_DIR", "./pipeline_output"))
 
     server = Server("dataraum")
+    server.experimental.enable_tasks()
 
     @server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[Tool]:
@@ -61,6 +89,7 @@ def create_server(output_dir: Path | None = None) -> Server:
                     },
                     "required": ["path"],
                 },
+                execution=ToolExecution(taskSupport="optional"),
             ),
             Tool(
                 name="get_context",
@@ -151,12 +180,46 @@ def create_server(output_dir: Path | None = None) -> Server:
         ]
 
     @server.call_tool()  # type: ignore[no-untyped-call, untyped-decorator]
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool(
+        name: str, arguments: dict[str, Any]
+    ) -> list[TextContent] | CallToolResult | CreateTaskResult:
         """Execute a tool and return results."""
         if name == "analyze":
             path = arguments["path"]
             source_name = arguments.get("name")
-            result = _analyze(output_dir, path, source_name)
+
+            # Validate path before doing anything
+            source_path = Path(path)
+            if not source_path.exists():
+                return [TextContent(type="text", text=f"Error: Path not found: {path}")]
+
+            ctx = server.request_context
+            experimental: Experimental = ctx.experimental
+            if experimental and experimental.is_task:
+                # Task-augmented path: return immediately, run in background
+                loop = asyncio.get_running_loop()
+
+                async def _work(task: ServerTaskContext) -> CallToolResult:
+                    callback = _make_task_progress_callback(task, loop)
+                    text = await asyncio.to_thread(
+                        _analyze, output_dir, path, source_name, callback
+                    )
+                    return CallToolResult(
+                        content=[TextContent(type="text", text=text)]
+                    )
+
+                return await experimental.run_task(
+                    _work,
+                    model_immediate_response=(
+                        f"Pipeline started for: {path}. "
+                        f"Running in the background — status updates will follow."
+                    ),
+                )
+            else:
+                # Synchronous fallback for clients without task support
+                result = await asyncio.to_thread(
+                    _analyze, output_dir, path, source_name, None
+                )
         elif name == "get_context":
             result = _get_context(output_dir)
         elif name == "get_entropy":
@@ -187,13 +250,19 @@ _NO_DATA_MSG = (
 )
 
 
-def _analyze(output_dir: Path, path: str, name: str | None = None) -> str:
+def _analyze(
+    output_dir: Path,
+    path: str,
+    name: str | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> str:
     """Run the pipeline on a data source.
 
     Args:
         output_dir: Pipeline output directory
         path: Path to CSV/Parquet file or directory
         name: Optional source name
+        progress_callback: Optional callback for progress notifications
 
     Returns:
         Formatted pipeline result summary
@@ -208,6 +277,7 @@ def _analyze(output_dir: Path, path: str, name: str | None = None) -> str:
         source_path=source_path,
         output_dir=output_dir,
         source_name=name,
+        progress_callback=progress_callback,
     )
 
     result = run(config)

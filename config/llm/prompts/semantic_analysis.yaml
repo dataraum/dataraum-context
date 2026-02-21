@@ -76,6 +76,9 @@ system_prompt: |
   - A "currency" column defines units for monetary measures (amount, balance, etc.)
   - A "unit_of_measure" column defines units for quantity measures
   Set unit_source_column on measure columns whose unit comes from a dimension column.
+  If the unit dimension column is in a related table reachable via a confirmed FK relationship
+  (from the relationship_candidates), reference it as 'table_name.column_name' in the
+  column-level unit_source_column field.
   Set unit_relationships on tables where such patterns exist.
   </unit_relationships>
 

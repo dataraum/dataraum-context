@@ -114,9 +114,25 @@ def _build_candidate_metrics_lookup(
                 metrics["topology_similarity"] = candidate["topology_similarity"]
 
             if metrics:
-                # Store for both directions (table1.col1 -> table2.col2 and reverse)
                 lookup[(table1, col1, table2, col2)] = metrics
-                lookup[(table2, col2, table1, col1)] = metrics
+
+                # Build reverse entry with flipped direction-dependent fields
+                reverse = dict(metrics)
+                card = reverse.get("cardinality")
+                if card == "one-to-many":
+                    reverse["cardinality"] = "many-to-one"
+                elif card == "many-to-one":
+                    reverse["cardinality"] = "one-to-many"
+                # Swap left/right RI
+                left_ri = reverse.pop("left_referential_integrity", None)
+                right_ri = reverse.pop("right_referential_integrity", None)
+                if left_ri is not None:
+                    reverse["right_referential_integrity"] = left_ri
+                if right_ri is not None:
+                    reverse["left_referential_integrity"] = right_ri
+                # introduces_duplicates is directional — drop from reverse
+                reverse.pop("introduces_duplicates", None)
+                lookup[(table2, col2, table1, col1)] = reverse
 
     return lookup
 
