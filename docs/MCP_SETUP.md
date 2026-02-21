@@ -1,4 +1,4 @@
-# MCP Setup Guide
+# MCP Setup Guide (WIP)
 
 How to connect DataRaum to Claude Code, Claude Desktop, and Claude for Work.
 
@@ -36,9 +36,13 @@ If `DATARAUM_OUTPUT_DIR` needs to point elsewhere, edit `.mcp.json`:
   "mcpServers": {
     "dataraum": {
       "command": "uv",
-      "args": ["run", "dataraum-mcp"],
+      "args": [
+        "run", "--project", "/absolute/path/to/dataraum-context", "dataraum-mcp"
+      ],
       "env": {
-        "DATARAUM_OUTPUT_DIR": "/absolute/path/to/pipeline_output"
+        "DATARAUM_OUTPUT_DIR": "/absolute/path/to/pipeline_output",
+        "PYTHON_GIL": "0",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
       }
     }
   }
@@ -75,9 +79,13 @@ Add this to the file (create it if it doesn't exist):
   "mcpServers": {
     "dataraum": {
       "command": "uv",
-      "args": ["run", "--project", "/absolute/path/to/dataraum-context", "dataraum-mcp"],
+      "args": [
+        "run", "--project", "/absolute/path/to/dataraum-context", "dataraum-mcp"
+      ],
       "env": {
-        "DATARAUM_OUTPUT_DIR": "/absolute/path/to/pipeline_output"
+        "DATARAUM_OUTPUT_DIR": "/absolute/path/to/pipeline_output",
+        "PYTHON_GIL": "0",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
       }
     }
   }
@@ -92,11 +100,61 @@ Restart Claude Desktop after editing. The hammer icon in the text input should s
 
 ## Claude for Work (via Plugin)
 
-Use the plugin directory at `src/dataraum/plugin/`:
+### 1. Prepare the plugin
 
-1. Copy or symlink the plugin directory to where your Work instance expects plugins
-2. The plugin includes `.mcp.json`, skill definitions, and `plugin.json`
-3. Edit `src/dataraum/plugin/.mcp.json` to set the correct `DATARAUM_OUTPUT_DIR`
+The plugin lives at `src/dataraum/plugin/`. To upload it to Claude for Work, create a zip archive of the plugin directory:
+
+```bash
+cd src/dataraum/plugin
+zip -r dataraum-plugin.zip . -x '*.DS_Store'
+```
+
+### 2. Upload to Claude for Work
+
+1. Open Claude for Work → **Settings** → **Plugins** (or equivalent admin section)
+2. Upload `dataraum-plugin.zip`
+3. The plugin will be available to all users in the workspace
+
+### 3. Configure the MCP server
+
+The MCP server configuration needs to be set in **two places**:
+
+1. **Inside the plugin** (`src/dataraum/plugin/.mcp.json`) — bundled with the zip
+2. **In your Claude for Work MCP server settings** — configured in the workspace
+
+> **Note:** We have not yet tested whether both configurations are strictly necessary. In our setup both were present and the server worked correctly. If you experiment with removing one, let us know.
+
+The full configuration with all required environment variables:
+
+```json
+{
+  "mcpServers": {
+    "dataraum": {
+      "command": "uv",
+      "args": [
+        "run", "--project", "/absolute/path/to/dataraum-context", "dataraum-mcp"
+      ],
+      "env": {
+        "DATARAUM_OUTPUT_DIR": "/absolute/path/to/pipeline_output",
+        "PYTHON_GIL": "0",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+**Environment variables explained:**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATARAUM_OUTPUT_DIR` | Yes | Path to directory containing `metadata.db` and `data.duckdb` |
+| `PYTHON_GIL` | Recommended | Set to `0` to enable free-threading for better performance |
+| `ANTHROPIC_API_KEY` | If using LLM features | API key for LLM-powered analysis (semantic, quality rules, etc.) |
+
+**Important:** Use absolute paths for `--project` and `DATARAUM_OUTPUT_DIR`. Claude for Work does not inherit your shell's working directory.
+
+### Plugin skills
 
 The plugin provides 6 skills that map to the MCP tools:
 
