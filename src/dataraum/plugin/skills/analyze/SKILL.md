@@ -11,6 +11,11 @@ Run the DataRaum analysis pipeline on a CSV or Parquet file (or directory of fil
 
 ## How to Use
 
+This takes **several minutes** and always returns immediately. The pipeline runs in the background.
+
+- **With task support**: progress updates are delivered automatically via the tasks API
+- **Without task support**: call `get_context` periodically (~2 min intervals) to check progress — it reports the current phase while running and returns the full context document when done
+
 Call the `analyze` MCP tool:
 
 ```
@@ -61,10 +66,11 @@ The pipeline runs 18 phases:
 
 ## Response Pattern
 
-1. Call the `analyze` tool with the user's data path
-2. Report how many tables were found and rows processed
-3. Note any phase failures or warnings
-4. Suggest next steps:
+1. Call the `analyze` tool with the user's data path — it returns immediately
+2. The pipeline takes several minutes. Call `get_context` periodically (~2 min intervals) to check progress
+3. When the pipeline completes, `get_context` returns the full context document
+4. Note any phase failures or warnings
+5. Suggest next steps:
    - `get_context` to explore the schema
    - `get_entropy` to check data quality
    - `query` to ask questions about the data
