@@ -52,28 +52,16 @@ def format_entropy_summary(
     lines.append(f"- Computational: {snapshot.avg_computational_entropy:.3f}")
     lines.append("")
 
-    # Issue counts
-    high_entropy = [i for i in interpretations if i.composite_score > 0.2]
-    investigate = [i for i in interpretations if i.readiness == "investigate"]
-    blocked = [i for i in interpretations if i.readiness == "blocked"]
-
     lines.append("## Issue Summary")
     lines.append(f"- Total columns analyzed: {len(interpretations)}")
-    lines.append(f"- High entropy (>0.2): {len(high_entropy)}")
-    lines.append(f"- Needs investigation: {len(investigate)}")
-    lines.append(f"- Blocked: {len(blocked)}")
     lines.append("")
 
-    # Top issues
+    # Column interpretations
     if interpretations:
-        lines.append("## Top High-Entropy Columns")
+        lines.append("## Column Interpretations")
         for interp in interpretations[:10]:
-            status_icon = {"ready": "✓", "investigate": "⚠", "blocked": "✗"}.get(
-                interp.readiness, "?"
-            )
             lines.append(
-                f"- [{status_icon}] {interp.table_name}.{interp.column_name}: "
-                f"{interp.composite_score:.3f}"
+                f"- {interp.table_name}.{interp.column_name}"
             )
             if interp.explanation:
                 explanation = interp.explanation.split(".")[0]

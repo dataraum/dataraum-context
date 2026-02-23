@@ -3,8 +3,7 @@
 Runs the Bayesian network independently for each column target, then
 aggregates intent readiness and cross-column fix priorities.
 
-Follows the build_for_* pattern from graph_context.py, query_context.py,
-and dashboard_context.py.
+Follows the build_for_* pattern from graph_context.py and query_context.py.
 """
 
 from __future__ import annotations

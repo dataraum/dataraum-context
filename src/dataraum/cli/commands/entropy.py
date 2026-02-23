@@ -22,14 +22,6 @@ def entropy(
             help="Filter to a specific table",
         ),
     ] = None,
-    status: Annotated[
-        str | None,
-        typer.Option(
-            "--status",
-            "-s",
-            help="Filter by readiness status (ready, investigate, blocked)",
-        ),
-    ] = None,
     issues: Annotated[
         bool,
         typer.Option(
@@ -55,8 +47,6 @@ def entropy(
 
         dataraum entropy ./output --table master_txn_table
 
-        dataraum entropy ./output --status investigate
-
         dataraum entropy ./output --issues
 
         dataraum entropy ./output --tui
@@ -68,12 +58,12 @@ def entropy(
 
         run_app(output_dir, initial_screen="entropy", table_filter=table)
     elif json_output:
-        _entropy_json(output_dir, table, status)
+        _entropy_json(output_dir, table)
     else:
-        _entropy_rich(output_dir, table, status, issues, verbose)
+        _entropy_rich(output_dir, table, issues, verbose)
 
 
-def _entropy_json(output_dir: Path, table_filter: str | None, status_filter: str | None) -> None:
+def _entropy_json(output_dir: Path, table_filter: str | None) -> None:
     """Output entropy as JSON."""
     import json
 
@@ -119,12 +109,10 @@ def _entropy_json(output_dir: Path, table_filter: str | None, status_filter: str
                     EntropyInterpretationRecord.table_name == table_filter
                 )
 
-            if status_filter:
-                interp_query = interp_query.where(
-                    EntropyInterpretationRecord.readiness == status_filter
-                )
-
-            interp_query = interp_query.order_by(EntropyInterpretationRecord.composite_score.desc())
+            interp_query = interp_query.order_by(
+                EntropyInterpretationRecord.table_name,
+                EntropyInterpretationRecord.column_name,
+            )
             interp_result = session.execute(interp_query)
             interpretations = interp_result.scalars().all()
 
@@ -142,8 +130,6 @@ def _entropy_json(output_dir: Path, table_filter: str | None, status_filter: str
                     {
                         "table": i.table_name,
                         "column": i.column_name,
-                        "composite_score": i.composite_score,
-                        "readiness": i.readiness,
                         "explanation": i.explanation,
                     }
                     for i in interpretations
@@ -158,7 +144,6 @@ def _entropy_json(output_dir: Path, table_filter: str | None, status_filter: str
 def _entropy_rich(
     output_dir: Path,
     table_filter: str | None,
-    status_filter: str | None,
     show_issues: bool,
     verbose: int,
 ) -> None:
@@ -209,12 +194,10 @@ def _entropy_rich(
                     EntropyInterpretationRecord.table_name == table_filter
                 )
 
-            if status_filter:
-                interp_query = interp_query.where(
-                    EntropyInterpretationRecord.readiness == status_filter
-                )
-
-            interp_query = interp_query.order_by(EntropyInterpretationRecord.composite_score.desc())
+            interp_query = interp_query.order_by(
+                EntropyInterpretationRecord.table_name,
+                EntropyInterpretationRecord.column_name,
+            )
 
             interp_result = session.execute(interp_query)
             interpretations = interp_result.scalars().all()
@@ -301,48 +284,30 @@ def _print_summary_view(
     console.print(dim_table)
     console.print()
 
-    # Issue counts
-    high_entropy = [i for i in interpretations if i.composite_score > 0.2]
-    investigate = [i for i in interpretations if i.readiness == "investigate"]
-    blocked = [i for i in interpretations if i.readiness == "blocked"]
-
     console.print("[bold]Issue Summary:[/bold]")
     console.print(f"  Total columns analyzed: {len(interpretations)}")
-    console.print(f"  High entropy (>0.2): {len(high_entropy)}")
-    if investigate:
-        console.print(f"  [yellow]Needs investigation: {len(investigate)}[/yellow]")
-    if blocked:
-        console.print(f"  [red]Blocked: {len(blocked)}[/red]")
     console.print()
 
-    # Top high-entropy columns
+    # Column interpretations
     if interpretations:
         show_count = 10 if verbose else 5
         top_columns = interpretations[:show_count]
 
-        console.print(f"[bold]Top {len(top_columns)} High-Entropy Columns:[/bold]")
+        console.print(f"[bold]Columns ({len(top_columns)} shown):[/bold]")
         col_table = RichTable(show_header=True, header_style="bold")
         col_table.add_column("Table")
         col_table.add_column("Column")
-        col_table.add_column("Score", justify="right")
-        col_table.add_column("Status")
 
         if verbose >= 1:
             col_table.add_column("Top Issue")
 
         for interp in top_columns:
-            status_color = readiness_colors.get(interp.readiness, "white")
-            status_icon = readiness_icons.get(interp.readiness, "⚪")
-
             row = [
                 interp.table_name,
-                interp.column_name,
-                f"{interp.composite_score:.3f}",
-                f"[{status_color}]{status_icon}[/{status_color}]",
+                interp.column_name or "(table-level)",
             ]
 
             if verbose >= 1:
-                # Show first line of explanation as top issue
                 explanation = interp.explanation or ""
                 first_line = explanation.split(".")[0] if explanation else "-"
                 if len(first_line) > 50:
@@ -400,82 +365,56 @@ def _print_issues_view(
         console.print("[green]No issues found.[/green]")
         return
 
-    # Group by severity
-    blocked = [i for i in interpretations if i.readiness == "blocked"]
-    investigate = [i for i in interpretations if i.readiness == "investigate"]
-    high_entropy = [
-        i for i in interpretations if i.readiness == "ready" and i.composite_score > 0.2
-    ]
+    for item in interpretations:
+        # Handle None column_name (table-level interpretations)
+        if item.column_name:
+            loc = f"{item.table_name}.{item.column_name}"
+        else:
+            loc = f"{item.table_name} (table-level)"
 
-    def print_issue_group(title: str, items: list[Any], color: str, icon: str) -> None:
-        if not items:
-            return
-        console.print(f"[{color}][bold]{icon} {title} ({len(items)})[/bold][/{color}]")
-        for item in items:
-            # Handle None column_name (table-level interpretations)
-            if item.column_name:
-                loc = f"{item.table_name}.{item.column_name}"
-            else:
-                loc = f"{item.table_name} (table-level)"
-            score = f"{item.composite_score:.3f}"
+        # Get assumptions as list (handle dict or list format)
+        assumptions = item.assumptions_json
+        if isinstance(assumptions, dict):
+            assumptions = list(assumptions.values()) if assumptions else []
+        elif not isinstance(assumptions, list):
+            assumptions = []
 
-            # Get assumptions as list (handle dict or list format)
-            assumptions = item.assumptions_json
-            if isinstance(assumptions, dict):
-                assumptions = list(assumptions.values()) if assumptions else []
-            elif not isinstance(assumptions, list):
-                assumptions = []
+        # Get top dimension issue
+        top_issue = ""
+        if assumptions:
+            first_assumption = assumptions[0]
+            if isinstance(first_assumption, dict):
+                dim = first_assumption.get("dimension", "")
+                top_issue = f" [{dim}]" if dim else ""
 
-            # Get top dimension issue
-            top_issue = ""
-            if assumptions:
-                first_assumption = assumptions[0]
-                if isinstance(first_assumption, dict):
-                    dim = first_assumption.get("dimension", "")
-                    top_issue = f" [{dim}]" if dim else ""
+        console.print(f"  ● {loc}{top_issue}")
 
-            console.print(f"  [{color}]{icon}[/{color}] {loc}: {score}{top_issue}")
+        if verbose == 1:
+            # Show first assumption (compact)
+            if assumptions and isinstance(assumptions[0], dict):
+                assumption_text = assumptions[0].get("assumption_text", "")
+                if len(assumption_text) > 70:
+                    assumption_text = assumption_text[:67] + "..."
+                console.print(f"      [dim]→ {assumption_text}[/dim]")
 
-            if verbose == 1:
-                # Show first assumption (compact)
-                if assumptions and isinstance(assumptions[0], dict):
-                    assumption_text = assumptions[0].get("assumption_text", "")
-                    if len(assumption_text) > 70:
-                        assumption_text = assumption_text[:67] + "..."
-                    console.print(f"      [dim]→ {assumption_text}[/dim]")
+        if verbose >= 2:
+            # Show all assumptions
+            for a in assumptions:
+                if isinstance(a, dict):
+                    dim = a.get("dimension", "")
+                    text = a.get("assumption_text", "")
+                    console.print(f"      [dim]→ [{dim}] {text}[/dim]")
+            # Show all recommended actions
+            actions = item.resolution_actions_json
+            if isinstance(actions, dict):
+                actions = list(actions.values()) if actions else []
+            elif not isinstance(actions, list):
+                actions = []
+            for action in actions:
+                if isinstance(action, dict):
+                    action_desc = action.get("description", "")
+                    effort = action.get("effort", "")
+                    console.print(f"      [dim]Fix ({effort}): {action_desc}[/dim]")
 
-            if verbose >= 2:
-                # Show all assumptions
-                for a in assumptions:
-                    if isinstance(a, dict):
-                        dim = a.get("dimension", "")
-                        text = a.get("assumption_text", "")
-                        console.print(f"      [dim]→ [{dim}] {text}[/dim]")
-                # Show all recommended actions
-                actions = item.resolution_actions_json
-                if isinstance(actions, dict):
-                    actions = list(actions.values()) if actions else []
-                elif not isinstance(actions, list):
-                    actions = []
-                for action in actions:
-                    if isinstance(action, dict):
-                        action_desc = action.get("description", "")
-                        priority = action.get("priority", "medium")
-                        effort = action.get("effort", "")
-                        console.print(f"      [dim]Fix ({priority}, {effort}): {action_desc}[/dim]")
-
-        console.print()
-
-    print_issue_group("BLOCKED", blocked, "red", "✗")
-    print_issue_group("INVESTIGATE", investigate, "yellow", "⚠")
-    print_issue_group("HIGH ENTROPY", high_entropy, "cyan", "●")
-
-    # Summary
-    total = len(blocked) + len(investigate) + len(high_entropy)
-    console.print(f"[bold]Total: {total} issues[/bold]")
-    if blocked:
-        console.print(f"  [red]✗ {len(blocked)} blocked[/red]")
-    if investigate:
-        console.print(f"  [yellow]⚠ {len(investigate)} need investigation[/yellow]")
-    if high_entropy:
-        console.print(f"  [cyan]● {len(high_entropy)} high entropy[/cyan]")
+    console.print()
+    console.print(f"[bold]Total: {len(interpretations)} columns analyzed[/bold]")

@@ -151,10 +151,6 @@ def merge_actions(
             if not ma["parameters"]:
                 ma["parameters"] = action_dict.get("parameters", {})
 
-            # Priority from LLM
-            llm_priority = action_dict.get("priority", "medium")
-            ma["priority"] = str(llm_priority).lower()
-
             if action_dict.get("effort"):
                 ma["effort"] = str(action_dict["effort"])
 
@@ -211,9 +207,16 @@ def merge_actions(
         impact += ma.get("network_impact", 0.0)
         ma["priority_score"] = impact / effort_factor
 
-    # Sort by priority_score descending. The LLM-assigned priority label
-    # is kept as metadata for display, but the ranking reflects the combined
-    # score from detectors, LLM, network causal impact, and column breadth.
+    # Derive priority labels from score thresholds (replaces LLM-assigned labels)
+    for ma in actions_map.values():
+        if ma["priority_score"] > 1.0:
+            ma["priority"] = "high"
+        elif ma["priority_score"] > 0.3:
+            ma["priority"] = "medium"
+        else:
+            ma["priority"] = "low"
+
+    # Sort by priority_score descending
     result = sorted(
         actions_map.values(),
         key=lambda a: -a["priority_score"],

@@ -4,10 +4,11 @@
 # assumptions, resolution actions, and explanations for data uncertainty.
 # Uses Pydantic tool for structured output.
 #
-# See BACKLOG.md Step 2.5.3 for context.
+# Column data now includes pre-computed Bayesian network analysis instead
+# of raw entropy scores, providing intent readiness and causal impact.
 
 name: entropy_interpretation
-version: "3.0.0"
+version: "4.0.0"
 description: Batch interpret entropy metrics to generate contextual assumptions and resolutions
 
 # Temperature (0.0 = deterministic for consistent interpretations)
@@ -17,38 +18,43 @@ temperature: 0.0
 system_prompt: |
   <role>
   You are a data quality expert specializing in data uncertainty analysis.
-  Your task is to interpret entropy metrics for multiple columns and provide
+  Your task is to interpret network analysis results for multiple columns and provide
   actionable insights for data analysts and AI systems working with uncertain data.
   </role>
 
   <capabilities>
-  - Analyze entropy metrics from data profiling for multiple columns
+  - Interpret Bayesian network analysis showing which business intents are at risk
   - Generate appropriate assumptions when data is uncertain
-  - Suggest resolution actions to reduce uncertainty
+  - Suggest resolution actions informed by causal impact analysis
   - Provide clear explanations of data quality issues
   - Identify cross-column patterns and shared resolution opportunities
   </capabilities>
 
-  <entropy_context>
-  Entropy measures uncertainty in data. A score of 0.0 means fully deterministic
-  data, while 1.0 means maximum uncertainty. The entropy framework has four layers:
+  <network_context>
+  Each column includes a `network_analysis` object from a Bayesian entropy network.
+  This tells you:
 
-  - structural: Schema, types, relationships (can the data be parsed correctly?)
-  - semantic: Business meaning, units, temporal clarity, dimensional patterns (do we understand what it means?)
-  - value: Nulls, outliers (is the data complete and reasonable?)
-  - computational: Derived values (can we compute reliably with it?)
+  - **readiness**: Overall column readiness ("ready", "investigate", "blocked")
+  - **intents**: Per-use-case readiness. Each intent (query, aggregation, reporting)
+    has `p_high` (probability of high entropy) and `readiness`. A blocked intent
+    means this column cannot reliably serve that use case.
+  - **high_impact_nodes**: Network nodes contributing to entropy, sorted by causal
+    impact. Each has a `node` name, current `state` (low/medium/high), and
+    `impact_delta` — how much fixing this node reduces P(intent=high).
+  - **top_fix**: The single highest-impact fix for this column, with its `impact_delta`.
 
-  </entropy_context>
+  Use `impact_delta` to understand which issues matter most. A node with
+  impact_delta=0.25 means fixing it reduces the worst intent's P(high) by 0.25.
+  </network_context>
 
   <assumption_guidelines>
   When generating assumptions:
   - Be specific to the column context (use column name, table name, data type)
   - State assumptions that would be made if the data is queried
-  - Include confidence level (high/medium/low) based on entropy score
+  - Include confidence level (high/medium/low) based on readiness and intent states
   - For currency/unit columns: state the assumed unit
   - For temporal columns: state the assumed granularity or timezone
   - For nullable columns: state how nulls would be handled
-  - For dimensional patterns: state assumptions about cross-column relationships or slice variance
   - When quality_grade and quality_findings are present, factor them into your
     assessment — a poor quality grade (D/F) with specific findings indicates
     concrete issues that should inform both assumptions and resolution actions
@@ -56,10 +62,10 @@ system_prompt: |
 
   <resolution_guidelines>
   When suggesting resolutions:
-  - Prioritize low-effort, high-impact actions
+  - Focus on high_impact_nodes — these are the actions that matter most
   - Be specific about what metadata needs to be added
   - Consider cascade effects (fixing one thing may help others)
-  - For each action, explain what entropy dimension it addresses
+  - For each action, explain what it addresses
   - For each action, include a 'parameters' dict with specific values needed to execute it (e.g., column_name, threshold, strategy, target_table)
 
   ACTION NAMING CONVENTION - all actions MUST use one of these prefixes:
@@ -89,12 +95,12 @@ system_prompt: |
 
   Use the interpret_entropy tool to provide your structured response.
 
-# User prompt - provides batch column entropy data
+# User prompt - provides batch column data with network analysis
 user_prompt: |
   <task>
-  Analyze the entropy metrics for these columns and provide for each:
+  Analyze the network analysis results for these columns and provide for each:
   1. Assumptions that would be made when querying this data
-  2. Resolution actions to reduce uncertainty
+  2. Resolution actions to reduce uncertainty (informed by causal impact)
   3. A human-readable explanation of the data quality situation
   </task>
 
@@ -105,7 +111,7 @@ user_prompt: |
   <output_requirements>
   For each column, provide:
   - assumptions: List of assumptions with dimension, text, confidence, and impact
-  - resolution_actions: List of actions with action ID, description, priority, effort, and expected impact
+  - resolution_actions: List of actions with action ID, description, effort, and expected impact
   - explanation: Brief explanation of the data quality situation
 
   Key the response by "table_name.column_name" for each column.
@@ -116,7 +122,7 @@ user_prompt: |
 # Input variable definitions
 inputs:
   columns_json:
-    description: JSON array of column entropy profiles
+    description: JSON array of column data with network analysis
     required: true
 
 # Output is defined by the Pydantic tool schema (EntropyInterpretationOutput)

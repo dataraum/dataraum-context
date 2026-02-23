@@ -115,7 +115,9 @@ class TestMergeActions:
         assert len(result) == 1
         assert result[0].action == "add_definition"
         assert result[0].from_llm is True
-        assert result[0].priority == "high"
+        # Priority is now score-derived, not from LLM JSON
+        # score = (0.0 + 1*0.1) / 1.0 = 0.1 -> low
+        assert result[0].priority == "low"
 
     def test_merge_deduplicates_by_action_name(self):
         screen = self._make_screen()
@@ -144,7 +146,8 @@ class TestMergeActions:
         merged = result[0]
         assert merged.from_detector is True
         assert merged.from_llm is True
-        assert merged.priority == "high"  # LLM priority takes precedence
+        # Priority is score-derived: (0.3 + 1*0.1) / 1.0 = 0.4 -> medium
+        assert merged.priority == "medium"
 
     def test_multiple_columns_same_action(self):
         screen = self._make_screen()
@@ -168,21 +171,31 @@ class TestMergeActions:
         assert result[0].max_reduction == 0.3
         assert result[0].total_reduction == 0.5
 
-    def test_sorted_by_priority_then_score(self):
+    def test_sorted_by_priority_score_descending(self):
+        """Actions sorted by score: more affected columns = higher score."""
         screen = self._make_screen()
 
+        # low_action affects 1 column
         interp1 = FakeInterp(
             table_name="orders",
             column_name="amount",
             resolution_actions_json=[
-                {"action": "low_action", "priority": "low", "effort": "low"},
+                {"action": "low_action", "effort": "high"},
             ],
         )
+        # high_action affects 2 columns (appears in both interps)
         interp2 = FakeInterp(
             table_name="orders",
             column_name="price",
             resolution_actions_json=[
-                {"action": "high_action", "priority": "high", "effort": "low"},
+                {"action": "high_action", "effort": "low"},
+            ],
+        )
+        interp3 = FakeInterp(
+            table_name="orders",
+            column_name="qty",
+            resolution_actions_json=[
+                {"action": "high_action", "effort": "low"},
             ],
         )
 
@@ -191,11 +204,14 @@ class TestMergeActions:
             interp_by_col={
                 "orders.amount": interp1,
                 "orders.price": interp2,
+                "orders.qty": interp3,
             },
             entropy_objects_by_col={},
             violation_dims={},
         )
 
+        # high_action: (0.0 + 2*0.1) / 1.0 = 0.20
+        # low_action: (0.0 + 1*0.1) / 4.0 = 0.025
         assert result[0].action == "high_action"
         assert result[1].action == "low_action"
 

@@ -486,7 +486,10 @@ def _get_entropy(output_dir: Path, table_name: str | None = None) -> str:
                     EntropyInterpretationRecord.table_name == table_name
                 )
 
-            interp_query = interp_query.order_by(EntropyInterpretationRecord.composite_score.desc())
+            interp_query = interp_query.order_by(
+                EntropyInterpretationRecord.table_name,
+                EntropyInterpretationRecord.column_name,
+            )
             interp_result = session.execute(interp_query)
             interpretations = interp_result.scalars().all()
 

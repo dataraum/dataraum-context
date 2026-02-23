@@ -13,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 # Use JSONB for PostgreSQL, JSON for SQLite (JSON handles serialization automatically)
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,10 +42,6 @@ class EntropyInterpretationRecord(Base):
     table_name: Mapped[str] = mapped_column(String, nullable=False)
     column_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    # Original metrics
-    composite_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    readiness: Mapped[str] = mapped_column(String, nullable=False, default="investigate")
-
     # LLM-generated content
     explanation: Mapped[str] = mapped_column(String, nullable=False)
 
@@ -54,7 +50,7 @@ class EntropyInterpretationRecord(Base):
     assumptions_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON_TYPE)
 
     # Resolution actions as JSON list
-    # Each: {"action": str, "description": str, "priority": str, "effort": str, "expected_impact": str, "parameters": dict}
+    # Each: {"action": str, "description": str, "effort": str, "expected_impact": str, "parameters": dict}
     resolution_actions_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON_TYPE)
 
     # Metadata
@@ -68,4 +64,3 @@ class EntropyInterpretationRecord(Base):
 
 Index("idx_interpretation_table", EntropyInterpretationRecord.table_id)
 Index("idx_interpretation_column", EntropyInterpretationRecord.column_id)
-Index("idx_interpretation_readiness", EntropyInterpretationRecord.readiness)
