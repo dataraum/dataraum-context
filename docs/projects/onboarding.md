@@ -111,7 +111,7 @@ Users should be able to add new sources at any time, not just during onboarding:
 
 ## Dependencies
 
-- Persistent state layer (DB models for `UserPreference`)
+- Persistent state layer (DB models for `UserPreference`) — from [Data Fixes](fixes.md) project
 - This project should be implemented before role-aware action ordering
 
 ## Open Questions
