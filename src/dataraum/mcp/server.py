@@ -7,6 +7,7 @@ Output directory is resolved from DATARAUM_OUTPUT_DIR env var or passed to creat
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,11 @@ from dataraum.mcp.formatters import (
     format_query_result,
 )
 from dataraum.pipeline.orchestrator import ProgressCallback
+
+_log = logging.getLogger(__name__)
+
+# Prevent background pipeline tasks from being garbage-collected.
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 def _make_task_progress_callback(
@@ -73,7 +79,10 @@ def create_server(output_dir: Path | None = None) -> Server:
                 description=(
                     "Analyze CSV or Parquet data to build metadata context. "
                     "Must be called before other tools if no data has been analyzed yet. "
-                    "Takes a path to a file or directory. Runs the full 18-phase pipeline."
+                    "Takes a path to a file or directory. Runs the full 18-phase pipeline. "
+                    "This takes several minutes and returns immediately. "
+                    "With task support, progress updates are delivered automatically. "
+                    "Otherwise, call `get_context` to check progress and get results."
                 ),
                 inputSchema={
                     "type": "object",
@@ -216,9 +225,15 @@ def create_server(output_dir: Path | None = None) -> Server:
                     ),
                 )
             else:
-                # Synchronous fallback for clients without task support
-                result = await asyncio.to_thread(
-                    _analyze, output_dir, path, source_name, None
+                # No task API: fire-and-forget, client polls get_context
+                bg = asyncio.create_task(
+                    _run_analyze_background(output_dir, path, source_name)
+                )
+                _background_tasks.add(bg)
+                bg.add_done_callback(_background_tasks.discard)
+                result = (
+                    f"Pipeline started for: {path}. "
+                    f"Call `get_context` to check progress."
                 )
         elif name == "get_context":
             result = _get_context(output_dir)
@@ -248,6 +263,90 @@ _NO_DATA_MSG = (
     "No analyzed data found at {path}. Use the `analyze` tool first:\n"
     "  analyze(path='/path/to/your/data.csv')"
 )
+
+
+async def _run_analyze_background(
+    output_dir: Path,
+    path: str,
+    source_name: str | None,
+) -> None:
+    """Run _analyze in a background thread, logging errors."""
+    try:
+        await asyncio.to_thread(_analyze, output_dir, path, source_name, None)
+    except Exception:
+        _log.exception("Background pipeline failed for %s", path)
+
+
+def _get_pipeline_progress(manager: Any) -> str | None:
+    """Check if a pipeline is running and return a progress message.
+
+    Returns:
+        Progress message string if running, None if no pipeline is running.
+    """
+    from sqlalchemy import func, select
+
+    from dataraum.pipeline.db_models import PhaseCheckpoint, PipelineRun
+    from dataraum.pipeline.registry import get_registry
+    from dataraum.storage import Source
+
+    with manager.session_scope() as session:
+        sources_result = session.execute(select(Source))
+        sources = sources_result.scalars().all()
+        if not sources:
+            return None
+
+        source = sources[0]
+
+        running_run = session.execute(
+            select(PipelineRun)
+            .where(
+                PipelineRun.source_id == source.source_id,
+                PipelineRun.status == "running",
+            )
+            .order_by(PipelineRun.started_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if running_run is None:
+            return None
+
+        completed_count: int = (
+            session.execute(
+                select(func.count()).where(PhaseCheckpoint.run_id == running_run.run_id)
+            ).scalar()
+            or 0
+        )
+
+        registry = get_registry()
+        total_phases = len(registry)
+
+        # Determine currently running phases from dependency graph
+        completed_names: set[str] = set()
+        cp_result = session.execute(
+            select(PhaseCheckpoint.phase_name).where(
+                PhaseCheckpoint.run_id == running_run.run_id
+            )
+        )
+        for row in cp_result:
+            completed_names.add(row[0])
+
+        running_phases: list[str] = []
+        for name, cls in registry.items():
+            if name in completed_names:
+                continue
+            instance = cls()
+            deps = set(instance.dependencies)
+            if deps.issubset(completed_names):
+                running_phases.append(name)
+
+        current_detail = ""
+        if running_phases:
+            current_detail = f" Current: Running {', '.join(running_phases)}..."
+
+        return (
+            f"Pipeline is still running ({completed_count}/{total_phases} phases complete)."
+            f"{current_detail}"
+        )
 
 
 def _analyze(
@@ -289,7 +388,7 @@ def _analyze(
 
 
 def _get_context(output_dir: Path) -> str:
-    """Get formatted context document."""
+    """Get formatted context document, or progress status if pipeline is running."""
     from sqlalchemy import select
 
     from dataraum.core.connections import get_manager_for_directory
@@ -302,6 +401,11 @@ def _get_context(output_dir: Path) -> str:
         return _NO_DATA_MSG.format(path=output_dir)
 
     try:
+        # If pipeline is still running, return progress instead of partial context
+        progress = _get_pipeline_progress(manager)
+        if progress is not None:
+            return f"{progress}\nCall `get_context` again to check for completion."
+
         with manager.session_scope() as session:
             sources_result = session.execute(select(Source))
             sources = sources_result.scalars().all()
