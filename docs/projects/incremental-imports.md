@@ -101,12 +101,32 @@ Quality impact:
 Fixes re-applied: 3/3 successful
 ```
 
+## Compare Runs (`compare` skill)
+
+When a user re-runs the pipeline on new or fixed data, the plugin should automatically diff against the previous run:
+- Quality scores: what improved, what regressed, what's unchanged
+- Actions: which issues were resolved in the source data, which are new
+- Row count / schema changes
+
+Entry point: *"You have a previous run from Feb 19. Want me to compare?"*
+
+**Implementation:** New MCP tool `compare_runs(run_id_a?, run_id_b?)` — if no IDs given, compares latest two runs. `PipelineRun`, `PhaseCheckpoint`, and `QualitySnapshot` (from [Data Fixes](fixes.md)) already store the needed data. Diff logic: compare dimension scores, action lists, phase metrics.
+
+**New skill:** `compare/SKILL.md`
+
 ## New MCP Tools
 
 | Tool | Purpose |
 |---|---|
 | `detect_changes` | Compare new data against last analysis, return change summary |
 | `analyze_incremental` | Run only necessary pipeline phases based on detected changes |
+| `compare_runs` | Diff two pipeline runs, return delta summary |
+
+## New Skills
+
+| Skill | Purpose |
+|---|---|
+| `compare` | Run delta analysis, present what changed |
 
 ## Pipeline Performance Context
 
