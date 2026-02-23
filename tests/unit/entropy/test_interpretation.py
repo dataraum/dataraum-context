@@ -9,8 +9,6 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
-from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.interpretation import (
     Assumption,
     EntropyInterpretation,
@@ -21,7 +19,6 @@ from dataraum.entropy.interpretation import (
     TableEntropyInterpretationOutput,
     TableInterpretationInput,
 )
-from dataraum.entropy.models import CompoundRisk
 
 
 class TestAssumption:
@@ -63,7 +60,6 @@ class TestResolutionAction:
         action = ResolutionAction(
             action="add_unit_declaration",
             description="Declare the currency unit for this column",
-            priority="high",
             effort="low",
             expected_impact="Reduces semantic.units entropy",
             parameters={"column": "amount", "suggested_unit": "EUR"},
@@ -71,7 +67,6 @@ class TestResolutionAction:
 
         assert action.action == "add_unit_declaration"
         assert action.description == "Declare the currency unit for this column"
-        assert action.priority == "high"
         assert action.effort == "low"
         assert action.expected_impact == "Reduces semantic.units entropy"
         assert action.parameters == {"column": "amount", "suggested_unit": "EUR"}
@@ -81,7 +76,6 @@ class TestResolutionAction:
         action = ResolutionAction(
             action="investigate",
             description="Review data quality",
-            priority="medium",
             effort="high",
             expected_impact="Understanding of issues",
         )
@@ -106,7 +100,6 @@ class TestEntropyInterpretation:
             ResolutionAction(
                 action="document_null_semantics",
                 description="Document what null values represent",
-                priority="medium",
                 effort="low",
                 expected_impact="Clearer data semantics",
             )
@@ -118,133 +111,73 @@ class TestEntropyInterpretation:
             assumptions=assumptions,
             resolution_actions=resolution_actions,
             explanation="Column has moderate entropy due to null values.",
-            composite_score=0.45,
-            readiness="investigate",
         )
 
         assert interpretation.column_name == "amount"
         assert interpretation.table_name == "orders"
         assert len(interpretation.assumptions) == 1
         assert len(interpretation.resolution_actions) == 1
-        assert interpretation.composite_score == 0.45
-        assert interpretation.readiness == "investigate"
+        assert interpretation.explanation == "Column has moderate entropy due to null values."
 
 
 class TestInterpretationInput:
     """Tests for InterpretationInput model."""
 
     def test_create_input(self):
-        """Test creating interpretation input."""
+        """Test creating interpretation input with minimal fields."""
         input_data = InterpretationInput(
             table_name="orders",
             column_name="amount",
             detected_type="DECIMAL",
             business_description="Order total amount",
-            composite_score=0.45,
-            readiness="investigate",
-            structural_entropy=0.1,
-            semantic_entropy=0.6,
-            value_entropy=0.5,
-            computational_entropy=0.2,
-            raw_metrics={"null_ratio": 0.15, "outlier_ratio": 0.02},
-            dimension_scores={"semantic.business_meaning.naming_clarity": 0.6},
-            high_entropy_dimensions=["semantic.business_meaning.naming_clarity"],
-            compound_risks=[],
-        )
-
-        assert input_data.table_name == "orders"
-        assert input_data.column_name == "amount"
-        assert input_data.composite_score == 0.45
-        assert input_data.semantic_entropy == 0.6
-        assert "null_ratio" in input_data.raw_metrics
-
-    def test_from_summary(self):
-        """Test creating input from ColumnSummary."""
-        config = get_entropy_config()
-        weights = config.composite_weights
-        layer_scores = {
-            "structural": 0.1,
-            "semantic": 0.6,
-            "value": 0.5,
-            "computational": 0.2,
-        }
-        composite_score = (
-            layer_scores["structural"] * weights["structural"]
-            + layer_scores["semantic"] * weights["semantic"]
-            + layer_scores["value"] * weights["value"]
-            + layer_scores["computational"] * weights["computational"]
-        )
-
-        summary = ColumnSummary(
-            column_id="col1",
-            column_name="amount",
-            table_id="t1",
-            table_name="orders",
-            composite_score=composite_score,
-            readiness="investigate",
-            layer_scores=layer_scores,
-            dimension_scores={
-                "semantic.business_meaning.naming_clarity": 0.7,
-            },
-            high_entropy_dimensions=["semantic.business_meaning.naming_clarity"],
-        )
-
-        input_data = InterpretationInput.from_summary(
-            summary=summary,
-            detected_type="DECIMAL",
-            business_description="Order total",
-            raw_metrics={"null_ratio": 0.15},
         )
 
         assert input_data.table_name == "orders"
         assert input_data.column_name == "amount"
         assert input_data.detected_type == "DECIMAL"
-        assert input_data.business_description == "Order total"
-        assert input_data.structural_entropy == 0.1
-        assert input_data.semantic_entropy == 0.6
-        assert input_data.value_entropy == 0.5
-        assert input_data.computational_entropy == 0.2
-        assert input_data.high_entropy_dimensions == ["semantic.business_meaning.naming_clarity"]
+        assert input_data.business_description == "Order total amount"
+        assert input_data.network_analysis is None
+        assert input_data.quality_grade is None
+        assert input_data.quality_findings is None
 
-    def test_from_summary_with_defaults(self):
-        """Test creating input from summary with default values."""
-        summary = ColumnSummary(
-            column_id="col1",
-            column_name="col1",
-            table_id="t1",
-            table_name="table1",
-        )
-
-        input_data = InterpretationInput.from_summary(summary)
-
-        assert input_data.detected_type == "unknown"
-        assert input_data.business_description is None
-        assert input_data.raw_metrics == {}
-
-    def test_from_summary_with_compound_risks(self):
-        """Test creating input from summary with compound risks."""
-        risk = CompoundRisk(
-            target="column:orders.amount",
-            dimensions=["semantic.units", "computational.aggregations"],
-            dimension_scores={"semantic.units": 0.7, "computational.aggregations": 0.6},
-            risk_level="critical",
-            impact="Units may be incorrect in aggregations",
-            multiplier=2.0,
-            combined_score=0.85,
-        )
-
-        summary = ColumnSummary(
-            column_id="col1",
-            column_name="amount",
-            table_id="t1",
+    def test_create_input_with_quality_context(self):
+        """Test creating input with quality context."""
+        input_data = InterpretationInput(
             table_name="orders",
-            compound_risks=[risk],
+            column_name="amount",
+            detected_type="DECIMAL",
+            business_description="Order total amount",
+            quality_grade="D",
+            quality_findings=["15% null values", "Outliers detected"],
         )
 
-        input_data = InterpretationInput.from_summary(summary)
+        assert input_data.quality_grade == "D"
+        assert input_data.quality_findings == ["15% null values", "Outliers detected"]
 
-        assert len(input_data.compound_risks) == 1
-        assert input_data.compound_risks[0].risk_level == "critical"
+    def test_create_input_with_network_analysis(self):
+        """Test creating input with network analysis."""
+        network_analysis = {
+            "readiness": "investigate",
+            "intents": {
+                "query_intent": {"p_high": 0.10, "readiness": "ready"},
+                "aggregation_intent": {"p_high": 0.65, "readiness": "blocked"},
+            },
+            "high_impact_nodes": [
+                {"node": "unit_declaration", "state": "high", "impact_delta": 0.25},
+            ],
+            "top_fix": {"node": "unit_declaration", "impact_delta": 0.25},
+        }
+        input_data = InterpretationInput(
+            table_name="orders",
+            column_name="amount",
+            detected_type="DECIMAL",
+            business_description="Total order amount in USD",
+            network_analysis=network_analysis,
+        )
+
+        assert input_data.network_analysis is not None
+        assert input_data.network_analysis["readiness"] == "investigate"
+        assert input_data.network_analysis["intents"]["aggregation_intent"]["readiness"] == "blocked"
 
 
 class TestInterpretationInputFields:
@@ -252,21 +185,23 @@ class TestInterpretationInputFields:
 
     def test_input_fields_accessible_for_batch_prompt(self):
         """Test that InterpretationInput fields can be serialized for batch prompt."""
+        network_analysis = {
+            "readiness": "investigate",
+            "intents": {
+                "query_intent": {"p_high": 0.10, "readiness": "ready"},
+                "aggregation_intent": {"p_high": 0.65, "readiness": "blocked"},
+            },
+            "high_impact_nodes": [
+                {"node": "unit_declaration", "state": "high", "impact_delta": 0.25},
+            ],
+            "top_fix": {"node": "unit_declaration", "impact_delta": 0.25},
+        }
         input_data = InterpretationInput(
             table_name="orders",
             column_name="amount",
             detected_type="DECIMAL",
             business_description="Total order amount in USD",
-            composite_score=0.45,
-            readiness="investigate",
-            structural_entropy=0.1,
-            semantic_entropy=0.6,
-            value_entropy=0.5,
-            computational_entropy=0.2,
-            raw_metrics={"null_ratio": 0.15, "parse_success_rate": 0.98},
-            dimension_scores={"semantic.business_meaning.naming_clarity": 0.6},
-            high_entropy_dimensions=["semantic.business_meaning.naming_clarity"],
-            compound_risks=[],
+            network_analysis=network_analysis,
         )
 
         # Build the batch column data structure (as done in interpret_batch)
@@ -276,14 +211,7 @@ class TestInterpretationInputFields:
             "column_name": input_data.column_name,
             "detected_type": input_data.detected_type,
             "business_description": input_data.business_description or "Not documented",
-            "composite_score": input_data.composite_score,
-            "readiness": input_data.readiness,
-            "structural_entropy": input_data.structural_entropy,
-            "semantic_entropy": input_data.semantic_entropy,
-            "value_entropy": input_data.value_entropy,
-            "computational_entropy": input_data.computational_entropy,
-            "high_entropy_dimensions": input_data.high_entropy_dimensions,
-            "raw_metrics": input_data.raw_metrics,
+            "network_analysis": input_data.network_analysis,
         }
 
         assert column_data["key"] == "orders.amount"
@@ -291,13 +219,23 @@ class TestInterpretationInputFields:
         assert column_data["column_name"] == "amount"
         assert column_data["detected_type"] == "DECIMAL"
         assert column_data["business_description"] == "Total order amount in USD"
-        assert column_data["composite_score"] == 0.45
-        assert column_data["readiness"] == "investigate"
-        assert "null_ratio" in column_data["raw_metrics"]
+        assert column_data["network_analysis"]["readiness"] == "investigate"
+        assert column_data["network_analysis"]["intents"]["aggregation_intent"]["readiness"] == "blocked"
 
         # Verify it can be JSON serialized
         json_str = json.dumps(column_data)
         assert "orders.amount" in json_str
+        assert "network_analysis" in json_str
+
+    def test_network_analysis_defaults_to_none(self):
+        """Test that network_analysis defaults to None."""
+        input_data = InterpretationInput(
+            table_name="orders",
+            column_name="amount",
+            detected_type="DECIMAL",
+            business_description=None,
+        )
+        assert input_data.network_analysis is None
 
 
 class TestResolutionActionOutputSchema:
@@ -314,7 +252,6 @@ class TestResolutionActionOutputSchema:
         output = ResolutionActionOutput(
             action="document_unit",
             description="Declare unit",
-            priority="high",
             effort="low",
             expected_impact="Reduces semantic.units entropy",
         )
@@ -325,7 +262,6 @@ class TestResolutionActionOutputSchema:
         output = ResolutionActionOutput(
             action="document_unit",
             description="Declare unit",
-            priority="high",
             effort="low",
             expected_impact="Reduces semantic.units entropy",
             parameters={"column_name": "amount", "unit": "EUR"},
@@ -344,8 +280,6 @@ class TestEntropyInterpretationDashboardDict:
             assumptions=[],
             resolution_actions=[],
             explanation="Test",
-            composite_score=0.5,
-            readiness="investigate",
         )
         result = interp.to_dashboard_dict()
         assert result["column_key"] == "orders.amount"
@@ -358,97 +292,90 @@ class TestEntropyInterpretationDashboardDict:
             assumptions=[],
             resolution_actions=[],
             explanation="Table-level interpretation",
-            composite_score=0.35,
-            readiness="investigate",
         )
         result = interp.to_dashboard_dict()
         assert result["column_key"] == "orders"
         assert result["column_name"] is None
         assert result["table_name"] == "orders"
 
+    def test_dashboard_dict_has_no_composite_score_or_readiness(self):
+        """Dashboard dict should not contain composite_score or readiness."""
+        interp = EntropyInterpretation(
+            column_name="amount",
+            table_name="orders",
+            assumptions=[],
+            resolution_actions=[],
+            explanation="Test",
+        )
+        result = interp.to_dashboard_dict()
+        assert "composite_score" not in result
+        assert "readiness" not in result
+
 
 class TestTableInterpretationInput:
     """Tests for TableInterpretationInput model."""
 
-    def test_from_summary(self):
-        """Create TableInterpretationInput from a TableSummary."""
-        col1 = ColumnSummary(
-            column_id="c1",
-            column_name="amount",
-            table_id="t1",
-            table_name="orders",
-            composite_score=0.45,
-            readiness="investigate",
-            layer_scores={"structural": 0.1, "semantic": 0.6, "value": 0.5, "computational": 0.2},
-            dimension_scores={
-                "semantic.units.unit_declaration": 0.8,
-                "value.nulls.null_ratio": 0.3,
+    def test_create_with_network_analysis(self):
+        """Create TableInterpretationInput with network analysis."""
+        network_analysis = {
+            "readiness": "investigate",
+            "intents": {
+                "query_intent": {
+                    "worst_p_high": 0.40,
+                    "mean_p_high": 0.25,
+                    "columns_blocked": 0,
+                    "columns_investigate": 1,
+                    "columns_ready": 1,
+                    "readiness": "investigate",
+                },
             },
-            high_entropy_dimensions=["semantic.units.unit_declaration"],
-        )
-        col2 = ColumnSummary(
-            column_id="c2",
-            column_name="name",
-            table_id="t1",
+            "columns": [
+                {"column": "amount", "readiness": "investigate", "worst_p_high": 0.40, "top_fix": "unit_declaration"},
+                {"column": "name", "readiness": "ready", "worst_p_high": 0.10},
+            ],
+            "top_fix": {"node": "unit_declaration", "columns_affected": 1, "total_delta": 0.25},
+        }
+        result = TableInterpretationInput(
             table_name="orders",
-            composite_score=0.2,
-            readiness="ready",
-            layer_scores={"structural": 0.1, "semantic": 0.2, "value": 0.1, "computational": 0.0},
-            dimension_scores={
-                "semantic.units.unit_declaration": 0.1,
-                "value.nulls.null_ratio": 0.05,
-            },
-            high_entropy_dimensions=[],
+            column_count=2,
+            network_analysis=network_analysis,
         )
-
-        table_summary = TableSummary(
-            table_id="t1",
-            table_name="orders",
-            columns=[col1, col2],
-            avg_composite_score=0.325,
-            max_composite_score=0.45,
-            avg_layer_scores={
-                "structural": 0.1,
-                "semantic": 0.4,
-                "value": 0.3,
-                "computational": 0.1,
-            },
-            readiness="investigate",
-            high_entropy_columns=["amount"],
-            blocked_columns=[],
-        )
-
-        result = TableInterpretationInput.from_summary(table_summary)
 
         assert result.table_name == "orders"
-        assert result.avg_composite_score == 0.325
-        assert result.max_composite_score == 0.45
-        assert result.readiness == "investigate"
         assert result.column_count == 2
-        assert result.high_entropy_columns == ["amount"]
-        assert result.blocked_columns == []
+        assert result.network_analysis is not None
+        assert result.network_analysis["readiness"] == "investigate"
+        assert len(result.network_analysis["columns"]) == 2
+        assert result.network_analysis["top_fix"]["node"] == "unit_declaration"
 
-        # Dimension score ranges should be computed from both columns
-        assert "semantic.units.unit_declaration" in result.dimension_score_ranges
-        unit_range = result.dimension_score_ranges["semantic.units.unit_declaration"]
-        assert unit_range == (0.1, 0.8)
-
-        null_range = result.dimension_score_ranges["value.nulls.null_ratio"]
-        assert null_range == (0.05, 0.3)
-
-    def test_from_summary_empty_columns(self):
-        """Create TableInterpretationInput from summary with no columns."""
-        table_summary = TableSummary(
-            table_id="t1",
+    def test_create_minimal(self):
+        """Create TableInterpretationInput without optional fields."""
+        result = TableInterpretationInput(
             table_name="empty_table",
-            columns=[],
+            column_count=0,
         )
-
-        result = TableInterpretationInput.from_summary(table_summary)
 
         assert result.table_name == "empty_table"
         assert result.column_count == 0
-        assert result.dimension_score_ranges == {}
+        assert result.network_analysis is None
+        assert result.dimensional_patterns is None
+        assert result.column_interpretations_summary is None
+        assert result.quality_overview is None
+
+    def test_enrichment_context(self):
+        """Enrichment fields are set independently of network analysis."""
+        result = TableInterpretationInput(
+            table_name="orders",
+            column_count=3,
+            network_analysis={"readiness": "ready", "intents": {}, "columns": [], "top_fix": None},
+            dimensional_patterns=[{"detector_id": "dim1", "score": 0.5}],
+            column_interpretations_summary=[{"column": "amount", "top_action": "document_unit"}],
+            quality_overview={"grade_counts": {"A": 2, "C": 1}, "total": 3},
+        )
+
+        assert len(result.dimensional_patterns) == 1
+        assert len(result.column_interpretations_summary) == 1
+        assert result.quality_overview["total"] == 3
 
 
 class TestValidateOutput:

@@ -68,7 +68,7 @@ user_prompt: |
   <output_requirements>
   For each column key (format: "table_name.column_name"), provide:
   - assumptions: List of assumptions with dimension, assumption_text, confidence (high/medium/low), and impact
-  - resolution_actions: List of actions with action, description, priority (high/medium/low), effort (low/medium/high), and expected_impact
+  - resolution_actions: List of actions with action, description, effort (low/medium/high), and expected_impact
   - explanation: Brief explanation of this column's situation in the query context
   </output_requirements>
 

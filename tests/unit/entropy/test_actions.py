@@ -500,3 +500,131 @@ class TestBuildNetworkImpact:
         # Both get the same impact_delta since they come from the same node
         assert result["winsorize"]["total_delta"] == 0.30
         assert result["remove_outliers"]["total_delta"] == 0.30
+
+
+# ---------------------------------------------------------------------------
+# Tests: score-derived priority labels
+# ---------------------------------------------------------------------------
+
+
+class TestScoreDerivedPriority:
+    """Priority labels are derived from priority_score thresholds."""
+
+    def test_high_priority_from_high_score(self):
+        """Actions with priority_score > 1.0 get 'high' priority."""
+        ne = _make_node_evidence(
+            node_name="unit_declaration",
+            state="high",
+            impact_delta=2.0,
+            resolution_options=[{
+                "action": "declare_unit",
+                "description": "Add unit",
+                "effort": "low",
+                "parameters": {},
+                "expected_entropy_reduction": 0.5,
+                "cascade_dimensions": [],
+            }],
+        )
+        network_ctx = _make_network_context(columns={
+            "column:orders.amount": _make_column_result(node_evidence=[ne]),
+        })
+
+        result = merge_actions(
+            column_summaries={},
+            interp_by_col={},
+            entropy_objects_by_col={},
+            violation_dims={},
+            network_context=network_ctx,
+        )
+
+        assert len(result) == 1
+        assert result[0]["priority"] == "high"
+        assert result[0]["priority_score"] > 1.0
+
+    def test_medium_priority_from_medium_score(self):
+        """Actions with 0.3 < priority_score <= 1.0 get 'medium' priority."""
+        ne = _make_node_evidence(
+            node_name="unit_declaration",
+            state="high",
+            impact_delta=0.50,
+            resolution_options=[{
+                "action": "declare_unit",
+                "description": "Add unit",
+                "effort": "low",
+                "parameters": {},
+                "expected_entropy_reduction": 0.0,
+                "cascade_dimensions": [],
+            }],
+        )
+        network_ctx = _make_network_context(columns={
+            "column:orders.amount": _make_column_result(node_evidence=[ne]),
+        })
+
+        result = merge_actions(
+            column_summaries={},
+            interp_by_col={},
+            entropy_objects_by_col={},
+            violation_dims={},
+            network_context=network_ctx,
+        )
+
+        assert len(result) == 1
+        assert result[0]["priority"] == "medium"
+        assert 0.3 < result[0]["priority_score"] <= 1.0
+
+    def test_low_priority_from_low_score(self):
+        """Actions with priority_score <= 0.3 get 'low' priority."""
+        ne = _make_node_evidence(
+            node_name="unit_declaration",
+            state="medium",
+            impact_delta=0.10,
+            resolution_options=[{
+                "action": "declare_unit",
+                "description": "Add unit",
+                "effort": "high",  # effort_factor = 4.0
+                "parameters": {},
+                "expected_entropy_reduction": 0.0,
+                "cascade_dimensions": [],
+            }],
+        )
+        network_ctx = _make_network_context(columns={
+            "column:orders.amount": _make_column_result(node_evidence=[ne]),
+        })
+
+        result = merge_actions(
+            column_summaries={},
+            interp_by_col={},
+            entropy_objects_by_col={},
+            violation_dims={},
+            network_context=network_ctx,
+        )
+
+        assert len(result) == 1
+        # priority_score = (0.0 + 0*0.1 + 0.10) / 4.0 = 0.025
+        assert result[0]["priority"] == "low"
+        assert result[0]["priority_score"] <= 0.3
+
+    def test_llm_priority_field_is_ignored(self):
+        """LLM resolution_actions_json with 'priority' field should be ignored."""
+        interp = FakeInterp(
+            resolution_actions_json=[{
+                "action": "document_unit",
+                "description": "Add unit declaration",
+                "priority": "high",  # This should be ignored
+                "effort": "high",
+                "expected_impact": "Reduces semantic.units entropy",
+            }],
+        )
+
+        result = merge_actions(
+            column_summaries={},
+            interp_by_col={"orders.amount": interp},
+            entropy_objects_by_col={},
+            violation_dims={},
+        )
+
+        assert len(result) == 1
+        # With effort=high (factor 4.0), total_reduction=0.0, affected_columns=1
+        # score = (0.0 + 1*0.1) / 4.0 = 0.025 -> low priority
+        assert result[0]["priority"] == "low"
+        assert result[0]["priority_score"] <= 0.3

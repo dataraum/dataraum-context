@@ -193,7 +193,8 @@ class EntropyScreen(Screen[None]):
                     )
 
                 interp_query = interp_query.order_by(
-                    EntropyInterpretationRecord.composite_score.desc()
+                    EntropyInterpretationRecord.table_name,
+                    EntropyInterpretationRecord.column_name,
                 )
                 interp_result = session.execute(interp_query)
                 interpretations = interp_result.scalars().all()
@@ -368,9 +369,6 @@ class EntropyScreen(Screen[None]):
 
         # Compute quick stats
         total = len(interpretations)
-        high = sum(1 for i in interpretations if i.composite_score > 0.2)
-        investigate = sum(1 for i in interpretations if i.readiness == "investigate")
-        blocked = sum(1 for i in interpretations if i.readiness == "blocked")
         table_level = sum(1 for i in interpretations if not i.column_name)
 
         # Build status line with all stats
@@ -381,11 +379,6 @@ class EntropyScreen(Screen[None]):
         ]
         if table_level:
             parts.append(f"Table-level: {table_level}")
-        parts.append(f"High: {high}")
-        if investigate:
-            parts.append(f"[yellow]Investigate: {investigate}[/yellow]")
-        if blocked:
-            parts.append(f"[red]Blocked: {blocked}[/red]")
 
         status = self.query_one("#summary-status", Static)
         status.update(" | ".join(parts))
@@ -405,18 +398,7 @@ class EntropyScreen(Screen[None]):
 
         # Build tree nodes
         for table_name, columns in tables.items():
-            # Get table-level status (highest severity)
-            table_status = "ready"
-            for col in columns:
-                if col.readiness == "blocked":
-                    table_status = "blocked"
-                    break
-                elif col.readiness == "investigate" and table_status != "blocked":
-                    table_status = "investigate"
-
-            table_color = {"ready": "green", "investigate": "yellow", "blocked": "red"}.get(
-                table_status, "white"
-            )
+            table_color = "white"
             table_label = f"[{table_color}]{table_name}[/{table_color}]"
             table_node = tree.root.add(table_label, data=f"{table_name}.(table)")
 
@@ -433,10 +415,7 @@ class EntropyScreen(Screen[None]):
                 if not col.column_name:
                     continue  # Already added as table-level node
 
-                col_color = {"ready": "green", "investigate": "yellow", "blocked": "red"}.get(
-                    col.readiness, "white"
-                )
-                col_label = f"[{col_color}]{col.column_name}[/{col_color}]"
+                col_label = col.column_name
                 if col.column_id:
                     td = self._type_decisions.get(col.column_id)
                     if td:
@@ -515,14 +494,9 @@ class EntropyScreen(Screen[None]):
         # Update header with context hint
         header = self.query_one("#detail-header", Static)
         col_name = interp.column_name or "(table-level)"
-        readiness_color = {"ready": "green", "investigate": "yellow", "blocked": "red"}.get(
-            interp.readiness, "white"
-        )
         context_hint = self._build_header_hint(interp)
         header.update(
-            f"[bold]{interp.table_name}.{col_name}[/bold]{context_hint} | "
-            f"[{readiness_color}]{interp.readiness.upper()}[/{readiness_color}] | "
-            f"Score: {interp.composite_score:.3f}"
+            f"[bold]{interp.table_name}.{col_name}[/bold]{context_hint}"
         )
 
         # Get entropy objects for this column or table-level

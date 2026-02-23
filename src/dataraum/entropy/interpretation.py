@@ -18,8 +18,6 @@ from sqlalchemy.orm import Session
 
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
-from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
-from dataraum.entropy.models import CompoundRisk
 
 logger = get_logger(__name__)
 
@@ -52,7 +50,6 @@ class ResolutionAction:
 
     action: str  # e.g., "document_unit", "document_null_semantics"
     description: str  # Human-readable description
-    priority: str  # "high", "medium", "low"
     effort: str  # "low", "medium", "high"
     expected_impact: str  # What dimensions this will improve
     parameters: dict[str, Any] = field(default_factory=dict)
@@ -73,10 +70,6 @@ class EntropyInterpretation:
     resolution_actions: list[ResolutionAction]
     explanation: str  # Human-readable summary
 
-    # Original metrics for reference
-    composite_score: float
-    readiness: str
-
     # Metadata
     model_used: str | None = None
 
@@ -92,8 +85,6 @@ class EntropyInterpretation:
             "table_name": self.table_name,
             "column_name": self.column_name,
             "explanation": self.explanation,
-            "composite_score": round(self.composite_score, 2),
-            "readiness": self.readiness,
             "assumptions": [
                 {
                     "dimension": a.dimension,
@@ -107,7 +98,6 @@ class EntropyInterpretation:
                 {
                     "action": r.action,
                     "description": r.description,
-                    "priority": r.priority,
                     "effort": r.effort,
                     "parameters": r.parameters,
                 }
@@ -123,7 +113,12 @@ class EntropyInterpretation:
 class InterpretationInput:
     """Input data for entropy interpretation.
 
-    Combines entropy profile with raw metrics from detectors.
+    Contains the minimal context needed for LLM interpretation:
+    column identity, type, quality context, and Bayesian network analysis.
+
+    The network_analysis dict replaces raw entropy scores (layer scores,
+    dimension scores, compound risks) with pre-computed causal analysis:
+    intent readiness, high-impact nodes, and top fix.
     """
 
     table_name: str
@@ -131,126 +126,37 @@ class InterpretationInput:
     detected_type: str
     business_description: str | None
 
-    # Entropy profile
-    composite_score: float
-    readiness: str
-    structural_entropy: float
-    semantic_entropy: float
-    value_entropy: float
-    computational_entropy: float
-
-    # Raw metrics from detectors
-    raw_metrics: dict[str, Any]
-
-    # Dimension-level scores (e.g., "semantic.dimensional.column_quality": 0.3)
-    dimension_scores: dict[str, float]
-
-    # High entropy dimensions
-    high_entropy_dimensions: list[str]
-
-    # Compound risks
-    compound_risks: list[CompoundRisk]
-
     # Quality context from ColumnQualityReport (optional, added in interpretation phase)
     quality_grade: str | None = None
     quality_findings: list[str] | None = None
 
-    @classmethod
-    def from_summary(
-        cls,
-        summary: ColumnSummary,
-        detected_type: str = "unknown",
-        business_description: str | None = None,
-        raw_metrics: dict[str, Any] | None = None,
-        quality_grade: str | None = None,
-        quality_findings: list[str] | None = None,
-    ) -> InterpretationInput:
-        """Create input from a ColumnSummary.
-
-        Args:
-            summary: Column entropy summary
-            detected_type: Detected data type
-            business_description: Business description if available
-            raw_metrics: Raw metrics from detectors
-            quality_grade: Quality grade from ColumnQualityReport (A-F)
-            quality_findings: Top key findings from quality report
-
-        Returns:
-            InterpretationInput ready for LLM
-        """
-        return cls(
-            table_name=summary.table_name,
-            column_name=summary.column_name,
-            detected_type=detected_type,
-            business_description=business_description,
-            composite_score=summary.composite_score,
-            readiness=summary.readiness,
-            structural_entropy=summary.layer_scores.get("structural", 0.0),
-            semantic_entropy=summary.layer_scores.get("semantic", 0.0),
-            value_entropy=summary.layer_scores.get("value", 0.0),
-            computational_entropy=summary.layer_scores.get("computational", 0.0),
-            raw_metrics=raw_metrics or {},
-            dimension_scores=summary.dimension_scores,
-            high_entropy_dimensions=summary.high_entropy_dimensions,
-            compound_risks=summary.compound_risks,
-            quality_grade=quality_grade,
-            quality_findings=quality_findings,
-        )
+    # Network analysis from Bayesian network (added in interpretation phase)
+    network_analysis: dict[str, Any] | None = None
 
 
 @dataclass
 class TableInterpretationInput:
-    """Input data for table-level entropy interpretation."""
+    """Input data for table-level entropy interpretation.
+
+    Contains table identity, column count, network-derived analysis,
+    and enrichment context (dimensional patterns, column interpretation
+    summaries, quality overview).
+
+    The network_analysis dict provides per-table Bayesian network
+    aggregation: intent readiness, column readiness counts, top fix,
+    and per-column compact summaries.
+    """
 
     table_name: str
-    avg_composite_score: float
-    max_composite_score: float
-    readiness: str
-    avg_layer_scores: dict[str, float]
-    high_entropy_columns: list[str]
-    blocked_columns: list[str]
-    compound_risks: list[CompoundRisk]
     column_count: int
-    # Summary of per-column dimension scores for pattern detection
-    dimension_score_ranges: dict[str, tuple[float, float]]  # dim -> (min, max)
 
-    # Enrichment context (set by interpretation phase, not from_summary)
+    # Network analysis from Bayesian network (added in interpretation phase)
+    network_analysis: dict[str, Any] | None = None
+
+    # Enrichment context (set by interpretation phase)
     dimensional_patterns: list[dict[str, Any]] | None = None
     column_interpretations_summary: list[dict[str, Any]] | None = None
     quality_overview: dict[str, Any] | None = None
-
-    @classmethod
-    def from_summary(cls, summary: TableSummary) -> TableInterpretationInput:
-        """Create from a TableSummary.
-
-        Args:
-            summary: Table entropy summary with column data.
-
-        Returns:
-            TableInterpretationInput ready for LLM.
-        """
-        # Compute dimension score ranges across all columns
-        dim_ranges: dict[str, tuple[float, float]] = {}
-        for col in summary.columns:
-            for dim, score in col.dimension_scores.items():
-                if dim in dim_ranges:
-                    cur_min, cur_max = dim_ranges[dim]
-                    dim_ranges[dim] = (min(cur_min, score), max(cur_max, score))
-                else:
-                    dim_ranges[dim] = (score, score)
-
-        return cls(
-            table_name=summary.table_name,
-            avg_composite_score=summary.avg_composite_score,
-            max_composite_score=summary.max_composite_score,
-            readiness=summary.readiness,
-            avg_layer_scores=summary.avg_layer_scores,
-            high_entropy_columns=summary.high_entropy_columns,
-            blocked_columns=summary.blocked_columns,
-            compound_risks=summary.compound_risks,
-            column_count=len(summary.columns),
-            dimension_score_ranges=dim_ranges,
-        )
 
 
 # =============================================================================
@@ -282,7 +188,6 @@ class ResolutionActionOutput(BaseModel):
         description="Action identifier. Must start with: document_, investigate_, transform_, or create_"
     )
     description: str = Field(description="Human-readable description of the action")
-    priority: Literal["high", "medium", "low"] = Field(description="Priority of this action")
     effort: Literal["low", "medium", "high"] = Field(description="Effort required to implement")
     expected_impact: str = Field(description="What entropy dimensions this will improve")
     parameters: dict[str, str] = Field(
@@ -418,32 +323,24 @@ class EntropyInterpreter:
         if not feature_config or not feature_config.enabled:
             return Result.fail(f"{feature_name} is disabled in config")
 
-        # Build columns JSON for prompt
+        # Build columns JSON for prompt — compact form with network analysis
         columns_data = []
         for inp in inputs:
+            if inp.network_analysis is None:
+                logger.error(
+                    "interpretation_missing_network_analysis",
+                    column=f"{inp.table_name}.{inp.column_name}",
+                    message="Column has no network_analysis — skipping from interpretation batch",
+                )
+                continue
+
             col_entry: dict[str, Any] = {
                 "key": f"{inp.table_name}.{inp.column_name}",
                 "table_name": inp.table_name,
                 "column_name": inp.column_name,
                 "detected_type": inp.detected_type,
                 "business_description": inp.business_description or "Not documented",
-                "composite_score": round(inp.composite_score, 3),
-                "readiness": inp.readiness,
-                "structural_entropy": round(inp.structural_entropy, 3),
-                "semantic_entropy": round(inp.semantic_entropy, 3),
-                "value_entropy": round(inp.value_entropy, 3),
-                "computational_entropy": round(inp.computational_entropy, 3),
-                "dimension_scores": {k: round(v, 3) for k, v in inp.dimension_scores.items()},
-                "high_entropy_dimensions": inp.high_entropy_dimensions,
-                "raw_metrics": inp.raw_metrics,
-                "compound_risks": [
-                    {
-                        "dimensions": r.dimensions,
-                        "risk_level": r.risk_level,
-                        "impact": r.impact,
-                    }
-                    for r in inp.compound_risks
-                ],
+                "network_analysis": inp.network_analysis,
             }
             # Add quality context if available
             if inp.quality_grade:
@@ -627,7 +524,6 @@ class EntropyInterpreter:
                 ResolutionAction(
                     action=r.action,
                     description=r.description,
-                    priority=r.priority,
                     effort=r.effort,
                     expected_impact=r.expected_impact,
                     parameters=r.parameters,
@@ -641,8 +537,6 @@ class EntropyInterpreter:
                 assumptions=assumptions,
                 resolution_actions=resolution_actions,
                 explanation=col_output.explanation,
-                composite_score=inp.composite_score,
-                readiness=inp.readiness,
                 model_used=model,
             )
 
@@ -677,30 +571,21 @@ class EntropyInterpreter:
         if not feature_config or not feature_config.enabled:
             return Result.fail("entropy_interpretation is disabled in config")
 
-        # Build tables JSON for prompt
+        # Build tables JSON for prompt — compact form with network analysis
         tables_data = []
         for inp in inputs:
+            if inp.network_analysis is None:
+                logger.error(
+                    "table_interpretation_missing_network_analysis",
+                    table=inp.table_name,
+                    message="Table has no network_analysis — skipping from interpretation batch",
+                )
+                continue
+
             table_entry: dict[str, Any] = {
                 "table_name": inp.table_name,
-                "avg_composite_score": round(inp.avg_composite_score, 3),
-                "max_composite_score": round(inp.max_composite_score, 3),
-                "readiness": inp.readiness,
-                "avg_layer_scores": {k: round(v, 3) for k, v in inp.avg_layer_scores.items()},
                 "column_count": inp.column_count,
-                "high_entropy_columns": inp.high_entropy_columns,
-                "blocked_columns": inp.blocked_columns,
-                "dimension_score_ranges": {
-                    k: {"min": round(v[0], 3), "max": round(v[1], 3)}
-                    for k, v in inp.dimension_score_ranges.items()
-                },
-                "compound_risks": [
-                    {
-                        "dimensions": r.dimensions,
-                        "risk_level": r.risk_level,
-                        "impact": r.impact,
-                    }
-                    for r in inp.compound_risks
-                ],
+                "network_analysis": inp.network_analysis,
             }
             # Add enrichment context if available
             if inp.dimensional_patterns:
@@ -869,7 +754,6 @@ class EntropyInterpreter:
                 ResolutionAction(
                     action=r.action,
                     description=r.description,
-                    priority=r.priority,
                     effort=r.effort,
                     expected_impact=r.expected_impact,
                     parameters=r.parameters,
@@ -883,8 +767,6 @@ class EntropyInterpreter:
                 assumptions=assumptions,
                 resolution_actions=resolution_actions,
                 explanation=table_output.explanation,
-                composite_score=inp.avg_composite_score,
-                readiness=inp.readiness,
                 model_used=model,
             )
 

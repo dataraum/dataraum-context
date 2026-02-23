@@ -21,8 +21,6 @@ from dataraum.entropy import (
     EntropyInterpreter,
     InterpretationInput,
 )
-from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
-from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.db_models import EntropyObjectRecord
 from dataraum.entropy.interpretation import TableInterpretationInput
 from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
@@ -237,7 +235,7 @@ class EntropyInterpretationPhase(BasePhase):
         # Track column metadata for persistence
         column_metadata: dict[str, dict[str, str]] = {}
 
-        for column_id, entropy_records in entropy_by_column.items():
+        for column_id, _entropy_records in entropy_by_column.items():
             col_or_none = column_map.get(column_id)
             if not col_or_none:
                 continue
@@ -247,64 +245,6 @@ class EntropyInterpretationPhase(BasePhase):
             if not table_or_none:
                 continue
             table = table_or_none
-
-            # Build ColumnSummary from records
-            # Aggregate scores by layer
-            layer_scores_raw: dict[str, list[float]] = {
-                "structural": [],
-                "semantic": [],
-                "value": [],
-                "computational": [],
-            }
-            dimension_scores: dict[str, float] = {}
-
-            for record in entropy_records:
-                if record.layer in layer_scores_raw:
-                    layer_scores_raw[record.layer].append(record.score)
-                # Construct dimension path from layer.dimension.sub_dimension
-                dim_path = f"{record.layer}.{record.dimension}.{record.sub_dimension}"
-                dimension_scores[dim_path] = record.score
-
-            # Calculate layer averages
-            layer_scores: dict[str, float] = {}
-            for layer in ["structural", "semantic", "value", "computational"]:
-                if layer_scores_raw[layer]:
-                    layer_scores[layer] = sum(layer_scores_raw[layer]) / len(
-                        layer_scores_raw[layer]
-                    )
-                else:
-                    layer_scores[layer] = 0.0
-
-            # Calculate composite score using config weights
-            entropy_config = get_entropy_config()
-            weights = entropy_config.composite_weights
-            composite_score = (
-                layer_scores.get("structural", 0.0) * weights["structural"]
-                + layer_scores.get("semantic", 0.0) * weights["semantic"]
-                + layer_scores.get("value", 0.0) * weights["value"]
-                + layer_scores.get("computational", 0.0) * weights["computational"]
-            )
-
-            # Determine readiness
-            readiness = entropy_config.get_readiness(composite_score)
-
-            # Identify high-entropy dimensions
-            high_threshold = entropy_config.high_entropy_threshold
-            high_entropy_dimensions = [
-                dim for dim, score in dimension_scores.items() if score >= high_threshold
-            ]
-
-            summary = ColumnSummary(
-                column_id=column_id,
-                column_name=col.column_name,
-                table_id=col.table_id,
-                table_name=table.table_name,
-                composite_score=composite_score,
-                readiness=readiness,
-                layer_scores=layer_scores,
-                dimension_scores=dimension_scores,
-                high_entropy_dimensions=high_entropy_dimensions,
-            )
 
             # Get additional context
             detected_type = "unknown"
@@ -337,9 +277,10 @@ class EntropyInterpretationPhase(BasePhase):
                 if unique_findings:
                     quality_findings = unique_findings
 
-            # Create interpretation input
-            input_item = InterpretationInput.from_summary(
-                summary=summary,
+            # Create interpretation input (minimal — network_analysis added later)
+            input_item = InterpretationInput(
+                table_name=table.table_name,
+                column_name=col.column_name,
                 detected_type=detected_type,
                 business_description=business_description,
                 quality_grade=quality_grade,
@@ -354,6 +295,72 @@ class EntropyInterpretationPhase(BasePhase):
                 "table_id": col.table_id,
                 "source_id": ctx.source_id,
             }
+
+        # Build Bayesian network context and inject per-column analysis.
+        # network_ctx is also used for table-level interpretation below.
+        from dataraum.entropy.core.storage import EntropyRepository
+        from dataraum.entropy.network.model import EntropyNetwork
+        from dataraum.entropy.views.network_context import (
+            EntropyForNetwork,
+            _assemble_network_context,
+        )
+
+        network_ctx: EntropyForNetwork | None = None
+        network = EntropyNetwork()
+        repo = EntropyRepository(ctx.session)
+        typed_table_ids = repo.get_typed_table_ids(table_ids)
+        if typed_table_ids:
+            entropy_domain_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
+            if entropy_domain_objects:
+                network_ctx = _assemble_network_context(entropy_domain_objects, network)
+
+                # Inject per-column network_analysis into each InterpretationInput
+                for inp in inputs:
+                    col_target = f"column:{inp.table_name}.{inp.column_name}"
+                    col_result = network_ctx.columns.get(col_target)
+                    if col_result is None:
+                        logger.warning(
+                            "network_analysis_missing_for_column",
+                            column=f"{inp.table_name}.{inp.column_name}",
+                            target=col_target,
+                        )
+                        continue
+
+                    # Build compact network analysis dict for prompt
+                    intents_dict: dict[str, dict[str, Any]] = {}
+                    for intent in col_result.intents:
+                        intents_dict[intent.intent_name] = {
+                            "p_high": round(intent.p_high, 2),
+                            "readiness": intent.readiness,
+                        }
+
+                    high_impact_nodes = [
+                        {
+                            "node": ne.node_name,
+                            "state": ne.state,
+                            "impact_delta": round(ne.impact_delta, 2),
+                        }
+                        for ne in sorted(
+                            col_result.node_evidence,
+                            key=lambda x: x.impact_delta,
+                            reverse=True,
+                        )
+                        if ne.state != "low"
+                    ]
+
+                    top_fix_dict: dict[str, Any] | None = None
+                    if col_result.top_priority_node:
+                        top_fix_dict = {
+                            "node": col_result.top_priority_node,
+                            "impact_delta": round(col_result.top_priority_impact, 2),
+                        }
+
+                    inp.network_analysis = {
+                        "readiness": col_result.readiness,
+                        "intents": intents_dict,
+                        "high_impact_nodes": high_impact_nodes,
+                        "top_fix": top_fix_dict,
+                    }
 
         # Get batch size from LLM feature config or phase config
         feature_batch_size = getattr(config.features.entropy_interpretation, "batch_size", None)
@@ -454,7 +461,6 @@ class EntropyInterpretationPhase(BasePhase):
                 {
                     "action": r.action,
                     "description": r.description,
-                    "priority": r.priority,
                     "effort": r.effort,
                     "expected_impact": r.expected_impact,
                     "parameters": r.parameters,
@@ -468,8 +474,6 @@ class EntropyInterpretationPhase(BasePhase):
                 column_id=meta["column_id"],
                 table_name=interp.table_name,
                 column_name=interp.column_name,
-                composite_score=interp.composite_score,
-                readiness=interp.readiness,
                 explanation=interp.explanation,
                 assumptions_json=assumptions_json,
                 resolution_actions_json=resolution_actions_json,
@@ -491,7 +495,6 @@ class EntropyInterpretationPhase(BasePhase):
             col_interp_by_table.setdefault(tbl, []).append(
                 {
                     "column": interp.column_name,
-                    "readiness": interp.readiness,
                     "top_assumption": interp.assumptions[0].assumption_text
                     if interp.assumptions
                     else None,
@@ -564,88 +567,87 @@ class EntropyInterpretationPhase(BasePhase):
                 overview["grade_counts"][g] = overview["grade_counts"].get(g, 0) + 1
                 overview["total"] += 1
 
-        # Build TableSummary objects from column summaries we already computed
-        # Group column summaries by table
-        summaries_by_table: dict[str, list[ColumnSummary]] = {}
-        for inp in inputs:
-            summaries_by_table.setdefault(inp.table_name, []).append(
-                ColumnSummary(
-                    column_id="",  # Not needed for table summary
-                    column_name=inp.column_name,
-                    table_id="",
-                    table_name=inp.table_name,
-                    composite_score=inp.composite_score,
-                    readiness=inp.readiness,
-                    layer_scores={
-                        "structural": inp.structural_entropy,
-                        "semantic": inp.semantic_entropy,
-                        "value": inp.value_entropy,
-                        "computational": inp.computational_entropy,
-                    },
-                    dimension_scores=inp.dimension_scores,
-                    high_entropy_dimensions=inp.high_entropy_dimensions,
-                    compound_risks=inp.compound_risks,
-                )
-            )
-
+        # Build table-level interpretation inputs from network context
         table_inputs: list[TableInterpretationInput] = []
         table_id_map: dict[str, str] = {}  # table_name -> table_id
 
-        for table in typed_tables:
-            col_summaries = summaries_by_table.get(table.table_name, [])
-            if not col_summaries:
-                continue
+        from dataraum.entropy.views.network_context import (
+            _aggregate_intents,
+            _compute_cross_column_fix,
+            _readiness_from_p_high,
+        )
 
-            # Build a TableSummary for this table
-            avg_composite = sum(c.composite_score for c in col_summaries) / len(col_summaries)
-            max_composite = max(c.composite_score for c in col_summaries)
+        if network_ctx is not None:
+            for table in typed_tables:
+                # Filter columns for this table from network_ctx
+                table_prefix = f"column:{table.table_name}."
+                table_col_results = {
+                    target: col
+                    for target, col in network_ctx.columns.items()
+                    if target.startswith(table_prefix)
+                }
+                if not table_col_results:
+                    continue
 
-            avg_layers: dict[str, float] = {}
-            for layer in ["structural", "semantic", "value", "computational"]:
-                vals = [c.layer_scores.get(layer, 0.0) for c in col_summaries]
-                avg_layers[layer] = sum(vals) / len(vals) if vals else 0.0
+                # Per-column compact summaries
+                column_summaries_list: list[dict[str, Any]] = []
+                for target, col_result in table_col_results.items():
+                    col_name = target[len(table_prefix) :]
+                    col_summary: dict[str, Any] = {
+                        "column": col_name,
+                        "readiness": col_result.readiness,
+                        "worst_p_high": round(col_result.worst_intent_p_high, 2),
+                    }
+                    if col_result.top_priority_node:
+                        col_summary["top_fix"] = col_result.top_priority_node
+                    column_summaries_list.append(col_summary)
 
-            entropy_config = get_entropy_config()
-            table_readiness = entropy_config.get_readiness(avg_composite)
+                # Per-table intent aggregation
+                table_intents = _aggregate_intents(table_col_results)
+                tbl_intents_dict: dict[str, dict[str, Any]] = {}
+                for ai in table_intents:
+                    tbl_intents_dict[ai.intent_name] = {
+                        "worst_p_high": round(ai.worst_p_high, 2),
+                        "mean_p_high": round(ai.mean_p_high, 2),
+                        "columns_blocked": ai.columns_blocked,
+                        "columns_investigate": ai.columns_investigate,
+                        "columns_ready": ai.columns_ready,
+                        "readiness": ai.overall_readiness,
+                    }
 
-            high_entropy_cols = [
-                c.column_name
-                for c in col_summaries
-                if entropy_config.is_high_entropy(c.composite_score)
-            ]
-            blocked_cols = [
-                c.column_name
-                for c in col_summaries
-                if entropy_config.is_critical_entropy(c.composite_score)
-            ]
+                # Per-table top fix
+                table_top_fix = _compute_cross_column_fix(table_col_results, network)
+                tbl_top_fix_dict: dict[str, Any] | None = None
+                if table_top_fix:
+                    tbl_top_fix_dict = {
+                        "node": table_top_fix.node_name,
+                        "columns_affected": table_top_fix.columns_affected,
+                        "total_delta": round(table_top_fix.total_intent_delta, 2),
+                    }
 
-            # Collect compound risks across columns
-            all_risks = []
-            for c in col_summaries:
-                all_risks.extend(c.compound_risks)
+                # Overall table readiness from worst intent
+                table_readiness = "ready"
+                if table_intents:
+                    worst_p = max(ai.worst_p_high for ai in table_intents)
+                    table_readiness = _readiness_from_p_high(worst_p)
 
-            table_summary = TableSummary(
-                table_id=table.table_id,
-                table_name=table.table_name,
-                columns=col_summaries,
-                avg_composite_score=avg_composite,
-                max_composite_score=max_composite,
-                avg_layer_scores=avg_layers,
-                readiness=table_readiness,
-                high_entropy_columns=high_entropy_cols,
-                blocked_columns=blocked_cols,
-                compound_risks=all_risks,
-            )
+                table_network_analysis: dict[str, Any] = {
+                    "readiness": table_readiness,
+                    "intents": tbl_intents_dict,
+                    "columns": column_summaries_list,
+                    "top_fix": tbl_top_fix_dict,
+                }
 
-            table_input = TableInterpretationInput.from_summary(table_summary)
-
-            # Enrich with column interpretation summaries, dimensional patterns, quality
-            table_input.column_interpretations_summary = col_interp_by_table.get(table.table_name)
-            table_input.dimensional_patterns = dim_patterns_by_table.get(table.table_name)
-            table_input.quality_overview = quality_overview_by_table.get(table.table_name)
-
-            table_inputs.append(table_input)
-            table_id_map[table.table_name] = table.table_id
+                table_input = TableInterpretationInput(
+                    table_name=table.table_name,
+                    column_count=len(table_col_results),
+                    network_analysis=table_network_analysis,
+                    column_interpretations_summary=col_interp_by_table.get(table.table_name),
+                    dimensional_patterns=dim_patterns_by_table.get(table.table_name),
+                    quality_overview=quality_overview_by_table.get(table.table_name),
+                )
+                table_inputs.append(table_input)
+                table_id_map[table.table_name] = table.table_id
 
         if table_inputs:
             table_result = interpreter.interpret_tables(session=ctx.session, inputs=table_inputs)
@@ -669,7 +671,6 @@ class EntropyInterpretationPhase(BasePhase):
                         {
                             "action": r.action,
                             "description": r.description,
-                            "priority": r.priority,
                             "effort": r.effort,
                             "expected_impact": r.expected_impact,
                             "parameters": r.parameters,
@@ -683,8 +684,6 @@ class EntropyInterpretationPhase(BasePhase):
                         column_id=None,
                         table_name=interp.table_name,
                         column_name=None,
-                        composite_score=interp.composite_score,
-                        readiness=interp.readiness,
                         explanation=interp.explanation,
                         assumptions_json=assumptions_json,
                         resolution_actions_json=resolution_actions_json,

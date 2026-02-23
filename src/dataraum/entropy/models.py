@@ -12,7 +12,7 @@ Key models:
 
 For aggregated entropy views, use:
 - entropy.analysis.aggregator: ColumnSummary, TableSummary, RelationshipSummary
-- entropy.views: EntropyForGraph, EntropyForQuery, EntropyForDashboard
+- entropy.views: EntropyForGraph, EntropyForQuery, EntropyForNetwork
 
 Default thresholds loaded from config/entropy/thresholds.yaml.
 """

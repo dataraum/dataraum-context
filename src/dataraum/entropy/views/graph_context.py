@@ -438,7 +438,6 @@ def get_column_entropy_summary(summary: ColumnSummary) -> dict[str, Any]:
                 {
                     "action": r.action,
                     "description": r.description,
-                    "priority": r.priority,
                     "effort": r.effort,
                     "expected_impact": r.expected_impact,
                 }
