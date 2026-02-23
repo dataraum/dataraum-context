@@ -1,0 +1,144 @@
+# Project: Incremental Imports
+
+*Detect what changed in new data without re-analyzing everything from scratch.*
+
+---
+
+## Problem
+
+Today, every `analyze` call runs the full 18-phase pipeline (~11 minutes). When a user gets new data (next month's bookings, updated export, corrected file), the pipeline re-analyzes everything from zero. This is wasteful: most of the schema and metadata hasn't changed.
+
+More importantly, users can't easily see **what changed** — they just get a fresh analysis that looks the same as the last one unless they manually compare.
+
+## Use Cases
+
+### Monthly data refresh
+*"Here's February's bookings. What's different from January?"*
+- Same schema, new rows
+- Detect: new values in categorical columns, distribution shifts, new null patterns
+- Skip: re-inferring types, re-detecting relationships (schema unchanged)
+
+### Corrected re-export
+*"I fixed the date formats and re-exported. Did it help?"*
+- Same schema, same rows, some values changed
+- Detect: which columns improved, which issues are resolved
+- Apply: existing fixes from the ledger
+
+### Schema evolution
+*"The accounting system added two new columns this month."*
+- Schema changed: new columns, possibly removed columns
+- Detect: schema diff (added/removed/renamed columns)
+- Run: full analysis only on new columns, preserve metadata for unchanged ones
+
+### Appended data
+*"I added Q2 data to the same file."*
+- Same schema, more rows appended
+- Detect: row count change, profile the new rows
+- Compare: distribution of new rows vs existing
+
+## Design
+
+### Change Detection
+
+Before running the pipeline, compare new data against the last analyzed state:
+
+```
+ChangeDetection
+  change_type      enum    # 'new_rows' | 'schema_change' | 'value_change' | 'full_replace'
+  schema_diff      JSON    # {added: [...], removed: [...], type_changed: [...]}
+  row_count_delta  int     # positive = added, negative = removed
+  affected_columns list    # columns with distribution changes
+  fingerprint      str     # hash of schema + sample for quick comparison
+```
+
+**Detection method:**
+1. Schema comparison: column names and types vs stored `Column` records
+2. Row count: `SELECT COUNT(*) FROM new_data` vs stored `Table.row_count`
+3. Fingerprint: hash of (sorted column names + first/last 100 row hashes) for quick "anything changed?" check
+4. If fingerprint unchanged → skip analysis entirely
+5. If schema unchanged but rows changed → incremental profile
+6. If schema changed → full re-analysis with metadata preservation
+
+### Incremental Pipeline
+
+Not all phases need to re-run on incremental data:
+
+| Phase | Full re-run | Incremental | Notes |
+|---|---|---|---|
+| import | Yes | Partial (new rows only) | DuckDB can append |
+| typing | Yes | Skip (schema unchanged) | Types don't change |
+| statistics | Yes | **Merge** | Update distributions with new data |
+| correlations | Yes | **Merge** | Re-compute with expanded dataset |
+| relationships | Yes | Skip (schema unchanged) | Join paths don't change |
+| semantic | Yes | Skip (pinned by fixes) | Only run on new columns |
+| temporal | Yes | **Extend** | Add new time periods |
+| slicing | Yes | **Re-evaluate** | Slice definitions may change |
+| quality_summary | Yes | **Re-run** | Depends on updated stats |
+| entropy | Yes | **Re-run** | Depends on updated profiles |
+| entropy_interpretation | Yes | **Re-run** | Most expensive phase, only if scores changed |
+
+Potential speedup: skip 4 phases entirely, merge 2, only fully re-run 5. The `entropy_interpretation` phase (currently 78% of runtime at ~9 min) could be skipped if entropy scores haven't changed materially.
+
+### "What Changed?" Report
+
+After incremental analysis, automatically produce a diff:
+
+```
+Incremental Analysis: February data
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Rows: 12,450 → 15,230 (+2,780 new)
+Schema: unchanged (41 columns)
+
+Distribution changes:
+  - kost1kostenstelle: null rate 12% → 28% (⚠ investigate)
+  - buchungsdatum: new range extends to 2026-02-28
+  - betrag: mean shifted 1,240 → 1,380 (+11%)
+
+Quality impact:
+  - Overall score: 71% → 68% (regression)
+  - New warning: null rate increase in kost1kostenstelle
+
+Fixes re-applied: 3/3 successful
+```
+
+## New MCP Tools
+
+| Tool | Purpose |
+|---|---|
+| `detect_changes` | Compare new data against last analysis, return change summary |
+| `analyze_incremental` | Run only necessary pipeline phases based on detected changes |
+
+## Pipeline Performance Context
+
+From benchmarks (Feb 2026):
+
+| Phase group | Time | % of total |
+|---|---|---|
+| Structural (import → correlations) | 4.7s | 0.7% |
+| semantic | 84s | 12% |
+| slicing + slice_analysis | 17s | 2.5% |
+| quality_summary | 51s | 7.4% |
+| **entropy_interpretation** | **539s** | **78%** |
+| **Total** | **693s** | **100%** |
+
+The entropy_interpretation phase is the bottleneck. For incremental imports where entropy scores haven't changed materially (< 5% delta), skipping this phase alone would reduce re-analysis from ~11 min to ~2.5 min.
+
+Note: LLM call counters show 0 in phase metadata — the counters may not be wired to actual API calls yet. The actual LLM cost is in `semantic`, `quality_summary`, and `entropy_interpretation`.
+
+## Dependencies
+
+- Change detection needs stored fingerprints (add to `PipelineRun` or `Source`)
+- Incremental pipeline needs phase-level skip/merge logic in the orchestrator
+- "What changed?" report needs the persistent state layer for historical comparison
+- Fixes ledger (re-application during incremental import)
+
+## Priority
+
+Lower than the other projects — this is an optimization, not a capability gap. The full pipeline works; it's just slow. However, the value increases significantly once users have fixes in the ledger that need re-applying, and once they're doing regular data refreshes.
+
+## Open Questions
+
+- How do we handle the case where the user replaces the file entirely (same filename, different content)?
+- Should incremental analysis create a new `PipelineRun` or update the existing one?
+- Can DuckDB efficiently merge statistics (histograms, percentiles) without re-scanning all data?
+- Should we support streaming/appending (new rows arrive continuously) or only batch (new file replaces old)?
