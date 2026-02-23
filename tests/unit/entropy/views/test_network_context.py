@@ -40,6 +40,7 @@ class TestDataclassDefaults:
         assert cne.state == "low"
         assert cne.score == 0.0
         assert cne.confidence == 1.0
+        assert cne.impact_delta == 0.0
         assert cne.evidence == []
         assert cne.resolution_options == []
         assert cne.detector_id == ""
@@ -341,6 +342,32 @@ class TestPerColumnAssembly:
         assert col.top_priority_node == "root_a"
         assert col.top_priority_impact > 0
 
+    def test_node_evidence_has_impact_delta(self, small_network):
+        """High node should have non-zero impact_delta from priorities."""
+        objects = [
+            make_entropy_object(
+                layer="structural", dimension="types", sub_dimension="root_a",
+                score=0.9, target="column:t.c1",
+            ),
+        ]
+        result = _assemble_network_context(objects, small_network)
+        col = result.columns["column:t.c1"]
+        ne = next(n for n in col.node_evidence if n.node_name == "root_a")
+        assert ne.impact_delta > 0
+
+    def test_low_node_has_zero_impact_delta(self, small_network):
+        """Low node should have zero impact_delta (no fix needed)."""
+        objects = [
+            make_entropy_object(
+                layer="structural", dimension="types", sub_dimension="root_a",
+                score=0.1, target="column:t.c1",
+            ),
+        ]
+        result = _assemble_network_context(objects, small_network)
+        col = result.columns["column:t.c1"]
+        ne = next(n for n in col.node_evidence if n.node_name == "root_a")
+        assert ne.impact_delta == 0.0
+
 
 # ===================================================================
 # D. Cross-column aggregation with small_network
@@ -411,6 +438,25 @@ class TestCrossColumnAggregation:
         # root_a is non-low in 2 columns, root_b in 1 column
         assert result.top_fix.node_name == "root_a"
         assert result.top_fix.columns_affected == 2
+        # total_intent_delta should be sum of actual causal deltas, not p_high
+        assert result.top_fix.total_intent_delta > 0
+
+    def test_cross_column_fix_uses_causal_impact(self, small_network):
+        """total_intent_delta sums actual per-node impact, not worst_intent_p_high."""
+        objects = [
+            make_entropy_object(
+                layer="structural", dimension="types", sub_dimension="root_a",
+                score=0.9, target="column:t.c1",
+            ),
+        ]
+        result = _assemble_network_context(objects, small_network)
+        assert result.top_fix is not None
+        # The delta should equal the node's actual impact_delta from priorities
+        col = result.columns["column:t.c1"]
+        ne = next(n for n in col.node_evidence if n.node_name == "root_a")
+        assert result.top_fix.total_intent_delta == pytest.approx(
+            ne.impact_delta, abs=0.001,
+        )
 
     def test_overall_readiness_from_worst_aggregate(self, small_network):
         """overall_readiness derives from worst aggregate intent."""
@@ -649,6 +695,7 @@ class TestFormatNetworkContext:
                             node_name="outlier_rate",
                             state="high",
                             score=1.0,
+                            impact_delta=0.143,
                         ),
                     ],
                 ),
@@ -663,6 +710,7 @@ class TestFormatNetworkContext:
         assert "At-Risk Columns" in result
         assert "column:t.c1" in result
         assert "0.645" in result
+        assert "impact=0.143" in result
 
     def test_healthy_columns_shown(self):
         ctx = EntropyForNetwork(

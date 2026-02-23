@@ -67,6 +67,7 @@ class ColumnNodeEvidence:
     state: str = "low"
     score: float = 0.0
     confidence: float = 1.0
+    impact_delta: float = 0.0  # causal impact of fixing this node (from priorities)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     resolution_options: list[dict[str, Any]] = field(default_factory=list)
     detector_id: str = ""
@@ -228,12 +229,16 @@ def _build_column_result(
     priorities = compute_network_priorities(network, evidence)
 
     # Build ColumnNodeEvidence for each observed node
-    # Build a lookup from node_name -> object for this column
+    # Build lookups: node_name -> source object, node_name -> impact_delta
     node_to_obj: dict[str, EntropyObject] = {}
     for obj in mapped:
         node_name = path_map.get(obj.dimension_path)
         if node_name:
             node_to_obj[node_name] = obj
+
+    node_to_delta: dict[str, float] = {
+        pr.node: pr.impact_delta for pr in priorities
+    }
 
     node_evidence: list[ColumnNodeEvidence] = []
     for node_name, state in evidence.items():
@@ -244,6 +249,7 @@ def _build_column_result(
             state=state,
             score=source_obj.score if source_obj else 0.0,
             confidence=source_obj.confidence if source_obj else 1.0,
+            impact_delta=node_to_delta.get(node_name, 0.0),
             evidence=list(source_obj.evidence) if source_obj else [],
             resolution_options=(
                 _serialize_resolution_options(source_obj.resolution_options)
@@ -380,10 +386,6 @@ def _compute_cross_column_fix(
     node_stats: dict[str, dict[str, Any]] = {}
 
     for target, col_result in columns.items():
-        # Build per-column priority lookup
-        # We need to re-derive per-node impact from the column's priorities
-        # The column's top_priority is the overall best, but we need per-node
-        # Use node_evidence to find non-low nodes and their deltas
         for node_ev in col_result.node_evidence:
             if node_ev.state == "low":
                 continue
@@ -392,17 +394,17 @@ def _compute_cross_column_fix(
                 node_stats[node_ev.node_name] = {
                     "columns_affected": 0,
                     "total_delta": 0.0,
-                    "worst_columns": [],  # (p_high, target)
+                    "worst_columns": [],  # (impact_delta, target)
                     "resolution_options": [],
                     "dimension_path": node_ev.dimension_path,
                 }
 
             stats = node_stats[node_ev.node_name]
             stats["columns_affected"] += 1
-            # Use the column's worst intent p_high as a proxy for impact
-            stats["total_delta"] += col_result.worst_intent_p_high
+            # Use the node's actual causal impact from network priorities
+            stats["total_delta"] += node_ev.impact_delta
             stats["worst_columns"].append(
-                (col_result.worst_intent_p_high, target)
+                (node_ev.impact_delta, target)
             )
             if node_ev.resolution_options and not stats["resolution_options"]:
                 stats["resolution_options"] = node_ev.resolution_options
@@ -664,11 +666,13 @@ def format_network_context(ctx: EntropyForNetwork) -> str:
             f"### At-Risk Columns ({len(at_risk)} of {ctx.total_columns})"
         )
         for target, col in at_risk[:10]:
-            high_nodes = [
-                ne for ne in col.node_evidence if ne.state != "low"
-            ]
+            high_nodes = sorted(
+                [ne for ne in col.node_evidence if ne.state != "low"],
+                key=lambda ne: ne.impact_delta,
+                reverse=True,
+            )
             nodes_str = ", ".join(
-                f"{ne.node_name}={ne.state}({ne.score:.2f})"
+                f"{ne.node_name}={ne.state}(impact={ne.impact_delta:.3f})"
                 for ne in high_nodes
             )
             lines.append(
