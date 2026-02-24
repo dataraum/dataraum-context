@@ -159,7 +159,7 @@ class TestValidationAgentEvaluateResult:
         passed, message, details = validation_agent._evaluate_result(spec, result_rows, 1)
 
         assert passed is True
-        assert "diff=0.00" in message
+        assert "0.00" in message
 
     def test_evaluate_balance_check_failed(self, validation_agent):
         """Test balance check evaluation when not balanced."""

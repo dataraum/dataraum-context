@@ -106,8 +106,8 @@ class ValidationAgent(LLMFeature):
         started_at = datetime.now(UTC)
         results: list[ValidationResult] = []
 
-        # Get multi-table schema with relationships
-        schema = get_multi_table_schema_for_llm(session, table_ids)
+        # Get multi-table schema with relationships and row counts
+        schema = get_multi_table_schema_for_llm(session, table_ids, duckdb_conn=duckdb_conn)
         if "error" in schema:
             return Result.fail(str(schema["error"]))
 
@@ -292,10 +292,32 @@ class ValidationAgent(LLMFeature):
                 columns_used=generated.columns_used,
             )
 
+        # Validate SQL with EXPLAIN before execution
+        try:
+            duckdb_conn.execute(f"EXPLAIN {generated.sql_query}")
+        except Exception as e:
+            logger.error(f"SQL validation failed for {spec.validation_id}: {e}")
+            return ValidationResult(
+                validation_id=spec.validation_id,
+                spec_name=spec.name,
+                status=ValidationStatus.ERROR,
+                severity=spec.severity,
+                table_ids=table_ids,
+                table_name=combined_table_name,
+                passed=False,
+                message=f"Generated SQL is invalid: {e}",
+                sql_used=generated.sql_query,
+                columns_used=generated.columns_used,
+            )
+
         # Execute SQL
         try:
-            result_df = duckdb_conn.execute(generated.sql_query).df()
-            result_rows: list[dict[str, Any]] = result_df.to_dict(orient="records")  # type: ignore[assignment]
+            result_obj = duckdb_conn.execute(generated.sql_query)
+            col_names = [desc[0] for desc in result_obj.description]
+            raw_rows = result_obj.fetchall()
+            result_rows: list[dict[str, Any]] = [
+                dict(zip(col_names, row, strict=True)) for row in raw_rows
+            ]
             row_count = len(result_rows)
 
             # Evaluate results based on check type
@@ -488,7 +510,17 @@ class ValidationAgent(LLMFeature):
             row = result_rows[0]
             tolerance = params.get("tolerance", self.DEFAULT_TOLERANCE)
 
-            # Find the columns to compare
+            # Look for difference column first (preferred: LLM computes the diff)
+            if "difference" in row or "diff" in row:
+                diff = abs(float(row.get("difference", row.get("diff", 0)) or 0))
+                passed = diff <= tolerance
+                return (
+                    passed,
+                    f"Balance difference: {diff:.2f} (tolerance: {tolerance})",
+                    {"difference": diff, "tolerance": tolerance, "row": row},
+                )
+
+            # Look for standard balance column names
             value_cols = [k for k in row.keys() if "total" in k.lower() or "sum" in k.lower()]
             if len(value_cols) >= 2:
                 val1 = float(row[value_cols[0]] or 0)
@@ -501,17 +533,13 @@ class ValidationAgent(LLMFeature):
                     {"values": row, "difference": diff, "tolerance": tolerance},
                 )
 
-            # Fall back to checking if difference column is within tolerance
-            if "difference" in row or "diff" in row:
-                diff = abs(float(row.get("difference", row.get("diff", 0)) or 0))
-                passed = diff <= tolerance
-                return (
-                    passed,
-                    f"Balance difference: {diff:.2f} (tolerance: {tolerance})",
-                    {"difference": diff, "tolerance": tolerance},
-                )
-
-            return (True, "Balance check passed", {"row": row})
+            # No recognizable columns — fail explicitly rather than silently pass
+            return (
+                False,
+                f"Balance check inconclusive: could not identify balance columns in result. "
+                f"Columns returned: {list(row.keys())}",
+                {"row": row},
+            )
 
         elif check_type == "constraint":
             # Constraint checks return violating rows

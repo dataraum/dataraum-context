@@ -10,35 +10,36 @@ Prioritized backlog for the dataraum-context project.
 
 ---
 
-## Current Focus: Module-by-Module Streamlining
+## Current Focus: Agent Refactoring (graphs/ + query/)
 
-> See [plans/restructuring-plan.md](./plans/restructuring-plan.md) for full plan, checklist, and spec template.
+> See [plans/agent-refactoring-plan.md](./plans/agent-refactoring-plan.md) for master plan.
 
-Bottom-up cleanup: each module gets dead code removal, config streamlining, logging, tests, and a spec doc.
+Streamline the four LLM agents around vertical configuration, fix context loading,
+merge graph + query agents into unified DataAgent.
 
-| # | Module | Status |
-|---|--------|--------|
-| 1 | `core/` + `storage/` | ✅ Done |
-| 2 | `sources/` | ✅ Done |
-| 3 | `analysis/typing/` | ✅ Done |
-| 4 | `analysis/statistics/` | ✅ Done |
-| 5 | `analysis/eligibility/` | ✅ Done |
-| 6 | `analysis/relationships/` | ✅ Done |
-| 7 | `analysis/correlation/` | ✅ Done |
-| 8 | `analysis/semantic/` | ✅ Done |
-| 9 | `analysis/temporal/` | ✅ Done |
-| 10 | `analysis/validation/` | ✅ Done |
-| 11 | `analysis/slicing/` | ✅ Done |
-| 12 | `analysis/cycles/` | ✅ Done |
-| 13 | `analysis/quality_summary/` | ✅ Done |
-| 14 | `analysis/temporal_slicing/` | ✅ Done |
-| 15 | `analysis/topology/` | ✅ Removed (TDA unused, relationships/graph_topology covers schema graph) |
-| 16 | `entropy/` | ✅ Done (spec, tests, logging, dead code all done) |
-| 17 | `llm/` | ✅ Done (removed unused `fallback` field, added error logging) |
-| 18 | `pipeline/` | ✅ Done (30 print() in runner.py accepted as CLI output; spec + tests complete) |
-| — | `graphs/` + `query/` | **Out of scope** (re-introduce after pipeline is clean) |
+| Phase | Step | Description | Strategy | Status |
+|-------|------|-------------|----------|--------|
+| A | A0 | Audit + deep metadata evaluation | Research | ✅ Done |
+| A | A1a | New cycle context builder (all pipeline metadata) | Rewrite | ✅ Done |
+| A | A1b | New cycle agent (single-call, no tools) | Rewrite | ✅ Done |
+| A | A2a | Enrich validation resolver | In-place | ✅ Done |
+| A | A2b | Fix validation execution | In-place | ✅ Done |
+| B | B1 | Create VerticalConfig abstraction | New code | **Next** |
+| B | B2 | Extract quality metrics to entropy system | Move | Pending |
+| C | C1 | Surface validation results in GraphExecutionContext | Additive | Pending |
+| C | C2 | Forward full cycle data to context | Additive | Pending |
+| C | C3 | Align ontology concepts ↔ standard_field vocabulary | Audit | Pending |
+| D | D1 | Consolidate shared agent infrastructure | Refactor | Pending |
+| D | D2 | Create unified DataAgent | Rewrite | Pending |
+| D | D3 | Clean up old modules | Delete | Pending |
 
-### After All Modules (Part 4)
+### Previous: Module-by-Module Streamlining ✅
+
+> See [plans/restructuring-plan.md](./plans/restructuring-plan.md) for full plan.
+
+All 18 modules complete. `graphs/` + `query/` were out of scope — now addressed above.
+
+### After Agent Refactoring (Part 4)
 - [ ] Verify TUI screens with cleaned models
 - [ ] Verify MCP tools with cleaned context assembly
 - [ ] Dependency audit (pandas vs pyarrow, ruptures, networkx)
@@ -98,9 +99,8 @@ Items identified during development but deferred to keep focus.
 ### Interfaces
 - [ ] TUI enhancements (real-time progress, `--from-phase`, `--force-restart`)
 
-### Agents (Out of Scope for Restructuring)
-- [ ] Graph Agent: field mapping with entropy, multi-table execution, validation
-- [ ] Query Agent: RAG-based query reuse
+### Agents
+- [x] Graph Agent + Query Agent: Now addressed in Agent Refactoring plan (see Current Focus)
 - [ ] Semantic Agent: entropy enrichment fields
 
 ### Infrastructure
