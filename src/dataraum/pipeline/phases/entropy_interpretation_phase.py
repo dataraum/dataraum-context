@@ -32,6 +32,37 @@ from dataraum.storage import Column, Table
 
 logger = get_logger(__name__)
 
+# Defaults used when baseline_filter config is absent or incomplete
+_DEFAULT_P_HIGH_THRESHOLD = 0.35
+_DEFAULT_POOR_QUALITY_GRADES = {"C", "D", "F"}
+
+
+def _is_interesting(
+    inp: InterpretationInput,
+    p_high_threshold: float = _DEFAULT_P_HIGH_THRESHOLD,
+    poor_quality_grades: set[str] = _DEFAULT_POOR_QUALITY_GRADES,
+) -> bool:
+    """Return True if a column has signals worth sending to the LLM.
+
+    A column is interesting if ANY of these hold:
+    1. Has high-impact nodes (nodes with state != "low")
+    2. Worst intent P(high) exceeds p_high_threshold
+    3. Quality grade is in poor_quality_grades
+    4. Has quality findings
+    """
+    na = inp.network_analysis
+    if na:
+        if na.get("high_impact_nodes"):
+            return True
+        intents = na.get("intents", {})
+        if intents and max(i.get("p_high", 0) for i in intents.values()) > p_high_threshold:
+            return True
+    if inp.quality_grade and inp.quality_grade in poor_quality_grades:
+        return True
+    if inp.quality_findings:
+        return True
+    return False
+
 
 @analysis_phase
 class EntropyInterpretationPhase(BasePhase):
@@ -362,6 +393,59 @@ class EntropyInterpretationPhase(BasePhase):
                         "top_fix": top_fix_dict,
                     }
 
+        # Initialize result accumulators (before filtering, so baseline entries are preserved)
+        all_interpretations: dict[str, Any] = {}
+        total_assumptions = 0
+        total_actions = 0
+        errors: list[str] = []
+
+        # Partition inputs: only send "interesting" columns to LLM
+        from dataraum.entropy.interpretation import EntropyInterpretation
+
+        # Read baseline filter config from LLM feature config
+        feature_cfg = config.features.entropy_interpretation
+        baseline_cfg: dict[str, Any] = getattr(feature_cfg, "baseline_filter", None) or {}
+        baseline_enabled: bool = baseline_cfg.get("enabled", True)
+        p_high_threshold: float = baseline_cfg.get("p_high_threshold", _DEFAULT_P_HIGH_THRESHOLD)
+        poor_quality_grades: set[str] = set(
+            baseline_cfg.get("poor_quality_grades", _DEFAULT_POOR_QUALITY_GRADES)
+        )
+
+        llm_inputs: list[InterpretationInput] = []
+        baseline_inputs: list[InterpretationInput] = []
+        if baseline_enabled:
+            for inp in inputs:
+                if _is_interesting(inp, p_high_threshold, poor_quality_grades):
+                    llm_inputs.append(inp)
+                else:
+                    baseline_inputs.append(inp)
+        else:
+            llm_inputs = inputs
+
+        logger.info(
+            "baseline_filter",
+            enabled=baseline_enabled,
+            total=len(inputs),
+            llm=len(llm_inputs),
+            baseline=len(baseline_inputs),
+            p_high_threshold=p_high_threshold,
+        )
+
+        # Create static interpretations for baseline columns
+        for inp in baseline_inputs:
+            key = f"{inp.table_name}.{inp.column_name}"
+            all_interpretations[key] = EntropyInterpretation(
+                table_name=inp.table_name,
+                column_name=inp.column_name,
+                assumptions=[],
+                resolution_actions=[],
+                explanation="No specific concerns beyond baseline uncertainty.",
+                model_used="static",
+            )
+
+        # Only send interesting columns to LLM
+        inputs = llm_inputs
+
         # Get batch size from LLM feature config or phase config
         feature_batch_size = getattr(config.features.entropy_interpretation, "batch_size", None)
         batch_size = feature_batch_size or ctx.config.get("batch_size", 10)
@@ -379,11 +463,6 @@ class EntropyInterpretationPhase(BasePhase):
 
         # Process batches in parallel
         from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        all_interpretations = {}
-        total_assumptions = 0
-        total_actions = 0
-        errors = []
 
         def process_batch(
             batch_info: tuple[int, list[InterpretationInput]],
@@ -696,11 +775,14 @@ class EntropyInterpretationPhase(BasePhase):
                 table_interp_errors.append(f"Table interpretation: {table_result.error}")
 
         all_errors = errors + table_interp_errors
+        total_columns = len(llm_inputs) + len(baseline_inputs)
         outputs: dict[str, int | list[str]] = {
             "interpretations": len(all_interpretations) + table_interp_count,
             "assumptions": total_assumptions,
             "resolution_actions": total_actions,
-            "columns_interpreted": len(inputs),
+            "columns_interpreted": total_columns,
+            "columns_llm": len(llm_inputs),
+            "columns_baseline": len(baseline_inputs),
             "tables_interpreted": table_interp_count,
         }
         if all_errors:
@@ -708,7 +790,7 @@ class EntropyInterpretationPhase(BasePhase):
 
         return PhaseResult.success(
             outputs=outputs,
-            records_processed=len(inputs),
+            records_processed=total_columns,
             records_created=records_created,
             warnings=all_errors if all_errors else None,
         )

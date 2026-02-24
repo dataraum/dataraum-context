@@ -7,7 +7,7 @@ to all LLM settings: providers, features, limits, privacy.
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProviderConfig(BaseModel):
@@ -20,7 +20,13 @@ class ProviderConfig(BaseModel):
 
 
 class FeatureConfig(BaseModel):
-    """Configuration for an LLM feature."""
+    """Configuration for an LLM feature.
+
+    Extra fields from YAML (e.g. batch_size, baseline_filter) are preserved
+    and accessible via getattr().
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     enabled: bool = True
     model_tier: str = "balanced"
