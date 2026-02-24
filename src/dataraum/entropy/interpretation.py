@@ -285,17 +285,14 @@ class EntropyInterpreter:
         self,
         session: Session,
         inputs: list[InterpretationInput],
-        query: str | None = None,
     ) -> Result[dict[str, EntropyInterpretation]]:
         """Interpret entropy for multiple columns in a single LLM call.
 
         Makes a single batch LLM call for all columns using tool-based output.
-        If a query is provided, the model considers how columns interact in that context.
 
         Args:
             session: Database session
             inputs: List of InterpretationInput for each column
-            query: Optional SQL or natural language query for context
 
         Returns:
             Result containing dict mapping column keys to interpretations
@@ -309,18 +306,11 @@ class EntropyInterpreter:
         if not inputs:
             return Result.fail("No inputs provided for interpretation")
 
-        # Choose feature and prompt based on whether query is provided
-        if query is not None:
-            feature_config = self.config.features.entropy_query_interpretation
-            feature_name = "entropy_query_interpretation"
-            prompt_name = "entropy_query_interpretation"
-        else:
-            feature_config = self.config.features.entropy_interpretation
-            feature_name = "entropy_interpretation"
-            prompt_name = "entropy_interpretation"
-
+        feature_config = self.config.features.entropy_interpretation
         if not feature_config or not feature_config.enabled:
-            return Result.fail(f"{feature_name} is disabled in config")
+            return Result.fail("entropy_interpretation is disabled in config")
+
+        prompt_name = "entropy_interpretation"
 
         # Build columns JSON for prompt — compact form with network analysis
         columns_data = []
@@ -351,8 +341,6 @@ class EntropyInterpreter:
         context: dict[str, str] = {
             "columns_json": json.dumps(columns_data, indent=2),
         }
-        if query is not None:
-            context["query"] = query
 
         # Render prompt with system/user split
         try:

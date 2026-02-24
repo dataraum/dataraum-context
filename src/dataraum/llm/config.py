@@ -16,7 +16,6 @@ class ProviderConfig(BaseModel):
     api_key_env: str
     default_model: str
     models: dict[str, str]
-    base_url_env: str | None = None  # For local providers
 
 
 class FeatureConfig(BaseModel):
@@ -30,8 +29,6 @@ class FeatureConfig(BaseModel):
 
     enabled: bool = True
     model_tier: str = "balanced"
-    prompt_file: str | None = None  # Some features use inline prompts
-    description: str = ""
 
 
 class LLMFeatures(BaseModel):
@@ -44,17 +41,12 @@ class LLMFeatures(BaseModel):
     quality_summary: FeatureConfig | None = None
     validation: FeatureConfig | None = None
     entropy_interpretation: FeatureConfig | None = None
-    entropy_query_interpretation: FeatureConfig | None = None
 
 
 class LLMLimits(BaseModel):
-    """Cost and rate control limits."""
+    """Cost control limits."""
 
-    max_input_tokens_per_request: int = 16000
     max_output_tokens_per_request: int = 16000
-    max_columns_per_batch: int = 30
-    max_requests_per_minute: int = 20
-    cache_ttl_seconds: int = 86400  # 24 hours
 
 
 class LLMPrivacy(BaseModel):
@@ -62,8 +54,6 @@ class LLMPrivacy(BaseModel):
 
     max_sample_values: int = 10
     redacted_sample_count: int = 3
-    use_synthetic_samples: bool = False  # SDV integration (future)
-    synthetic_sample_count: int = 20
     sensitive_patterns: list[str] = Field(default_factory=list)
 
 

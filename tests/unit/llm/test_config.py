@@ -27,5 +27,3 @@ class TestFeatureConfigExtra:
         cfg = FeatureConfig()
         assert cfg.enabled is True
         assert cfg.model_tier == "balanced"
-        assert cfg.prompt_file is None
-        assert cfg.description == ""
