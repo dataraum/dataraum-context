@@ -86,6 +86,12 @@ features:
       Interpret entropy metrics to generate contextual assumptions,
       resolution actions, and explanations. Replaces hardcoded
       heuristics with LLM-powered semantic interpretation.
+    # Baseline filter: skip LLM for columns with no distinctive signals.
+    # Columns below these thresholds get a static interpretation instead.
+    baseline_filter:
+      enabled: true
+      p_high_threshold: 0.35       # Max P(high) across intents to be "baseline"
+      poor_quality_grades: [C, D, F] # Grades that force LLM interpretation
 
   entropy_query_interpretation:
     enabled: true
