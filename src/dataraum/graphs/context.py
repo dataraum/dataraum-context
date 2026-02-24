@@ -771,7 +771,7 @@ def format_entropy_for_prompt(context: GraphExecutionContext) -> str:
     if blockers:
         lines.append("### BLOCKING ISSUES")
         lines.append("These columns have critical uncertainty and should be clarified before use:")
-        for blocker in blockers[:5]:  # Limit to 5
+        for blocker in blockers:
             lines.append(f"  - {blocker}")
         lines.append("")
 
@@ -780,8 +780,8 @@ def format_entropy_for_prompt(context: GraphExecutionContext) -> str:
     if high_entropy_cols:
         lines.append("### HIGH UNCERTAINTY COLUMNS")
         lines.append("State assumptions when using these columns:")
-        for col_info in high_entropy_cols[:10]:  # Limit to 10
-            dims = ", ".join(col_info["dimensions"][:2])  # Show first 2 dimensions
+        for col_info in high_entropy_cols:
+            dims = ", ".join(col_info["dimensions"])
             lines.append(f"  - {col_info['name']} (entropy: {col_info['score']:.2f}) - {dims}")
         lines.append("")
 
@@ -844,7 +844,7 @@ def _format_blocked_columns(context: GraphExecutionContext) -> list[str]:
             if blocked:
                 warnings.append(
                     f"  - Table '{table.table_name}': "
-                    f"{len(blocked)} blocked columns: {', '.join(blocked[:3])}"
+                    f"{len(blocked)} blocked columns: {', '.join(blocked)}"
                 )
 
     return warnings
