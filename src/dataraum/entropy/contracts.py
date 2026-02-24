@@ -114,13 +114,9 @@ class BlockingCondition:
 
         elif self.condition_type == "critical_entropy_count_exceeds":
             threshold = int(self.parameters.get("threshold", 0))
-            # Count columns with critical entropy (>= 0.8)
-            from dataraum.entropy.config import get_entropy_config
-
-            config = get_entropy_config()
-            critical_threshold = config.critical_entropy_threshold
+            # Count columns with blocked readiness (network-derived)
             critical_count = sum(
-                1 for s in column_summaries.values() if s.composite_score >= critical_threshold
+                1 for s in column_summaries.values() if s.readiness == "blocked"
             )
             return critical_count > threshold
 

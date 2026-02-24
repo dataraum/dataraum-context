@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from dataraum.core.logging import get_logger
 from dataraum.entropy.analysis.aggregator import (
     ColumnSummary,
-    EntropyAggregator,
 )
 from dataraum.entropy.contracts import (
     ConfidenceLevel,
@@ -24,7 +23,10 @@ from dataraum.entropy.contracts import (
     find_best_contract,
     get_contract,
 )
-from dataraum.entropy.core.storage import EntropyRepository
+from dataraum.entropy.views.network_context import (
+    EntropyForNetwork,
+    build_for_network,
+)
 
 if TYPE_CHECKING:
     pass
@@ -141,70 +143,29 @@ def build_for_query(
             confidence_level=ConfidenceLevel.YELLOW,
         )
 
-    repo = EntropyRepository(session)
-    aggregator = EntropyAggregator()
+    # Build network context (handles typed table enforcement internally)
+    network_ctx = build_for_network(session, table_ids)
 
-    # Get typed table IDs only
-    typed_table_ids = repo.get_typed_table_ids(table_ids)
-    if not typed_table_ids:
-        logger.warning("No typed tables found for query entropy context")
+    if not network_ctx.columns:
         return EntropyForQuery(
-            overall_readiness="ready",
-            confidence_level=ConfidenceLevel.YELLOW,  # Unknown quality
-        )
-
-    table_map, column_map = repo.get_table_column_mapping(typed_table_ids)
-
-    # Load entropy objects
-    entropy_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
-
-    if not entropy_objects:
-        return EntropyForQuery(
-            overall_readiness="ready",
+            overall_readiness=network_ctx.overall_readiness or "ready",
             confidence_level=ConfidenceLevel.GREEN,  # No entropy data = assume good
         )
 
-    # Aggregate into column summaries
-    column_summaries, _ = aggregator.summarize_columns_by_table(
-        entropy_objects=entropy_objects,
-        table_map=table_map,
-        column_map=column_map,
-    )
+    # Derive readiness counts from network
+    overall_readiness = network_ctx.overall_readiness
+    high_entropy_count = network_ctx.columns_blocked + network_ctx.columns_investigate
+    critical_entropy_count = network_ctx.columns_blocked
 
-    # Calculate statistics
-    from dataraum.entropy.config import get_entropy_config
+    # Calculate overall entropy score (average worst_intent_p_high)
+    p_highs = [c.worst_intent_p_high for c in network_ctx.columns.values()]
+    overall_entropy_score = sum(p_highs) / len(p_highs) if p_highs else None
 
-    config = get_entropy_config()
-    high_threshold = config.high_entropy_threshold
-    critical_threshold = config.critical_entropy_threshold
+    # Convert network results to ColumnSummary for contract evaluation
+    column_summaries = _network_to_column_summaries(network_ctx)
 
-    high_entropy_count = sum(
-        1 for c in column_summaries.values() if c.composite_score >= high_threshold
-    )
-    critical_entropy_count = sum(
-        1 for c in column_summaries.values() if c.composite_score >= critical_threshold
-    )
-
-    # Determine overall readiness
-    if critical_entropy_count > 0:
-        overall_readiness = "blocked"
-    elif high_entropy_count > 0:
-        overall_readiness = "investigate"
-    else:
-        overall_readiness = "ready"
-
-    # Calculate overall entropy score
-    if column_summaries:
-        overall_entropy_score = sum(c.composite_score for c in column_summaries.values()) / len(
-            column_summaries
-        )
-    else:
-        overall_entropy_score = None
-
-    # Collect all compound risks from column summaries
-    all_compound_risks = []
-    for summary in column_summaries.values():
-        all_compound_risks.extend(summary.compound_risks)
+    # Collect compound risks (empty - network doesn't produce compound risks)
+    all_compound_risks: list[Any] = []
 
     # Evaluate contracts
     contract_name: str | None = None
@@ -257,3 +218,44 @@ def build_for_query(
         columns=column_summaries,
         overall_entropy_score=overall_entropy_score,
     )
+
+
+def _network_to_column_summaries(
+    network_ctx: EntropyForNetwork,
+) -> dict[str, ColumnSummary]:
+    """Convert network results to ColumnSummary for contract evaluation.
+
+    Contracts evaluate raw dimension scores, which we extract from
+    the network's per-node evidence.
+
+    Args:
+        network_ctx: EntropyForNetwork with per-column results
+
+    Returns:
+        Dict mapping "table.column" to ColumnSummary with dimension_scores populated
+    """
+    summaries: dict[str, ColumnSummary] = {}
+    for target, col_result in network_ctx.columns.items():
+        col_key = target.removeprefix("column:")
+        parts = col_key.split(".", 1)
+        table_name = parts[0] if len(parts) > 1 else ""
+        column_name = parts[1] if len(parts) > 1 else col_key
+
+        # Build dimension_scores from node evidence
+        dimension_scores: dict[str, float] = {}
+        for ne in col_result.node_evidence:
+            if ne.dimension_path:
+                dimension_scores[ne.dimension_path] = ne.score
+
+        summary = ColumnSummary(
+            column_id="",
+            column_name=column_name,
+            table_id="",
+            table_name=table_name,
+            readiness=col_result.readiness,
+            composite_score=col_result.worst_intent_p_high,
+            dimension_scores=dimension_scores,
+        )
+        summaries[col_key] = summary
+
+    return summaries

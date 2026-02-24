@@ -556,10 +556,9 @@ class GraphAgent(LLMFeature):
         if not entropy_summary:
             return result
 
-        # Extract high entropy count
+        # Extract entropy counts (network-derived)
         high_count = entropy_summary.get("high_entropy_count", 0)
         critical_count = entropy_summary.get("critical_entropy_count", 0)
-        compound_count = entropy_summary.get("compound_risk_count", 0)
         blockers = entropy_summary.get("readiness_blockers", [])
 
         # Build warnings
@@ -567,8 +566,6 @@ class GraphAgent(LLMFeature):
             result["warnings"].append(f"{critical_count} columns have critical entropy")
         if high_count > 0:
             result["warnings"].append(f"{high_count} columns have high uncertainty")
-        if compound_count > 0:
-            result["warnings"].append(f"{compound_count} dangerous column combinations")
 
         # Find max entropy from tables
         tables = getattr(context.rich_context, "tables", [])
@@ -576,10 +573,11 @@ class GraphAgent(LLMFeature):
             for col in getattr(table, "columns", []):
                 entropy_scores = getattr(col, "entropy_scores", None)
                 if entropy_scores:
-                    score = entropy_scores.get("composite_score", 0.0)
+                    score = entropy_scores.get("worst_intent_p_high", 0.0)
                     if score > result["max_entropy"]:
                         result["max_entropy"] = score
-                    if score >= 0.6:
+                    readiness = entropy_scores.get("readiness", "ready")
+                    if readiness != "ready" or score > 0.3:
                         result["high_entropy_columns"].append(
                             {
                                 "table": getattr(table, "table_name", "unknown"),
@@ -589,7 +587,7 @@ class GraphAgent(LLMFeature):
                             }
                         )
 
-        # Add blockers as compound risks
+        # Add blockers
         result["compound_risks"] = blockers
 
         return result
@@ -633,8 +631,8 @@ class GraphAgent(LLMFeature):
                     continue
 
                 # Only include assumptions for columns with meaningful entropy
-                composite_score = entropy_scores.get("composite_score", 0.0)
-                if composite_score < 0.3:
+                p_high = entropy_scores.get("worst_intent_p_high", 0.0)
+                if p_high < 0.3:
                     continue
 
                 table_name = getattr(table, "table_name", "unknown")

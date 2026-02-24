@@ -15,8 +15,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from dataraum.core.models.base import Result
-from dataraum.entropy.analysis.aggregator import ColumnSummary, TableSummary
-from dataraum.entropy.views import build_for_graph
+from dataraum.entropy.views import build_for_network
+from dataraum.entropy.views.network_context import ColumnNetworkResult, EntropyForNetwork
 from dataraum.graphs.agent import ExecutionContext, GraphAgent
 from dataraum.graphs.context import (
     GraphExecutionContext,
@@ -144,52 +144,54 @@ class TestContextLoading:
 
 
 class TestEntropyContextLoading:
-    """Test build_for_graph produces real entropy scores."""
+    """Test build_for_network produces real entropy scores."""
 
-    def test_entropy_context_has_column_profiles(
+    def test_entropy_context_has_column_results(
         self,
         analyzed_small_finance: PipelineTestHarness,
         analyzed_table_ids: list[str],
     ):
-        """Entropy context should have summaries for analyzed columns."""
+        """Entropy context should have network results for analyzed columns."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_for_graph(session, analyzed_table_ids)
+            entropy_ctx = build_for_network(session, analyzed_table_ids)
 
+        assert isinstance(entropy_ctx, EntropyForNetwork)
         assert len(entropy_ctx.columns) > 0
 
-    def test_entropy_column_profiles_have_scores(
+    def test_entropy_column_results_have_readiness(
         self,
         analyzed_small_finance: PipelineTestHarness,
         analyzed_table_ids: list[str],
     ):
-        """Each column summary should have entropy scores."""
+        """Each column result should have readiness and p_high scores."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_for_graph(session, analyzed_table_ids)
+            entropy_ctx = build_for_network(session, analyzed_table_ids)
 
-        for key, summary in entropy_ctx.columns.items():
-            assert isinstance(summary, ColumnSummary)
-            assert summary.composite_score >= 0.0
-            assert summary.composite_score <= 1.0
-            # Key should be in format "table_name.column_name"
-            assert "." in key
+        for key, col_result in entropy_ctx.columns.items():
+            assert isinstance(col_result, ColumnNetworkResult)
+            assert col_result.worst_intent_p_high >= 0.0
+            assert col_result.worst_intent_p_high <= 1.0
+            assert col_result.readiness in ("ready", "investigate", "blocked")
+            # Key should be in format "column:table_name.column_name"
+            assert key.startswith("column:")
 
-    def test_entropy_context_has_table_profiles(
+    def test_entropy_context_has_overall_readiness(
         self,
         analyzed_small_finance: PipelineTestHarness,
         analyzed_table_ids: list[str],
     ):
-        """Entropy context should have table-level summaries."""
+        """Entropy context should have overall readiness status."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_for_graph(session, analyzed_table_ids)
+            entropy_ctx = build_for_network(session, analyzed_table_ids)
 
-        assert len(entropy_ctx.tables) > 0
-
-        for table_name, table_summary in entropy_ctx.tables.items():
-            assert isinstance(table_summary, TableSummary)
-            assert table_summary.avg_composite_score >= 0.0
-            assert table_summary.avg_composite_score <= 1.0
-            # Key is the table name
-            assert len(table_name) > 0
+        assert entropy_ctx.overall_readiness in ("ready", "investigate", "blocked")
+        assert entropy_ctx.total_columns > 0
+        assert (
+            entropy_ctx.columns_blocked
+            + entropy_ctx.columns_investigate
+            + entropy_ctx.columns_ready
+            == entropy_ctx.total_columns
+        )
 
     def test_entropy_empty_table_ids_returns_empty(
         self,
@@ -197,10 +199,10 @@ class TestEntropyContextLoading:
     ):
         """Empty table IDs should return empty entropy context."""
         with analyzed_small_finance.session_factory() as session:
-            entropy_ctx = build_for_graph(session, [])
+            entropy_ctx = build_for_network(session, [])
 
         assert len(entropy_ctx.columns) == 0
-        assert len(entropy_ctx.tables) == 0
+        assert entropy_ctx.total_columns == 0
 
 
 class TestGraphAgentSQLGeneration:
