@@ -21,7 +21,6 @@ from dataraum.analysis.statistics.quality_db_models import StatisticalQualityMet
 from dataraum.analysis.temporal_slicing.db_models import ColumnDriftSummary
 from dataraum.analysis.typing.db_models import TypeCandidate, TypeDecision
 from dataraum.core.logging import get_logger
-from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.db_models import (
     CompoundRiskRecord,
     EntropyObjectRecord,
@@ -512,77 +511,62 @@ class EntropyPhase(BasePhase):
                 score=entropy_obj.score,
             )
 
-        # Compute summary statistics from table profiles
-        config = get_entropy_config()
-        high_threshold = config.high_entropy_threshold
-        critical_threshold = config.critical_entropy_threshold
+        # Compute summary statistics via network inference
+        # Session auto-flushes, so just-added entropy objects are visible
+        from dataraum.entropy.views.network_context import build_for_network
 
-        high_entropy_count = 0
-        critical_entropy_count = 0
-        all_compound_risks: list[Any] = []
-        all_composite_scores: list[float] = []
-        all_layer_scores: dict[str, list[float]] = {
+        network_ctx = build_for_network(ctx.session, table_ids)
+
+        high_entropy_count = network_ctx.columns_blocked + network_ctx.columns_investigate
+        critical_entropy_count = network_ctx.columns_blocked
+        overall_readiness = network_ctx.overall_readiness
+
+        # Average worst_intent_p_high across columns (maps to avg_composite_score)
+        p_highs = [c.worst_intent_p_high for c in network_ctx.columns.values()]
+        avg_composite = sum(p_highs) / len(p_highs) if p_highs else 0.0
+
+        # Average scores by layer from node evidence
+        layer_scores: dict[str, list[float]] = {
             "structural": [],
             "semantic": [],
             "value": [],
             "computational": [],
         }
+        for col_result in network_ctx.columns.values():
+            for ne in col_result.node_evidence:
+                if ne.dimension_path:
+                    layer = ne.dimension_path.split(".")[0]
+                    if layer in layer_scores:
+                        layer_scores[layer].append(ne.score)
 
-        for table_profile in table_profiles:
-            for col_summary in table_profile.columns:
-                if col_summary.composite_score >= critical_threshold:
-                    critical_entropy_count += 1
-                    high_entropy_count += 1
-                elif col_summary.composite_score >= high_threshold:
-                    high_entropy_count += 1
-                all_compound_risks.extend(col_summary.compound_risks)
-
-                # Collect scores for averaging
-                all_composite_scores.append(col_summary.composite_score)
-                for layer, score in col_summary.layer_scores.items():
-                    if layer in all_layer_scores:
-                        all_layer_scores[layer].append(score)
-
-        # Calculate average scores
-        avg_composite = (
-            sum(all_composite_scores) / len(all_composite_scores) if all_composite_scores else 0.0
-        )
         avg_structural = (
-            sum(all_layer_scores["structural"]) / len(all_layer_scores["structural"])
-            if all_layer_scores["structural"]
+            sum(layer_scores["structural"]) / len(layer_scores["structural"])
+            if layer_scores["structural"]
             else 0.0
         )
         avg_semantic = (
-            sum(all_layer_scores["semantic"]) / len(all_layer_scores["semantic"])
-            if all_layer_scores["semantic"]
+            sum(layer_scores["semantic"]) / len(layer_scores["semantic"])
+            if layer_scores["semantic"]
             else 0.0
         )
         avg_value = (
-            sum(all_layer_scores["value"]) / len(all_layer_scores["value"])
-            if all_layer_scores["value"]
+            sum(layer_scores["value"]) / len(layer_scores["value"])
+            if layer_scores["value"]
             else 0.0
         )
         avg_computational = (
-            sum(all_layer_scores["computational"]) / len(all_layer_scores["computational"])
-            if all_layer_scores["computational"]
+            sum(layer_scores["computational"]) / len(layer_scores["computational"])
+            if layer_scores["computational"]
             else 0.0
         )
 
-        # Determine overall readiness
-        if critical_entropy_count > 0:
-            overall_readiness = "blocked"
-        elif high_entropy_count > 0:
-            overall_readiness = "investigate"
-        else:
-            overall_readiness = "ready"
-
-        # Create snapshot record with all averages
+        # Create snapshot record with network-derived averages
         snapshot = EntropySnapshotRecord(
             source_id=ctx.source_id,
             total_entropy_objects=total_entropy_objects,
             high_entropy_count=high_entropy_count,
             critical_entropy_count=critical_entropy_count,
-            compound_risk_count=len(all_compound_risks),
+            compound_risk_count=total_compound_risks,
             overall_readiness=overall_readiness,
             avg_composite_score=avg_composite,
             avg_structural_entropy=avg_structural,

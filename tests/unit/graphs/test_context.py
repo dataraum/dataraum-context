@@ -337,7 +337,7 @@ class TestFormatEntropyForPrompt:
             column_name="amount",
             table_name="orders",
             entropy_scores={
-                "composite_score": 0.75,
+                "worst_intent_p_high": 0.75,
                 "high_entropy_dimensions": ["semantic.units", "value.nulls"],
                 "readiness": "investigate",
             },
@@ -353,7 +353,6 @@ class TestFormatEntropyForPrompt:
                 "overall_readiness": "investigate",
                 "high_entropy_count": 1,
                 "critical_entropy_count": 0,
-                "compound_risk_count": 0,
                 "readiness_blockers": [],
             },
         )
@@ -362,14 +361,13 @@ class TestFormatEntropyForPrompt:
         assert "orders.amount" in result
         assert "0.75" in result
 
-    def test_compound_risks_shown(self) -> None:
-        """Compound risks are listed."""
+    def test_blocked_columns_shown(self) -> None:
+        """Blocked columns per table are listed."""
         table = TableContext(
             table_id="tbl-1",
             table_name="orders",
             columns=[],
             table_entropy={
-                "compound_risk_count": 2,
                 "blocked_columns": ["amount", "currency"],
                 "readiness": "blocked",
             },
@@ -380,13 +378,12 @@ class TestFormatEntropyForPrompt:
                 "overall_readiness": "blocked",
                 "high_entropy_count": 2,
                 "critical_entropy_count": 2,
-                "compound_risk_count": 2,
                 "readiness_blockers": [],
             },
         )
         result = format_entropy_for_prompt(ctx)
 
-        assert "DANGEROUS COMBINATIONS" in result or "compound risks" in result.lower()
+        assert "DANGEROUS COMBINATIONS" in result or "blocked" in result.lower()
 
 
 class TestEntropyInlineIndicators:
@@ -399,7 +396,7 @@ class TestEntropyInlineIndicators:
             column_name="amount",
             table_name="orders",
             entropy_scores={
-                "composite_score": 0.65,
+                "worst_intent_p_high": 0.45,
                 "readiness": "investigate",
             },
         )
@@ -425,7 +422,7 @@ class TestEntropyInlineIndicators:
             column_name="amount",
             table_name="orders",
             entropy_scores={
-                "composite_score": 0.9,
+                "worst_intent_p_high": 0.9,
                 "readiness": "blocked",
             },
         )

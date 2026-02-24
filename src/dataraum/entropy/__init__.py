@@ -20,8 +20,9 @@ from dataraum.entropy.interpretation import (
     TableInterpretationInput,
 )
 from dataraum.entropy.views import (
+    EntropyForNetwork,
     EntropyForQuery,
-    build_for_graph,
+    build_for_network,
     build_for_query,
 )
 
@@ -35,8 +36,9 @@ __all__ = [
     "ColumnSummary",
     "EntropyAggregator",
     # Views
+    "EntropyForNetwork",
     "EntropyForQuery",
-    "build_for_graph",
+    "build_for_network",
     "build_for_query",
     # Config
     "get_entropy_config",

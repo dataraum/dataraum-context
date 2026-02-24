@@ -110,13 +110,13 @@ class ActionsScreen(Screen[None]):
 
         from sqlalchemy import select
 
-        from dataraum.entropy.analysis.aggregator import EntropyAggregator
         from dataraum.entropy.contracts import evaluate_all_contracts
-        from dataraum.entropy.core.storage import EntropyRepository
         from dataraum.entropy.db_models import (
             EntropyObjectRecord,
         )
         from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
+        from dataraum.entropy.views.network_context import build_for_network
+        from dataraum.entropy.views.query_context import _network_to_column_summaries
         from dataraum.storage import Column, Source, Table
 
         manager = get_manager(self.output_dir)
@@ -154,26 +154,10 @@ class ActionsScreen(Screen[None]):
                     for col in cols_result.scalars().all():
                         col_id_to_key[col.column_id] = f"{tbl.table_name}.{col.column_name}"
 
-                # Source 1: ColumnSummary.top_resolution_hints from aggregator
-                repo = EntropyRepository(session)
-                aggregator = EntropyAggregator()
-
-                typed_table_ids = repo.get_typed_table_ids(table_ids)
-                column_summaries: dict[str, Any] = {}
+                # Source 1: ColumnSummary from network
+                network_ctx = build_for_network(session, table_ids)
+                column_summaries: dict[str, Any] = _network_to_column_summaries(network_ctx)
                 compound_risks: list[Any] = []
-
-                if typed_table_ids:
-                    table_map, column_map = repo.get_table_column_mapping(typed_table_ids)
-                    entropy_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
-
-                    if entropy_objects:
-                        column_summaries, _ = aggregator.summarize_columns_by_table(
-                            entropy_objects=entropy_objects,
-                            table_map=table_map,
-                            column_map=column_map,
-                        )
-                        for summary in column_summaries.values():
-                            compound_risks.extend(summary.compound_risks)
 
                 # Source 2: LLM resolution_actions_json from interpretations
                 interp_result = session.execute(

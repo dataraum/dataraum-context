@@ -399,42 +399,45 @@ def build_execution_context(
         relationships=rel_list_for_topology,
     )
 
-    # 16. Build entropy context using new views module (typed tables enforced internally)
-    from dataraum.entropy.views import build_for_graph
-    from dataraum.entropy.views.graph_context import (
-        get_column_entropy_summary,
-        get_table_entropy_summary,
+    # 16. Build entropy context using Bayesian network (typed tables enforced internally)
+    from dataraum.entropy.views.network_context import (
+        ColumnNetworkResult,
+        build_for_network,
     )
 
-    entropy_context = build_for_graph(session, table_ids)
+    network_ctx = build_for_network(session, table_ids)
 
-    # Build column-level entropy lookup
+    # Build column-level entropy lookup from network results
     column_entropy_lookup: dict[str, dict[str, Any]] = {}
-    for col_key, col_summary in entropy_context.columns.items():
-        column_entropy_lookup[col_key] = get_column_entropy_summary(col_summary)
+    for target, col_result in network_ctx.columns.items():
+        # target is "column:table.col", extract "table.col"
+        col_key = target.removeprefix("column:")
+        column_entropy_lookup[col_key] = _column_network_to_dict(col_result)
 
-    # Build table-level entropy lookup
+    # Build table-level entropy lookup aggregated from per-column network results
     table_entropy_lookup: dict[str, dict[str, Any]] = {}
-    for tbl_name, tbl_summary in entropy_context.tables.items():
-        table_entropy_lookup[tbl_name] = get_table_entropy_summary(tbl_summary)
+    _table_columns: dict[str, list[ColumnNetworkResult]] = {}
+    for target, col_result in network_ctx.columns.items():
+        col_key = target.removeprefix("column:")
+        tbl_name = col_key.split(".")[0] if "." in col_key else col_key
+        _table_columns.setdefault(tbl_name, []).append(col_result)
+    for tbl_name, col_results in _table_columns.items():
+        table_entropy_lookup[tbl_name] = _table_network_to_dict(tbl_name, col_results)
 
-    # Update relationship contexts with entropy data
-    for rel_ctx in relationships:
-        rel_key = (
-            f"{rel_ctx.from_table}.{rel_ctx.from_column}->{rel_ctx.to_table}.{rel_ctx.to_column}"
-        )
-        rel_summary = entropy_context.relationships.get(rel_key)
-        if rel_summary:
-            rel_ctx.relationship_entropy = {
-                "composite_score": rel_summary.composite_score,
-                "cardinality_entropy": rel_summary.cardinality_entropy,
-                "join_path_entropy": rel_summary.join_path_entropy,
-                "is_deterministic": rel_summary.is_deterministic,
-                "join_warning": rel_summary.join_warning,
-            }
-
-    # Build entropy summary from the new context
-    entropy_summary_dict: dict[str, Any] = entropy_context.to_summary_dict()
+    # Build entropy summary from the network context
+    entropy_summary_dict: dict[str, Any] = {
+        "overall_readiness": network_ctx.overall_readiness,
+        "high_entropy_count": network_ctx.columns_blocked + network_ctx.columns_investigate,
+        "critical_entropy_count": network_ctx.columns_blocked,
+        "columns_blocked": network_ctx.columns_blocked,
+        "columns_investigate": network_ctx.columns_investigate,
+        "columns_ready": network_ctx.columns_ready,
+        "readiness_blockers": [
+            t.removeprefix("column:")
+            for t, c in network_ctx.columns.items()
+            if c.readiness == "blocked"
+        ],
+    }
 
     # 17. Build table contexts
     table_contexts: list[TableContext] = []
@@ -633,6 +636,86 @@ def _generate_column_flags(
 
 
 # =============================================================================
+# Network-to-dict converters
+# =============================================================================
+
+
+def _column_network_to_dict(result: Any) -> dict[str, Any]:
+    """Convert ColumnNetworkResult to dict for ColumnContext.entropy_scores.
+
+    Args:
+        result: ColumnNetworkResult from network inference
+
+    Returns:
+        Dict compatible with existing entropy_scores consumers
+    """
+    high_dims = [
+        ne.dimension_path for ne in result.node_evidence if ne.state != "low"
+    ]
+    resolution_hints = []
+    for ne in sorted(result.node_evidence, key=lambda x: x.impact_delta, reverse=True):
+        if ne.resolution_options and ne.state != "low":
+            best = ne.resolution_options[0]
+            resolution_hints.append(
+                {
+                    "action": best.get("action", ""),
+                    "description": best.get("description", ""),
+                    "expected_reduction": best.get("expected_entropy_reduction", 0.0),
+                    "effort": best.get("effort", ""),
+                }
+            )
+    return {
+        "worst_intent_p_high": result.worst_intent_p_high,
+        "readiness": result.readiness,
+        "top_priority_node": result.top_priority_node,
+        "top_priority_impact": result.top_priority_impact,
+        "high_entropy_dimensions": high_dims,
+        "intents": [
+            {"name": i.intent_name, "p_high": i.p_high, "readiness": i.readiness}
+            for i in result.intents
+        ],
+        "resolution_hints": resolution_hints[:3],
+    }
+
+
+def _table_network_to_dict(
+    table_name: str,
+    col_results: list[Any],
+) -> dict[str, Any]:
+    """Aggregate per-column network results into a table-level dict.
+
+    Args:
+        table_name: Table name
+        col_results: List of ColumnNetworkResult for this table
+
+    Returns:
+        Dict compatible with existing table_entropy consumers
+    """
+    if not col_results:
+        return {"readiness": "ready"}
+
+    blocked = [r for r in col_results if r.readiness == "blocked"]
+    investigate = [r for r in col_results if r.readiness == "investigate"]
+    p_highs = [r.worst_intent_p_high for r in col_results]
+
+    if blocked:
+        readiness = "blocked"
+    elif investigate:
+        readiness = "investigate"
+    else:
+        readiness = "ready"
+
+    return {
+        "readiness": readiness,
+        "columns_blocked": len(blocked),
+        "columns_investigate": len(investigate),
+        "avg_worst_intent_p_high": sum(p_highs) / len(p_highs),
+        "max_worst_intent_p_high": max(p_highs),
+        "blocked_columns": [r.target.removeprefix("column:").split(".", 1)[-1] for r in blocked],
+    }
+
+
+# =============================================================================
 # Context Formatting for LLM
 # =============================================================================
 
@@ -677,14 +760,11 @@ def format_entropy_for_prompt(context: GraphExecutionContext) -> str:
     # Stats summary
     high_count = summary.get("high_entropy_count", 0)
     critical_count = summary.get("critical_entropy_count", 0)
-    compound_count = summary.get("compound_risk_count", 0)
 
     if high_count > 0 or critical_count > 0:
         lines.append(f"- High entropy columns: {high_count}")
         if critical_count > 0:
             lines.append(f"- Critical entropy columns: {critical_count}")
-        if compound_count > 0:
-            lines.append(f"- Compound risks: {compound_count}")
         lines.append("")
 
     # Blocked columns (critical)
@@ -731,14 +811,15 @@ def _collect_high_entropy_columns(context: GraphExecutionContext) -> list[dict[s
     for table in context.tables:
         for col in table.columns:
             if col.entropy_scores:
-                score = col.entropy_scores.get("composite_score", 0.0)
-                if score >= 0.5:  # High entropy threshold
+                score = col.entropy_scores.get("worst_intent_p_high", 0.0)
+                readiness = col.entropy_scores.get("readiness", "ready")
+                if readiness != "ready" or score > 0.3:
                     high_cols.append(
                         {
                             "name": f"{table.table_name}.{col.column_name}",
                             "score": score,
                             "dimensions": col.entropy_scores.get("high_entropy_dimensions", []),
-                            "readiness": col.entropy_scores.get("readiness", "unknown"),
+                            "readiness": readiness,
                         }
                     )
 
@@ -748,7 +829,7 @@ def _collect_high_entropy_columns(context: GraphExecutionContext) -> list[dict[s
 
 
 def _format_compound_risks(context: GraphExecutionContext) -> list[str]:
-    """Format compound risk warnings.
+    """Format compound risk warnings (blocked columns per table).
 
     Args:
         context: GraphExecutionContext
@@ -758,17 +839,14 @@ def _format_compound_risks(context: GraphExecutionContext) -> list[str]:
     """
     warnings: list[str] = []
 
-    # Check table-level compound risks
     for table in context.tables:
         if table.table_entropy:
-            risk_count = table.table_entropy.get("compound_risk_count", 0)
-            if risk_count > 0:
-                blocked = table.table_entropy.get("blocked_columns", [])
-                if blocked:
-                    warnings.append(
-                        f"  - Table '{table.table_name}': {risk_count} compound risks "
-                        f"affecting columns: {', '.join(blocked[:3])}"
-                    )
+            blocked = table.table_entropy.get("blocked_columns", [])
+            if blocked:
+                warnings.append(
+                    f"  - Table '{table.table_name}': "
+                    f"{len(blocked)} blocked columns: {', '.join(blocked[:3])}"
+                )
 
     return warnings
 
@@ -785,12 +863,11 @@ def _format_column_entropy_inline(col: ColumnContext) -> str:
     if not col.entropy_scores:
         return ""
 
-    score = col.entropy_scores.get("composite_score", 0.0)
     readiness = col.entropy_scores.get("readiness", "ready")
 
     if readiness == "blocked":
         return " ⛔"
-    elif readiness == "investigate" or score >= 0.5:
+    elif readiness == "investigate":
         return " ⚠"
     return ""
 

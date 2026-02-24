@@ -280,9 +280,9 @@ class ContractsAccessor:
         """
         from sqlalchemy import select
 
-        from dataraum.entropy.analysis.aggregator import ColumnSummary, EntropyAggregator
         from dataraum.entropy.contracts import evaluate_contract, get_contract
-        from dataraum.entropy.core.storage import EntropyRepository
+        from dataraum.entropy.views.network_context import build_for_network
+        from dataraum.entropy.views.query_context import _network_to_column_summaries
         from dataraum.storage import Source, Table
 
         with self._ctx.manager.session_scope() as session:
@@ -304,32 +304,15 @@ class ContractsAccessor:
 
             table_ids = [t.table_id for t in tables]
 
-            # Build column summaries
-            repo = EntropyRepository(session)
-            aggregator = EntropyAggregator()
-
-            typed_table_ids = repo.get_typed_table_ids(table_ids)
-            column_summaries: dict[str, ColumnSummary] = {}
-            compound_risks: list[Any] = []
-
-            if typed_table_ids:
-                table_map, column_map = repo.get_table_column_mapping(typed_table_ids)
-                entropy_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
-
-                if entropy_objects:
-                    column_summaries, _ = aggregator.summarize_columns_by_table(
-                        entropy_objects=entropy_objects,
-                        table_map=table_map,
-                        column_map=column_map,
-                    )
-                    for summary in column_summaries.values():
-                        compound_risks.extend(summary.compound_risks)
+            # Build column summaries via network
+            network_ctx = build_for_network(session, table_ids)
+            column_summaries = _network_to_column_summaries(network_ctx)
 
             profile = get_contract(contract_name)
             if profile is None:
                 return {"error": f"Contract not found: {contract_name}"}
 
-            evaluation = evaluate_contract(column_summaries, contract_name, compound_risks)
+            evaluation = evaluate_contract(column_summaries, contract_name)
 
             return {
                 "contract": contract_name,
