@@ -109,24 +109,20 @@ def format_contract_evaluation(
     lines.append("")
 
     # Dimension scores
+    from dataraum.entropy.config import get_dimension_label
+
     lines.append("## Dimension Scores")
     for dim, threshold in profile.dimension_thresholds.items():
         score = evaluation.dimension_scores.get(dim, 0.0)
         status_icon = "✓" if score <= threshold else "✗"
-        lines.append(f"- {dim}: {score:.2f} / {threshold:.2f} [{status_icon}]")
+        lines.append(f"- {get_dimension_label(dim)}: {score:.2f} / {threshold:.2f} [{status_icon}]")
     lines.append("")
 
     # Violations
     if evaluation.violations:
         lines.append("## Violations")
         for v in evaluation.violations:
-            if v.dimension:
-                lines.append(f"- {v.dimension}: {v.actual:.2f} exceeds {v.max_allowed:.2f}")
-                if v.affected_columns:
-                    cols = ", ".join(v.affected_columns[:5])
-                    lines.append(f"  Affected: {cols}")
-            elif v.details:
-                lines.append(f"- {v.details}")
+            lines.append(f"- **[{v.severity}]** {v.details}")
         lines.append("")
 
     # Warnings

@@ -726,13 +726,24 @@ def _get_actions(
                     if col_key:
                         entropy_objects_by_col[col_key].append(obj)
 
-            # Get contract violations
+            # Get contract violations and map to affected columns.
+            # Dimension violations link by dimension key; overall and blocking
+            # violations link by violation type or condition name so that
+            # actions touching the same columns get fixes_violations populated.
             evaluations = evaluate_all_contracts(column_summaries)
+            all_column_keys = list(column_summaries.keys())
             violation_dims: dict[str, list[str]] = {}
             for eval_result in evaluations.values():
                 for v in eval_result.violations:
                     if v.dimension:
                         violation_dims.setdefault(v.dimension, []).extend(v.affected_columns)
+                    elif v.violation_type == "overall":
+                        # Overall violations affect all columns
+                        violation_dims.setdefault("overall", []).extend(all_column_keys)
+                    elif v.affected_columns:
+                        # Blocking conditions with affected columns (e.g. blocked_columns)
+                        key = v.condition or v.violation_type
+                        violation_dims.setdefault(key, []).extend(v.affected_columns)
 
             # Merge actions from all sources (including network causal impact)
             actions = merge_actions(

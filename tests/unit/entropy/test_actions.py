@@ -459,6 +459,105 @@ class TestBuildNetworkImpact:
 
 
 # ---------------------------------------------------------------------------
+# Tests: violation linking (fixes_violations)
+# ---------------------------------------------------------------------------
+
+
+class TestViolationLinking:
+    """Actions should get fixes_violations populated when columns overlap."""
+
+    def test_dimension_violation_links_to_action(self):
+        interp = FakeInterp(
+            resolution_actions_json=[{
+                "action": "fix_types",
+                "description": "Fix type inconsistencies",
+                "effort": "low",
+            }],
+        )
+        result = merge_actions(
+            interp_by_col={"orders.amount": interp},
+            entropy_objects_by_col={},
+            violation_dims={"structural.types": ["orders.amount"]},
+        )
+        assert len(result) == 1
+        assert "structural.types" in result[0]["fixes_violations"]
+
+    def test_overall_violation_links_to_action(self):
+        """Overall violations (keyed as 'overall') should link when columns overlap."""
+        interp = FakeInterp(
+            resolution_actions_json=[{
+                "action": "fix_types",
+                "description": "Fix type inconsistencies",
+                "effort": "low",
+            }],
+        )
+        result = merge_actions(
+            interp_by_col={"orders.amount": interp},
+            entropy_objects_by_col={},
+            violation_dims={"overall": ["orders.amount", "orders.date"]},
+        )
+        assert len(result) == 1
+        assert "overall" in result[0]["fixes_violations"]
+
+    def test_blocking_condition_links_to_action(self):
+        """Blocking conditions (e.g. blocked_columns) should link when columns overlap."""
+        interp = FakeInterp(
+            resolution_actions_json=[{
+                "action": "fix_types",
+                "description": "Fix type inconsistencies",
+                "effort": "low",
+            }],
+        )
+        result = merge_actions(
+            interp_by_col={"orders.amount": interp},
+            entropy_objects_by_col={},
+            violation_dims={"blocked_columns": ["orders.amount"]},
+        )
+        assert len(result) == 1
+        assert "blocked_columns" in result[0]["fixes_violations"]
+
+    def test_no_link_when_columns_dont_overlap(self):
+        interp = FakeInterp(
+            resolution_actions_json=[{
+                "action": "fix_types",
+                "description": "Fix type inconsistencies",
+                "effort": "low",
+            }],
+        )
+        result = merge_actions(
+            interp_by_col={"orders.amount": interp},
+            entropy_objects_by_col={},
+            violation_dims={"structural.types": ["products.name"]},
+        )
+        assert len(result) == 1
+        assert result[0]["fixes_violations"] == []
+
+    def test_multiple_violation_types_link(self):
+        """An action can fix violations from multiple sources."""
+        interp = FakeInterp(
+            resolution_actions_json=[{
+                "action": "fix_types",
+                "description": "Fix type inconsistencies",
+                "effort": "low",
+            }],
+        )
+        result = merge_actions(
+            interp_by_col={"orders.amount": interp},
+            entropy_objects_by_col={},
+            violation_dims={
+                "structural.types": ["orders.amount"],
+                "overall": ["orders.amount"],
+                "blocked_columns": ["orders.amount"],
+            },
+        )
+        assert len(result) == 1
+        fixes = result[0]["fixes_violations"]
+        assert "structural.types" in fixes
+        assert "overall" in fixes
+        assert "blocked_columns" in fixes
+
+
+# ---------------------------------------------------------------------------
 # Tests: score-derived priority labels
 # ---------------------------------------------------------------------------
 
