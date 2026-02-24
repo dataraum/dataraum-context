@@ -287,8 +287,7 @@ class TestFormatEntropyForPrompt:
                 "overall_readiness": "ready",
                 "high_entropy_count": 0,
                 "critical_entropy_count": 0,
-                "compound_risk_count": 0,
-                "readiness_blockers": [],
+                                "readiness_blockers": [],
             }
         )
         result = format_entropy_for_prompt(ctx)
@@ -303,8 +302,7 @@ class TestFormatEntropyForPrompt:
                 "overall_readiness": "investigate",
                 "high_entropy_count": 3,
                 "critical_entropy_count": 0,
-                "compound_risk_count": 1,
-                "readiness_blockers": [],
+                                "readiness_blockers": [],
             }
         )
         result = format_entropy_for_prompt(ctx)
@@ -320,8 +318,7 @@ class TestFormatEntropyForPrompt:
                 "overall_readiness": "blocked",
                 "high_entropy_count": 5,
                 "critical_entropy_count": 2,
-                "compound_risk_count": 2,
-                "readiness_blockers": ["orders.amount", "orders.currency"],
+                                "readiness_blockers": ["orders.amount", "orders.currency"],
             }
         )
         result = format_entropy_for_prompt(ctx)

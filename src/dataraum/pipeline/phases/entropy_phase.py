@@ -493,9 +493,9 @@ class EntropyPhase(BasePhase):
         critical_entropy_count = network_ctx.columns_blocked
         overall_readiness = network_ctx.overall_readiness
 
-        # Average worst_intent_p_high across columns (maps to avg_composite_score)
+        # Average worst_intent_p_high across columns
         p_highs = [c.worst_intent_p_high for c in network_ctx.columns.values()]
-        avg_composite = sum(p_highs) / len(p_highs) if p_highs else 0.0
+        avg_entropy = sum(p_highs) / len(p_highs) if p_highs else 0.0
 
         # Average scores by layer from node evidence
         layer_scores: dict[str, list[float]] = {
@@ -539,7 +539,7 @@ class EntropyPhase(BasePhase):
             high_entropy_count=high_entropy_count,
             critical_entropy_count=critical_entropy_count,
             overall_readiness=overall_readiness,
-            avg_composite_score=avg_composite,
+            avg_entropy_score=avg_entropy,
             avg_structural_entropy=avg_structural,
             avg_semantic_entropy=avg_semantic,
             avg_value_entropy=avg_value,

@@ -235,7 +235,7 @@ class EntropyAccessor:
             return {
                 "source": source.name,
                 "overall_readiness": snapshot.overall_readiness,
-                "composite_score": snapshot.avg_composite_score,
+                "entropy_score": snapshot.avg_entropy_score,
                 "dimensions": {
                     "structural": snapshot.avg_structural_entropy,
                     "semantic": snapshot.avg_semantic_entropy,
