@@ -119,7 +119,7 @@ def _entropy_json(output_dir: Path, table_filter: str | None) -> None:
             output_data = {
                 "source": source.name,
                 "overall_readiness": snapshot.overall_readiness,
-                "avg_composite_score": snapshot.avg_composite_score,
+                "avg_entropy_score": snapshot.avg_entropy_score,
                 "dimensions": {
                     "structural": snapshot.avg_structural_entropy,
                     "semantic": snapshot.avg_semantic_entropy,
@@ -253,7 +253,7 @@ def _print_summary_view(
     console.print(
         f"[{color}]{icon} Overall Readiness: {snapshot.overall_readiness.upper()}[/{color}]"
     )
-    console.print(f"Composite Score: {snapshot.avg_composite_score:.3f}")
+    console.print(f"Entropy Score: {snapshot.avg_entropy_score:.3f}")
     console.print()
 
     # Dimension breakdown

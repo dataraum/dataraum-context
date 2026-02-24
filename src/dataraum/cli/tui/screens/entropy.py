@@ -79,8 +79,6 @@ class EntropyScreen(Screen[None]):
         # Store table-level entropy objects keyed by "table.(table)" key
         self._table_entropy_objects: dict[str, list[Any]] = {}
         self._selected_key: str | None = None
-        # Store compound risks keyed by column key ("table.column")
-        self._compound_risks_map: dict[str, list[Any]] = {}
         # Table metadata for context enrichment
         self._type_decisions: dict[str, Any] = {}  # column_id -> TypeDecision
         self._semantic_annotations: dict[str, Any] = {}  # column_id -> SemanticAnnotation
@@ -129,7 +127,6 @@ class EntropyScreen(Screen[None]):
         self._interp_map.clear()
         self._entropy_objects_map.clear()
         self._table_entropy_objects.clear()
-        self._compound_risks_map.clear()
         self._type_decisions.clear()
         self._semantic_annotations.clear()
         self._stat_profiles.clear()
@@ -149,7 +146,6 @@ class EntropyScreen(Screen[None]):
         from sqlalchemy import select
 
         from dataraum.entropy.db_models import (
-            CompoundRiskRecord,
             EntropyObjectRecord,
             EntropySnapshotRecord,
         )
@@ -252,17 +248,6 @@ class EntropyScreen(Screen[None]):
                         t_name = self._table_id_to_name.get(obj.table_id or "", "unknown")
                         table_key = f"{t_name}.(table)"
                         self._table_entropy_objects.setdefault(table_key, []).append(obj)
-
-                # Load compound risks keyed by column target
-                if table_ids:
-                    cr_result = session.execute(
-                        select(CompoundRiskRecord).where(CompoundRiskRecord.table_id.in_(table_ids))
-                    )
-                    for cr in cr_result.scalars().all():
-                        target = cr.target
-                        if target.startswith("column:"):
-                            col_key = target[7:]  # Remove "column:" prefix
-                            self._compound_risks_map.setdefault(col_key, []).append(cr)
 
                 # Batch load table metadata — strictly from typed layer
                 typed_table_ids = list(self._typed_table_name_to_id.values())
@@ -374,7 +359,7 @@ class EntropyScreen(Screen[None]):
         # Build status line with all stats
         parts = [
             f"[{color}]{snapshot.overall_readiness.upper()}[/{color}]",
-            f"Score: {snapshot.avg_composite_score:.3f}",
+            f"Score: {snapshot.avg_entropy_score:.3f}",
             f"Columns: {total - table_level}",
         ]
         if table_level:
@@ -526,31 +511,6 @@ class EntropyScreen(Screen[None]):
         # LLM explanation (escape to prevent markup injection)
         explanation = escape_markup(interp.explanation or "No explanation available")
         parts.append(explanation)
-
-        # Compound risks for this column
-        col_key = f"{interp.table_name}.{interp.column_name}" if interp.column_name else ""
-        risks = self._compound_risks_map.get(col_key, [])
-        if risks:
-            parts.append("")
-            parts.append("[bold]Compound Risks[/bold]")
-            for risk in risks:
-                level_colors = {"critical": "red", "high": "yellow", "medium": "white"}
-                r_color = level_colors.get(risk.risk_level, "white")
-                parts.append(
-                    f"  [{r_color}]{risk.risk_level.upper()}[/{r_color}] "
-                    f"({risk.multiplier:.1f}x multiplier) "
-                    f"Score: {risk.combined_score:.3f}"
-                )
-                # Show contributing dimensions
-                dim_scores = risk.dimension_scores or {}
-                if risk.dimensions:
-                    dim_parts = []
-                    for dim in risk.dimensions:
-                        s = dim_scores.get(dim, 0.0)
-                        dim_parts.append(f"{escape_markup(str(dim))}: {s:.2f}")
-                    parts.append(f"    Dimensions: {', '.join(dim_parts)}")
-                if risk.impact:
-                    parts.append(f"    Impact: {escape_markup(str(risk.impact))}")
 
         overview.update("\n".join(parts))
 

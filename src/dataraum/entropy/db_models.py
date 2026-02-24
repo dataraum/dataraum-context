@@ -111,14 +111,13 @@ class EntropySnapshotRecord(Base):
     total_entropy_objects: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     high_entropy_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     critical_entropy_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    compound_risk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Per-layer averages
     avg_structural_entropy: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     avg_semantic_entropy: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     avg_value_entropy: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     avg_computational_entropy: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    avg_composite_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    avg_entropy_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     # Overall readiness
     overall_readiness: Mapped[str] = mapped_column(String, nullable=False, default="investigate")

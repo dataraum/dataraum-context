@@ -41,7 +41,7 @@ def format_entropy_summary(
 
     lines.append("")
     lines.append(f"## Overall Status: {snapshot.overall_readiness.upper()}")
-    lines.append(f"Composite Score: {snapshot.avg_composite_score:.3f}")
+    lines.append(f"Entropy Score: {snapshot.avg_entropy_score:.3f}")
     lines.append("")
 
     # Dimension breakdown
