@@ -717,8 +717,12 @@ def format_network_context(ctx: EntropyForNetwork) -> str:
                 f"(score={ds.score:.2f}, target={ds.target})"
             )
             if ds.evidence:
-                ev_summary = str(ds.evidence[0])[:80]
-                lines.append(f"  Evidence: {ev_summary}")
+                ev = ds.evidence[0]
+                source = ev.get("source", "") if isinstance(ev, dict) else ""
+                if source:
+                    lines.append(f"  Source: {source}")
+                else:
+                    lines.append(f"  Evidence: {ev}")
         lines.append("")
 
     return "\n".join(lines)
