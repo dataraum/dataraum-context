@@ -6,14 +6,18 @@ Supports multi-table validation by fetching all related tables at once.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from dataraum.analysis.relationships.db_models import Relationship
+from dataraum.analysis.views.db_models import EnrichedView
 from dataraum.core.logging import get_logger
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    import duckdb
 
 logger = get_logger(__name__)
 
@@ -21,6 +25,7 @@ logger = get_logger(__name__)
 def get_multi_table_schema_for_llm(
     session: Session,
     table_ids: list[str],
+    duckdb_conn: duckdb.DuckDBPyConnection | None = None,
 ) -> dict[str, Any]:
     """Get schemas for multiple tables with semantic annotations and relationships.
 
@@ -30,11 +35,13 @@ def get_multi_table_schema_for_llm(
     Args:
         session: Database session
         table_ids: List of table IDs to include
+        duckdb_conn: Optional DuckDB connection for row counts
 
     Returns:
         Dict with:
-        - tables: List of table schemas
-        - relationships: List of detected relationships between tables
+        - tables: List of table schemas (with row counts if duckdb_conn provided)
+        - relationships: List of LLM-confirmed relationships between tables
+        - enriched_views: List of available pre-joined views
     """
     if not table_ids:
         return {"error": "No tables found"}
@@ -60,7 +67,17 @@ def get_multi_table_schema_for_llm(
         if not table.duckdb_path:
             continue
 
-        schema = _format_table_schema(table)
+        row_count = None
+        if duckdb_conn:
+            try:
+                result = duckdb_conn.execute(
+                    f'SELECT COUNT(*) FROM "{table.duckdb_path}"'
+                ).fetchone()
+                row_count = result[0] if result else None
+            except Exception:
+                pass
+
+        schema = _format_table_schema(table, row_count=row_count)
         table_schemas.append(schema)
         table_id_to_name[table.table_id] = table.table_name
 
@@ -74,10 +91,11 @@ def get_multi_table_schema_for_llm(
     if not table_schemas:
         return {"error": "No tables with DuckDB paths found"}
 
-    # Fetch relationships between these tables
+    # Fetch LLM-confirmed relationships between these tables
     rel_query = select(Relationship).where(
         Relationship.from_table_id.in_(table_ids),
         Relationship.to_table_id.in_(table_ids),
+        Relationship.detection_method == "llm",
     )
     rel_result = session.execute(rel_query)
     relationships = rel_result.scalars().all()
@@ -101,17 +119,41 @@ def get_multi_table_schema_for_llm(
                 }
             )
 
+    # Fetch enriched views for these tables
+    enriched_stmt = select(EnrichedView).where(
+        EnrichedView.fact_table_id.in_(table_ids)
+    )
+    enriched_views = session.execute(enriched_stmt).scalars().all()
+
+    formatted_views = []
+    for ev in enriched_views:
+        fact_name = table_id_to_name.get(ev.fact_table_id, "unknown")
+        dim_names = [
+            table_id_to_name[tid]
+            for tid in (ev.dimension_table_ids or [])
+            if tid in table_id_to_name
+        ]
+        formatted_views.append({
+            "view_name": ev.view_name,
+            "duckdb_path": ev.view_name,
+            "fact_table": fact_name,
+            "dimension_tables": dim_names,
+            "dimension_columns": ev.dimension_columns or [],
+        })
+
     return {
         "tables": table_schemas,
         "relationships": formatted_rels,
+        "enriched_views": formatted_views,
     }
 
 
-def _format_table_schema(table: Table) -> dict[str, Any]:
+def _format_table_schema(table: Table, *, row_count: int | None = None) -> dict[str, Any]:
     """Format a single table's schema.
 
     Args:
         table: Table ORM object with columns loaded
+        row_count: Optional row count from DuckDB
 
     Returns:
         Dict with table info and columns
@@ -129,16 +171,21 @@ def _format_table_schema(table: Table) -> dict[str, Any]:
                 "role": ann.semantic_role,
                 "entity_type": ann.entity_type,
                 "business_name": ann.business_name,
+                "business_concept": ann.business_concept,
+                "business_description": ann.business_description,
             }
 
         columns.append(col_info)
 
-    return {
+    result: dict[str, Any] = {
         "table_name": table.table_name,
         "table_id": table.table_id,
         "duckdb_path": table.duckdb_path,
         "columns": columns,
     }
+    if row_count is not None:
+        result["row_count"] = row_count
+    return result
 
 
 def format_multi_table_schema_for_prompt(schema: dict[str, Any]) -> str:
@@ -158,7 +205,8 @@ def format_multi_table_schema_for_prompt(schema: dict[str, Any]) -> str:
     lines = ["<tables>"]
 
     for table in schema.get("tables", []):
-        lines.append(f'<table name="{table["table_name"]}" duckdb_path="{table["duckdb_path"]}">')
+        row_count_attr = f' row_count="{table["row_count"]}"' if table.get("row_count") else ""
+        lines.append(f'<table name="{table["table_name"]}" duckdb_path="{table["duckdb_path"]}"{row_count_attr}>')
         lines.append("<columns>")
 
         for col in table.get("columns", []):
@@ -178,6 +226,11 @@ def format_multi_table_schema_for_prompt(schema: dict[str, Any]) -> str:
                     col_line += f' entity="{sem["entity_type"]}"'
                 if sem.get("business_name"):
                     col_line += f' business_name="{sem["business_name"]}"'
+                if sem.get("business_concept"):
+                    col_line += f' business_concept="{sem["business_concept"]}"'
+                if sem.get("business_description"):
+                    desc = sem["business_description"][:120]
+                    col_line += f' description="{desc}"'
 
             col_line += " />"
             lines.append(col_line)
@@ -201,6 +254,20 @@ def format_multi_table_schema_for_prompt(schema: dict[str, Any]) -> str:
                 f'confidence="{rel["confidence"]:.0%}" />'
             )
         lines.append("</relationships>")
+
+    # Add enriched views section
+    enriched_views = schema.get("enriched_views", [])
+    if enriched_views:
+        lines.append("")
+        lines.append("<enriched_views>")
+        lines.append("<!-- Pre-joined views available as alternative to manual JOINs -->")
+        for ev in enriched_views:
+            dims = ", ".join(ev["dimension_tables"]) if ev.get("dimension_tables") else ""
+            lines.append(
+                f'<view name="{ev["view_name"]}" duckdb_path="{ev["duckdb_path"]}" '
+                f'fact_table="{ev["fact_table"]}" dimension_tables="{dims}" />'
+            )
+        lines.append("</enriched_views>")
 
     # Add usage note
     lines.append("")

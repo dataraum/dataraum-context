@@ -149,7 +149,7 @@ def two_tables_with_relationship(session):
     )
     session.add(annotation)
 
-    # Create relationship between tables
+    # Create LLM-confirmed relationship between tables
     relationship = Relationship(
         from_table_id=txn_table.table_id,
         from_column_id=txn_account_col.column_id,
@@ -158,6 +158,7 @@ def two_tables_with_relationship(session):
         relationship_type="foreign_key",
         cardinality="many-to-one",
         confidence=0.95,
+        detection_method="llm",
     )
     session.add(relationship)
     session.commit()
