@@ -492,13 +492,19 @@ def evaluate_contract(
             blocking_threshold = max_score * (1 + contract.warning_margin * 2)
             severity = "blocking" if actual_score > blocking_threshold else "warning"
 
+            label = get_dimension_label(dimension)
+            col_list = ", ".join(affected[:5])
             violation = Violation(
                 violation_type="dimension",
                 severity=severity,
                 dimension=dimension,
                 max_allowed=max_score,
                 actual=actual_score,
-                details=f"{get_dimension_label(dimension)} score ({actual_score:.2f}) exceeds acceptable level ({max_score:.2f})",
+                details=(
+                    f"{label} ({actual_score:.2f}/{max_score:.2f}) — "
+                    f"too uncertain for {contract.display_name}. "
+                    f"Affected: {col_list}"
+                ),
                 affected_columns=affected[:10],  # Limit to 10
             )
 
@@ -516,6 +522,8 @@ def evaluate_contract(
             affected = _find_affected_columns(
                 column_summaries, dimension, max_score * (1 - contract.warning_margin)
             )
+            label = get_dimension_label(dimension)
+            col_list = ", ".join(affected[:5])
             warnings.append(
                 Violation(
                     violation_type="dimension",
@@ -523,7 +531,10 @@ def evaluate_contract(
                     dimension=dimension,
                     max_allowed=max_score,
                     actual=actual_score,
-                    details=f"{get_dimension_label(dimension)} approaching limit ({actual_score:.2f}/{max_score:.2f})",
+                    details=(
+                        f"{label} approaching limit ({actual_score:.2f}/{max_score:.2f}) "
+                        f"for {contract.display_name}. Affected: {col_list}"
+                    ),
                     affected_columns=affected[:10],
                 )
             )
@@ -544,7 +555,10 @@ def evaluate_contract(
                 severity="blocking",
                 max_allowed=contract.overall_threshold,
                 actual=overall_score,
-                details=f"Overall data uncertainty ({overall_score:.2f}) exceeds acceptable level ({contract.overall_threshold:.2f})",
+                details=(
+                    f"Overall uncertainty ({overall_score:.2f}) exceeds "
+                    f"{contract.display_name} threshold ({contract.overall_threshold:.2f})"
+                ),
             )
         )
 

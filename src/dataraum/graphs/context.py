@@ -776,13 +776,32 @@ def format_entropy_for_prompt(context: GraphExecutionContext) -> str:
         lines.append("")
 
     # High entropy columns with details
-    high_entropy_cols = _collect_high_entropy_columns(context)
-    if high_entropy_cols:
+    # Read detail threshold from baseline_filter config (same source as interpretation phase)
+    detail_threshold = 0.35
+    try:
+        from dataraum.llm import load_llm_config
+
+        llm_cfg = load_llm_config()
+        feature_cfg = llm_cfg.features.entropy_interpretation
+        if feature_cfg:
+            bf = getattr(feature_cfg, "baseline_filter", None) or {}
+            detail_threshold = bf.get("p_high_threshold", detail_threshold)
+    except Exception:
+        pass  # Use default if config unavailable
+
+    high_entropy_cols, baseline_count = _collect_high_entropy_columns(
+        context, detail_threshold=detail_threshold
+    )
+    if high_entropy_cols or baseline_count:
         lines.append("### HIGH UNCERTAINTY COLUMNS")
         lines.append("State assumptions when using these columns:")
         for col_info in high_entropy_cols:
             dims = ", ".join(col_info["dimensions"])
             lines.append(f"  - {col_info['name']} (entropy: {col_info['score']:.2f}) - {dims}")
+        if baseline_count:
+            lines.append(
+                f"  - {baseline_count} additional column(s) at baseline uncertainty (~0.30)"
+            )
         lines.append("")
 
     # Blocked columns per table
@@ -796,24 +815,37 @@ def format_entropy_for_prompt(context: GraphExecutionContext) -> str:
     return "\n".join(lines)
 
 
-def _collect_high_entropy_columns(context: GraphExecutionContext) -> list[dict[str, Any]]:
+def _collect_high_entropy_columns(
+    context: GraphExecutionContext,
+    detail_threshold: float = 0.35,
+) -> tuple[list[dict[str, Any]], int]:
     """Collect columns with high entropy from the context.
+
+    Columns above detail_threshold (or readiness != ready) are returned
+    individually. Columns between 0.30 and detail_threshold with
+    readiness=ready are counted as baseline but not listed.
 
     Args:
         context: GraphExecutionContext
+        detail_threshold: P(high) above which columns are listed individually.
+            Defaults to 0.35; reads from baseline_filter.p_high_threshold
+            in LLM config when called from format_entropy_section.
 
     Returns:
-        List of dicts with column name, score, and high entropy dimensions
+        Tuple of (detailed columns list, baseline count)
     """
-    high_cols: list[dict[str, Any]] = []
+    baseline_threshold = 0.30
+
+    detailed_cols: list[dict[str, Any]] = []
+    baseline_count = 0
 
     for table in context.tables:
         for col in table.columns:
             if col.entropy_scores:
                 score = col.entropy_scores.get("worst_intent_p_high", 0.0)
                 readiness = col.entropy_scores.get("readiness", "ready")
-                if readiness != "ready" or score > 0.3:
-                    high_cols.append(
+                if readiness != "ready" or score > detail_threshold:
+                    detailed_cols.append(
                         {
                             "name": f"{table.table_name}.{col.column_name}",
                             "score": score,
@@ -821,10 +853,12 @@ def _collect_high_entropy_columns(context: GraphExecutionContext) -> list[dict[s
                             "readiness": readiness,
                         }
                     )
+                elif score > baseline_threshold:
+                    baseline_count += 1
 
     # Sort by score descending
-    high_cols.sort(key=lambda x: x["score"], reverse=True)
-    return high_cols
+    detailed_cols.sort(key=lambda x: x["score"], reverse=True)
+    return detailed_cols, baseline_count
 
 
 def _format_blocked_columns(context: GraphExecutionContext) -> list[str]:
