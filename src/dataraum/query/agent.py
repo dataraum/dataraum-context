@@ -341,6 +341,7 @@ class QueryAgent(LLMFeature):
         if source_id:
             self._record_execution(
                 session=session,
+                execution_id=execution_id,
                 source_id=source_id,
                 question=question,
                 sql=analysis_output.final_sql,
@@ -1030,6 +1031,7 @@ class QueryAgent(LLMFeature):
     def _record_execution(
         self,
         session: Session,
+        execution_id: str,
         source_id: str,
         question: str,
         sql: str,
@@ -1044,6 +1046,7 @@ class QueryAgent(LLMFeature):
 
         Args:
             session: SQLAlchemy session
+            execution_id: Execution ID (same as QueryResult.execution_id)
             source_id: Source ID
             question: Question asked
             sql: SQL executed
@@ -1057,7 +1060,7 @@ class QueryAgent(LLMFeature):
         from dataraum.query.db_models import QueryExecutionRecord
 
         record = QueryExecutionRecord(
-            execution_id=str(uuid4()),
+            execution_id=execution_id,
             source_id=source_id,
             question=question,
             sql_executed=sql,

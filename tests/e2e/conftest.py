@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -87,10 +88,11 @@ def _generate_testdata(output_dir: Path, strategy: str, fresh: bool) -> Path:
         injections = result["registry"].injections
         injection_dicts = [
             {
-                "table": inj.table,
-                "column": inj.column,
+                "target_file": inj.target_file,
+                "target_column": inj.target_column,
                 "detector_id": inj.detector_id,
-                "description": inj.description,
+                "injection_type": inj.injection_type,
+                "severity": inj.severity,
             }
             for inj in injections
         ]
@@ -100,14 +102,30 @@ def _generate_testdata(output_dir: Path, strategy: str, fresh: bool) -> Path:
     return output_dir
 
 
+def _pipeline_completed(output_dir: Path) -> bool:
+    """Check if a cached pipeline run actually completed all phases."""
+    from sqlalchemy import create_engine, text
+
+    db_path = output_dir / "metadata.db"
+    if not db_path.exists():
+        return False
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT status FROM pipeline_runs LIMIT 1")
+            ).fetchone()
+            return row is not None and row[0] == "completed"
+    finally:
+        engine.dispose()
+
+
 def _run_pipeline_cached(
     csv_dir: Path, output_dir: Path, source_name: str, fresh: bool
 ) -> RunResult:
     """Run pipeline if not already cached."""
-    metadata_db = output_dir / "metadata.db"
-    if metadata_db.exists() and not fresh:
-        # Pipeline already ran — return a minimal RunResult for fixture chain
-        # The actual assertions use output_manager to query the DB directly
+    if not fresh and _pipeline_completed(output_dir):
+        # Pipeline completed successfully — return cached result
         return RunResult(
             success=True,
             source_id=_read_source_id(output_dir),
@@ -243,7 +261,9 @@ def entropy_injections(_medium_testdata: Path) -> list[Any]:
     injections_file = _medium_testdata / "injections.yaml"
     if injections_file.exists():
         with open(injections_file) as f:
-            return yaml.safe_load(f)
+            dicts = yaml.safe_load(f)
+        # Convert dicts to SimpleNamespace for attribute access (matches EntropyInjection API)
+        return [SimpleNamespace(**d) for d in dicts]
 
     # Fallback: re-generate to get registry (shouldn't happen with cache)
     from testdata.scenarios.runner import run_scenario
