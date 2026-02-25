@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from dataraum.analysis.relationships.db_models import Relationship
+from dataraum.analysis.slicing.db_models import SliceDefinition
 from dataraum.analysis.views.db_models import EnrichedView
 from dataraum.core.logging import get_logger
 from dataraum.storage import Column, Table
@@ -75,7 +76,11 @@ def get_multi_table_schema_for_llm(
                 ).fetchone()
                 row_count = result[0] if result else None
             except Exception:
-                pass
+                logger.warning(
+                    "row_count_failed",
+                    table=table.table_name,
+                    duckdb_path=table.duckdb_path,
+                )
 
         schema = _format_table_schema(table, row_count=row_count)
         table_schemas.append(schema)
@@ -118,6 +123,34 @@ def get_multi_table_schema_for_llm(
                     "confidence": rel.confidence,
                 }
             )
+
+    # Fetch slice definitions (categorical value distributions) for these tables
+    slice_stmt = select(SliceDefinition).where(
+        SliceDefinition.table_id.in_(table_ids),
+    )
+    slices = session.execute(slice_stmt).scalars().all()
+
+    # Build column_id → distinct_values lookup
+    column_slices: dict[str, list[str]] = {}
+    for sl in slices:
+        if sl.distinct_values:
+            column_slices[sl.column_id] = sl.distinct_values
+
+    # Attach slice values to table schemas
+    for table in tables:
+        table_schema = next(
+            (s for s in table_schemas if s["table_id"] == table.table_id), None
+        )
+        if not table_schema:
+            continue
+        for col in table.columns:
+            if col.column_id in column_slices:
+                col_schema = next(
+                    (c for c in table_schema["columns"] if c["column_name"] == col.column_name),
+                    None,
+                )
+                if col_schema:
+                    col_schema["distinct_values"] = column_slices[col.column_id]
 
     # Fetch enriched views for these tables
     enriched_stmt = select(EnrichedView).where(
@@ -231,6 +264,11 @@ def format_multi_table_schema_for_prompt(schema: dict[str, Any]) -> str:
                 if sem.get("business_description"):
                     desc = sem["business_description"][:120]
                     col_line += f' description="{desc}"'
+
+            # Distinct values from slicing phase (categorical columns)
+            if col.get("distinct_values"):
+                vals = ", ".join(col["distinct_values"])
+                col_line += f' distinct_values="{vals}"'
 
             col_line += " />"
             lines.append(col_line)

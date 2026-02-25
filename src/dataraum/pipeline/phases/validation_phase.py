@@ -27,7 +27,7 @@ class ValidationPhase(BasePhase):
     to the LLM. Can generate cross-table JOINs when validations require
     data from multiple tables.
 
-    Requires: semantic phase.
+    Requires: semantic, relationships, enriched_views, slicing.
     """
 
     @property
@@ -40,7 +40,7 @@ class ValidationPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["semantic"]
+        return ["semantic", "relationships", "enriched_views", "slicing"]
 
     @property
     def outputs(self) -> list[str]:
@@ -92,9 +92,6 @@ class ValidationPhase(BasePhase):
             config = load_llm_config()
         except FileNotFoundError as e:
             return PhaseResult.failed(f"LLM config not found: {e}")
-
-        # Check if validation is implicitly enabled (no specific feature flag)
-        # Validation uses semantic_analysis settings as baseline
 
         # Create provider
         provider_config = config.providers.get(config.active_provider)

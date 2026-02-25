@@ -17,7 +17,6 @@ from dataraum.analysis.validation.models import (
     ValidationStatus,
 )
 from dataraum.analysis.validation.resolver import (
-    format_multi_table_schema_for_prompt,
     get_multi_table_schema_for_llm,
 )
 
@@ -26,7 +25,6 @@ __all__ = [
     "ValidationAgent",
     # Resolver
     "get_multi_table_schema_for_llm",
-    "format_multi_table_schema_for_prompt",
     # Models
     "ValidationSpec",
     "GeneratedSQL",

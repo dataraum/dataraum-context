@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 import duckdb
@@ -41,11 +41,6 @@ from dataraum.llm.providers.base import (
     ToolDefinition,
 )
 
-if TYPE_CHECKING:
-    from dataraum.llm.config import LLMConfig
-    from dataraum.llm.prompts import PromptRenderer
-    from dataraum.llm.providers.base import LLMProvider
-
 logger = get_logger(__name__)
 
 
@@ -64,21 +59,6 @@ class ValidationAgent(LLMFeature):
     MAX_TOKENS = 2000
     MAX_STORED_ROWS = 10
     DEFAULT_TOLERANCE = 0.01
-
-    def __init__(
-        self,
-        config: LLMConfig,
-        provider: LLMProvider,
-        prompt_renderer: PromptRenderer,
-    ) -> None:
-        """Initialize validation agent.
-
-        Args:
-            config: LLM configuration
-            provider: LLM provider instance
-            prompt_renderer: Prompt template renderer
-        """
-        super().__init__(config, provider, prompt_renderer)
 
     def run_validations(
         self,
@@ -301,7 +281,7 @@ class ValidationAgent(LLMFeature):
         try:
             duckdb_conn.execute(f"EXPLAIN {generated.sql_query}")
         except Exception as e:
-            logger.error(f"SQL validation failed for {spec.validation_id}: {e}")
+            logger.error("sql_validation_failed", validation_id=spec.validation_id, error=str(e))
             return ValidationResult(
                 validation_id=spec.validation_id,
                 spec_name=spec.name,
@@ -349,7 +329,7 @@ class ValidationAgent(LLMFeature):
             )
 
         except Exception as e:
-            logger.error(f"SQL execution failed for {spec.validation_id}: {e}")
+            logger.error("sql_execution_failed", validation_id=spec.validation_id, error=str(e))
             return ValidationResult(
                 validation_id=spec.validation_id,
                 spec_name=spec.name,
@@ -583,7 +563,12 @@ class ValidationAgent(LLMFeature):
                     {"difference": diff},
                 )
 
-            return (True, "Comparison check completed", row)
+            return (
+                False,
+                f"Comparison check inconclusive: could not identify comparison columns in result. "
+                f"Columns returned: {list(row.keys())}",
+                {"row": row},
+            )
 
         elif check_type == "aggregate":
             # Aggregate checks return summary values
@@ -631,7 +616,9 @@ class ValidationAgent(LLMFeature):
             session.add(result_record)
 
         logger.info(
-            f"Persisted validation run {run_result.run_id} with {len(run_result.results)} results"
+            "validation_results_persisted",
+            run_id=run_result.run_id,
+            count=len(run_result.results),
         )
 
 
