@@ -29,10 +29,6 @@ from dataraum.query.models import (
 )
 from dataraum.query.snippet_library import SnippetGraph, SnippetLibrary, SnippetMatch
 from dataraum.query.snippet_models import SnippetUsageRecord, SQLSnippetRecord
-from dataraum.query.snippet_utils import (
-    normalize_expression,
-    normalize_sql,
-)
 
 __all__ = [
     "QueryAgent",
@@ -45,6 +41,4 @@ __all__ = [
     "SnippetMatch",
     "SnippetUsageRecord",
     "answer_question",
-    "normalize_expression",
-    "normalize_sql",
 ]

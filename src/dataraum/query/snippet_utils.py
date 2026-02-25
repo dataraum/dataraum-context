@@ -10,7 +10,6 @@ Provides:
 from __future__ import annotations
 
 import re
-from typing import Any
 
 
 def normalize_sql(sql: str) -> str:
@@ -28,10 +27,6 @@ def normalize_sql(sql: str) -> str:
 
 
 # --- Expression Normalization ---
-
-# Regex to match a binary expression: operand OPERATOR operand
-# Supports nested parenthesized expressions
-_OPERATOR_PATTERN = re.compile(r"([+\-*/])")
 
 
 def normalize_expression(expression: str) -> tuple[str, list[str], dict[str, str]]:
@@ -210,80 +205,8 @@ def determine_usage_type(
         return "adapted"
 
 
-def track_snippet_usage(
-    library: Any,
-    execution_id: str,
-    execution_type: str,
-    provided_snippets: dict[str, dict[str, Any]],
-    generated_steps: list[dict[str, str]],
-) -> None:
-    """Track how provided snippets were used in an execution.
-
-    Used by the graph agent (step_id-based matching). The query agent
-    has its own deterministic tracking via snippet_id on each step.
-
-    Classification (deterministic, via normalize_sql equality):
-    - step_id matches provided snippet + normalized SQL equal → exact_reuse
-    - step_id matches provided snippet + SQL differs → adapted
-    - step_id not in provided snippets → newly_generated
-    - Provided snippets whose step_id wasn't generated → provided_not_used
-
-    Args:
-        library: SnippetLibrary instance
-        execution_id: Execution or cache key identifier
-        execution_type: "query" or "graph"
-        provided_snippets: Dict of step_id -> {sql, snippet_id, ...}
-        generated_steps: List of dicts with step_id, sql, description
-    """
-    used_snippet_ids: set[str] = set()
-
-    for gen_step in generated_steps:
-        step_id = gen_step.get("step_id", "")
-        provided = provided_snippets.get(step_id)
-
-        if provided is None:
-            library.record_usage(
-                execution_id=execution_id,
-                execution_type=execution_type,
-                usage_type="newly_generated",
-                step_id=step_id,
-            )
-        else:
-            snippet_id = provided.get("snippet_id")
-            provided_sql = provided.get("sql", "")
-            gen_sql = gen_step.get("sql", "")
-            usage_type = determine_usage_type(gen_sql, provided_sql)
-            is_exact = usage_type == "exact_reuse"
-
-            library.record_usage(
-                execution_id=execution_id,
-                execution_type=execution_type,
-                usage_type=usage_type,
-                snippet_id=snippet_id,
-                match_confidence=1.0,
-                sql_match_ratio=1.0 if is_exact else 0.0,
-                step_id=step_id,
-            )
-            if snippet_id:
-                used_snippet_ids.add(snippet_id)
-
-    # Record provided_not_used for snippets not referenced by any generated step
-    generated_step_ids = {s.get("step_id", "") for s in generated_steps}
-    for step_id, provided in provided_snippets.items():
-        if step_id not in generated_step_ids:
-            snippet_id = provided.get("snippet_id")
-            if snippet_id and snippet_id not in used_snippet_ids:
-                library.record_usage(
-                    execution_id=execution_id,
-                    execution_type=execution_type,
-                    usage_type="provided_not_used",
-                    snippet_id=snippet_id,
-                    step_id=step_id,
-                )
-
-
 __all__ = [
+    "determine_usage_type",
     "normalize_sql",
     "normalize_expression",
-    "track_snippet_usage",
 ]

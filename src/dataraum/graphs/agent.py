@@ -221,7 +221,6 @@ class GraphAgent(LLMFeature):
                         execution_id=generated_code.code_id,
                         cached_snippets=cached_snippets,
                         generated_steps=generated_code.steps,
-                        graph=graph,
                     )
             else:
                 # Generate SQL using LLM (with cached snippet hints)
@@ -240,7 +239,6 @@ class GraphAgent(LLMFeature):
                     execution_id=generated_code.code_id,
                     cached_snippets=cached_snippets or {},
                     generated_steps=generated_code.steps,
-                    graph=graph,
                 )
 
             if generated_code is None:
@@ -1008,21 +1006,57 @@ class GraphAgent(LLMFeature):
         execution_id: str,
         cached_snippets: dict[str, dict[str, Any]],
         generated_steps: list[dict[str, str]],
-        graph: TransformationGraph,
     ) -> None:
         """Track how cached snippets were used in graph execution."""
         from dataraum.query.snippet_library import SnippetLibrary
-        from dataraum.query.snippet_utils import track_snippet_usage
+        from dataraum.query.snippet_utils import determine_usage_type
 
         library = SnippetLibrary(session)
+        used_snippet_ids: set[str] = set()
 
-        track_snippet_usage(
-            library=library,
-            execution_id=execution_id,
-            execution_type="graph",
-            provided_snippets=cached_snippets,
-            generated_steps=generated_steps,
-        )
+        for gen_step in generated_steps:
+            step_id = gen_step.get("step_id", "")
+            provided = cached_snippets.get(step_id)
+
+            if provided is None:
+                library.record_usage(
+                    execution_id=execution_id,
+                    execution_type="graph",
+                    usage_type="newly_generated",
+                    step_id=step_id,
+                )
+            else:
+                snippet_id = provided.get("snippet_id")
+                usage_type = determine_usage_type(
+                    gen_step.get("sql", ""),
+                    provided.get("sql", ""),
+                )
+                is_exact = usage_type == "exact_reuse"
+                library.record_usage(
+                    execution_id=execution_id,
+                    execution_type="graph",
+                    usage_type=usage_type,
+                    snippet_id=snippet_id,
+                    match_confidence=1.0,
+                    sql_match_ratio=1.0 if is_exact else 0.0,
+                    step_id=step_id,
+                )
+                if snippet_id:
+                    used_snippet_ids.add(snippet_id)
+
+        # Provided snippets not used by any generated step
+        generated_step_ids = {s.get("step_id", "") for s in generated_steps}
+        for step_id, provided in cached_snippets.items():
+            if step_id not in generated_step_ids:
+                snippet_id = provided.get("snippet_id")
+                if snippet_id and snippet_id not in used_snippet_ids:
+                    library.record_usage(
+                        execution_id=execution_id,
+                        execution_type="graph",
+                        usage_type="provided_not_used",
+                        snippet_id=snippet_id,
+                        step_id=step_id,
+                    )
 
     def _save_snippets(
         self,
