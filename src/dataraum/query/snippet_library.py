@@ -6,10 +6,16 @@ and stabilization metrics.
 Discovery strategies (used differently by each agent):
 1. Exact key match - Graph agent for extract/constant steps (O(1) with index)
 2. Expression pattern match - Graph agent for formula steps (O(N), N < 100)
-3. Semantic similarity - Query agent for NL questions (vector search in DuckDB VSS)
+3. Term-based graph discovery - Query agent for NL questions (vocabulary matching)
+4. Full graph injection - Query agent when corpus is small (< 200 snippets)
+
+Snippet Graphs:
+    Snippets sharing the same `source` field form a "snippet graph" — a complete
+    calculation chain. When any snippet in a graph matches, the entire graph is
+    returned so the LLM has full context (e.g., all extracts + formula for DSO).
 
 Usage:
-    library = SnippetLibrary(session, manager)
+    library = SnippetLibrary(session)
 
     # Graph agent: exact lookup
     snippet = library.find_by_key(
@@ -20,12 +26,14 @@ Usage:
         schema_mapping_id="schema_abc",
     )
 
-    # Query agent: semantic search
-    snippets = library.find_by_similarity(
-        text="What is our DSO?",
+    # Query agent: term-based graph search
+    graphs = library.find_graphs_by_terms(
+        question="What is our DSO?",
         schema_mapping_id="schema_abc",
-        limit=5,
     )
+
+    # Query agent: full injection (small corpus)
+    all_graphs = library.find_all_graphs(schema_mapping_id="schema_abc")
 
     # Save a new snippet
     library.save_snippet(
@@ -42,6 +50,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -56,8 +65,6 @@ from dataraum.query.snippet_utils import normalize_expression
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-    from dataraum.core.connections import ConnectionManager
-
 logger = get_logger(__name__)
 
 
@@ -71,34 +78,61 @@ class SnippetMatch:
 
     snippet: SQLSnippetRecord
     match_confidence: float  # 0.0-1.0
-    match_strategy: str  # "exact_key" | "expression_pattern" | "semantic_similarity"
+    match_strategy: str  # "exact_key" | "expression_pattern"
+
+
+@dataclass
+class SnippetGraph:
+    """A group of snippets from the same source (graph or query execution).
+
+    Represents a complete calculation chain. When any snippet matches,
+    the entire graph is returned so the LLM has full context.
+    """
+
+    source: str  # e.g. "graph:dso", "query:exec_456"
+    snippets: list[SQLSnippetRecord]
+
+    @property
+    def graph_id(self) -> str:
+        """Extract graph/execution ID from source string."""
+        return self.source.split(":", 1)[1] if ":" in self.source else self.source
+
+    @property
+    def source_type(self) -> str:
+        """Extract source type: 'graph' or 'query'."""
+        return self.source.split(":", 1)[0] if ":" in self.source else "unknown"
 
 
 class SnippetLibrary:
     """Service for managing the SQL Knowledge Base.
 
-    Combines SQLite (via SQLAlchemy) for snippet storage with optional
-    DuckDB vectors for semantic search.
+    Uses SQLAlchemy for snippet storage with term-based discovery
+    (graph expansion, vocabulary matching) instead of embeddings.
     """
 
     def __init__(
         self,
         session: Session,
-        manager: ConnectionManager,
     ):
-        """Initialize with database connections.
+        """Initialize with database session.
 
         Args:
             session: SQLAlchemy session for snippet metadata
-            manager: ConnectionManager for semantic search (vectors database)
         """
-        from dataraum.query.embeddings import QueryEmbeddings
-
         self.session = session
-        self._manager = manager
-        self._embeddings = QueryEmbeddings(manager)
 
     # --- Discovery ---
+
+    def find_by_id(self, snippet_id: str) -> SQLSnippetRecord | None:
+        """Find a snippet by its primary key.
+
+        Args:
+            snippet_id: The snippet's unique identifier
+
+        Returns:
+            SQLSnippetRecord if found, None otherwise
+        """
+        return self.session.get(SQLSnippetRecord, snippet_id)
 
     def find_by_key(
         self,
@@ -194,55 +228,6 @@ class SnippetLibrary:
             match_strategy="expression_pattern",
         )
 
-    def find_by_similarity(
-        self,
-        text: str,
-        schema_mapping_id: str,
-        *,
-        min_similarity: float = 0.5,
-        limit: int = 5,
-    ) -> list[SnippetMatch]:
-        """Find snippets by semantic similarity.
-
-        Used by the query agent for natural language questions.
-
-        Args:
-            text: Text to search for (question or description)
-            schema_mapping_id: Schema mapping identifier
-            min_similarity: Minimum similarity threshold
-            limit: Maximum number of results
-
-        Returns:
-            List of SnippetMatch ordered by similarity (descending)
-        """
-        # Search embeddings (prefixed with "snippet:" to distinguish from query library)
-        similar = self._embeddings.find_similar(
-            text=text,
-            limit=limit * 3,  # Over-fetch to filter by schema
-            min_similarity=min_similarity,
-        )
-
-        results: list[SnippetMatch] = []
-        for sim in similar:
-            # Only consider snippet embeddings (prefixed with "snippet:")
-            if not sim.query_id.startswith("snippet:"):
-                continue
-
-            snippet_id = sim.query_id[len("snippet:"):]
-            record = self.session.get(SQLSnippetRecord, snippet_id)
-            if record and record.schema_mapping_id == schema_mapping_id:
-                results.append(
-                    SnippetMatch(
-                        snippet=record,
-                        match_confidence=sim.similarity,
-                        match_strategy="semantic_similarity",
-                    )
-                )
-                if len(results) >= limit:
-                    break
-
-        return results
-
     def find_all_for_schema(
         self,
         schema_mapping_id: str,
@@ -265,6 +250,213 @@ class SnippetLibrary:
             stmt = stmt.where(SQLSnippetRecord.snippet_type.in_(snippet_types))
 
         return list(self.session.scalars(stmt))
+
+    def _expand_to_graphs(
+        self,
+        sources: set[str],
+        schema_mapping_id: str,
+    ) -> list[SnippetGraph]:
+        """Load all snippets for the given sources, grouped as graphs.
+
+        Args:
+            sources: Set of source strings (e.g., {"graph:dso", "graph:revenue"})
+            schema_mapping_id: Schema mapping identifier
+
+        Returns:
+            List of SnippetGraph, one per source, sorted by source name
+        """
+        if not sources:
+            return []
+
+        stmt = select(SQLSnippetRecord).where(
+            SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+            SQLSnippetRecord.source.in_(sources),
+        )
+        snippets = list(self.session.scalars(stmt))
+
+        graphs: dict[str, list[SQLSnippetRecord]] = {}
+        for s in snippets:
+            graphs.setdefault(s.source, []).append(s)
+
+        return [
+            SnippetGraph(source=src, snippets=snips)
+            for src, snips in sorted(graphs.items())
+        ]
+
+    def find_all_graphs(
+        self,
+        schema_mapping_id: str,
+    ) -> list[SnippetGraph]:
+        """Load all snippets for a schema, grouped by source graph.
+
+        Used when snippet count is within prompt budget (full injection mode).
+
+        Args:
+            schema_mapping_id: Schema mapping identifier
+
+        Returns:
+            List of SnippetGraph, one per unique source
+        """
+        all_snippets = self.find_all_for_schema(schema_mapping_id)
+        if not all_snippets:
+            return []
+
+        graphs: dict[str, list[SQLSnippetRecord]] = {}
+        for s in all_snippets:
+            graphs.setdefault(s.source, []).append(s)
+
+        return [
+            SnippetGraph(source=src, snippets=snips)
+            for src, snips in sorted(graphs.items())
+        ]
+
+    def get_search_vocabulary(
+        self,
+        schema_mapping_id: str,
+    ) -> dict[str, list[str]]:
+        """Extract curated search terms from the snippet index.
+
+        Returns distinct vocabulary terms that can be used for term-based
+        snippet discovery. Terms come from the graph agent's index:
+        standard_field, statement, aggregation, and graph IDs.
+
+        Args:
+            schema_mapping_id: Schema mapping identifier
+
+        Returns:
+            Dict with keys: "standard_fields", "statements", "aggregations",
+            "graph_ids" — each mapping to a sorted list of distinct terms.
+        """
+        from sqlalchemy import distinct
+
+        sf_stmt = select(distinct(SQLSnippetRecord.standard_field)).where(
+            SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+            SQLSnippetRecord.standard_field.isnot(None),
+        )
+        standard_fields = sorted(
+            r[0] for r in self.session.execute(sf_stmt).all()
+        )
+
+        st_stmt = select(distinct(SQLSnippetRecord.statement)).where(
+            SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+            SQLSnippetRecord.statement.isnot(None),
+        )
+        statements = sorted(
+            r[0] for r in self.session.execute(st_stmt).all()
+        )
+
+        agg_stmt = select(distinct(SQLSnippetRecord.aggregation)).where(
+            SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+            SQLSnippetRecord.aggregation.isnot(None),
+        )
+        aggregations = sorted(
+            r[0] for r in self.session.execute(agg_stmt).all()
+        )
+
+        src_stmt = select(distinct(SQLSnippetRecord.source)).where(
+            SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+        )
+        graph_ids = sorted({
+            r[0].split(":", 1)[1]
+            for r in self.session.execute(src_stmt).all()
+            if ":" in r[0]
+        })
+
+        return {
+            "standard_fields": standard_fields,
+            "statements": statements,
+            "aggregations": aggregations,
+            "graph_ids": graph_ids,
+        }
+
+    def find_graphs_by_terms(
+        self,
+        question: str,
+        schema_mapping_id: str,
+        vocabulary: dict[str, list[str]] | None = None,
+        *,
+        limit: int = 50,
+    ) -> list[SnippetGraph]:
+        """Find snippet graphs by matching question terms against vocabulary.
+
+        Matching strategy:
+        1. Tokenize question (lowercase, split on whitespace/punctuation)
+        2. Match tokens against curated vocabulary (standard_fields, graph_ids,
+           statements) using case-insensitive substring matching
+        3. Find snippets whose standard_field, statement, or source matches
+        4. Expand matched snippets to full source graphs
+        5. Return complete graphs up to limit
+
+        Args:
+            question: Natural language question
+            schema_mapping_id: Schema mapping identifier
+            vocabulary: Pre-fetched vocabulary (from get_search_vocabulary).
+                If None, fetched automatically.
+            limit: Maximum number of snippet graphs to return
+
+        Returns:
+            List of SnippetGraph ordered by match relevance
+        """
+        if vocabulary is None:
+            vocabulary = self.get_search_vocabulary(schema_mapping_id)
+
+        question_lower = question.lower()
+        tokens = set(re.findall(r"[a-z][a-z0-9_]*", question_lower))
+
+        matched_sources: set[str] = set()
+
+        # Match against graph_ids (highest signal)
+        for gid in vocabulary.get("graph_ids", []):
+            gid_lower = gid.lower()
+            if gid_lower in tokens or gid_lower in question_lower:
+                matched_sources.add(f"graph:{gid}")
+
+        # Match against standard_fields
+        matched_fields: list[str] = []
+        for sf in vocabulary.get("standard_fields", []):
+            sf_lower = sf.lower()
+            parts = sf_lower.split("_")
+            if sf_lower in tokens or sf_lower in question_lower:
+                matched_fields.append(sf)
+            elif any(part in tokens for part in parts if len(part) > 3):
+                matched_fields.append(sf)
+
+        # Match against statements
+        matched_statements: list[str] = []
+        for st in vocabulary.get("statements", []):
+            st_lower = st.lower()
+            parts = st_lower.split("_")
+            if st_lower in tokens or st_lower in question_lower:
+                matched_statements.append(st)
+            elif any(part in tokens for part in parts if len(part) > 3):
+                matched_statements.append(st)
+
+        # Find snippets matching fields/statements, collect their sources
+        if matched_fields or matched_statements:
+            from sqlalchemy import distinct, or_
+
+            field_conditions = []
+            if matched_fields:
+                field_conditions.append(
+                    SQLSnippetRecord.standard_field.in_(matched_fields)
+                )
+            if matched_statements:
+                field_conditions.append(
+                    SQLSnippetRecord.statement.in_(matched_statements)
+                )
+
+            stmt = select(distinct(SQLSnippetRecord.source)).where(
+                SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+                or_(*field_conditions),
+            )
+            for row in self.session.execute(stmt).all():
+                matched_sources.add(row[0])
+
+        if not matched_sources:
+            return []
+
+        graphs = self._expand_to_graphs(matched_sources, schema_mapping_id)
+        return graphs[:limit]
 
     # --- Persistence ---
 
@@ -366,14 +558,6 @@ class SnippetLibrary:
             )
             self.session.add(record)
             logger.debug(f"Created snippet {record.snippet_id} ({snippet_type}:{standard_field})")
-
-        # Store embedding for semantic search
-        if description:
-            embedding_text = description
-            if standard_field:
-                embedding_text = f"{standard_field}: {description}"
-            record.embedding_text = embedding_text
-            self._embeddings.add_query(f"snippet:{record.snippet_id}", embedding_text)
 
         return record
 
@@ -589,4 +773,4 @@ class SnippetLibrary:
         }
 
 
-__all__ = ["SnippetLibrary", "SnippetLibraryError", "SnippetMatch"]
+__all__ = ["SnippetGraph", "SnippetLibrary", "SnippetLibraryError", "SnippetMatch"]

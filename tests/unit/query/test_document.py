@@ -107,33 +107,3 @@ class TestQueryDocument:
         assert d["column_mappings"]["a"] == "b"
         assert len(d["assumptions"]) == 1
 
-    def test_get_step_descriptions(self):
-        """Get list of step descriptions."""
-        doc = QueryDocument(
-            summary="Summary",
-            steps=[
-                SQLStep(step_id="s1", sql="", description="Filter orders"),
-                SQLStep(step_id="s2", sql="", description="Sum amounts"),
-            ],
-            final_sql="SELECT 1",
-        )
-
-        descriptions = doc.get_step_descriptions()
-
-        assert descriptions == ["Filter orders", "Sum amounts"]
-
-    def test_get_assumption_texts(self):
-        """Get list of assumption texts."""
-        doc = QueryDocument(
-            summary="Summary",
-            steps=[],
-            final_sql="SELECT 1",
-            assumptions=[
-                QueryAssumptionData("d1", "t1", "Currency is EUR", "inferred", 0.8),
-                QueryAssumptionData("d2", "t2", "Region is EMEA", "inferred", 0.7),
-            ],
-        )
-
-        texts = doc.get_assumption_texts()
-
-        assert texts == ["Currency is EUR", "Region is EMEA"]

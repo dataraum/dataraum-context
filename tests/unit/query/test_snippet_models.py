@@ -75,14 +75,13 @@ class TestSQLSnippetRecord:
             schema_mapping_id="schema_abc",
             sql='SELECT DATE_TRUNC(\'month\', "Datum") as month, SUM("Betrag") as total FROM typed_transactions GROUP BY 1',
             description="Monthly revenue breakdown",
-            embedding_text="Monthly revenue breakdown. Show me revenue by month.",
             source="query:exec_456",
         )
         session.add(record)
         session.flush()
 
         assert record.snippet_type == "query"
-        assert record.embedding_text is not None
+        assert record.source == "query:exec_456"
 
     def test_unique_constraint(self, session):
         """Duplicate semantic key should raise IntegrityError.

@@ -1,10 +1,10 @@
 """Utility functions for the SQL Knowledge Base.
 
 Provides:
-- SQL similarity comparison (normalized whitespace + Levenshtein ratio)
+- SQL normalization (lowercase, collapse whitespace)
 - Expression normalization (commutative sorting, placeholder substitution)
 - Usage type determination (exact_reuse, adapted, etc.)
-- Shared snippet usage tracking (used by both graph and query agents)
+- Snippet usage tracking (used by the graph agent)
 """
 
 from __future__ import annotations
@@ -25,65 +25,6 @@ def normalize_sql(sql: str) -> str:
     s = sql.strip().lower()
     s = re.sub(r"\s+", " ", s)
     return s
-
-
-def sql_similarity(sql_a: str, sql_b: str) -> float:
-    """Compute similarity between two SQL strings.
-
-    Uses normalized whitespace + lowercase then Levenshtein ratio.
-    This is intentionally simple — used for tracking, not cache keying.
-
-    Args:
-        sql_a: First SQL string
-        sql_b: Second SQL string
-
-    Returns:
-        Similarity ratio 0.0 to 1.0
-    """
-    a = normalize_sql(sql_a)
-    b = normalize_sql(sql_b)
-
-    if a == b:
-        return 1.0
-    if not a or not b:
-        return 0.0
-
-    # Levenshtein ratio: 1 - (edit_distance / max_length)
-    distance = _levenshtein_distance(a, b)
-    max_len = max(len(a), len(b))
-    return 1.0 - (distance / max_len)
-
-
-def _levenshtein_distance(s1: str, s2: str) -> int:
-    """Compute Levenshtein edit distance between two strings.
-
-    Uses the iterative matrix approach with O(min(m,n)) space.
-
-    Args:
-        s1: First string
-        s2: Second string
-
-    Returns:
-        Edit distance (integer)
-    """
-    if len(s1) < len(s2):
-        return _levenshtein_distance(s2, s1)
-
-    if not s2:
-        return len(s1)
-
-    previous_row = list(range(len(s2) + 1))
-    for i, c1 in enumerate(s1):
-        current_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            # Insertions, deletions, substitutions
-            insertions = previous_row[j + 1] + 1
-            deletions = current_row[j] + 1
-            substitutions = previous_row[j] + (c1 != c2)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-
-    return previous_row[-1]
 
 
 # --- Expression Normalization ---
@@ -241,9 +182,6 @@ def _split_at_top_level(expr: str, operator: str) -> list[str]:
 
 # --- Usage Type Determination ---
 
-# Threshold for considering SQL as "adapted" vs "provided_not_used"
-_ADAPTED_THRESHOLD = 0.8
-
 
 def determine_usage_type(
     generated_sql: str,
@@ -251,24 +189,25 @@ def determine_usage_type(
 ) -> str:
     """Determine how a generated SQL step relates to a provided snippet.
 
+    Uses normalized SQL equality (lowercase, collapsed whitespace).
+    If the step_id matched a provided snippet, the SQL is either an
+    exact reuse or an adaptation — never "provided_not_used" (that case
+    is handled separately for snippets whose step_id wasn't generated).
+
     Args:
         generated_sql: The SQL actually generated/used
         provided_snippet_sql: The snippet SQL that was provided (None if no snippet)
 
     Returns:
-        One of: "exact_reuse", "adapted", "provided_not_used", "newly_generated"
+        One of: "exact_reuse", "adapted", "newly_generated"
     """
     if provided_snippet_sql is None:
         return "newly_generated"
 
-    similarity = sql_similarity(generated_sql, provided_snippet_sql)
-
-    if similarity >= 0.99:
+    if normalize_sql(generated_sql) == normalize_sql(provided_snippet_sql):
         return "exact_reuse"
-    elif similarity >= _ADAPTED_THRESHOLD:
-        return "adapted"
     else:
-        return "provided_not_used"
+        return "adapted"
 
 
 def track_snippet_usage(
@@ -280,14 +219,20 @@ def track_snippet_usage(
 ) -> None:
     """Track how provided snippets were used in an execution.
 
-    Shared by both the graph and query agents. Compares generated steps
-    against provided snippets and records usage via the snippet library.
+    Used by the graph agent (step_id-based matching). The query agent
+    has its own deterministic tracking via snippet_id on each step.
+
+    Classification (deterministic, via normalize_sql equality):
+    - step_id matches provided snippet + normalized SQL equal → exact_reuse
+    - step_id matches provided snippet + SQL differs → adapted
+    - step_id not in provided snippets → newly_generated
+    - Provided snippets whose step_id wasn't generated → provided_not_used
 
     Args:
         library: SnippetLibrary instance
         execution_id: Execution or cache key identifier
         execution_type: "query" or "graph"
-        provided_snippets: Dict of step_id -> {sql, snippet_id, similarity?, ...}
+        provided_snippets: Dict of step_id -> {sql, snippet_id, ...}
         generated_steps: List of dicts with step_id, sql, description
     """
     used_snippet_ids: set[str] = set()
@@ -308,19 +253,15 @@ def track_snippet_usage(
             provided_sql = provided.get("sql", "")
             gen_sql = gen_step.get("sql", "")
             usage_type = determine_usage_type(gen_sql, provided_sql)
-            match_ratio = sql_similarity(gen_sql, provided_sql)
-
-            # Use similarity (semantic search) if available, default 1.0 (exact-key match)
-            raw_similarity = provided.get("similarity", 1.0)
-            match_confidence = float(raw_similarity) if isinstance(raw_similarity, (int, float)) else 1.0
+            is_exact = usage_type == "exact_reuse"
 
             library.record_usage(
                 execution_id=execution_id,
                 execution_type=execution_type,
                 usage_type=usage_type,
                 snippet_id=snippet_id,
-                match_confidence=match_confidence,
-                sql_match_ratio=match_ratio,
+                match_confidence=1.0,
+                sql_match_ratio=1.0 if is_exact else 0.0,
                 step_id=step_id,
             )
             if snippet_id:
@@ -343,8 +284,6 @@ def track_snippet_usage(
 
 __all__ = [
     "normalize_sql",
-    "sql_similarity",
     "normalize_expression",
-    "determine_usage_type",
     "track_snippet_usage",
 ]

@@ -27,6 +27,11 @@ class SQLStepOutput(BaseModel):
         "Must NOT contain WITH clauses or reference other steps."
     )
     description: str = Field(description="Human-readable description of what this step does")
+    snippet_id: str | None = Field(
+        default=None,
+        description="If reusing or adapting a snippet from the knowledge base, "
+        "set this to the snippet's snippet_id. Omit for fresh SQL.",
+    )
 
 
 class QueryAssumptionOutput(BaseModel):

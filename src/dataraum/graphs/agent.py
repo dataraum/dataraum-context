@@ -17,7 +17,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 import duckdb
@@ -30,9 +30,6 @@ from dataraum.llm.config import LLMConfig
 from dataraum.llm.features._base import LLMFeature
 from dataraum.llm.prompts import PromptRenderer
 from dataraum.llm.providers.base import LLMProvider
-
-if TYPE_CHECKING:
-    from dataraum.core.connections import ConnectionManager
 
 from .models import (
     AssumptionBasis,
@@ -93,9 +90,6 @@ class ExecutionContext:
     # - Quality flags
     # - Entropy scores and data readiness
     rich_context: Any | None = None  # GraphExecutionContext from graphs.context
-
-    # ConnectionManager for snippet library embeddings (required for snippet KB)
-    manager: ConnectionManager | None = None
 
     @classmethod
     def with_rich_context(
@@ -191,11 +185,6 @@ class GraphAgent(LLMFeature):
         """
         parameters = parameters or {}
 
-        if context.manager is None:
-            return Result.fail("ConnectionManager is required for snippet knowledge base")
-
-        manager = context.manager
-
         # Resolve parameters with defaults
         resolved_params = self._resolve_parameters(graph, parameters)
 
@@ -214,7 +203,6 @@ class GraphAgent(LLMFeature):
             # Check snippet library for cached individual steps
             cached_snippets = self._lookup_snippets(
                 session, graph, schema_mapping_id, resolved_params,
-                manager=manager,
             )
 
             # If ALL steps have cached snippets, assemble without LLM
@@ -234,7 +222,6 @@ class GraphAgent(LLMFeature):
                         cached_snippets=cached_snippets,
                         generated_steps=generated_code.steps,
                         graph=graph,
-                        manager=manager,
                     )
             else:
                 # Generate SQL using LLM (with cached snippet hints)
@@ -254,7 +241,6 @@ class GraphAgent(LLMFeature):
                     cached_snippets=cached_snippets or {},
                     generated_steps=generated_code.steps,
                     graph=graph,
-                    manager=manager,
                 )
 
             if generated_code is None:
@@ -268,7 +254,6 @@ class GraphAgent(LLMFeature):
                 graph=graph,
                 generated_code=generated_code,
                 schema_mapping_id=schema_mapping_id,
-                manager=manager,
             )
 
         # Execute the generated SQL
@@ -1024,13 +1009,12 @@ class GraphAgent(LLMFeature):
         cached_snippets: dict[str, dict[str, Any]],
         generated_steps: list[dict[str, str]],
         graph: TransformationGraph,
-        manager: ConnectionManager,
     ) -> None:
         """Track how cached snippets were used in graph execution."""
         from dataraum.query.snippet_library import SnippetLibrary
         from dataraum.query.snippet_utils import track_snippet_usage
 
-        library = SnippetLibrary(session, manager)
+        library = SnippetLibrary(session)
 
         track_snippet_usage(
             library=library,
@@ -1046,7 +1030,6 @@ class GraphAgent(LLMFeature):
         graph: TransformationGraph,
         generated_code: GeneratedCode,
         schema_mapping_id: str,
-        manager: ConnectionManager,
     ) -> None:
         """Save generated SQL steps as snippets for cross-graph reuse.
 
@@ -1061,12 +1044,11 @@ class GraphAgent(LLMFeature):
             graph: Graph specification (defines step types and metadata)
             generated_code: LLM-generated SQL code
             schema_mapping_id: Schema mapping identifier
-            manager: ConnectionManager for embeddings
         """
         from dataraum.query.snippet_library import SnippetLibrary
         from dataraum.query.snippet_utils import normalize_expression
 
-        library = SnippetLibrary(session, manager)
+        library = SnippetLibrary(session)
 
         source = f"graph:{graph.graph_id}"
 
@@ -1147,7 +1129,6 @@ class GraphAgent(LLMFeature):
         graph: TransformationGraph,
         schema_mapping_id: str,
         parameters: dict[str, Any],
-        manager: ConnectionManager,
     ) -> dict[str, dict[str, Any]]:
         """Look up cached snippets for graph steps before LLM generation.
 
@@ -1160,14 +1141,13 @@ class GraphAgent(LLMFeature):
             graph: Graph specification
             schema_mapping_id: Schema mapping identifier
             parameters: Resolved parameter values
-            manager: ConnectionManager for embeddings
 
         Returns:
             Dict mapping step_id to cached snippet info for found snippets
         """
         from dataraum.query.snippet_library import SnippetLibrary
 
-        library = SnippetLibrary(session, manager)
+        library = SnippetLibrary(session)
 
         cached_steps: dict[str, dict[str, Any]] = {}
 

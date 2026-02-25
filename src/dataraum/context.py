@@ -230,7 +230,6 @@ class Context:
                     duckdb_conn=cursor,
                     source_id=source.source_id,
                     contract=contract,
-                    manager=self.manager,
                 )
 
             if not result.success or not result.value:

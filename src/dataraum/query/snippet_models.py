@@ -8,9 +8,10 @@ Snippet types:
 - extract: Level 1 graph steps (keyed by standard_field + statement + aggregation)
 - constant: Parameter-derived values (keyed by parameter_name + parameter_value)
 - formula: Level 2+ formulas (keyed by normalized expression pattern)
-- query: Query-agent-derived patterns (keyed by semantic hash, discovered via embeddings)
+- query: Query-agent-derived patterns (keyed by semantic hash)
 
-Embeddings for semantic search are stored in the vectors DuckDB database.
+Discovery uses term-based vocabulary matching against standard_field,
+statement, aggregation, and graph_id values.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ class SQLSnippetRecord(Base):
 
     Snippets are discovered and reused across agents:
     - Graph agent produces extract, constant, and formula snippets
-    - Query agent discovers snippets via semantic similarity
+    - Query agent discovers snippets via term-based vocabulary matching
     - Both track usage for stabilization metrics
     """
 
@@ -70,9 +71,6 @@ class SQLSnippetRecord(Base):
     sql: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     column_mappings: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
-
-    # --- For semantic search (query-derived snippets) ---
-    embedding_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- Provenance ---
     source: Mapped[str] = mapped_column(

@@ -4,7 +4,6 @@ from dataraum.query.snippet_utils import (
     determine_usage_type,
     normalize_expression,
     normalize_sql,
-    sql_similarity,
 )
 
 
@@ -22,42 +21,6 @@ class TestNormalizeSql:
 
     def test_empty_string(self):
         assert normalize_sql("") == ""
-
-
-class TestSqlSimilarity:
-    """Tests for SQL similarity comparison."""
-
-    def test_identical(self):
-        sql = "SELECT SUM(amount) FROM orders"
-        assert sql_similarity(sql, sql) == 1.0
-
-    def test_identical_after_normalization(self):
-        a = "SELECT  SUM(amount)\n  FROM orders"
-        b = "select sum(amount) from orders"
-        assert sql_similarity(a, b) == 1.0
-
-    def test_completely_different(self):
-        a = "SELECT 1"
-        b = "DELETE FROM orders WHERE id = 999"
-        score = sql_similarity(a, b)
-        assert score < 0.5
-
-    def test_minor_difference(self):
-        a = "SELECT SUM(amount) AS value FROM orders WHERE type = 'sale'"
-        b = "SELECT SUM(amount) AS value FROM orders WHERE type = 'purchase'"
-        score = sql_similarity(a, b)
-        assert score > 0.8  # Very similar
-        assert score < 1.0  # But not identical
-
-    def test_empty_strings(self):
-        assert sql_similarity("", "") == 1.0
-        assert sql_similarity("SELECT 1", "") == 0.0
-        assert sql_similarity("", "SELECT 1") == 0.0
-
-    def test_whitespace_only_difference(self):
-        a = "SELECT SUM(x) FROM t"
-        b = "SELECT  SUM(x)  FROM  t"
-        assert sql_similarity(a, b) == 1.0
 
 
 class TestNormalizeExpression:
@@ -128,7 +91,7 @@ class TestNormalizeExpression:
 
 
 class TestDetermineUsageType:
-    """Tests for usage type determination."""
+    """Tests for usage type determination (deterministic, normalized equality)."""
 
     def test_no_snippet_provided(self):
         assert determine_usage_type("SELECT 1", None) == "newly_generated"
@@ -142,15 +105,14 @@ class TestDetermineUsageType:
         b = "select sum(amount) from orders"
         assert determine_usage_type(a, b) == "exact_reuse"
 
-    def test_adapted(self):
-        """Similar SQL but with minor changes."""
+    def test_adapted_minor_change(self):
+        """Any SQL difference (after normalization) is classified as adapted."""
         original = "SELECT SUM(amount) AS value FROM typed_orders WHERE type IN ('sale', 'revenue')"
         adapted = "SELECT SUM(amount) AS total_value FROM typed_orders WHERE category IN ('sale', 'revenue')"
-        result = determine_usage_type(adapted, original)
-        assert result == "adapted"
+        assert determine_usage_type(adapted, original) == "adapted"
 
-    def test_provided_not_used(self):
-        """Completely different SQL."""
+    def test_adapted_completely_different(self):
+        """Even completely different SQL is 'adapted' when step_id matched."""
         original = "SELECT SUM(amount) FROM orders"
         generated = "SELECT COUNT(*) FROM customers GROUP BY region"
-        assert determine_usage_type(generated, original) == "provided_not_used"
+        assert determine_usage_type(generated, original) == "adapted"

@@ -23,34 +23,28 @@ Usage:
 from dataraum.query.agent import QueryAgent
 from dataraum.query.core import answer_question
 from dataraum.query.db_models import QueryExecutionRecord
-from dataraum.query.embeddings import QueryEmbeddings, SimilarQuery
 from dataraum.query.models import (
     QueryAnalysisOutput,
     QueryResult,
 )
-from dataraum.query.snippet_library import SnippetLibrary, SnippetMatch
+from dataraum.query.snippet_library import SnippetGraph, SnippetLibrary, SnippetMatch
 from dataraum.query.snippet_models import SnippetUsageRecord, SQLSnippetRecord
 from dataraum.query.snippet_utils import (
-    determine_usage_type,
     normalize_expression,
     normalize_sql,
-    sql_similarity,
 )
 
 __all__ = [
     "QueryAgent",
     "QueryAnalysisOutput",
-    "QueryEmbeddings",
     "QueryExecutionRecord",
     "QueryResult",
     "SQLSnippetRecord",
-    "SimilarQuery",
+    "SnippetGraph",
     "SnippetLibrary",
     "SnippetMatch",
     "SnippetUsageRecord",
     "answer_question",
-    "determine_usage_type",
     "normalize_expression",
     "normalize_sql",
-    "sql_similarity",
 ]
