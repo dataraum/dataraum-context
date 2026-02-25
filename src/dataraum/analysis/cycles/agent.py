@@ -27,6 +27,7 @@ from dataraum.analysis.cycles.models import (
 )
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
+from dataraum.llm.features._base import LLMFeature
 from dataraum.llm.providers.base import (
     ConversationRequest,
     Message,
@@ -37,75 +38,13 @@ if TYPE_CHECKING:
     import duckdb
     from sqlalchemy.orm import Session
 
-    from dataraum.llm.providers.base import LLMProvider
-
 logger = get_logger(__name__)
 
-
-SYSTEM_PROMPT = """You are an expert business analyst specializing in detecting business cycles and processes in data.
-
-Your task is to analyze pre-computed metadata about a dataset and identify business cycles — the recurring patterns of transactions that represent business processes like:
-- Order-to-Cash (revenue cycle)
-- Procure-to-Pay (expense cycle)
-- Accounts Receivable / Accounts Payable cycles
-- Inventory cycles
-- Payroll cycles
-- Any other domain-specific cycles
-
-## What You Receive
-
-The context contains rich metadata pre-computed by the analysis pipeline:
-
-1. **Categorical Dimensions** — Pre-identified status/type columns with their values and counts. These are strong cycle indicators (e.g., invoice status: paid/open/cancelled).
-2. **Enriched Views** — Pre-joined tables showing confirmed relationships between facts and dimensions.
-3. **Confirmed Relationships** — LLM-verified foreign key and hierarchy relationships.
-4. **Temporal Patterns** — Date ranges, granularity, and completeness per date column.
-5. **Entity Classifications** — Fact vs dimension table types with grain columns.
-6. **Quality Signals** — Data quality grades and anomalies for columns with issues.
-7. **Column Semantics** — Business concepts, semantic roles, and descriptions per column.
-
-## How to Detect Cycles
-
-1. **Status columns are cycle indicators.** A column like `invoices.status` with values (paid, open, cancelled, overdue) directly shows cycle states. The "completed" state (e.g., "paid") marks cycle endpoints.
-
-2. **Relationships define entity flows.** A FK from `payments.invoice_id → invoices.invoice_id` shows that payments complete invoices. Enriched views materialize these joins.
-
-3. **Fact → Dimension patterns reveal processes.** A fact table (journal_lines) linking to a dimension (chart_of_accounts) via FK represents a business process (GL posting).
-
-4. **Temporal patterns suggest cycle frequency.** Monthly trial balance vs daily transactions indicates different cycle periods.
-
-5. **Compute completion rates from value counts.** If invoices.status shows paid=2555 (85.2%), open=227 (7.6%), etc., the completion rate is 85.2%.
-
-## Your Output
-
-Call the `submit_analysis` tool with your structured findings. Be specific:
-- Reference actual column names and table names
-- Compute completion rates from the provided value counts
-- Cite evidence (which relationship, which status column, which enriched view)
-- Assess confidence based on signal strength"""
+# Prompt template name (loaded from config/llm/prompts/business_cycles.yaml)
+CYCLE_DETECTION_TEMPLATE_NAME = "business_cycles"
 
 
-USER_PROMPT_TEMPLATE = """Analyze this dataset for business cycles.
-
-## Pre-Computed Metadata
-
-{context}
-
-## Your Task
-
-The metadata above contains everything the pipeline has discovered about this dataset.
-Synthesize it into business cycle analysis:
-
-1. **Identify cycles** from categorical dimensions (status columns) + relationships + entity flows
-2. **Compute completion rates** from the provided value counts (no tool calls needed)
-3. **Map cycle stages** from the distinct values in status columns
-4. **Describe entity flows** using the confirmed relationships and enriched views
-5. **Note quality issues** that affect cycle reliability (grade B or worse columns)
-
-**REQUIRED**: Call `submit_analysis` with your structured findings."""
-
-
-class BusinessCycleAgent:
+class BusinessCycleAgent(LLMFeature):
     """Expert LLM agent for business cycle detection.
 
     Uses rich pre-computed pipeline metadata for single-call synthesis.
@@ -114,26 +53,13 @@ class BusinessCycleAgent:
     quality signals.
     """
 
-    def __init__(
-        self,
-        provider: LLMProvider,
-        model: str | None = None,
-    ) -> None:
-        """Initialize the agent.
-
-        Args:
-            provider: LLM provider instance
-            model: Model to use (defaults to provider's default)
-        """
-        self._provider = provider
-        self._model = model
+    MAX_TOKENS = 4096
 
     def analyze(
         self,
         session: Session,
         duckdb_conn: duckdb.DuckDBPyConnection,
         table_ids: list[str],
-        max_tool_calls: int = 15,
         *,
         domain: str | None = None,
         vertical: str,
@@ -144,7 +70,6 @@ class BusinessCycleAgent:
             session: SQLAlchemy session
             duckdb_conn: DuckDB connection
             table_ids: Tables to analyze
-            max_tool_calls: Unused (kept for API compatibility)
             domain: Optional domain for enhanced vocabulary
             vertical: Vertical name (e.g. 'finance')
 
@@ -153,6 +78,11 @@ class BusinessCycleAgent:
         """
         start_time = time.time()
 
+        # Get feature config
+        feature_config = self.config.features.business_cycles
+        if not feature_config or not feature_config.enabled:
+            return Result.fail("Business cycles feature is disabled in config")
+
         try:
             # 1. Build rich context from all pipeline metadata
             context = build_cycle_detection_context(
@@ -160,7 +90,15 @@ class BusinessCycleAgent:
             )
             context_str = format_context_for_prompt(context)
 
-            # 2. Single LLM call with structured output
+            # 2. Render prompt from template
+            try:
+                system_prompt, user_prompt, temperature = self.renderer.render_split(
+                    CYCLE_DETECTION_TEMPLATE_NAME, {"context": context_str}
+                )
+            except Exception as e:
+                return Result.fail(f"Failed to render business cycles prompt: {e}")
+
+            # 3. Single LLM call with structured output
             tool = ToolDefinition(
                 name="submit_analysis",
                 description=(
@@ -170,28 +108,26 @@ class BusinessCycleAgent:
                 input_schema=BusinessCycleAnalysisOutput.model_json_schema(),
             )
 
+            model = self.provider.get_model_for_tier(feature_config.model_tier)
+
             request = ConversationRequest(
-                messages=[
-                    Message(
-                        role="user",
-                        content=USER_PROMPT_TEMPLATE.format(context=context_str),
-                    )
-                ],
-                system=SYSTEM_PROMPT,
+                messages=[Message(role="user", content=user_prompt)],
+                system=system_prompt,
                 tools=[tool],
                 tool_choice={"type": "tool", "name": "submit_analysis"},
-                max_tokens=4096,
-                model=self._model,
+                max_tokens=self.MAX_TOKENS,
+                temperature=temperature,
+                model=model,
             )
 
-            result = self._provider.converse(request)
+            result = self.provider.converse(request)
 
             if not result.success:
                 return Result.fail(f"LLM call failed: {result.error}")
 
             response = result.unwrap()
 
-            # 3. Parse structured output
+            # 4. Parse structured output
             if not response.tool_calls:
                 return Result.fail(
                     "LLM did not call submit_analysis tool. "
@@ -203,11 +139,11 @@ class BusinessCycleAgent:
                 return Result.fail(f"Unexpected tool call: {tool_call.name}")
 
             analysis = self._parse_output(
-                tool_call.input, context, start_time, vertical=vertical,
+                tool_call.input, context, start_time, model=model, vertical=vertical,
             )
 
-            # 4. Persist to database
-            self._persist_results(session, analysis, table_ids)
+            # 5. Persist to database
+            self._persist_results(session, analysis)
 
             return Result.ok(analysis)
 
@@ -220,6 +156,7 @@ class BusinessCycleAgent:
         context: dict[str, Any],
         start_time: float,
         *,
+        model: str | None = None,
         vertical: str,
     ) -> BusinessCycleAnalysis:
         """Parse submit_analysis tool input into structured analysis.
@@ -228,6 +165,8 @@ class BusinessCycleAgent:
             tool_input: The structured input from submit_analysis tool
             context: Original context provided
             start_time: Analysis start time
+            model: Model used for generation
+            vertical: Vertical name
 
         Returns:
             Structured BusinessCycleAnalysis
@@ -319,10 +258,9 @@ class BusinessCycleAgent:
             detected_processes=detected_processes,
             data_quality_observations=data_quality_obs,
             recommendations=recommendations,
-            llm_model=self._model,
+            llm_model=model,
             analysis_duration_seconds=time.time() - start_time,
             context_provided={"summary": context["summary"]},
-            tool_calls_made=[],
         )
 
         if cycles:
@@ -336,14 +274,12 @@ class BusinessCycleAgent:
         self,
         session: Session,
         analysis: BusinessCycleAnalysis,
-        table_ids: list[str],
     ) -> None:
         """Persist analysis results to database.
 
         Args:
             session: SQLAlchemy session
             analysis: The analysis results to persist
-            table_ids: Table IDs that were analyzed
         """
         for cycle in analysis.cycles:
             db_cycle = DetectedBusinessCycle(

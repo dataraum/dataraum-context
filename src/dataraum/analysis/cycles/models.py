@@ -6,7 +6,7 @@ detected cycles, their stages, entity flows, and metrics.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -20,12 +20,7 @@ class CycleStage(BaseModel):
 
     # How this stage is identified in the data
     indicator_column: str | None = None  # Column that indicates this stage
-    indicator_table: str | None = None
     indicator_values: list[str] = Field(default_factory=list)  # Values that mean this stage
-
-    # Metrics for this stage
-    record_count: int | None = None
-    completion_rate: float | None = None  # % that progress to next stage
 
 
 class EntityFlow(BaseModel):
@@ -38,7 +33,6 @@ class EntityFlow(BaseModel):
     # How entity connects to transaction/fact table
     fact_table: str | None = None
     fact_column: str | None = None
-    relationship_type: str | None = None  # "foreign_key", "semantic_match"
 
 
 class DetectedCycle(BaseModel):
@@ -59,9 +53,8 @@ class DetectedCycle(BaseModel):
     stages: list[CycleStage] = Field(default_factory=list)
     entity_flows: list[EntityFlow] = Field(default_factory=list)
 
-    # Tables and columns involved
+    # Tables involved
     tables_involved: list[str] = Field(default_factory=list)
-    key_columns: dict[str, list[str]] = Field(default_factory=dict)  # table -> columns
 
     # Status/completion tracking
     status_column: str | None = None  # Column that tracks cycle completion
@@ -72,7 +65,6 @@ class DetectedCycle(BaseModel):
     total_records: int | None = None
     completed_cycles: int | None = None
     completion_rate: float | None = None
-    avg_cycle_time_days: float | None = None
 
     # Confidence
     confidence: float = 0.0  # How confident are we this cycle exists
@@ -83,7 +75,7 @@ class BusinessCycleAnalysis(BaseModel):
     """Complete business cycle analysis for a dataset."""
 
     analysis_id: str
-    analyzed_at: datetime = Field(default_factory=datetime.utcnow)
+    analyzed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Scope
     tables_analyzed: list[str] = Field(default_factory=list)
@@ -110,7 +102,6 @@ class BusinessCycleAnalysis(BaseModel):
 
     # Raw context (for debugging/transparency)
     context_provided: dict[str, Any] = Field(default_factory=dict)
-    tool_calls_made: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -173,7 +164,7 @@ class DetectedCycleOutput(BaseModel):
         default_factory=list, description="All tables involved in this cycle"
     )
 
-    # Metrics (from tool calls)
+    # Metrics
     total_records: int | None = Field(default=None, description="Total records in cycle")
     completed_cycles: int | None = Field(default=None, description="Number of completed cycles")
     completion_rate: float | None = Field(

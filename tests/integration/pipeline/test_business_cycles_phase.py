@@ -20,7 +20,9 @@ class TestBusinessCyclesPhase:
         phase = BusinessCyclesPhase()
         assert phase.name == "business_cycles"
         assert phase.description == "Expert LLM cycle detection"
-        assert phase.dependencies == ["semantic", "temporal"]
+        assert phase.dependencies == [
+            "semantic", "temporal", "enriched_views", "slicing", "quality_summary",
+        ]
         assert phase.outputs == ["detected_cycles", "business_processes"]
 
     def test_skip_when_no_typed_tables(

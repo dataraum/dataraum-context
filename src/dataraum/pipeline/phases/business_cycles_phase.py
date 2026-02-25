@@ -12,7 +12,7 @@ from types import ModuleType
 from sqlalchemy import func, select
 
 from dataraum.analysis.cycles import BusinessCycleAgent
-from dataraum.llm import create_provider, load_llm_config
+from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.db_models import PhaseCheckpoint
 from dataraum.pipeline.phases.base import BasePhase
@@ -24,14 +24,11 @@ from dataraum.storage import Table
 class BusinessCyclesPhase(BasePhase):
     """Expert LLM agent for business cycle detection.
 
-    Uses semantic metadata as context and provides tools for
-    on-demand data exploration to detect business cycles like:
-    - Order-to-Cash (revenue cycle)
-    - Procure-to-Pay (expense cycle)
-    - Accounts Receivable/Payable cycles
-    - Inventory cycles
+    Synthesizes pre-computed pipeline metadata (slice definitions,
+    statistical profiles, temporal patterns, enriched views, quality
+    signals) into business cycle analysis via a single LLM call.
 
-    Requires: semantic, temporal phases.
+    Requires: semantic, temporal, enriched_views, slicing, quality_summary.
     """
 
     @property
@@ -44,7 +41,14 @@ class BusinessCyclesPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["semantic", "temporal"]
+        # Depends on all phases that build_cycle_detection_context reads from
+        return [
+            "semantic",        # column annotations, table entities
+            "temporal",        # temporal column profiles
+            "enriched_views",  # pre-joined fact-dimension views
+            "slicing",         # categorical dimensions (status columns)
+            "quality_summary", # column quality reports
+        ]
 
     @property
     def outputs(self) -> list[str]:
@@ -107,8 +111,15 @@ class BusinessCyclesPhase(BasePhase):
         except Exception as e:
             return PhaseResult.failed(f"Failed to create LLM provider: {e}")
 
-        # Create business cycle agent (only takes provider, not full LLM infrastructure)
-        agent = BusinessCycleAgent(provider=provider)
+        # Create other components
+        renderer = PromptRenderer()
+
+        # Create business cycle agent
+        agent = BusinessCycleAgent(
+            config=config,
+            provider=provider,
+            prompt_renderer=renderer,
+        )
 
         # Get optional domain from config (e.g., "financial", "retail", "manufacturing")
         domain = ctx.config.get("domain")
@@ -118,15 +129,11 @@ class BusinessCyclesPhase(BasePhase):
                 "No vertical configured. Set 'vertical' in config/phases/business_cycles.yaml."
             )
 
-        # Get max tool calls from config
-        max_tool_calls = ctx.config.get("max_tool_calls", 10)
-
         # Run analysis
         analysis_result = agent.analyze(
             session=ctx.session,
             duckdb_conn=ctx.duckdb_conn,
             table_ids=table_ids,
-            max_tool_calls=max_tool_calls,
             domain=domain,
             vertical=vertical,
         )
@@ -143,7 +150,6 @@ class BusinessCyclesPhase(BasePhase):
                 "business_summary": analysis.business_summary,
                 "data_quality_observations": analysis.data_quality_observations,
                 "recommendations": analysis.recommendations,
-                "tool_calls_made": len(analysis.tool_calls_made),
                 "tables_analyzed": [t.table_name for t in typed_tables],
             },
             records_processed=len(table_ids),
