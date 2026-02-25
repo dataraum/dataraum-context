@@ -83,10 +83,11 @@ def build_cycle_detection_context(
     for t in tables:
         try:
             result = duckdb_conn.execute(
-                f'SELECT COUNT(*) FROM "typed_{t.table_name}"'
+                f'SELECT COUNT(*) FROM "{t.duckdb_path}"'
             ).fetchone()
             row_counts[t.table_name] = result[0] if result else None
         except Exception:
+            logger.warning("row_count_failed", table=t.table_name, duckdb_path=t.duckdb_path)
             row_counts[t.table_name] = None
 
     # Build table info with columns and semantic annotations
@@ -294,7 +295,6 @@ def build_cycle_detection_context(
     # 10. Domain vocabulary
     vocabulary = format_cycle_vocabulary_for_context(domain, vertical=vertical)
     context["domain_vocabulary"] = vocabulary
-    context["domain"] = domain
 
     return context
 
