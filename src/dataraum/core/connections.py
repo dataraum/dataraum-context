@@ -54,7 +54,6 @@ class ConnectionConfig:
     Attributes:
         sqlite_path: Path to SQLite database file
         duckdb_path: Path to DuckDB database file for data
-        vectors_path: Path to DuckDB database file for embeddings
         pool_size: SQLAlchemy connection pool size
         max_overflow: Maximum overflow connections beyond pool_size
         pool_timeout: Seconds to wait for a connection from pool
@@ -65,7 +64,6 @@ class ConnectionConfig:
 
     sqlite_path: Path
     duckdb_path: Path
-    vectors_path: Path | None = None  # Separate DuckDB for embeddings
 
     # SQLAlchemy pool settings
     pool_size: int = 5
@@ -93,7 +91,6 @@ class ConnectionConfig:
         return cls(
             sqlite_path=output_dir / "metadata.db",
             duckdb_path=output_dir / "data.duckdb",
-            vectors_path=output_dir / "vectors.duckdb",
             **kwargs,
         )
 
@@ -110,7 +107,6 @@ class ConnectionConfig:
         return cls(
             sqlite_path=Path(":memory:"),
             duckdb_path=Path(":memory:"),
-            vectors_path=Path(":memory:"),
             **kwargs,
         )
 
@@ -150,9 +146,7 @@ class ConnectionManager:
     _engine: Engine | None = field(default=None, init=False, repr=False)
     _session_factory: sessionmaker[Session] | None = field(default=None, init=False, repr=False)
     _duckdb_conn: duckdb.DuckDBPyConnection | None = field(default=None, init=False, repr=False)
-    _vectors_conn: duckdb.DuckDBPyConnection | None = field(default=None, init=False, repr=False)
     _write_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
-    _vectors_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _init_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _initialized: bool = field(default=False, init=False, repr=False)
 
@@ -172,7 +166,6 @@ class ConnectionManager:
             try:
                 self._init_sqlalchemy()
                 self._init_duckdb()
-                self._init_vectors()
                 self._initialized = True
             except Exception as e:
                 self.close()
@@ -236,43 +229,6 @@ class ConnectionManager:
 
         # Configure DuckDB
         self._duckdb_conn.execute(f"SET memory_limit='{self.config.duckdb_memory_limit}'")
-
-    def _init_vectors(self) -> None:
-        """Initialize DuckDB connection for vector embeddings.
-
-        Uses the VSS extension for similarity search.
-        """
-        if self.config.vectors_path is None:
-            # Vectors disabled
-            return
-
-        if self.config.vectors_path == Path(":memory:"):
-            self._vectors_conn = duckdb.connect(":memory:")
-        else:
-            self.config.vectors_path.parent.mkdir(parents=True, exist_ok=True)
-            self._vectors_conn = duckdb.connect(str(self.config.vectors_path))
-
-        # Install and load VSS extension
-        self._vectors_conn.execute("INSTALL vss")
-        self._vectors_conn.execute("LOAD vss")
-
-        # Create embeddings table if not exists
-        self._vectors_conn.execute("""
-            CREATE TABLE IF NOT EXISTS query_embeddings (
-                query_id VARCHAR PRIMARY KEY,
-                embedding FLOAT[384]
-            )
-        """)
-
-        # Create HNSW index if not exists (for fast similarity search)
-        try:
-            self._vectors_conn.execute("SET hnsw_enable_experimental_persistence = true")
-            self._vectors_conn.execute("""
-                CREATE INDEX IF NOT EXISTS embedding_idx ON query_embeddings
-                USING HNSW (embedding) WITH (metric = 'cosine')
-            """)
-        except Exception as e:
-            logger.warning("failed_to_create_vector_index", error=str(e))
 
     def _import_all_models(self) -> None:
         """Import all DB model modules to register them with SQLAlchemy."""
@@ -392,57 +348,6 @@ class ConnectionManager:
         with self._write_lock:
             yield self._duckdb_conn
 
-    @contextmanager
-    def vectors_cursor(self) -> Generator[duckdb.DuckDBPyConnection]:
-        """Get a cursor for reading from vectors database.
-
-        Thread-safe for read operations.
-
-        Yields:
-            DuckDB cursor for vector queries
-
-        Raises:
-            RuntimeError: If manager not initialized or vectors disabled
-
-        Example:
-            with manager.vectors_cursor() as cursor:
-                results = cursor.execute(
-                    "SELECT query_id FROM query_embeddings ORDER BY ..."
-                ).fetchall()
-        """
-        self._ensure_initialized()
-        if self._vectors_conn is None:
-            raise RuntimeError("Vectors database not configured")
-
-        cursor = self._vectors_conn.cursor()
-        try:
-            yield cursor
-        finally:
-            cursor.close()
-
-    @contextmanager
-    def vectors_write(self) -> Generator[duckdb.DuckDBPyConnection]:
-        """Get exclusive write access to vectors database.
-
-        Uses mutex to serialize all write operations.
-
-        Yields:
-            DuckDB connection with exclusive write access
-
-        Raises:
-            RuntimeError: If manager not initialized or vectors disabled
-
-        Example:
-            with manager.vectors_write() as conn:
-                conn.execute("INSERT INTO query_embeddings VALUES (?, ?)", [...])
-        """
-        self._ensure_initialized()
-        if self._vectors_conn is None:
-            raise RuntimeError("Vectors database not configured")
-
-        with self._vectors_lock:
-            yield self._vectors_conn
-
     @property
     def engine(self) -> Engine:
         """Get the SQLAlchemy engine.
@@ -462,13 +367,6 @@ class ConnectionManager:
 
         Safe to call multiple times.
         """
-        if self._vectors_conn is not None:
-            try:
-                self._vectors_conn.close()
-            except Exception:
-                pass
-            self._vectors_conn = None
-
         if self._duckdb_conn is not None:
             try:
                 self._duckdb_conn.close()

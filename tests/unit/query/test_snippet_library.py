@@ -1,25 +1,47 @@
 """Tests for SQL Snippet Library."""
 
-from unittest.mock import MagicMock
-
 import pytest
 
-from dataraum.query.snippet_library import SnippetLibrary
+from dataraum.query.snippet_library import SnippetGraph, SnippetLibrary
 from dataraum.query.snippet_models import SQLSnippetRecord
 
 
-@pytest.fixture
-def mock_manager():
-    """Create a mock ConnectionManager for tests."""
-    return MagicMock()
+class TestSnippetLibraryFindById:
+    """Tests for primary key lookup."""
+
+    def test_find_existing_snippet(self, session):
+        """Find a snippet by its primary key."""
+        library = SnippetLibrary(session)
+
+        record = library.save_snippet(
+            snippet_type="extract",
+            sql="SELECT SUM(amount) AS value FROM typed_orders",
+            description="Sum of revenue",
+            schema_mapping_id="schema_abc",
+            source="graph:dso",
+            standard_field="revenue",
+        )
+        session.flush()
+
+        found = library.find_by_id(record.snippet_id)
+        assert found is not None
+        assert found.snippet_id == record.snippet_id
+        assert found.sql == "SELECT SUM(amount) AS value FROM typed_orders"
+
+    def test_find_nonexistent_returns_none(self, session):
+        """Unknown snippet_id returns None."""
+        library = SnippetLibrary(session)
+
+        found = library.find_by_id("nonexistent-id")
+        assert found is None
 
 
 class TestSnippetLibraryFindByKey:
     """Tests for exact key lookup."""
 
-    def test_find_extract_snippet(self, session, mock_manager):
+    def test_find_extract_snippet(self, session):
         """Find an extract snippet by exact key."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         # Save a snippet
         library.save_snippet(
@@ -49,9 +71,9 @@ class TestSnippetLibraryFindByKey:
         assert match.snippet.standard_field == "revenue"
         assert match.snippet.sql == "SELECT SUM(amount) AS value FROM typed_orders"
 
-    def test_find_no_match(self, session, mock_manager):
+    def test_find_no_match(self, session):
         """No snippet for this key."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         match = library.find_by_key(
             snippet_type="extract",
@@ -60,9 +82,9 @@ class TestSnippetLibraryFindByKey:
         )
         assert match is None
 
-    def test_find_different_schema(self, session, mock_manager):
+    def test_find_different_schema(self, session):
         """Same field but different schema doesn't match."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         library.save_snippet(
             snippet_type="extract",
@@ -85,9 +107,9 @@ class TestSnippetLibraryFindByKey:
         )
         assert match is None
 
-    def test_find_constant_snippet(self, session, mock_manager):
+    def test_find_constant_snippet(self, session):
         """Find a constant snippet including parameter value."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         library.save_snippet(
             snippet_type="constant",
@@ -119,9 +141,9 @@ class TestSnippetLibraryFindByKey:
         )
         assert match2 is None
 
-    def test_null_fields_match_correctly(self, session, mock_manager):
+    def test_null_fields_match_correctly(self, session):
         """Null fields in key must match null (not anything)."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         # Snippet with no statement
         library.save_snippet(
@@ -159,9 +181,9 @@ class TestSnippetLibraryFindByKey:
 class TestSnippetLibrarySave:
     """Tests for snippet save with upsert semantics."""
 
-    def test_save_new_snippet(self, session, mock_manager):
+    def test_save_new_snippet(self, session):
         """Save creates a new record."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         record = library.save_snippet(
             snippet_type="extract",
@@ -178,9 +200,9 @@ class TestSnippetLibrarySave:
         assert record.snippet_id is not None
         assert record.sql == "SELECT SUM(x) AS value FROM t"
 
-    def test_save_updates_existing(self, session, mock_manager):
+    def test_save_updates_existing(self, session):
         """Save with same key updates instead of duplicating."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         # First save
         record1 = library.save_snippet(
@@ -213,9 +235,9 @@ class TestSnippetLibrarySave:
         assert record2.description == "Updated"
         assert record2.source == "graph:v2"
 
-    def test_save_formula_snippet(self, session, mock_manager):
+    def test_save_formula_snippet(self, session):
         """Save a formula snippet with normalized expression."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         record = library.save_snippet(
             snippet_type="formula",
@@ -231,9 +253,9 @@ class TestSnippetLibrarySave:
         assert record.normalized_expression == "({A} / {B}) * {C}"
         assert record.input_fields == ["accounts_receivable", "days_in_period", "revenue"]
 
-    def test_save_with_column_mappings(self, session, mock_manager):
+    def test_save_with_column_mappings(self, session):
         """Column mappings are persisted."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         record = library.save_snippet(
             snippet_type="extract",
@@ -253,11 +275,11 @@ class TestSnippetLibrarySave:
 class TestSnippetLibraryFindByExpression:
     """Tests for formula pattern matching."""
 
-    def test_find_formula(self, session, mock_manager):
+    def test_find_formula(self, session):
         """Find a formula by normalized expression."""
         from dataraum.query.snippet_utils import normalize_expression
 
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         # Normalize the expression the same way find_by_expression will
         expr = "(accounts_receivable / revenue) * days_in_period"
@@ -283,9 +305,9 @@ class TestSnippetLibraryFindByExpression:
         assert match.match_confidence == 0.9
         assert match.match_strategy == "expression_pattern"
 
-    def test_find_formula_no_match(self, session, mock_manager):
+    def test_find_formula_no_match(self, session):
         """No formula for a different expression."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         library.save_snippet(
             snippet_type="formula",
@@ -309,9 +331,9 @@ class TestSnippetLibraryFindByExpression:
 class TestSnippetLibraryRecordUsage:
     """Tests for usage tracking."""
 
-    def test_record_exact_reuse(self, session, mock_manager):
+    def test_record_exact_reuse(self, session):
         """Record an exact reuse and update snippet stats."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         snippet = library.save_snippet(
             snippet_type="extract",
@@ -343,9 +365,9 @@ class TestSnippetLibraryRecordUsage:
         assert snippet.execution_count == 1
         assert snippet.last_used_at is not None
 
-    def test_record_newly_generated(self, session, mock_manager):
+    def test_record_newly_generated(self, session):
         """Record a newly generated step (no snippet)."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         usage = library.record_usage(
             execution_id="exec_002",
@@ -358,9 +380,9 @@ class TestSnippetLibraryRecordUsage:
         assert usage.snippet_id is None
         assert usage.usage_type == "newly_generated"
 
-    def test_record_provided_not_used(self, session, mock_manager):
+    def test_record_provided_not_used(self, session):
         """Record when snippet was provided but LLM ignored it."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         snippet = library.save_snippet(
             snippet_type="extract",
@@ -390,17 +412,17 @@ class TestSnippetLibraryRecordUsage:
 class TestSnippetLibraryStats:
     """Tests for stabilization metrics."""
 
-    def test_empty_stats(self, session, mock_manager):
+    def test_empty_stats(self, session):
         """Stats with no data."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
         stats = library.get_stats()
 
         assert stats["total_snippets"] == 0
         assert stats["cache_hit_rate"] == 0.0
 
-    def test_basic_stats(self, session, mock_manager):
+    def test_basic_stats(self, session):
         """Stats with some snippets and usages."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         # Create snippets
         s1 = library.save_snippet(
@@ -450,9 +472,9 @@ class TestSnippetLibraryStats:
         # cache_hit_rate = 2 / 3 = 0.667
         assert stats["cache_hit_rate"] == pytest.approx(0.667, abs=0.001)
 
-    def test_stats_filtered_by_schema(self, session, mock_manager):
+    def test_stats_filtered_by_schema(self, session):
         """Stats can be filtered by schema_mapping_id."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         library.save_snippet(
             snippet_type="extract", sql="SELECT 1", description="test",
@@ -476,9 +498,9 @@ class TestSnippetLibraryStats:
 class TestSnippetLibraryInvalidation:
     """Tests for schema change invalidation."""
 
-    def test_invalidate_for_schema(self, session, mock_manager):
+    def test_invalidate_for_schema(self, session):
         """Invalidating a schema marks all its snippets as unvalidated."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         s1 = library.save_snippet(
             snippet_type="extract", sql="SELECT 1", description="test",
@@ -519,9 +541,9 @@ class TestSnippetLibraryInvalidation:
 class TestSnippetLibraryFindAllForSchema:
     """Tests for find_all_for_schema."""
 
-    def test_find_all(self, session, mock_manager):
+    def test_find_all(self, session):
         """Find all snippets for a schema."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         library.save_snippet(
             snippet_type="extract", sql="SELECT 1", description="rev",
@@ -543,9 +565,9 @@ class TestSnippetLibraryFindAllForSchema:
         results = library.find_all_for_schema("schema_abc")
         assert len(results) == 2
 
-    def test_find_all_with_type_filter(self, session, mock_manager):
+    def test_find_all_with_type_filter(self, session):
         """Filter by snippet type."""
-        library = SnippetLibrary(session, mock_manager)
+        library = SnippetLibrary(session)
 
         library.save_snippet(
             snippet_type="extract", sql="SELECT 1", description="rev",
@@ -562,3 +584,216 @@ class TestSnippetLibraryFindAllForSchema:
         results = library.find_all_for_schema("schema_abc", snippet_types=["extract"])
         assert len(results) == 1
         assert results[0].snippet_type == "extract"
+
+
+class TestSnippetGraphs:
+    """Tests for snippet graph discovery."""
+
+    def test_find_all_graphs(self, session):
+        """All snippets grouped by source."""
+        library = SnippetLibrary(session)
+
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT SUM(ar) AS value FROM t",
+            description="AR", schema_mapping_id="s1", source="graph:dso",
+            standard_field="accounts_receivable", statement="balance_sheet",
+            aggregation="end_of_period",
+        )
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT SUM(rev) AS value FROM t",
+            description="Revenue", schema_mapping_id="s1", source="graph:dso",
+            standard_field="revenue", statement="income_statement",
+            aggregation="sum",
+        )
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT SUM(cost) AS value FROM t",
+            description="Cost", schema_mapping_id="s1", source="graph:margin",
+            standard_field="cost", statement="income_statement",
+            aggregation="sum",
+        )
+        session.flush()
+
+        graphs = library.find_all_graphs("s1")
+        assert len(graphs) == 2  # dso + margin
+        assert all(isinstance(g, SnippetGraph) for g in graphs)
+
+        dso_graph = next(g for g in graphs if g.graph_id == "dso")
+        assert len(dso_graph.snippets) == 2
+        assert dso_graph.source_type == "graph"
+
+    def test_find_all_graphs_multiple_sources(self, session):
+        """Separate graphs for different sources."""
+        library = SnippetLibrary(session)
+
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT 1", description="a",
+            schema_mapping_id="s1", source="graph:alpha",
+            standard_field="a",
+        )
+        library.save_snippet(
+            snippet_type="query", sql="SELECT 2", description="b",
+            schema_mapping_id="s1", source="query:exec_123",
+            standard_field="b",
+        )
+        session.flush()
+
+        graphs = library.find_all_graphs("s1")
+        assert len(graphs) == 2
+
+        query_graph = next(g for g in graphs if g.source_type == "query")
+        assert query_graph.graph_id == "exec_123"
+
+    def test_find_all_graphs_empty(self, session):
+        """No snippets returns empty."""
+        library = SnippetLibrary(session)
+        assert library.find_all_graphs("nonexistent") == []
+
+    def test_get_search_vocabulary(self, session):
+        """Extract vocabulary from snippet index."""
+        library = SnippetLibrary(session)
+
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT 1", description="rev",
+            schema_mapping_id="s1", source="graph:dso",
+            standard_field="revenue", statement="income_statement",
+            aggregation="sum",
+        )
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT 2", description="ar",
+            schema_mapping_id="s1", source="graph:dso",
+            standard_field="accounts_receivable", statement="balance_sheet",
+            aggregation="end_of_period",
+        )
+        library.save_snippet(
+            snippet_type="constant", sql="SELECT 30", description="days",
+            schema_mapping_id="s1", source="graph:dso",
+            standard_field="days_in_period",
+        )
+        session.flush()
+
+        vocab = library.get_search_vocabulary("s1")
+
+        assert "accounts_receivable" in vocab["standard_fields"]
+        assert "revenue" in vocab["standard_fields"]
+        assert "days_in_period" in vocab["standard_fields"]
+        assert "income_statement" in vocab["statements"]
+        assert "balance_sheet" in vocab["statements"]
+        assert "sum" in vocab["aggregations"]
+        assert "end_of_period" in vocab["aggregations"]
+        assert "dso" in vocab["graph_ids"]
+
+    def test_find_graphs_by_terms_match_standard_field(self, session):
+        """Term matching on standard_field returns full graph."""
+        library = SnippetLibrary(session)
+
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT SUM(ar) AS value FROM t",
+            description="AR", schema_mapping_id="s1", source="graph:dso",
+            standard_field="accounts_receivable", statement="balance_sheet",
+        )
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT SUM(rev) AS value FROM t",
+            description="Revenue", schema_mapping_id="s1", source="graph:dso",
+            standard_field="revenue", statement="income_statement",
+        )
+        session.flush()
+
+        graphs = library.find_graphs_by_terms(
+            question="What is our accounts receivable?",
+            schema_mapping_id="s1",
+        )
+
+        assert len(graphs) == 1
+        assert graphs[0].graph_id == "dso"
+        assert len(graphs[0].snippets) == 2  # Full graph returned
+
+    def test_find_graphs_by_terms_match_graph_id(self, session):
+        """Term matching on graph_id returns full graph."""
+        library = SnippetLibrary(session)
+
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT 1", description="a",
+            schema_mapping_id="s1", source="graph:dso",
+            standard_field="revenue",
+        )
+        library.save_snippet(
+            snippet_type="constant", sql="SELECT 30", description="days",
+            schema_mapping_id="s1", source="graph:dso",
+            standard_field="days_in_period",
+        )
+        session.flush()
+
+        graphs = library.find_graphs_by_terms(
+            question="What is our DSO?",
+            schema_mapping_id="s1",
+        )
+
+        assert len(graphs) == 1
+        assert graphs[0].graph_id == "dso"
+        assert len(graphs[0].snippets) == 2
+
+    def test_find_graphs_by_terms_expands_to_full_graph(self, session):
+        """One term match returns all snippets in the graph."""
+        library = SnippetLibrary(session)
+
+        # 3 snippets in the same graph
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT SUM(ar)", description="AR",
+            schema_mapping_id="s1", source="graph:dso",
+            standard_field="accounts_receivable",
+        )
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT SUM(rev)", description="Rev",
+            schema_mapping_id="s1", source="graph:dso",
+            standard_field="revenue",
+        )
+        library.save_snippet(
+            snippet_type="formula", sql="SELECT ar/rev*30", description="DSO",
+            schema_mapping_id="s1", source="graph:dso",
+            normalized_expression="({A}/{B})*{C}",
+        )
+        session.flush()
+
+        # Only "revenue" matches, but entire graph returned
+        graphs = library.find_graphs_by_terms(
+            question="show me revenue",
+            schema_mapping_id="s1",
+        )
+
+        assert len(graphs) == 1
+        assert len(graphs[0].snippets) == 3
+
+    def test_find_graphs_by_terms_no_match(self, session):
+        """No matching terms returns empty."""
+        library = SnippetLibrary(session)
+
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT 1", description="test",
+            schema_mapping_id="s1", source="graph:test",
+            standard_field="revenue",
+        )
+        session.flush()
+
+        graphs = library.find_graphs_by_terms(
+            question="how is the weather?",
+            schema_mapping_id="s1",
+        )
+        assert graphs == []
+
+    def test_find_graphs_by_terms_partial_word_match(self, session):
+        """Underscore-separated fields match on parts > 3 chars."""
+        library = SnippetLibrary(session)
+
+        library.save_snippet(
+            snippet_type="extract", sql="SELECT 1", description="test",
+            schema_mapping_id="s1", source="graph:test",
+            standard_field="accounts_receivable",
+        )
+        session.flush()
+
+        # "accounts" (8 chars) should match "accounts_receivable"
+        graphs = library.find_graphs_by_terms(
+            question="show accounts",
+            schema_mapping_id="s1",
+        )
+        assert len(graphs) == 1

@@ -46,7 +46,6 @@ dependencies = [
     "networkx>=3.6",
     "pgmpy>=0.1.25",
     "anthropic>=0.76.0",
-    "sentence-transformers>=5.2.0",
     # TUI
     "textual>=0.50.0",
 ]

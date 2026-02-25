@@ -178,13 +178,6 @@ class QueryDocument:
             "assumptions": [a.to_dict() for a in self.assumptions],
         }
 
-    def get_step_descriptions(self) -> list[str]:
-        """Get list of step descriptions for embedding."""
-        return [s.description for s in self.steps]
-
-    def get_assumption_texts(self) -> list[str]:
-        """Get list of assumption texts for embedding."""
-        return [a.assumption for a in self.assumptions]
 
 
 __all__ = ["QueryDocument", "SQLStep", "QueryAssumptionData"]

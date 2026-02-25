@@ -91,9 +91,7 @@ user_prompt: |
   {entropy_warnings}
   </data_quality>
 
-  <validated_snippets>
-  {validated_snippets}
-  </validated_snippets>
+  {snippet_context}
 
   <instructions>
   1. Write a brief summary (one sentence) describing what this query answers
@@ -124,19 +122,14 @@ user_prompt: |
 
   final_sql: "SELECT r.month, r.revenue, c.cost, r.revenue - c.cost as profit FROM monthly_revenue r JOIN monthly_costs c ON r.month = c.month ORDER BY r.month"
 
-  VALIDATED SNIPPETS:
-  The <validated_snippets> section above contains a JSON array of SQL building blocks
-  from the knowledge base. Each has: step_id, sql, description, type, source, similarity.
-
-  - `source`: provenance — "graph:..." = verified calculation graph, "query:..." = previous ad-hoc query
-  - `similarity`: how relevant this snippet is to your question (0.0–1.0)
-
-  Rules:
-  - Prefer snippets with high similarity (>= 0.7)
-  - Graph-sourced snippets are pre-validated; prefer them when similarity is comparable
-  - If a snippet's SQL matches what you need, reuse it exactly (same step_id and SQL)
-  - If a snippet is close but needs adaptation, use it as a starting point
-  - You are NOT required to use any snippet — generate fresh SQL if none are relevant
+  SNIPPET REUSE (when snippets are available from injection or search):
+  - Each snippet has a `snippet_id` — set it on your output step to declare reuse
+  - REUSE: set snippet_id and copy the SQL (system fetches authoritative version)
+  - ADAPT: set snippet_id and provide your modified SQL (tracks provenance)
+  - FRESH: omit snippet_id and provide new SQL
+  - Graph-sourced snippets are pre-validated; prefer them over query-sourced
+  - Mix reused, adapted, and fresh steps freely in the same query
+  - Combine snippets from different graphs
 
   IMPORTANT:
   - The summary should be a complete sentence describing what the query calculates,
@@ -179,8 +172,8 @@ inputs:
     default: "Data quality assessment not available - proceed with caution."
     description: "Data quality warnings and entropy scores"
 
-  validated_snippets:
+  snippet_context:
     type: "string"
     required: false
     default: ""
-    description: "Validated SQL snippets from the knowledge base (JSON array)"
+    description: "SQL Knowledge Base context — either pre-fetched snippets or search vocabulary, with mode-specific instructions"

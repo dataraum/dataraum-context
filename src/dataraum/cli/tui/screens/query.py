@@ -188,7 +188,6 @@ class QueryScreen(Screen[None]):
                         session=session,
                         duckdb_conn=cursor,
                         source_id=source.source_id,
-                        manager=manager,
                     )
 
                 if not result.success or not result.value:

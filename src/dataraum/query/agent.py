@@ -39,12 +39,13 @@ from dataraum.entropy.contracts import (
 )
 from dataraum.graphs.context import build_execution_context, format_context_for_prompt
 from dataraum.llm.features._base import LLMFeature
-from dataraum.llm.providers.base import ConversationRequest, Message, ToolDefinition
+from dataraum.llm.providers.base import ConversationRequest, Message, ToolDefinition, ToolResult
 from dataraum.storage import Table
 
 from .models import (
     QueryAnalysisOutput,
     QueryResult,
+    SQLStepOutput,
     assumption_output_to_query_assumption,
 )
 
@@ -52,11 +53,23 @@ if TYPE_CHECKING:
     import duckdb
     from sqlalchemy.orm import Session
 
-    from dataraum.core.connections import ConnectionManager
     from dataraum.graphs.context import GraphExecutionContext
     from dataraum.graphs.models import QueryAssumption
 
 logger = get_logger(__name__)
+
+# Maximum individual snippets for full injection mode.
+# Above this, switch to tool-based search where the LLM picks terms.
+_MAX_FULL_INJECT = 200
+
+
+@dataclass
+class DiscoveryResult:
+    """Result of snippet discovery — determines LLM mode."""
+
+    snippets: list[dict[str, Any]]  # Pre-fetched snippets (Mode 1) or empty (Mode 2)
+    vocabulary: dict[str, list[str]] | None = None  # Set when Mode 2 (tool search)
+    mode: str = "full"  # "full" or "tool_search"
 
 
 @dataclass
@@ -96,7 +109,6 @@ class QueryAgent(LLMFeature):
         contract: str | None = None,
         auto_contract: bool = False,
         source_id: str | None = None,
-        manager: ConnectionManager,
         ephemeral: bool = False,
     ) -> Result[QueryResult]:
         """Analyze a natural language question and generate SQL.
@@ -111,7 +123,6 @@ class QueryAgent(LLMFeature):
             contract: Explicit contract name for evaluation
             auto_contract: If True, find the strictest passing contract
             source_id: Optional source ID for context
-            manager: ConnectionManager for snippet library and embeddings
             ephemeral: If True, don't save novel snippets
 
         Returns:
@@ -220,25 +231,30 @@ class QueryAgent(LLMFeature):
             )
 
         # Discover validated SQL snippets from the knowledge base
-        # Track snippets provided to LLM for post-execution comparison
-        provided_snippets: dict[str, dict[str, str]] = {}
-
-        discovered_snippets = self._discover_snippets(
+        discovery = self._discover_snippets(
             session=session,
             question=question,
             schema_mapping_id=source_id or "default",
-            manager=manager,
         )
-        if discovered_snippets:
-            provided_snippets = {
-                s["step_id"]: s for s in discovered_snippets
-            }
+
+        # Track snippets provided to LLM for post-execution comparison
+        provided_snippets: dict[str, dict[str, str]] = {}
+        snippet_id_index: dict[str, dict[str, Any]] = {}
+        if discovery.snippets:
+            provided_snippets = {s["step_id"]: s for s in discovery.snippets}
+            for s in discovery.snippets:
+                sid = s.get("snippet_id")
+                if sid:
+                    snippet_id_index[sid] = s
 
         gen_result = self._generate_query(
             question=question,
             execution_id=execution_id,
             execution_context=execution_context,
-            discovered_snippets=discovered_snippets if discovered_snippets else None,
+            discovered_snippets=discovery.snippets if discovery.snippets else None,
+            search_vocabulary=discovery.vocabulary,
+            schema_mapping_id=source_id or "default",
+            session=session,
         )
 
         if not gen_result.success or not gen_result.value:
@@ -255,6 +271,12 @@ class QueryAgent(LLMFeature):
             )
 
         analysis_output = gen_result.value
+
+        # Resolve snippet_id references: validate, fetch authoritative SQL for reuse
+        if snippet_id_index:
+            analysis_output = self._resolve_snippet_references(
+                analysis_output, snippet_id_index, session,
+            )
 
         # Execute with step-by-step model (if steps exist) or simple execution
         if analysis_output.steps:
@@ -305,7 +327,6 @@ class QueryAgent(LLMFeature):
                 execution_id=execution_id,
                 analysis_output=analysis_output,
                 provided_snippets=provided_snippets,
-                manager=manager,
             )
 
         # Save novel snippets for future reuse (skip if ephemeral or failed)
@@ -316,7 +337,6 @@ class QueryAgent(LLMFeature):
                 analysis_output=analysis_output,
                 schema_mapping_id=source_id,
                 provided_snippets=provided_snippets,
-                manager=manager,
             )
 
         # Record execution
@@ -361,51 +381,127 @@ class QueryAgent(LLMFeature):
         session: Session,
         question: str,
         schema_mapping_id: str,
-        manager: ConnectionManager,
-    ) -> list[dict[str, Any]]:
-        """Search the SQL Knowledge Base for relevant snippets via similarity.
+    ) -> DiscoveryResult:
+        """Discover relevant SQL snippet graphs from the Knowledge Base.
 
-        Uses semantic similarity search to find validated SQL patterns
-        relevant to the user's question. Returns empty list when nothing
-        is similar enough — the LLM then generates fresh SQL.
+        Two modes based on corpus size:
+        1. Full injection (≤ _MAX_FULL_INJECT snippets): all snippet graphs
+           pre-fetched and injected into prompt. Single LLM call.
+        2. Tool-based search (> _MAX_FULL_INJECT): vocabulary goes into prompt,
+           LLM uses search_snippets tool to find relevant graphs. Multi-turn.
 
         Args:
             session: SQLAlchemy session
             question: Natural language question
             schema_mapping_id: Schema mapping identifier
-            manager: ConnectionManager for embeddings
 
         Returns:
-            List of snippet dicts with step_id, sql, description, snippet_id
+            DiscoveryResult with mode, snippets, and optional vocabulary
         """
         from dataraum.query.snippet_library import SnippetLibrary
 
-        library = SnippetLibrary(session, manager)
+        library = SnippetLibrary(session)
 
-        matches = library.find_by_similarity(
-            text=question,
-            schema_mapping_id=schema_mapping_id,
-            min_similarity=0.3,
-            limit=20,
-        )
-        if not matches:
-            return []
+        all_snippets = library.find_all_for_schema(schema_mapping_id)
+        total_count = len(all_snippets)
 
+        if total_count == 0:
+            return DiscoveryResult(snippets=[], mode="full")
+
+        if total_count <= _MAX_FULL_INJECT:
+            graphs = library.find_all_graphs(schema_mapping_id)
+            snippets = self._flatten_graphs(graphs)
+            logger.info(f"Full injection: {len(snippets)} snippets in {len(graphs)} graphs")
+            return DiscoveryResult(snippets=snippets, mode="full")
+        else:
+            vocabulary = library.get_search_vocabulary(schema_mapping_id)
+            logger.info(
+                f"Tool search mode: {total_count} snippets, "
+                f"vocabulary has {sum(len(v) for v in vocabulary.values())} terms"
+            )
+            return DiscoveryResult(
+                snippets=[], vocabulary=vocabulary, mode="tool_search"
+            )
+
+    @staticmethod
+    def _flatten_graphs(graphs: list[Any]) -> list[dict[str, Any]]:
+        """Flatten SnippetGraph list into snippet dicts for prompt injection."""
         results = []
-        for m in matches:
-            step_id = m.snippet.standard_field or m.snippet.snippet_id[:8]
-            results.append({
-                "step_id": step_id,
-                "sql": m.snippet.sql,
-                "description": m.snippet.description,
-                "snippet_id": m.snippet.snippet_id,
-                "snippet_type": m.snippet.snippet_type,
-                "source": m.snippet.source,
-                "similarity": m.match_confidence,
-            })
-
-        logger.info(f"Discovered {len(results)} snippets via similarity search")
+        for graph in graphs:
+            for snippet in graph.snippets:
+                step_id = snippet.standard_field or snippet.snippet_id[:8]
+                results.append({
+                    "step_id": step_id,
+                    "sql": snippet.sql,
+                    "description": snippet.description,
+                    "snippet_id": snippet.snippet_id,
+                    "snippet_type": snippet.snippet_type,
+                    "source": snippet.source,
+                    "graph_id": graph.graph_id,
+                })
         return results
+
+    @staticmethod
+    def _build_snippet_context(
+        discovered_snippets: list[dict[str, Any]] | None,
+        search_vocabulary: dict[str, list[str]] | None,
+    ) -> str:
+        """Build the snippet context section for the prompt.
+
+        Produces one of three outputs depending on mode:
+        - Full injection: validated snippets with reuse instructions
+        - Tool search: search vocabulary with tool instructions
+        - Neither: empty string (no knowledge base available)
+        """
+        if discovered_snippets:
+            snippets_json = json.dumps(
+                [
+                    {
+                        "step_id": s["step_id"],
+                        "snippet_id": s.get("snippet_id", ""),
+                        "sql": s["sql"],
+                        "description": s["description"],
+                        "type": s.get("snippet_type", "unknown"),
+                        "source": s.get("source", "unknown"),
+                        "graph_id": s.get("graph_id", ""),
+                    }
+                    for s in discovered_snippets
+                ],
+                indent=2,
+            )
+            return (
+                "<validated_snippets>\n"
+                f"{snippets_json}\n"
+                "</validated_snippets>\n\n"
+                "SQL KNOWLEDGE BASE:\n"
+                "The <validated_snippets> above contains SQL building blocks from the "
+                "knowledge base, grouped by source graph. Each has: step_id, snippet_id, "
+                "sql, description, type, source, graph_id.\n\n"
+                "- `snippet_id`: unique identifier — reference this in your output step "
+                "to declare reuse\n"
+                '- `source`: provenance — "graph:..." = verified calculation graph, '
+                '"query:..." = previous ad-hoc query\n'
+                "- `graph_id`: which calculation graph this snippet belongs to\n"
+                "- Snippets sharing a graph_id form a complete calculation chain"
+            )
+
+        if search_vocabulary:
+            vocab_json = json.dumps(search_vocabulary, indent=2)
+            return (
+                "<available_search_terms>\n"
+                f"{vocab_json}\n"
+                "</available_search_terms>\n\n"
+                "SQL KNOWLEDGE BASE (search mode):\n"
+                "The knowledge base contains validated SQL building blocks but is too large "
+                "to inject directly.\n"
+                "Use the search_snippets tool FIRST to find relevant SQL building blocks.\n"
+                "Select terms from the <available_search_terms> vocabulary that relate to "
+                "your question.\n"
+                "The tool returns complete calculation graphs — all connected SQL steps.\n"
+                "After receiving search results, proceed with the analyze_query tool."
+            )
+
+        return ""
 
     def _track_snippet_usage(
         self,
@@ -413,27 +509,127 @@ class QueryAgent(LLMFeature):
         execution_id: str,
         analysis_output: QueryAnalysisOutput,
         provided_snippets: dict[str, dict[str, str]],
-        manager: ConnectionManager,
     ) -> None:
-        """Compare generated SQL steps to provided snippets and record usage."""
+        """Record snippet usage deterministically based on snippet_id.
+
+        Classification:
+        - step.snippet_id set + normalized SQL matches DB → exact_reuse
+        - step.snippet_id set + SQL differs → adapted
+        - step.snippet_id is None → newly_generated
+        - Provided snippets not referenced by any step → provided_not_used
+        """
         from dataraum.query.snippet_library import SnippetLibrary
-        from dataraum.query.snippet_utils import track_snippet_usage
+        from dataraum.query.snippet_utils import normalize_sql
 
-        library = SnippetLibrary(session, manager)
+        library = SnippetLibrary(session)
+        referenced_snippet_ids: set[str] = set()
 
-        # Normalize Pydantic steps to list[dict] for the shared function
-        generated_steps = [
-            {"step_id": s.step_id, "sql": s.sql, "description": s.description or ""}
-            for s in analysis_output.steps
-        ]
+        for step in analysis_output.steps:
+            if step.snippet_id is None:
+                library.record_usage(
+                    execution_id=execution_id,
+                    execution_type="query",
+                    usage_type="newly_generated",
+                    step_id=step.step_id,
+                )
+            else:
+                referenced_snippet_ids.add(step.snippet_id)
 
-        track_snippet_usage(
-            library=library,
-            execution_id=execution_id,
-            execution_type="query",
-            provided_snippets=provided_snippets,
-            generated_steps=generated_steps,
-        )
+                # Determine if exact reuse or adaptation
+                provided = None
+                for p in provided_snippets.values():
+                    if p.get("snippet_id") == step.snippet_id:
+                        provided = p
+                        break
+
+                authoritative_sql = provided["sql"] if provided else ""
+                is_exact = normalize_sql(step.sql) == normalize_sql(authoritative_sql)
+
+                library.record_usage(
+                    execution_id=execution_id,
+                    execution_type="query",
+                    usage_type="exact_reuse" if is_exact else "adapted",
+                    snippet_id=step.snippet_id,
+                    match_confidence=1.0,
+                    sql_match_ratio=1.0 if is_exact else 0.0,
+                    step_id=step.step_id,
+                )
+
+        # Record provided_not_used for snippets not referenced by any step
+        for provided in provided_snippets.values():
+            snippet_id = provided.get("snippet_id")
+            if snippet_id and snippet_id not in referenced_snippet_ids:
+                library.record_usage(
+                    execution_id=execution_id,
+                    execution_type="query",
+                    usage_type="provided_not_used",
+                    snippet_id=snippet_id,
+                    step_id=provided.get("step_id"),
+                )
+
+    def _resolve_snippet_references(
+        self,
+        analysis_output: QueryAnalysisOutput,
+        snippet_id_index: dict[str, dict[str, Any]],
+        session: Session,
+    ) -> QueryAnalysisOutput:
+        """Validate and resolve snippet_id references from LLM output.
+
+        For each step with a snippet_id:
+        - Valid ID + normalized SQL matches DB → exact reuse: replace with DB SQL
+        - Valid ID + SQL differs → adaptation: keep LLM SQL, snippet_id tracks provenance
+        - Unknown ID → hallucination: clear to None, log warning
+
+        Args:
+            analysis_output: LLM-generated query analysis
+            snippet_id_index: Map of snippet_id -> snippet dict from discovery
+            session: SQLAlchemy session for DB lookups
+
+        Returns:
+            Updated QueryAnalysisOutput with resolved references
+        """
+        from dataraum.query.snippet_library import SnippetLibrary
+        from dataraum.query.snippet_utils import normalize_sql
+
+        library = SnippetLibrary(session)
+        resolved_steps: list[SQLStepOutput] = []
+
+        for step in analysis_output.steps:
+            if step.snippet_id is None:
+                resolved_steps.append(step)
+                continue
+
+            # Check if snippet_id is in the provided index
+            if step.snippet_id not in snippet_id_index:
+                # Not in provided set — check DB as fallback
+                db_record = library.find_by_id(step.snippet_id)
+                if db_record is None:
+                    # Hallucinated snippet_id
+                    logger.warning(
+                        f"Step '{step.step_id}' references unknown snippet_id "
+                        f"'{step.snippet_id}' — treating as fresh SQL"
+                    )
+                    resolved_steps.append(step.model_copy(update={"snippet_id": None}))
+                    continue
+                authoritative_sql = db_record.sql
+            else:
+                authoritative_sql = snippet_id_index[step.snippet_id]["sql"]
+
+            # Compare normalized SQL
+            if normalize_sql(step.sql) == normalize_sql(authoritative_sql):
+                # Exact reuse — replace with authoritative SQL
+                resolved_steps.append(step.model_copy(update={"sql": authoritative_sql}))
+                logger.debug(
+                    f"Step '{step.step_id}': exact reuse of snippet '{step.snippet_id}'"
+                )
+            else:
+                # Adaptation — keep LLM SQL, snippet_id tracks provenance
+                resolved_steps.append(step)
+                logger.debug(
+                    f"Step '{step.step_id}': adapted from snippet '{step.snippet_id}'"
+                )
+
+        return analysis_output.model_copy(update={"steps": resolved_steps})
 
     def _save_novel_snippets(
         self,
@@ -442,7 +638,6 @@ class QueryAgent(LLMFeature):
         analysis_output: QueryAnalysisOutput,
         schema_mapping_id: str,
         provided_snippets: dict[str, dict[str, str]],
-        manager: ConnectionManager,
     ) -> None:
         """Save novel query steps as snippets for future reuse.
 
@@ -455,15 +650,18 @@ class QueryAgent(LLMFeature):
             analysis_output: Generated query analysis with steps
             schema_mapping_id: Schema mapping identifier (source_id)
             provided_snippets: Dict of step_id -> snippet info that were provided
-            manager: ConnectionManager for embeddings
         """
         from dataraum.query.snippet_library import SnippetLibrary
 
-        library = SnippetLibrary(session, manager)
+        library = SnippetLibrary(session)
 
         saved_count = 0
         for step in analysis_output.steps:
-            # Skip steps that came from existing snippets
+            # Skip steps that reference existing snippets (primary check)
+            if step.snippet_id is not None:
+                continue
+
+            # Fallback: skip steps that came from provided snippets by step_id
             if step.step_id in provided_snippets:
                 continue
 
@@ -482,14 +680,82 @@ class QueryAgent(LLMFeature):
         if saved_count:
             logger.info(f"Saved {saved_count} novel query snippet(s) for reuse")
 
+    def _handle_snippet_search(
+        self,
+        search_terms: list[str],
+        vocabulary: dict[str, list[str]],
+        schema_mapping_id: str,
+        session: Session,
+    ) -> str:
+        """Handle search_snippets tool call from LLM.
+
+        Validates >= 85% of terms match curated vocabulary.
+        Returns matching snippet graphs as JSON.
+        """
+        from dataraum.query.snippet_library import SnippetLibrary
+
+        # Flatten all vocabulary terms for validation
+        all_vocab_terms: set[str] = set()
+        for terms in vocabulary.values():
+            all_vocab_terms.update(t.lower() for t in terms)
+
+        if not search_terms:
+            return json.dumps({"error": "No search terms provided"})
+
+        matched = sum(1 for t in search_terms if t.lower() in all_vocab_terms)
+        match_ratio = matched / len(search_terms)
+
+        if match_ratio < 0.85:
+            return json.dumps({
+                "error": f"Only {match_ratio:.0%} of terms match vocabulary (need >= 85%)",
+                "hint": "Use terms from the <available_search_terms> list",
+            })
+
+        library = SnippetLibrary(session)
+        graphs = library.find_graphs_by_terms(
+            question=" ".join(search_terms),
+            schema_mapping_id=schema_mapping_id,
+            vocabulary=vocabulary,
+            limit=50,
+        )
+
+        result = []
+        for graph in graphs:
+            result.append({
+                "graph_id": graph.graph_id,
+                "source": graph.source,
+                "source_type": graph.source_type,
+                "snippets": [
+                    {
+                        "step_id": s.standard_field or s.snippet_id[:8],
+                        "snippet_id": s.snippet_id,
+                        "sql": s.sql,
+                        "description": s.description,
+                        "snippet_type": s.snippet_type,
+                    }
+                    for s in graph.snippets
+                ],
+            })
+
+        return json.dumps(result, indent=2)
+
     def _generate_query(
         self,
         question: str,
         execution_id: str,
         execution_context: GraphExecutionContext,
         discovered_snippets: list[dict[str, Any]] | None = None,
+        *,
+        search_vocabulary: dict[str, list[str]] | None = None,
+        schema_mapping_id: str = "default",
+        session: Session | None = None,
     ) -> Result[QueryAnalysisOutput]:
-        """Use LLM to analyze question and generate SQL."""
+        """Use LLM to analyze question and generate SQL.
+
+        Supports two modes:
+        - Full injection: discovered_snippets provided, single LLM call
+        - Tool search: search_vocabulary provided, multi-turn with search tool
+        """
         # Build schema information
         schema_info = self._build_schema_info(execution_context)
 
@@ -503,23 +769,11 @@ class QueryAgent(LLMFeature):
 
             entropy_warnings = format_entropy_for_prompt(execution_context)
 
-        # Format discovered snippets for injection
-        snippets_str = ""
-        if discovered_snippets:
-            snippets_str = json.dumps(
-                [
-                    {
-                        "step_id": s["step_id"],
-                        "sql": s["sql"],
-                        "description": s["description"],
-                        "type": s.get("snippet_type", "unknown"),
-                        "source": s.get("source", "unknown"),
-                        "similarity": round(s.get("similarity", 0.0), 2),
-                    }
-                    for s in discovered_snippets
-                ],
-                indent=2,
-            )
+        # Build snippet context (mode-dependent: full injection OR search vocabulary)
+        snippet_context = self._build_snippet_context(
+            discovered_snippets=discovered_snippets,
+            search_vocabulary=search_vocabulary,
+        )
 
         # Build field mappings string
         field_mappings_str = ""
@@ -536,7 +790,7 @@ class QueryAgent(LLMFeature):
             "field_mappings": field_mappings_str,
             "entropy_warnings": entropy_warnings
             or "Data quality assessment not available - proceed with caution.",
-            "validated_snippets": snippets_str,
+            "snippet_context": snippet_context,
         }
 
         # Render prompt
@@ -551,50 +805,112 @@ class QueryAgent(LLMFeature):
         prompt_hash = hashlib.sha256(user_prompt.encode()).hexdigest()[:16]
         logger.debug(f"Query prompt hash: {prompt_hash}")
 
-        # Define tool for structured output
-        tool = ToolDefinition(
+        # Define tools
+        analyze_tool = ToolDefinition(
             name="analyze_query",
             description="Analyze the question and provide SQL to answer it",
             input_schema=QueryAnalysisOutput.model_json_schema(),
         )
 
-        # Call LLM
-        request = ConversationRequest(
-            messages=[Message(role="user", content=user_prompt)],
-            system=system_prompt,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": "analyze_query"},
-            max_tokens=self.config.limits.max_output_tokens_per_request,
-            temperature=temperature,
+        tools = [analyze_tool]
+        use_search_tool = bool(search_vocabulary and not discovered_snippets)
+
+        if use_search_tool:
+            search_tool = ToolDefinition(
+                name="search_snippets",
+                description=(
+                    "Search the SQL Knowledge Base for validated snippet graphs. "
+                    "Select search terms from the <available_search_terms> list. "
+                    "Returns complete calculation graphs matching your terms."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "search_terms": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Terms from the available_search_terms vocabulary. "
+                                "At least 85% must match the curated list."
+                            ),
+                        },
+                    },
+                    "required": ["search_terms"],
+                },
+            )
+            tools.append(search_tool)
+
+        # Build conversation
+        messages = [Message(role="user", content=user_prompt)]
+        tool_choice = (
+            None if use_search_tool
+            else {"type": "tool", "name": "analyze_query"}
         )
+        max_turns = 3
 
-        result = self.provider.converse(request)
-        if not result.success or not result.value:
-            return Result.fail(result.error or "LLM call failed")
+        for _ in range(max_turns):
+            request = ConversationRequest(
+                messages=messages,
+                system=system_prompt,
+                tools=tools,
+                tool_choice=tool_choice,
+                max_tokens=self.config.limits.max_output_tokens_per_request,
+                temperature=temperature,
+            )
 
-        response = result.value
+            result = self.provider.converse(request)
+            if not result.success or not result.value:
+                return Result.fail(result.error or "LLM call failed")
 
-        # Extract tool call result
-        if not response.tool_calls:
-            if response.content:
-                try:
-                    response_data = json.loads(response.content)
-                    output = QueryAnalysisOutput.model_validate(response_data)
-                except Exception:
-                    return Result.fail(f"LLM did not use tool. Response: {response.content[:200]}")
-            else:
-                return Result.fail("LLM did not use the analyze_query tool")
-        else:
+            response = result.value
+
+            if not response.tool_calls:
+                if response.content:
+                    try:
+                        output = QueryAnalysisOutput.model_validate(
+                            json.loads(response.content)
+                        )
+                        return Result.ok(output)
+                    except Exception:
+                        pass
+                return Result.fail("LLM did not use any tool")
+
             tool_call = response.tool_calls[0]
-            if tool_call.name != "analyze_query":
+
+            if tool_call.name == "search_snippets":
+                assert session is not None and search_vocabulary is not None
+                search_result = self._handle_snippet_search(
+                    search_terms=tool_call.input.get("search_terms", []),
+                    vocabulary=search_vocabulary,
+                    schema_mapping_id=schema_mapping_id,
+                    session=session,
+                )
+
+                messages.append(Message(
+                    role="assistant", content="", tool_calls=[tool_call],
+                ))
+                messages.append(Message(
+                    role="tool_result",
+                    content=[ToolResult(
+                        tool_use_id=tool_call.id, content=search_result,
+                    )],
+                ))
+
+                # After search, force analyze_query on next turn
+                tool_choice = {"type": "tool", "name": "analyze_query"}
+                continue
+
+            elif tool_call.name == "analyze_query":
+                try:
+                    output = QueryAnalysisOutput.model_validate(tool_call.input)
+                    return Result.ok(output)
+                except Exception as e:
+                    return Result.fail(f"Failed to validate tool response: {e}")
+
+            else:
                 return Result.fail(f"Unexpected tool call: {tool_call.name}")
 
-            try:
-                output = QueryAnalysisOutput.model_validate(tool_call.input)
-            except Exception as e:
-                return Result.fail(f"Failed to validate tool response: {e}")
-
-        return Result.ok(output)
+        return Result.fail("Max tool turns exceeded")
 
     def _execute_query(
         self,

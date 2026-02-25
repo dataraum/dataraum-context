@@ -442,7 +442,7 @@ def _get_context(output_dir: Path) -> str:
             try:
                 from dataraum.query.snippet_library import SnippetLibrary
 
-                library = SnippetLibrary(session, manager)
+                library = SnippetLibrary(session)
                 stats = library.get_stats(schema_mapping_id=source.source_id)
                 if stats.get("total_snippets", 0) > 0:
                     kb_lines = [
@@ -662,7 +662,6 @@ def _query(
                     duckdb_conn=cursor,
                     source_id=source.source_id,
                     contract=contract_name,
-                    manager=manager,
                 )
 
             if not result.success or not result.value:
