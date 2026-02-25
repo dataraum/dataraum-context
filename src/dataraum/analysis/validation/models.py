@@ -78,10 +78,6 @@ class ValidationSQLOutput(BaseModel):
         default_factory=list,
         description="List of columns used in the query, in 'table.column' format.",
     )
-    tables_used: list[str] = Field(
-        default_factory=list,
-        description="List of tables used in the query.",
-    )
     can_validate: bool = Field(
         description="Whether the validation can be performed with the available schema."
     )

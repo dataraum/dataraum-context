@@ -96,49 +96,9 @@ def get_validation_spec(validation_id: str, vertical: str) -> ValidationSpec | N
     return all_specs.get(validation_id)
 
 
-def format_validation_specs_for_context(
-    vertical: str, category: str | None = None
-) -> str:
-    """Format validation specs as context for LLM prompts.
-
-    Args:
-        vertical: Vertical name (e.g. 'finance')
-        category: Optional category filter
-
-    Returns:
-        Formatted string describing available validations
-    """
-    if category:
-        specs = get_validation_specs_by_category(category, vertical)
-    else:
-        specs = list(load_all_validation_specs(vertical).values())
-
-    if not specs:
-        return "No validation specs available."
-
-    lines = ["## Available Validation Checks\n"]
-
-    for spec in sorted(specs, key=lambda s: s.validation_id):
-        lines.append(f"### {spec.name} ({spec.validation_id})")
-        lines.append(f"Category: {spec.category}")
-        lines.append(f"Severity: {spec.severity.value}")
-        lines.append(f"Description: {spec.description}")
-
-        if spec.sql_hints:
-            lines.append(f"SQL hints: {spec.sql_hints}")
-
-        if spec.expected_outcome:
-            lines.append(f"Expected outcome: {spec.expected_outcome}")
-
-        lines.append("")
-
-    return "\n".join(lines)
-
-
 __all__ = [
     "load_all_validation_specs",
     "get_validation_specs_by_category",
     "get_validation_specs_by_tags",
     "get_validation_spec",
-    "format_validation_specs_for_context",
 ]

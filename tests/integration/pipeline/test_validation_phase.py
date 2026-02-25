@@ -20,7 +20,7 @@ class TestValidationPhase:
         phase = ValidationPhase()
         assert phase.name == "validation"
         assert phase.description == "LLM-powered validation checks"
-        assert phase.dependencies == ["semantic"]
+        assert phase.dependencies == ["semantic", "relationships", "enriched_views", "slicing"]
         assert phase.outputs == ["validation_results"]
 
     def test_skip_when_no_typed_tables(
