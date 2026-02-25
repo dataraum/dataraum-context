@@ -68,10 +68,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class SnippetLibraryError(Exception):
-    """Error in snippet library operations."""
-
-
 @dataclass
 class SnippetMatch:
     """A snippet found by the discovery engine."""
@@ -773,4 +769,4 @@ class SnippetLibrary:
         }
 
 
-__all__ = ["SnippetGraph", "SnippetLibrary", "SnippetLibraryError", "SnippetMatch"]
+__all__ = ["SnippetGraph", "SnippetLibrary", "SnippetMatch"]

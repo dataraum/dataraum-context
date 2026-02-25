@@ -48,6 +48,7 @@ from .models import (
     SQLStepOutput,
     assumption_output_to_query_assumption,
 )
+from .snippet_utils import determine_usage_type
 
 if TYPE_CHECKING:
     import duckdb
@@ -237,11 +238,9 @@ class QueryAgent(LLMFeature):
             schema_mapping_id=source_id or "default",
         )
 
-        # Track snippets provided to LLM for post-execution comparison
-        provided_snippets: dict[str, dict[str, str]] = {}
+        # Index provided snippets by snippet_id for post-LLM resolution and tracking
         snippet_id_index: dict[str, dict[str, Any]] = {}
         if discovery.snippets:
-            provided_snippets = {s["step_id"]: s for s in discovery.snippets}
             for s in discovery.snippets:
                 sid = s.get("snippet_id")
                 if sid:
@@ -326,7 +325,7 @@ class QueryAgent(LLMFeature):
                 session=session,
                 execution_id=execution_id,
                 analysis_output=analysis_output,
-                provided_snippets=provided_snippets,
+                snippet_id_index=snippet_id_index,
             )
 
         # Save novel snippets for future reuse (skip if ephemeral or failed)
@@ -336,7 +335,6 @@ class QueryAgent(LLMFeature):
                 execution_id=execution_id,
                 analysis_output=analysis_output,
                 schema_mapping_id=source_id,
-                provided_snippets=provided_snippets,
             )
 
         # Record execution
@@ -508,18 +506,17 @@ class QueryAgent(LLMFeature):
         session: Session,
         execution_id: str,
         analysis_output: QueryAnalysisOutput,
-        provided_snippets: dict[str, dict[str, str]],
+        snippet_id_index: dict[str, dict[str, Any]],
     ) -> None:
         """Record snippet usage deterministically based on snippet_id.
 
         Classification:
-        - step.snippet_id set + normalized SQL matches DB → exact_reuse
+        - step.snippet_id set + normalized SQL matches provided → exact_reuse
         - step.snippet_id set + SQL differs → adapted
         - step.snippet_id is None → newly_generated
         - Provided snippets not referenced by any step → provided_not_used
         """
         from dataraum.query.snippet_library import SnippetLibrary
-        from dataraum.query.snippet_utils import normalize_sql
 
         library = SnippetLibrary(session)
         referenced_snippet_ids: set[str] = set()
@@ -535,20 +532,15 @@ class QueryAgent(LLMFeature):
             else:
                 referenced_snippet_ids.add(step.snippet_id)
 
-                # Determine if exact reuse or adaptation
-                provided = None
-                for p in provided_snippets.values():
-                    if p.get("snippet_id") == step.snippet_id:
-                        provided = p
-                        break
-
+                provided = snippet_id_index.get(step.snippet_id)
                 authoritative_sql = provided["sql"] if provided else ""
-                is_exact = normalize_sql(step.sql) == normalize_sql(authoritative_sql)
+                usage_type = determine_usage_type(step.sql, authoritative_sql)
+                is_exact = usage_type == "exact_reuse"
 
                 library.record_usage(
                     execution_id=execution_id,
                     execution_type="query",
-                    usage_type="exact_reuse" if is_exact else "adapted",
+                    usage_type=usage_type,
                     snippet_id=step.snippet_id,
                     match_confidence=1.0,
                     sql_match_ratio=1.0 if is_exact else 0.0,
@@ -556,9 +548,8 @@ class QueryAgent(LLMFeature):
                 )
 
         # Record provided_not_used for snippets not referenced by any step
-        for provided in provided_snippets.values():
-            snippet_id = provided.get("snippet_id")
-            if snippet_id and snippet_id not in referenced_snippet_ids:
+        for snippet_id, provided in snippet_id_index.items():
+            if snippet_id not in referenced_snippet_ids:
                 library.record_usage(
                     execution_id=execution_id,
                     execution_type="query",
@@ -589,7 +580,6 @@ class QueryAgent(LLMFeature):
             Updated QueryAnalysisOutput with resolved references
         """
         from dataraum.query.snippet_library import SnippetLibrary
-        from dataraum.query.snippet_utils import normalize_sql
 
         library = SnippetLibrary(session)
         resolved_steps: list[SQLStepOutput] = []
@@ -616,7 +606,7 @@ class QueryAgent(LLMFeature):
                 authoritative_sql = snippet_id_index[step.snippet_id]["sql"]
 
             # Compare normalized SQL
-            if normalize_sql(step.sql) == normalize_sql(authoritative_sql):
+            if determine_usage_type(step.sql, authoritative_sql) == "exact_reuse":
                 # Exact reuse — replace with authoritative SQL
                 resolved_steps.append(step.model_copy(update={"sql": authoritative_sql}))
                 logger.debug(
@@ -637,19 +627,18 @@ class QueryAgent(LLMFeature):
         execution_id: str,
         analysis_output: QueryAnalysisOutput,
         schema_mapping_id: str,
-        provided_snippets: dict[str, dict[str, str]],
     ) -> None:
         """Save novel query steps as snippets for future reuse.
 
         After a successful query execution, saves any freshly generated steps
         (not reused from existing snippets) as "query" type snippets.
+        Steps with snippet_id are skipped — they reference existing snippets.
 
         Args:
             session: SQLAlchemy session
             execution_id: Query execution ID
             analysis_output: Generated query analysis with steps
             schema_mapping_id: Schema mapping identifier (source_id)
-            provided_snippets: Dict of step_id -> snippet info that were provided
         """
         from dataraum.query.snippet_library import SnippetLibrary
 
@@ -657,12 +646,8 @@ class QueryAgent(LLMFeature):
 
         saved_count = 0
         for step in analysis_output.steps:
-            # Skip steps that reference existing snippets (primary check)
+            # Skip steps that reference existing snippets
             if step.snippet_id is not None:
-                continue
-
-            # Fallback: skip steps that came from provided snippets by step_id
-            if step.step_id in provided_snippets:
                 continue
 
             # Save as a query-type snippet

@@ -586,8 +586,8 @@ class TestQueryAgentSnippets:
             final_sql="SELECT * FROM revenue",
         )
 
-        provided = {
-            "revenue": {
+        snippet_id_index = {
+            snippet.snippet_id: {
                 "step_id": "revenue",
                 "sql": "SELECT SUM(amount) FROM typed_orders",
                 "snippet_id": snippet.snippet_id,
@@ -599,7 +599,7 @@ class TestQueryAgentSnippets:
             session=session,
             execution_id="exec-001",
             analysis_output=analysis,
-            provided_snippets=provided,
+            snippet_id_index=snippet_id_index,
         )
         session.flush()
 
@@ -636,7 +636,7 @@ class TestQueryAgentSnippets:
             session=session,
             execution_id="exec-002",
             analysis_output=analysis,
-            provided_snippets={},
+            snippet_id_index={},
         )
         session.flush()
 
@@ -674,7 +674,6 @@ class TestQueryAgentSnippets:
             execution_id="exec-003",
             analysis_output=analysis,
             schema_mapping_id="source_123",
-            provided_snippets={},
         )
         session.flush()
 
@@ -704,6 +703,7 @@ class TestQueryAgentSnippets:
                     step_id="reused_step",
                     sql="SELECT SUM(amount) FROM typed_orders",
                     description="Reused from snippet",
+                    snippet_id="existing-snip",
                 ),
                 SQLStepOutput(
                     step_id="new_step",
@@ -714,20 +714,11 @@ class TestQueryAgentSnippets:
             final_sql="SELECT * FROM new_step",
         )
 
-        provided = {
-            "reused_step": {
-                "step_id": "reused_step",
-                "sql": "SELECT SUM(amount) FROM typed_orders",
-                "snippet_id": "existing-snip",
-            },
-        }
-
         mock_agent._save_novel_snippets(
             session=session,
             execution_id="exec-004",
             analysis_output=analysis,
             schema_mapping_id="source_123",
-            provided_snippets=provided,
         )
         session.flush()
 
@@ -796,7 +787,7 @@ class TestQueryAgentSnippets:
             session=session,
             execution_id="exec-first",
             analysis_output=analysis,
-            provided_snippets={},
+            snippet_id_index={},
         )
         session.flush()
 
@@ -1079,8 +1070,8 @@ class TestDeterministicUsageTracking:
             final_sql="SELECT * FROM revenue",
         )
 
-        provided = {
-            "revenue": {
+        snippet_id_index = {
+            snippet.snippet_id: {
                 "step_id": "revenue",
                 "sql": "SELECT SUM(amount) FROM typed_orders",
                 "snippet_id": snippet.snippet_id,
@@ -1091,7 +1082,7 @@ class TestDeterministicUsageTracking:
             session=session,
             execution_id="exec-adapt",
             analysis_output=analysis,
-            provided_snippets=provided,
+            snippet_id_index=snippet_id_index,
         )
         session.flush()
 
@@ -1134,8 +1125,8 @@ class TestDeterministicUsageTracking:
             final_sql="SELECT * FROM fresh_calc",
         )
 
-        provided = {
-            "revenue": {
+        snippet_id_index = {
+            snippet.snippet_id: {
                 "step_id": "revenue",
                 "sql": "SELECT SUM(amount) FROM typed_orders",
                 "snippet_id": snippet.snippet_id,
@@ -1146,7 +1137,7 @@ class TestDeterministicUsageTracking:
             session=session,
             execution_id="exec-unused",
             analysis_output=analysis,
-            provided_snippets=provided,
+            snippet_id_index=snippet_id_index,
         )
         session.flush()
 
@@ -1224,17 +1215,17 @@ class TestDeterministicUsageTracking:
             final_sql="SELECT * FROM rev",
         )
 
-        provided = {
-            "revenue": {"step_id": "revenue", "sql": s1.sql, "snippet_id": s1.snippet_id},
-            "cost": {"step_id": "cost", "sql": s2.sql, "snippet_id": s2.snippet_id},
-            "avg_price": {"step_id": "avg_price", "sql": s3.sql, "snippet_id": s3.snippet_id},
+        snippet_id_index = {
+            s1.snippet_id: {"step_id": "revenue", "sql": s1.sql, "snippet_id": s1.snippet_id},
+            s2.snippet_id: {"step_id": "cost", "sql": s2.sql, "snippet_id": s2.snippet_id},
+            s3.snippet_id: {"step_id": "avg_price", "sql": s3.sql, "snippet_id": s3.snippet_id},
         }
 
         mock_agent._track_snippet_usage(
             session=session,
             execution_id="exec-mixed",
             analysis_output=analysis,
-            provided_snippets=provided,
+            snippet_id_index=snippet_id_index,
         )
         session.flush()
 
@@ -1283,7 +1274,6 @@ class TestSaveNovelSnippetsWithSnippetId:
             execution_id="exec-save",
             analysis_output=analysis,
             schema_mapping_id="source_123",
-            provided_snippets={},
         )
         session.flush()
 
@@ -1294,7 +1284,7 @@ class TestSaveNovelSnippetsWithSnippetId:
     def test_skips_steps_with_snippet_id_even_if_not_in_provided(
         self, mock_agent, session: Session
     ):
-        """snippet_id check takes priority over provided_snippets check."""
+        """snippet_id check skips saving even without index match."""
         from sqlalchemy import select
 
         from dataraum.query.models import QueryAnalysisOutput, SQLStepOutput
@@ -1315,13 +1305,12 @@ class TestSaveNovelSnippetsWithSnippetId:
             final_sql="SELECT * FROM adapted",
         )
 
-        # Not in provided_snippets, but has snippet_id — should still be skipped
+        # Has snippet_id — should be skipped
         mock_agent._save_novel_snippets(
             session=session,
             execution_id="exec-adapt-save",
             analysis_output=analysis,
             schema_mapping_id="source_123",
-            provided_snippets={},
         )
         session.flush()
 
