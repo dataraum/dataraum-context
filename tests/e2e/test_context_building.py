@@ -90,6 +90,22 @@ class TestSemanticContext:
         with_concept = [c for c in all_cols if c.business_concept]
         assert len(with_concept) > 0, "No columns have business_concept"
 
+    def test_columns_have_temporal_behavior(self, execution_context: GraphExecutionContext) -> None:
+        """Columns with business_concept should have temporal_behavior from ontology."""
+        all_cols = [c for t in execution_context.tables for c in t.columns]
+        with_concept = [c for c in all_cols if c.business_concept]
+        with_temporal = [c for c in with_concept if c.temporal_behavior]
+        assert len(with_temporal) > 0, (
+            f"No columns have temporal_behavior, but {len(with_concept)} have business_concept"
+        )
+        # temporal_behavior must be one of the known values
+        valid = {"additive", "point_in_time"}
+        for col in with_temporal:
+            assert col.temporal_behavior in valid, (
+                f"{col.table_name}.{col.column_name}: "
+                f"invalid temporal_behavior '{col.temporal_behavior}'"
+            )
+
 
 # =============================================================================
 # Relationships in context
