@@ -108,6 +108,26 @@ def _profile_column_stats_parallel(
                     stddev_val = float(numeric_row[3]) if numeric_row[3] is not None else 0.0
                     cv_val = stddev_val / abs(mean_val) if mean_val != 0 else None
 
+                    p50_val = float(numeric_row[8]) if numeric_row[8] is not None else None
+
+                    # Compute MAD (Median Absolute Deviation) and robust_cv
+                    mad_val: float | None = None
+                    robust_cv_val: float | None = None
+                    if p50_val is not None:
+                        try:
+                            mad_query = f"""
+                                SELECT MEDIAN(ABS("{column_name}"::DOUBLE - {p50_val}))
+                                FROM "{table_duckdb_path}"
+                                WHERE "{column_name}" IS NOT NULL
+                            """
+                            mad_row = cursor.execute(mad_query).fetchone()
+                            if mad_row and mad_row[0] is not None:
+                                mad_val = float(mad_row[0])
+                                if abs(p50_val) > 0:
+                                    robust_cv_val = mad_val / abs(p50_val)
+                        except Exception:
+                            pass  # MAD is supplementary; don't fail profiling
+
                     numeric_stats = NumericStats(
                         min_value=float(numeric_row[0]),
                         max_value=float(numeric_row[1]),
@@ -116,10 +136,12 @@ def _profile_column_stats_parallel(
                         skewness=(float(numeric_row[4]) if numeric_row[4] is not None else None),
                         kurtosis=(float(numeric_row[5]) if numeric_row[5] is not None else None),
                         cv=cv_val,
+                        mad=mad_val,
+                        robust_cv=robust_cv_val,
                         percentiles={
                             "p01": (float(numeric_row[6]) if numeric_row[6] is not None else None),
                             "p25": (float(numeric_row[7]) if numeric_row[7] is not None else None),
-                            "p50": (float(numeric_row[8]) if numeric_row[8] is not None else None),
+                            "p50": p50_val,
                             "p75": (float(numeric_row[9]) if numeric_row[9] is not None else None),
                             "p99": (
                                 float(numeric_row[10]) if numeric_row[10] is not None else None

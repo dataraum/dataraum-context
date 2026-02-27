@@ -38,7 +38,7 @@ class StatisticalQualityMetrics(Base):
 
     Advanced quality metrics that may be expensive to compute:
     - Benford's Law compliance (fraud detection for financial amounts)
-    - Outlier detection (Isolation Forest + IQR method)
+    - Outlier detection (IQR + Modified Z-Score)
 
     Note: Distribution stability (KS test) is handled by temporal quality module.
     """
@@ -60,7 +60,7 @@ class StatisticalQualityMetrics(Base):
 
     # Key metrics for sorting/filtering
     iqr_outlier_ratio: Mapped[float | None] = mapped_column(Float)
-    isolation_forest_anomaly_ratio: Mapped[float | None] = mapped_column(Float)
+    zscore_outlier_ratio: Mapped[float | None] = mapped_column(Float)
 
     # JSONB: Full quality analysis results
     # Stores: Benford analysis, outlier details, quality issues

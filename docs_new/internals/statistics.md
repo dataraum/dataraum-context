@@ -6,7 +6,7 @@
 
 Two main functions:
 - **`profile_statistics()`** — Computes per-column statistics: counts, nulls, cardinality, numeric stats (min/max/mean/stddev/skewness/kurtosis/CV/percentiles), string stats (lengths), histograms, top-k values. Parallel via `ThreadPoolExecutor`.
-- **`assess_statistical_quality()`** — Runs Benford's Law compliance and outlier detection (IQR + optional Isolation Forest) on numeric columns. Parallel via `ThreadPoolExecutor`.
+- **`assess_statistical_quality()`** — Runs Benford's Law compliance and outlier detection (IQR + Modified Z-Score) on numeric columns. Parallel via `ThreadPoolExecutor`.
 
 ## Data Model
 
@@ -36,17 +36,17 @@ StatisticalQualityMetrics (statistical_quality_metrics)
 ├── benford_compliant: Boolean
 ├── has_outliers: Boolean (IQR ratio > 5%)
 ├── iqr_outlier_ratio: Float
-├── isolation_forest_anomaly_ratio: Float
+├── zscore_outlier_ratio: Float
 └── quality_data: JSON (full StatisticalQualityResult Pydantic model)
 ```
 
 ### Pydantic Models (Computation)
 
 - **ColumnProfile** — Per-column: counts, ratios, NumericStats, StringStats, histogram, top values
-- **NumericStats** — min, max, mean, stddev, skewness, kurtosis, CV, percentiles (p01/p25/p50/p75/p99)
+- **NumericStats** — min, max, mean, stddev, skewness, kurtosis, CV, MAD, robust_cv, percentiles (p01/p25/p50/p75/p99)
 - **StringStats** — min/max/avg length
 - **BenfordAnalysis** — chi_square, p_value, is_compliant, digit_distribution, interpretation
-- **OutlierDetection** — IQR fences + counts + Isolation Forest scores + sample outliers
+- **OutlierDetection** — IQR fences + counts + Modified Z-Score counts + sample outliers
 - **StatisticalQualityResult** — Per-column: benford + outliers + quality issues list
 
 ## Metrics
@@ -61,11 +61,12 @@ StatisticalQualityMetrics (statistical_quality_metrics)
 - Fences: Q1 - 1.5×IQR, Q3 + 1.5×IQR
 - Outlier ratio > 5% → has_outliers flag
 
-### Outlier Detection (Isolation Forest)
-- Optional dependency (scikit-learn)
-- contamination=0.05, random_state=42
-- Requires ≥100 values
-- Anomaly ratio and sample outliers merged into OutlierDetection
+### Outlier Detection (Modified Z-Score)
+- Uses MAD (Median Absolute Deviation) instead of standard deviation
+- Formula: modified_z = 0.6745 × |x - median| / MAD
+- Threshold: 3.5 (values above are flagged as outliers)
+- Robust to the outliers it detects (unlike stddev-based methods)
+- Pure DuckDB SQL — no external dependencies
 
 ## Configuration
 
