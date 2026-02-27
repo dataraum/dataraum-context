@@ -1,12 +1,10 @@
 """Tests for Parquet loader.
 
 Tests the sources.parquet module which implements strongly-typed Parquet loading.
-Uses dynamically generated Parquet fixtures via PyArrow.
+Uses DuckDB to generate Parquet test fixtures.
 """
 
 import duckdb
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -48,43 +46,43 @@ def test_duckdb():
 @pytest.fixture
 def sample_parquet(tmp_path):
     """Create a sample Parquet file with typed columns."""
-    table = pa.table(
-        {
-            "id": pa.array([1, 2, 3], type=pa.int64()),
-            "name": pa.array(["Alice", "Bob", "Charlie"], type=pa.string()),
-            "amount": pa.array([10.5, 20.0, 30.75], type=pa.float64()),
-            "active": pa.array([True, False, True], type=pa.bool_()),
-            "created_at": pa.array(
-                ["2024-01-01", "2024-02-15", "2024-03-20"], type=pa.string()
-            ).cast(pa.date32()),
-        }
-    )
     path = tmp_path / "sample.parquet"
-    pq.write_table(table, path)
+    conn = duckdb.connect()
+    conn.execute(f"""
+        COPY (
+            SELECT * FROM (VALUES
+                (1::BIGINT, 'Alice'::VARCHAR, 10.5::DOUBLE, true::BOOLEAN, '2024-01-01'::DATE),
+                (2::BIGINT, 'Bob'::VARCHAR, 20.0::DOUBLE, false::BOOLEAN, '2024-02-15'::DATE),
+                (3::BIGINT, 'Charlie'::VARCHAR, 30.75::DOUBLE, true::BOOLEAN, '2024-03-20'::DATE)
+            ) AS t(id, name, amount, active, created_at)
+        ) TO '{path}' (FORMAT PARQUET)
+    """)
+    conn.close()
     return path
 
 
 @pytest.fixture
 def parquet_directory(tmp_path):
     """Create a directory with multiple Parquet files."""
-    for name, data in [
-        (
-            "customers",
-            {
-                "customer_id": pa.array([1, 2], type=pa.int64()),
-                "email": pa.array(["a@b.com", "c@d.com"], type=pa.string()),
-            },
-        ),
-        (
-            "orders",
-            {
-                "order_id": pa.array([100, 200, 300], type=pa.int64()),
-                "total": pa.array([99.99, 149.50, 200.00], type=pa.float64()),
-            },
-        ),
-    ]:
-        table = pa.table(data)
-        pq.write_table(table, tmp_path / f"{name}.parquet")
+    conn = duckdb.connect()
+    conn.execute(f"""
+        COPY (
+            SELECT * FROM (VALUES
+                (1::BIGINT, 'a@b.com'::VARCHAR),
+                (2::BIGINT, 'c@d.com'::VARCHAR)
+            ) AS t(customer_id, email)
+        ) TO '{tmp_path / "customers.parquet"}' (FORMAT PARQUET)
+    """)
+    conn.execute(f"""
+        COPY (
+            SELECT * FROM (VALUES
+                (100::BIGINT, 99.99::DOUBLE),
+                (200::BIGINT, 149.50::DOUBLE),
+                (300::BIGINT, 200.00::DOUBLE)
+            ) AS t(order_id, total)
+        ) TO '{tmp_path / "orders.parquet"}' (FORMAT PARQUET)
+    """)
+    conn.close()
     return tmp_path
 
 
@@ -209,15 +207,16 @@ class TestParquetLoader:
 
     def test_load_normalizes_column_names(self, test_duckdb, test_session, tmp_path):
         """Test that column names with spaces/special chars are normalized."""
-        table = pa.table(
-            {
-                "Customer ID": pa.array([1], type=pa.int64()),
-                "First Name": pa.array(["Alice"], type=pa.string()),
-                "total-amount": pa.array([100.0], type=pa.float64()),
-            }
-        )
         path = tmp_path / "special_cols.parquet"
-        pq.write_table(table, path)
+        conn = duckdb.connect()
+        conn.execute(f"""
+            COPY (
+                SELECT 1::BIGINT AS "Customer ID",
+                       'Alice'::VARCHAR AS "First Name",
+                       100.0::DOUBLE AS "total-amount"
+            ) TO '{path}' (FORMAT PARQUET)
+        """)
+        conn.close()
 
         loader = ParquetLoader()
         config = SourceConfig(

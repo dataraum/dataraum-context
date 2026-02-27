@@ -10,7 +10,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import duckdb
-import pyarrow.parquet as pq
 from sqlalchemy.orm import Session
 
 from dataraum.core.logging import get_logger
@@ -21,68 +20,22 @@ from dataraum.storage import Column, Source, Table
 
 logger = get_logger(__name__)
 
-# Map PyArrow types to DuckDB SQL type names
-_ARROW_TO_DUCKDB: dict[str, str] = {
-    "int8": "TINYINT",
-    "int16": "SMALLINT",
-    "int32": "INTEGER",
-    "int64": "BIGINT",
-    "uint8": "UTINYINT",
-    "uint16": "USMALLINT",
-    "uint32": "UINTEGER",
-    "uint64": "UBIGINT",
-    "float16": "FLOAT",
-    "float": "FLOAT",
-    "float32": "FLOAT",
-    "double": "DOUBLE",
-    "float64": "DOUBLE",
-    "bool": "BOOLEAN",
-    "string": "VARCHAR",
-    "large_string": "VARCHAR",
-    "utf8": "VARCHAR",
-    "large_utf8": "VARCHAR",
-    "binary": "BLOB",
-    "large_binary": "BLOB",
-    "date32": "DATE",
-    "date32[day]": "DATE",
-    "date64": "DATE",
-    "timestamp[ns]": "TIMESTAMP",
-    "timestamp[us]": "TIMESTAMP",
-    "timestamp[ms]": "TIMESTAMP",
-    "timestamp[s]": "TIMESTAMP",
-    "time32[ms]": "TIME",
-    "time64[us]": "TIME",
-    "time64[ns]": "TIME",
-}
 
+def _describe_parquet(
+    file_path: Path,
+    conn: duckdb.DuckDBPyConnection,
+) -> list[tuple[str, str, bool]]:
+    """Read Parquet schema using DuckDB DESCRIBE.
 
-def _arrow_type_to_duckdb(arrow_type_str: str) -> str:
-    """Map a PyArrow type string to a DuckDB type name.
-
-    Falls back to VARCHAR for unknown types.
+    Returns list of (column_name, duckdb_type, nullable).
     """
-    # Direct match
-    if arrow_type_str in _ARROW_TO_DUCKDB:
-        return _ARROW_TO_DUCKDB[arrow_type_str]
-
-    # Prefix matches for parameterized types (e.g., "timestamp[ns, tz=UTC]")
-    lower = arrow_type_str.lower()
-    if lower.startswith("timestamp"):
-        return "TIMESTAMP"
-    if lower.startswith("date"):
-        return "DATE"
-    if lower.startswith("time"):
-        return "TIME"
-    if lower.startswith("decimal"):
-        return "DECIMAL"
-    if lower.startswith("list") or lower.startswith("large_list"):
-        return "VARCHAR"
-    if lower.startswith("struct"):
-        return "VARCHAR"
-    if lower.startswith("dictionary"):
-        return "VARCHAR"
-
-    return "VARCHAR"
+    rows = conn.execute(
+        f"DESCRIBE SELECT * FROM read_parquet('{file_path}')"
+    ).fetchall()
+    return [
+        (row[0], row[1], row[2] == "YES")
+        for row in rows
+    ]
 
 
 class ParquetLoader(LoaderBase):
@@ -117,21 +70,21 @@ class ParquetLoader(LoaderBase):
             return Result.fail(f"Parquet file not found: {path}")
 
         try:
-            schema = pq.read_schema(path)
-            columns = []
+            conn = duckdb.connect()
+            try:
+                schema = _describe_parquet(path, conn)
+            finally:
+                conn.close()
 
-            for idx, field in enumerate(schema):
-                arrow_type_str = str(field.type)
-                duckdb_type = _arrow_type_to_duckdb(arrow_type_str)
-
-                columns.append(
-                    ColumnInfo(
-                        name=field.name,
-                        position=idx,
-                        source_type=duckdb_type,
-                        nullable=field.nullable,
-                    )
+            columns = [
+                ColumnInfo(
+                    name=name,
+                    position=idx,
+                    source_type=dtype,
+                    nullable=nullable,
                 )
+                for idx, (name, dtype, nullable) in enumerate(schema)
+            ]
 
             return Result.ok(columns)
 
@@ -340,15 +293,14 @@ class ParquetLoader(LoaderBase):
             Result containing StagedTable
         """
         try:
-            # Read schema from Parquet metadata
-            schema = pq.read_schema(file_path)
+            # Read schema using DuckDB DESCRIBE
+            schema = _describe_parquet(file_path, duckdb_conn)
 
             # Normalize column names and detect collisions
             col_mapping: list[tuple[str, str, str]] = []  # (original, normalized, duckdb_type)
             seen: dict[str, int] = {}
 
-            for idx, field in enumerate(schema):
-                original = field.name
+            for idx, (original, duckdb_type, _nullable) in enumerate(schema):
                 normalized = normalize_column_name(original, idx)
                 if normalized in seen:
                     seen[normalized] += 1
@@ -356,7 +308,6 @@ class ParquetLoader(LoaderBase):
                 else:
                     seen[normalized] = 1
 
-                duckdb_type = _arrow_type_to_duckdb(str(field.type))
                 col_mapping.append((original, normalized, duckdb_type))
 
             # Sanitize table name

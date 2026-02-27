@@ -21,12 +21,10 @@ classifiers = [
 dependencies = [
     # Data processing
     "duckdb>=1.0.0",
-    "pyarrow>=15.0.0",
     "pint>=0.23",
-    "pandas>=2.0.0",
+    "pandas>=3.0.0",
     # Database (SQLAlchemy + SQLite backend)
     "sqlalchemy>=2.0.0",
-    "aiosqlite>=0.19.0",
     # Pydantic
     "pydantic>=2.0.0",
     # MCP
@@ -59,38 +57,6 @@ dev = [
     "ruff>=0.2.0",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
-]
-
-# LLM providers (install what you need)
-anthropic = ["anthropic>=0.40.0"]
-openai = ["openai>=1.50.0"]
-llm = [
-    "anthropic>=0.40.0",
-    "openai>=1.50.0",
-]
-postgres = ["asyncpg>=0.29.0"]
-
-# CLI and TUI
-cli = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-    "textual>=0.50.0",
-]
-
-# MCP server for LLM integration
-mcp = ["mcp>=1.0.0"]
-
-# Synthetic data generation for privacy (SDV) - heavy dependency with PyTorch
-privacy = ["sdv>=1.17.0"]
-
-# Common optional features (excluding heavy privacy/SDV dependencies)
-complete = [
-    "dataraum[cli,mcp,anthropic,openai,postgres]",
-]
-
-# Everything including heavy ML dependencies
-all = [
-    "dataraum[complete,privacy]",
 ]
 
 [project.scripts]
@@ -192,13 +158,10 @@ module = [
     "duckdb.*",
     "mcp.*",
     "anthropic.*",
-    "openai.*",
     "sdv.*",
-    "hamilton.*",
     "scipy.*",
     "statsmodels.*",
     "ruptures.*",
-    "pyarrow.*",
     "networkx.*",
     "pgmpy.*",
     "textual.*",
