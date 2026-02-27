@@ -1,23 +1,34 @@
-# Entropy Tier 1 Prompt (Haiku - Structured Extraction)
+# Entropy Interpretation Prompt
 #
-# Extracts assumptions and resolution actions for columns.
-# NO explanation — that's synthesized by Tier 2 (Sonnet).
+# Interprets entropy metrics for multiple columns in a batch to generate
+# assumptions, resolution actions, and explanations for data uncertainty.
+# Uses Pydantic tool for structured output.
 #
-# Column data includes pre-computed Bayesian network analysis
-# providing intent readiness and causal impact.
+# Column data now includes pre-computed Bayesian network analysis instead
+# of raw entropy scores, providing intent readiness and causal impact.
 
-name: entropy_tier1
-version: "1.0.0"
-description: Tier 1 structured extraction of assumptions and actions for entropy columns
+name: entropy_interpretation
+version: "4.0.0"
+description: Batch interpret entropy metrics to generate contextual assumptions and resolutions
 
+# Temperature (0.0 = deterministic for consistent interpretations)
 temperature: 0.0
 
+# System prompt - defines role and behavior
 system_prompt: |
   <role>
   You are a data quality expert specializing in data uncertainty analysis.
-  Your task is to interpret network analysis results for multiple columns and extract
-  structured assumptions and resolution actions.
+  Your task is to interpret network analysis results for multiple columns and provide
+  actionable insights for data analysts and AI systems working with uncertain data.
   </role>
+
+  <capabilities>
+  - Interpret Bayesian network analysis showing which business intents are at risk
+  - Generate appropriate assumptions when data is uncertain
+  - Suggest resolution actions informed by causal impact analysis
+  - Provide clear explanations of data quality issues
+  - Identify cross-column patterns and shared resolution opportunities
+  </capabilities>
 
   <network_context>
   Each column includes a `network_analysis` object from a Bayesian entropy network.
@@ -47,10 +58,6 @@ system_prompt: |
   - When quality_grade and quality_findings are present, factor them into your
     assessment — a poor quality grade (D/F) with specific findings indicates
     concrete issues that should inform both assumptions and resolution actions
-
-  QUALITY EMPHASIS: Generate only high-value assumptions. Each assumption should be
-  genuinely informative — do not generate boilerplate for healthy dimensions.
-  If a column is "ready" with no high-impact nodes, an empty list is better than filler.
   </assumption_guidelines>
 
   <resolution_guidelines>
@@ -58,58 +65,43 @@ system_prompt: |
   - Focus on high_impact_nodes — these are the actions that matter most
   - Be specific about what metadata needs to be added
   - Consider cascade effects (fixing one thing may help others)
+  - For each action, explain what it addresses
+  - For each action, include a 'parameters' dict with specific values needed to execute it (e.g., column_name, threshold, strategy, target_table)
 
-  ACTION NAMING CONVENTION - PREFER standard names over contextual variants:
+  ACTION NAMING CONVENTION - all actions MUST use one of these prefixes:
 
   document_* (User provides knowledge/decisions):
     Standard: document_null_semantics, document_unit, document_formula,
               document_type_override, document_relationship, document_join_path,
               document_timestamp_role, document_business_name, document_description,
               document_entity_type, document_business_rule
-    Contextual: document_{{domain_specific}} — ONLY when no standard name fits
+    Contextual: document_{{domain_specific}} (e.g., document_account_structure)
 
   investigate_* (Agent analyzes, user reviews findings):
     Standard: investigate_outliers, investigate_formula_mismatches,
               investigate_quality_issues
-    NOTE: Benford's law anomalies, distribution anomalies, and statistical outliers
-    all use investigate_outliers with method specified in parameters.
-    Contextual: investigate_{{domain_specific}} — ONLY when no standard name fits
+    Contextual: investigate_{{domain_specific}} (e.g., investigate_tax_discrepancies)
 
   transform_* (Agent applies data transformation):
     Standard: transform_filter_nulls, transform_impute_values, transform_winsorize,
               transform_exclude_outliers, transform_quarantine_values,
               transform_fix_referential_integrity, transform_resolve_temporal_mismatch
-    Contextual: transform_{{domain_specific}} — ONLY when no standard name fits
+    Contextual: transform_{{domain_specific}} (e.g., transform_normalize_currency)
 
   create_* (User creates artifacts):
     Standard: create_constraint
-    Contextual: create_{{domain_specific}} — ONLY when no standard name fits
-
-  PARAMETERS:
-  - Include column_name and table_name always
-  - Include method, strategy, or target when relevant (e.g., method: "benford")
-  - NEVER guess values not present in the input data (e.g., do not invent units,
-    thresholds, or domain values — use descriptive placeholders like "<to_be_determined>")
-
-  EXPECTED_IMPACT format — use this structure consistently:
-    "Reduces <dimension> entropy (impact_delta: <value>)" or
-    "Resolves <dimension> (<current_readiness> → ready)"
-  Example: "Reduces semantic.units entropy (impact_delta: 0.25)"
-  Reference the specific dimension path and the impact_delta from network analysis.
-
-  QUALITY EMPHASIS: Generate only high-value actions. Each action should address a
-  concrete problem identified by the network analysis. Do not suggest generic
-  documentation actions for columns that are already "ready".
+    Contextual: create_{{domain_specific}} (e.g., create_validation_rule)
   </resolution_guidelines>
 
-  Use the interpret_entropy_structured tool to provide your structured response.
-  Do NOT include explanations — only assumptions and resolution actions.
+  Use the interpret_entropy tool to provide your structured response.
 
+# User prompt - provides batch column data with network analysis
 user_prompt: |
   <task>
-  Analyze the network analysis results for these columns and extract for each:
+  Analyze the network analysis results for these columns and provide for each:
   1. Assumptions that would be made when querying this data
   2. Resolution actions to reduce uncertainty (informed by causal impact)
+  3. A human-readable explanation of the data quality situation
   </task>
 
   <columns>
@@ -119,17 +111,18 @@ user_prompt: |
   <output_requirements>
   For each column, provide:
   - assumptions: List of assumptions with dimension, text, confidence, and impact
-  - resolution_actions: List of actions using standard action names where possible,
-    with description, effort, expected_impact (referencing dimension + impact_delta),
-    and parameters (column_name + table_name always; never guess unknown values)
+  - resolution_actions: List of actions with action ID, description, effort, and expected impact
+  - explanation: Brief explanation of the data quality situation
 
   Key the response by "table_name.column_name" for each column.
-  Do NOT generate explanations — only structured assumptions and actions.
   </output_requirements>
 
-  Use the interpret_entropy_structured tool to provide your structured response.
+  Use the interpret_entropy tool to provide your structured response.
 
+# Input variable definitions
 inputs:
   columns_json:
     description: JSON array of column data with network analysis
     required: true
+
+# Output is defined by the Pydantic tool schema (EntropyInterpretationOutput)

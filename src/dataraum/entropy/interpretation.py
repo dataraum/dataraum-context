@@ -188,9 +188,7 @@ class ResolutionActionOutput(BaseModel):
     )
     description: str = Field(description="Human-readable description of the action")
     effort: Literal["low", "medium", "high"] = Field(description="Effort required to implement")
-    expected_impact: str = Field(
-        description="Format: 'Reduces {dimension} entropy (impact_delta: {value})' — reference specific dimension path and network impact_delta"
-    )
+    expected_impact: str = Field(description="What entropy dimensions this will improve")
     parameters: dict[str, str] = Field(
         default_factory=dict,
         description="Actionable parameters (e.g., column_name, threshold, strategy, target_table)",
@@ -211,53 +209,48 @@ class ResolutionActionOutput(BaseModel):
         return v
 
 
-# --- Tier 1: Structured output (no explanation) ---
+class ColumnInterpretationOutput(BaseModel):
+    """Pydantic model for a single column interpretation in LLM tool output."""
+
+    assumptions: list[AssumptionOutput] = Field(
+        default_factory=list, description="List of assumptions about this column's data"
+    )
+    resolution_actions: list[ResolutionActionOutput] = Field(
+        default_factory=list, description="List of suggested actions to reduce uncertainty"
+    )
+    explanation: str = Field(
+        description="Brief human-readable explanation of the data quality situation"
+    )
 
 
-class Tier1ColumnOutput(BaseModel):
-    """Tier 1 (Haiku) output for a single column: assumptions + actions only."""
+class EntropyInterpretationOutput(BaseModel):
+    """Pydantic model for LLM tool output - batch entropy interpretation.
 
-    assumptions: list[AssumptionOutput] = Field(default_factory=list)
-    resolution_actions: list[ResolutionActionOutput] = Field(default_factory=list)
+    Used as a tool definition for structured LLM output via tool use API.
+    """
 
-
-class Tier1InterpretationOutput(BaseModel):
-    """Tier 1 batch output for columns."""
-
-    columns: dict[str, Tier1ColumnOutput] = Field(
+    columns: dict[str, ColumnInterpretationOutput] = Field(
         description="Interpretations keyed by 'table_name.column_name'"
     )
 
 
-class Tier1TableOutput(BaseModel):
-    """Tier 1 (Haiku) output for a single table: assumptions + actions only."""
+class TableInterpretationLLMOutput(BaseModel):
+    """Pydantic model for a single table interpretation in LLM tool output."""
 
-    assumptions: list[AssumptionOutput] = Field(default_factory=list)
-    resolution_actions: list[ResolutionActionOutput] = Field(default_factory=list)
-
-
-class Tier1TableInterpretationOutput(BaseModel):
-    """Tier 1 batch output for tables."""
-
-    tables: dict[str, Tier1TableOutput] = Field(
-        description="Interpretations keyed by table_name"
+    assumptions: list[AssumptionOutput] = Field(
+        default_factory=list, description="List of table-wide assumptions"
     )
+    resolution_actions: list[ResolutionActionOutput] = Field(
+        default_factory=list, description="List of table-wide actions to reduce uncertainty"
+    )
+    explanation: str = Field(description="Brief explanation of the table's overall data quality")
 
 
-# --- Tier 2: Explanation synthesis only ---
+class TableEntropyInterpretationOutput(BaseModel):
+    """Pydantic model for LLM tool output - batch table interpretation."""
 
-
-class Tier2ExplanationOutput(BaseModel):
-    """Tier 2 (Sonnet) output for a single item: explanation only."""
-
-    explanation: str = Field(description="Concise data quality explanation")
-
-
-class Tier2InterpretationsOutput(BaseModel):
-    """Tier 2 batch output: explanations for all columns and tables."""
-
-    items: dict[str, Tier2ExplanationOutput] = Field(
-        description="Explanations keyed by 'table_name.column_name' or table_name"
+    tables: dict[str, TableInterpretationLLMOutput] = Field(
+        description="Interpretations keyed by table_name"
     )
 
 
@@ -288,25 +281,21 @@ class EntropyInterpreter:
         self.provider = provider
         self.renderer = prompt_renderer
 
-    # =========================================================================
-    # Tier 1: Structured extraction (Haiku) — assumptions + actions only
-    # =========================================================================
-
-    def interpret_batch_tier1(
+    def interpret_batch(
         self,
         session: Session,
         inputs: list[InterpretationInput],
-    ) -> Result[dict[str, Tier1ColumnOutput]]:
-        """Tier 1: Extract assumptions and actions for columns (no explanation).
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Interpret entropy for multiple columns in a single LLM call.
 
-        Uses fast model (Haiku) for structured extraction.
+        Makes a single batch LLM call for all columns using tool-based output.
 
         Args:
             session: Database session
             inputs: List of InterpretationInput for each column
 
         Returns:
-            Result containing dict mapping column keys to Tier1ColumnOutput
+            Result containing dict mapping column keys to interpretations
         """
         from dataraum.llm.providers.base import (
             ConversationRequest,
@@ -317,9 +306,11 @@ class EntropyInterpreter:
         if not inputs:
             return Result.fail("No inputs provided for interpretation")
 
-        feature_config = self.config.features.entropy_interpretation_structured
+        feature_config = self.config.features.entropy_interpretation
         if not feature_config or not feature_config.enabled:
-            return Result.fail("entropy_interpretation_structured is disabled in config")
+            return Result.fail("entropy_interpretation is disabled in config")
+
+        prompt_name = "entropy_interpretation"
 
         # Build columns JSON for prompt — compact form with network analysis
         columns_data = []
@@ -328,7 +319,7 @@ class EntropyInterpreter:
                 logger.error(
                     "interpretation_missing_network_analysis",
                     column=f"{inp.table_name}.{inp.column_name}",
-                    message="Column has no network_analysis — skipping from T1 batch",
+                    message="Column has no network_analysis — skipping from interpretation batch",
                 )
                 continue
 
@@ -340,6 +331,7 @@ class EntropyInterpreter:
                 "business_description": inp.business_description or "Not documented",
                 "network_analysis": inp.network_analysis,
             }
+            # Add quality context if available
             if inp.quality_grade:
                 col_entry["quality_grade"] = inp.quality_grade
             if inp.quality_findings:
@@ -350,30 +342,34 @@ class EntropyInterpreter:
             "columns_json": json.dumps(columns_data, indent=2),
         }
 
+        # Render prompt with system/user split
         try:
             system_prompt, user_prompt, temperature = self.renderer.render_split(
-                "entropy_tier1", context
+                prompt_name, context
             )
         except Exception as e:
-            return Result.fail(f"Failed to render T1 prompt: {e}")
+            return Result.fail(f"Failed to render prompt: {e}")
 
+        # Define tool for structured output
         tool = ToolDefinition(
-            name="interpret_entropy_structured",
-            description="Provide structured assumptions and actions for the columns",
-            input_schema=Tier1InterpretationOutput.model_json_schema(),
+            name="interpret_entropy",
+            description="Provide structured interpretation of entropy metrics for the columns",
+            input_schema=EntropyInterpretationOutput.model_json_schema(),
         )
 
         model = self.provider.get_model_for_tier(feature_config.model_tier)
 
+        # Call LLM with tool use
         request = ConversationRequest(
             messages=[Message(role="user", content=user_prompt)],
             system=system_prompt,
             tools=[tool],
-            tool_choice={"type": "tool", "name": "interpret_entropy_structured"},
+            tool_choice={"type": "tool", "name": "interpret_entropy"},
             max_tokens=self.config.limits.max_output_tokens_per_request,
             temperature=temperature,
         )
 
+        # Retry logic for transient failures
         max_retries = 2
         last_error = None
 
@@ -385,17 +381,20 @@ class EntropyInterpreter:
 
             response = result.value
 
+            # Extract tool call result
             if not response.tool_calls:
-                last_error = f"LLM did not use the interpret_entropy_structured tool. Response: {(response.content or '')[:200]}"
+                last_error = f"LLM did not use the interpret_entropy tool. Response: {(response.content or '')[:200]}"
                 continue
 
+            # Parse tool response using Pydantic model
             tool_call = response.tool_calls[0]
-            if tool_call.name != "interpret_entropy_structured":
+            if tool_call.name != "interpret_entropy":
                 last_error = f"Unexpected tool call: {tool_call.name}"
                 continue
 
             try:
-                output = Tier1InterpretationOutput.model_validate(tool_call.input)
+                output = EntropyInterpretationOutput.model_validate(tool_call.input)
+                # Diagnostic: log raw tool input when output is empty or partial
                 if len(output.columns) < len(inputs):
                     raw_keys = (
                         list(tool_call.input.get("columns", {}).keys())
@@ -404,41 +403,58 @@ class EntropyInterpreter:
                     )
                     expected_keys = [f"{inp.table_name}.{inp.column_name}" for inp in inputs]
                     logger.warning(
-                        "tier1_column_raw_response_diagnostic",
+                        "interpretation_raw_response_diagnostic",
                         parsed_column_count=len(output.columns),
                         expected_column_count=len(inputs),
                         raw_tool_keys=raw_keys[:20],
                         expected_keys=expected_keys[:20],
+                        raw_top_level_keys=list(tool_call.input.keys())
+                        if isinstance(tool_call.input, dict)
+                        else str(type(tool_call.input)),
                     )
-                # Return Tier1ColumnOutput directly — phase does the merge
-                return self._match_tier1_columns(inputs, output, model)
+                return self._convert_output_to_interpretations(inputs, output, model)
             except Exception as e:
-                last_error = f"Failed to validate T1 tool response: {e}"
+                last_error = f"Failed to validate tool response: {e}"
                 continue
 
-        return Result.fail(last_error or "All T1 retry attempts failed")
+        # All retries failed
+        return Result.fail(last_error or "All retry attempts failed")
 
-    def _match_tier1_columns(
+    def _convert_output_to_interpretations(
         self,
         inputs: list[InterpretationInput],
-        output: Tier1InterpretationOutput,
+        output: EntropyInterpretationOutput,
         model: str,
-    ) -> Result[dict[str, Tier1ColumnOutput]]:
-        """Match Tier 1 column output keys to input keys.
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Convert Pydantic tool output to EntropyInterpretation dataclasses.
 
-        Returns dict of matched Tier1ColumnOutput, logging mismatches.
+        Args:
+            inputs: Original input data for each column
+            output: Validated Pydantic output from LLM
+            model: Model name used for generation
+
+        Returns:
+            Result containing dict mapping column keys to interpretations
         """
+        # Build lookup for inputs
         inputs_by_key = {f"{inp.table_name}.{inp.column_name}": inp for inp in inputs}
+
+        interpretations: dict[str, EntropyInterpretation] = {}
+
+        # Track key mismatches for diagnostics
         expected_keys = set(inputs_by_key.keys())
         returned_keys = set(output.columns.keys())
         matched_keys = expected_keys & returned_keys
         unmatched_returned = returned_keys - expected_keys
+        missing_keys = expected_keys - returned_keys
 
         if unmatched_returned:
-            missing_keys = expected_keys - returned_keys
+            # Dump side-by-side comparison so we can diagnose the root cause
+            # (casing, prefix, hallucination, whitespace, etc.)
             pairs: list[dict[str, str]] = []
             remaining_expected = sorted(missing_keys)
             for ret_key in sorted(unmatched_returned):
+                # Try to find the closest expected key for diagnosis
                 best_match = None
                 ret_lower = ret_key.lower().strip()
                 for exp_key in remaining_expected:
@@ -448,47 +464,86 @@ class EntropyInterpreter:
                 pairs.append(
                     {
                         "returned": repr(ret_key),
-                        "closest_expected": repr(best_match) if best_match else "<no match>",
+                        "closest_expected": repr(best_match)
+                        if best_match
+                        else "<no case-insensitive match>",
                     }
                 )
                 if best_match:
                     remaining_expected.remove(best_match)
             logger.warning(
-                "tier1_column_key_mismatch",
+                "interpretation_key_mismatch",
                 matched=len(matched_keys),
                 expected=len(expected_keys),
                 returned=len(returned_keys),
+                unmatched_returned_keys=sorted(unmatched_returned),
+                missing_expected_keys=sorted(missing_keys),
                 diagnostic_pairs=pairs,
             )
 
         if len(matched_keys) < len(expected_keys):
             logger.warning(
-                "tier1_columns_lost",
+                "interpretation_columns_lost",
                 matched=len(matched_keys),
                 total_expected=len(expected_keys),
+                total_returned=len(returned_keys),
             )
 
-        results: dict[str, Tier1ColumnOutput] = {}
         for key, col_output in output.columns.items():
-            if key in inputs_by_key:
-                results[key] = col_output
-        return Result.ok(results)
+            inp = inputs_by_key.get(key)
+            if not inp:
+                continue
 
-    def interpret_tables_tier1(
+            # Convert assumptions
+            assumptions = [
+                Assumption(
+                    dimension=a.dimension,
+                    assumption_text=a.assumption_text,
+                    confidence=a.confidence,
+                    impact=a.impact,
+                    basis="inferred",
+                )
+                for a in col_output.assumptions
+            ]
+
+            # Convert resolution actions
+            resolution_actions = [
+                ResolutionAction(
+                    action=r.action,
+                    description=r.description,
+                    effort=r.effort,
+                    expected_impact=r.expected_impact,
+                    parameters=r.parameters,
+                )
+                for r in col_output.resolution_actions
+            ]
+
+            interpretations[key] = EntropyInterpretation(
+                column_name=inp.column_name,
+                table_name=inp.table_name,
+                assumptions=assumptions,
+                resolution_actions=resolution_actions,
+                explanation=col_output.explanation,
+                model_used=model,
+            )
+
+        return Result.ok(interpretations)
+
+    def interpret_tables(
         self,
         session: Session,
         inputs: list[TableInterpretationInput],
-    ) -> Result[dict[str, Tier1TableOutput]]:
-        """Tier 1: Extract assumptions and actions for tables (no explanation).
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Interpret entropy at the table level.
 
-        Uses fast model (Haiku) for structured extraction.
+        Makes a single batch LLM call for all tables using tool-based output.
 
         Args:
             session: Database session
             inputs: List of TableInterpretationInput for each table
 
         Returns:
-            Result containing dict mapping table_name to Tier1TableOutput
+            Result containing dict mapping table_name to interpretations
         """
         from dataraum.llm.providers.base import (
             ConversationRequest,
@@ -499,18 +554,18 @@ class EntropyInterpreter:
         if not inputs:
             return Result.fail("No inputs provided for table interpretation")
 
-        feature_config = self.config.features.entropy_interpretation_structured
+        feature_config = self.config.features.entropy_interpretation
         if not feature_config or not feature_config.enabled:
-            return Result.fail("entropy_interpretation_structured is disabled in config")
+            return Result.fail("entropy_interpretation is disabled in config")
 
-        # Build tables JSON for prompt
+        # Build tables JSON for prompt — compact form with network analysis
         tables_data = []
         for inp in inputs:
             if inp.network_analysis is None:
                 logger.error(
                     "table_interpretation_missing_network_analysis",
                     table=inp.table_name,
-                    message="Table has no network_analysis — skipping from T1 batch",
+                    message="Table has no network_analysis — skipping from interpretation batch",
                 )
                 continue
 
@@ -519,6 +574,7 @@ class EntropyInterpreter:
                 "column_count": inp.column_count,
                 "network_analysis": inp.network_analysis,
             }
+            # Add enrichment context if available
             if inp.dimensional_patterns:
                 table_entry["dimensional_patterns"] = inp.dimensional_patterns
             if inp.column_interpretations_summary:
@@ -527,12 +583,13 @@ class EntropyInterpreter:
                 table_entry["quality_overview"] = inp.quality_overview
             tables_data.append(table_entry)
 
-        # Extract resolution guidelines from column T1 prompt for reuse
+        # Extract resolution guidelines from column prompt for reuse
         resolution_guidelines = ""
         try:
             _, full_system, _ = self.renderer.render_split(
-                "entropy_tier1", {"columns_json": "[]"}
+                "entropy_interpretation", {"columns_json": "[]"}
             )
+            # Extract resolution_guidelines section if present
             if "<resolution_guidelines>" in full_system:
                 start = full_system.index("<resolution_guidelines>")
                 end = full_system.index("</resolution_guidelines>") + len(
@@ -547,17 +604,19 @@ class EntropyInterpreter:
             "resolution_guidelines": resolution_guidelines,
         }
 
+        # Render prompt
         try:
             system_prompt, user_prompt, temperature = self.renderer.render_split(
-                "entropy_table_tier1", context
+                "entropy_table_interpretation", context
             )
         except Exception as e:
-            return Result.fail(f"Failed to render T1 table prompt: {e}")
+            return Result.fail(f"Failed to render table interpretation prompt: {e}")
 
+        # Define tool for structured output
         tool = ToolDefinition(
-            name="interpret_table_entropy_structured",
-            description="Provide structured assumptions and actions for the tables",
-            input_schema=Tier1TableInterpretationOutput.model_json_schema(),
+            name="interpret_table_entropy",
+            description="Provide structured interpretation of entropy metrics for the tables",
+            input_schema=TableEntropyInterpretationOutput.model_json_schema(),
         )
 
         model = self.provider.get_model_for_tier(feature_config.model_tier)
@@ -566,11 +625,12 @@ class EntropyInterpreter:
             messages=[Message(role="user", content=user_prompt)],
             system=system_prompt,
             tools=[tool],
-            tool_choice={"type": "tool", "name": "interpret_table_entropy_structured"},
+            tool_choice={"type": "tool", "name": "interpret_table_entropy"},
             max_tokens=self.config.limits.max_output_tokens_per_request,
             temperature=temperature,
         )
 
+        # Retry logic
         max_retries = 2
         last_error = None
 
@@ -583,16 +643,17 @@ class EntropyInterpreter:
             response = result.value
 
             if not response.tool_calls:
-                last_error = f"LLM did not use the interpret_table_entropy_structured tool. Response: {(response.content or '')[:200]}"
+                last_error = f"LLM did not use the interpret_table_entropy tool. Response: {(response.content or '')[:200]}"
                 continue
 
             tool_call = response.tool_calls[0]
-            if tool_call.name != "interpret_table_entropy_structured":
+            if tool_call.name != "interpret_table_entropy":
                 last_error = f"Unexpected tool call: {tool_call.name}"
                 continue
 
             try:
-                output = Tier1TableInterpretationOutput.model_validate(tool_call.input)
+                output = TableEntropyInterpretationOutput.model_validate(tool_call.input)
+                # Diagnostic: log raw tool input when output is empty or partial
                 if len(output.tables) < len(inputs):
                     raw_keys = (
                         list(tool_call.input.get("tables", {}).keys())
@@ -601,33 +662,38 @@ class EntropyInterpreter:
                     )
                     expected_keys = [inp.table_name for inp in inputs]
                     logger.warning(
-                        "tier1_table_raw_response_diagnostic",
+                        "table_interpretation_raw_response_diagnostic",
                         parsed_table_count=len(output.tables),
                         expected_table_count=len(inputs),
                         raw_tool_keys=raw_keys[:20],
                         expected_keys=expected_keys[:20],
+                        raw_top_level_keys=list(tool_call.input.keys())
+                        if isinstance(tool_call.input, dict)
+                        else str(type(tool_call.input)),
                     )
-                return self._match_tier1_tables(inputs, output, model)
+                return self._convert_table_output(inputs, output, model)
             except Exception as e:
-                last_error = f"Failed to validate T1 table tool response: {e}"
+                last_error = f"Failed to validate tool response: {e}"
                 continue
 
-        return Result.fail(last_error or "All T1 table retry attempts failed")
+        return Result.fail(last_error or "All retry attempts failed")
 
-    def _match_tier1_tables(
+    def _convert_table_output(
         self,
         inputs: list[TableInterpretationInput],
-        output: Tier1TableInterpretationOutput,
+        output: TableEntropyInterpretationOutput,
         model: str,
-    ) -> Result[dict[str, Tier1TableOutput]]:
-        """Match Tier 1 table output keys to input keys."""
+    ) -> Result[dict[str, EntropyInterpretation]]:
+        """Convert table LLM output to EntropyInterpretation dataclasses."""
         inputs_by_name = {inp.table_name: inp for inp in inputs}
+        interpretations: dict[str, EntropyInterpretation] = {}
+
+        # Track key mismatches
         expected_keys = set(inputs_by_name.keys())
         returned_keys = set(output.tables.keys())
         unmatched = returned_keys - expected_keys
-
+        missing = expected_keys - returned_keys
         if unmatched:
-            missing = expected_keys - returned_keys
             pairs: list[dict[str, str]] = []
             remaining_expected = sorted(missing)
             for ret_key in sorted(unmatched):
@@ -640,169 +706,58 @@ class EntropyInterpreter:
                 pairs.append(
                     {
                         "returned": repr(ret_key),
-                        "closest_expected": repr(best_match) if best_match else "<no match>",
+                        "closest_expected": repr(best_match)
+                        if best_match
+                        else "<no case-insensitive match>",
                     }
                 )
                 if best_match:
                     remaining_expected.remove(best_match)
             logger.warning(
-                "tier1_table_key_mismatch",
+                "table_interpretation_key_mismatch",
                 expected_keys=sorted(expected_keys),
                 returned_keys=sorted(returned_keys),
+                unmatched=sorted(unmatched),
                 diagnostic_pairs=pairs,
             )
 
-        results: dict[str, Tier1TableOutput] = {}
         for table_name, table_output in output.tables.items():
-            if table_name in inputs_by_name:
-                results[table_name] = table_output
-        return Result.ok(results)
+            inp = inputs_by_name.get(table_name)
+            if not inp:
+                continue
 
-    # =========================================================================
-    # Tier 2: Explanation synthesis (Sonnet) — single call for all items
-    # =========================================================================
-
-    def synthesize_explanations(
-        self,
-        session: Session,
-        tier1_columns: dict[str, Tier1ColumnOutput],
-        tier1_tables: dict[str, Tier1TableOutput],
-        column_inputs: list[InterpretationInput],
-        table_inputs: list[TableInterpretationInput],
-    ) -> Result[dict[str, str]]:
-        """Tier 2: Synthesize explanations for all columns and tables.
-
-        Uses balanced model (Sonnet) for a single call covering all items.
-        Receives compact summaries of Tier 1 output.
-
-        Args:
-            session: Database session
-            tier1_columns: Tier 1 column results keyed by table.column
-            tier1_tables: Tier 1 table results keyed by table_name
-            column_inputs: Original column inputs (for readiness context)
-            table_inputs: Original table inputs (for readiness context)
-
-        Returns:
-            Result containing dict mapping keys to explanation strings
-        """
-        from dataraum.llm.providers.base import (
-            ConversationRequest,
-            Message,
-            ToolDefinition,
-        )
-
-        if not tier1_columns and not tier1_tables:
-            return Result.ok({})
-
-        feature_config = self.config.features.entropy_interpretation
-        if not feature_config or not feature_config.enabled:
-            return Result.fail("entropy_interpretation is disabled in config")
-
-        # Build compact summaries for prompt — minimize input tokens
-        inputs_by_key = {
-            f"{inp.table_name}.{inp.column_name}": inp for inp in column_inputs
-        }
-        table_inputs_by_name = {inp.table_name: inp for inp in table_inputs}
-
-        lines: list[str] = []
-        for key, col_out in sorted(tier1_columns.items()):
-            inp = inputs_by_key.get(key)
-            readiness = "unknown"
-            if inp and inp.network_analysis:
-                readiness = inp.network_analysis.get("readiness", "unknown")
-            assumption_parts = [
-                f"{a.dimension}[{a.confidence}]" for a in col_out.assumptions
+            assumptions = [
+                Assumption(
+                    dimension=a.dimension,
+                    assumption_text=a.assumption_text,
+                    confidence=a.confidence,
+                    impact=a.impact,
+                    basis="inferred",
+                )
+                for a in table_output.assumptions
             ]
-            top_action = col_out.resolution_actions[0].action if col_out.resolution_actions else None
-            line = (
-                f"{key}: readiness={readiness}, "
-                f"{len(col_out.assumptions)} assumptions ({', '.join(assumption_parts) or 'none'}), "
-                f"{len(col_out.resolution_actions)} actions"
-            )
-            if top_action:
-                line += f" (top: {top_action})"
-            lines.append(line)
 
-        for tbl_name, tbl_out in sorted(tier1_tables.items()):
-            tbl_inp = table_inputs_by_name.get(tbl_name)
-            readiness = "unknown"
-            if tbl_inp and tbl_inp.network_analysis:
-                readiness = tbl_inp.network_analysis.get("readiness", "unknown")
-            assumption_parts = [
-                f"{a.dimension}[{a.confidence}]" for a in tbl_out.assumptions
+            resolution_actions = [
+                ResolutionAction(
+                    action=r.action,
+                    description=r.description,
+                    effort=r.effort,
+                    expected_impact=r.expected_impact,
+                    parameters=r.parameters,
+                )
+                for r in table_output.resolution_actions
             ]
-            top_action = tbl_out.resolution_actions[0].action if tbl_out.resolution_actions else None
-            line = (
-                f"[table] {tbl_name}: readiness={readiness}, "
-                f"{len(tbl_out.assumptions)} assumptions ({', '.join(assumption_parts) or 'none'}), "
-                f"{len(tbl_out.resolution_actions)} actions"
+
+            interpretations[table_name] = EntropyInterpretation(
+                column_name=None,
+                table_name=table_name,
+                assumptions=assumptions,
+                resolution_actions=resolution_actions,
+                explanation=table_output.explanation,
+                model_used=model,
             )
-            if top_action:
-                line += f" (top: {top_action})"
-            lines.append(line)
 
-        items_summary = "\n".join(lines)
-
-        context: dict[str, str] = {"items_summary": items_summary}
-
-        try:
-            system_prompt, user_prompt, temperature = self.renderer.render_split(
-                "entropy_tier2", context
-            )
-        except Exception as e:
-            return Result.fail(f"Failed to render T2 prompt: {e}")
-
-        tool = ToolDefinition(
-            name="synthesize_explanations",
-            description="Provide concise explanations for each column and table",
-            input_schema=Tier2InterpretationsOutput.model_json_schema(),
-        )
-
-        # Resolve model for tier (validates tier exists)
-        self.provider.get_model_for_tier(feature_config.model_tier)
-
-        request = ConversationRequest(
-            messages=[Message(role="user", content=user_prompt)],
-            system=system_prompt,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": "synthesize_explanations"},
-            max_tokens=self.config.limits.max_output_tokens_per_request,
-            temperature=temperature,
-        )
-
-        max_retries = 2
-        last_error = None
-
-        for _attempt in range(max_retries + 1):
-            result = self.provider.converse(request)
-            if not result.success or not result.value:
-                last_error = result.error or "LLM call failed"
-                continue
-
-            response = result.value
-
-            if not response.tool_calls:
-                last_error = f"LLM did not use synthesize_explanations tool. Response: {(response.content or '')[:200]}"
-                continue
-
-            tool_call = response.tool_calls[0]
-            if tool_call.name != "synthesize_explanations":
-                last_error = f"Unexpected tool call: {tool_call.name}"
-                continue
-
-            try:
-                output = Tier2InterpretationsOutput.model_validate(tool_call.input)
-                # Return flat dict of key -> explanation string
-                explanations: dict[str, str] = {
-                    key: item.explanation for key, item in output.items.items()
-                }
-                return Result.ok(explanations)
-            except Exception as e:
-                last_error = f"Failed to validate T2 tool response: {e}"
-                continue
-
-        return Result.fail(last_error or "All T2 retry attempts failed")
-
+        return Result.ok(interpretations)
 
 
 __all__ = [
@@ -815,12 +770,8 @@ __all__ = [
     # Pydantic output models for tool use
     "AssumptionOutput",
     "ResolutionActionOutput",
-    # Tier 1 (structured extraction)
-    "Tier1ColumnOutput",
-    "Tier1InterpretationOutput",
-    "Tier1TableOutput",
-    "Tier1TableInterpretationOutput",
-    # Tier 2 (explanation synthesis)
-    "Tier2ExplanationOutput",
-    "Tier2InterpretationsOutput",
+    "ColumnInterpretationOutput",
+    "EntropyInterpretationOutput",
+    "TableInterpretationLLMOutput",
+    "TableEntropyInterpretationOutput",
 ]
