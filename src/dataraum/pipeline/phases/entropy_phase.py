@@ -335,7 +335,7 @@ class EntropyPhase(BasePhase):
                                 "iqr_outlier_count": outlier_data.get("iqr_outlier_count", 0),
                                 "iqr_lower_fence": outlier_data.get("iqr_lower_fence"),
                                 "iqr_upper_fence": outlier_data.get("iqr_upper_fence"),
-                                "isolation_forest_anomaly_ratio": qm.isolation_forest_anomaly_ratio,
+                                "zscore_outlier_ratio": qm.zscore_outlier_ratio,
                                 "has_outliers": bool(qm.has_outliers),
                             },
                             "benford_compliant": bool(qm.benford_compliant)

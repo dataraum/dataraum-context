@@ -83,18 +83,21 @@ class OutlierRateDetector(EntropyDetector):
         elif isinstance(quality, dict):
             outlier_detection = quality.get("outlier_detection")
 
-        # Extract IQR outlier ratio
+        # Extract IQR and Z-score outlier ratios
+        zscore_ratio: float = 0.0
         if outlier_detection:
             if hasattr(outlier_detection, "iqr_outlier_ratio"):
                 outlier_ratio = outlier_detection.iqr_outlier_ratio
                 outlier_count = getattr(outlier_detection, "iqr_outlier_count", 0)
                 lower_fence = getattr(outlier_detection, "iqr_lower_fence", None)
                 upper_fence = getattr(outlier_detection, "iqr_upper_fence", None)
+                zscore_ratio = getattr(outlier_detection, "zscore_outlier_ratio", 0.0)
             else:
                 outlier_ratio = outlier_detection.get("iqr_outlier_ratio", 0.0)
                 outlier_count = outlier_detection.get("iqr_outlier_count", 0)
                 lower_fence = outlier_detection.get("iqr_lower_fence")
                 upper_fence = outlier_detection.get("iqr_upper_fence")
+                zscore_ratio = outlier_detection.get("zscore_outlier_ratio", 0.0)
         else:
             # No outlier detection available - check for direct ratio
             outlier_ratio = stats.get("iqr_outlier_ratio", 0.0)
@@ -135,17 +138,22 @@ class OutlierRateDetector(EntropyDetector):
         # Attenuate score for high-CV columns where IQR outlier detection is unreliable.
         # Columns with high coefficient of variation (e.g., FX rates spanning 0.7 to 150)
         # naturally have wide ranges — IQR "outliers" are legitimate values, not quality issues.
-        # Proportional dampening: higher CV → more attenuation, but preserves relative ordering.
-        # Floor of 0.4 prevents self-defeating attenuation when injected outliers inflate CV.
+        # Uses robust_cv (MAD/|median|) which is not inflated by the outliers being detected,
+        # avoiding the self-defeating attenuation loop that stddev-based CV caused.
+        # Falls back to classical cv for profiles computed before robust_cv was added.
         cv_attenuated = False
-        cv_dampen_floor = detector_config.get("cv_dampen_floor", 0.4)
+        cv_type: str | None = None
         profile_data = stats.get("profile_data", {})
         if isinstance(profile_data, dict):
             numeric_stats = profile_data.get("numeric_stats", {})
             if isinstance(numeric_stats, dict):
-                cv = numeric_stats.get("cv")
+                cv = numeric_stats.get("robust_cv")
+                cv_type = "robust_cv"
+                if cv is None:
+                    cv = numeric_stats.get("cv")
+                    cv_type = "cv"
                 if cv is not None and cv > cv_attenuation_threshold:
-                    dampen = max(cv_dampen_floor, cv_attenuation_threshold / cv)
+                    dampen = cv_attenuation_threshold / cv
                     score = score * dampen
                     cv_attenuated = True
 
@@ -172,6 +180,15 @@ class OutlierRateDetector(EntropyDetector):
         if cv_attenuated:
             evidence_dict["cv_attenuated"] = True
             evidence_dict["cv"] = cv  # type: ignore[possibly-undefined]
+            evidence_dict["cv_type"] = cv_type
+
+        # Add Z-score cross-method evidence
+        if zscore_ratio > 0:
+            evidence_dict["zscore_outlier_ratio"] = zscore_ratio
+            iqr = outlier_ratio
+            if iqr > 0 and zscore_ratio > 0:
+                evidence_dict["method_agreement"] = min(iqr, zscore_ratio) / max(iqr, zscore_ratio)
+
         evidence = [evidence_dict]
 
         # Build resolution options using configurable thresholds

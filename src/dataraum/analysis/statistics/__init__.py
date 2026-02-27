@@ -10,7 +10,7 @@ Computes column-level statistics on typed data:
 
 Statistical Quality (moved from quality/ in Phase 9A):
 - Benford's Law compliance (fraud detection)
-- Outlier detection (IQR + Isolation Forest)
+- Outlier detection (IQR + Modified Z-Score)
 """
 
 from dataraum.analysis.statistics.db_models import (
@@ -32,7 +32,7 @@ from dataraum.analysis.statistics.quality import (
     assess_statistical_quality,
     check_benford_law,
     detect_outliers_iqr,
-    detect_outliers_isolation_forest,
+    detect_outliers_zscore,
 )
 from dataraum.analysis.statistics.quality_db_models import (
     StatisticalQualityMetrics,
@@ -45,7 +45,7 @@ __all__ = [
     # Quality functions
     "check_benford_law",
     "detect_outliers_iqr",
-    "detect_outliers_isolation_forest",
+    "detect_outliers_zscore",
     # DB Models
     "StatisticalProfile",
     "StatisticalQualityMetrics",

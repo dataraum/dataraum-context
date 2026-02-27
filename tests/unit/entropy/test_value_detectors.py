@@ -321,27 +321,28 @@ class TestOutlierRateDetector:
         assert results[0].score > 0
 
     def test_cv_attenuation_proportional(self, detector: OutlierRateDetector):
-        """High-CV columns get proportionally dampened scores, not hard-capped."""
+        """High-CV columns get proportionally dampened scores using robust_cv."""
         context = DetectorContext(
             table_name="orders",
             column_name="fx_rate",
             analysis_results={
                 "statistics": {
                     "outlier_detection": {"iqr_outlier_ratio": 0.10},
-                    "profile_data": {"numeric_stats": {"cv": 6.5}},
+                    "profile_data": {"numeric_stats": {"robust_cv": 6.5}},
                 },
                 "semantic": {"semantic_role": "measure"},
             },
         )
         results = detector.detect(context)
         assert len(results) == 1
-        # Raw score at 10% = 0.65. CV=6.5, threshold=2.0 → dampen = max(0.4, 2.0/6.5) = 0.4
-        # Attenuated = 0.65 * 0.4 = 0.260
-        assert results[0].score == pytest.approx(0.260, abs=0.01)
+        # Raw score at 10% = 0.65. robust_cv=6.5, threshold=2.0 → dampen = 2.0/6.5 ≈ 0.308
+        # Attenuated = 0.65 * 0.308 = 0.200
+        assert results[0].score == pytest.approx(0.200, abs=0.01)
         assert results[0].evidence[0]["cv_attenuated"] is True
+        assert results[0].evidence[0]["cv_type"] == "robust_cv"
 
     def test_cv_attenuation_preserves_ordering(self, detector: OutlierRateDetector):
-        """Two columns with same CV: higher outlier ratio → higher attenuated score."""
+        """Two columns with same robust_cv: higher outlier ratio → higher attenuated score."""
         scores = []
         for ratio in [0.10, 0.15]:
             context = DetectorContext(
@@ -350,7 +351,7 @@ class TestOutlierRateDetector:
                 analysis_results={
                     "statistics": {
                         "outlier_detection": {"iqr_outlier_ratio": ratio},
-                        "profile_data": {"numeric_stats": {"cv": 4.0}},
+                        "profile_data": {"numeric_stats": {"robust_cv": 4.0}},
                     },
                     "semantic": {"semantic_role": "measure"},
                 },
@@ -360,14 +361,14 @@ class TestOutlierRateDetector:
         assert scores[1] > scores[0], f"Higher ratio should give higher score: {scores}"
 
     def test_no_cv_attenuation_below_threshold(self, detector: OutlierRateDetector):
-        """Scores are not attenuated when CV is below threshold."""
+        """Scores are not attenuated when robust_cv is below threshold."""
         context = DetectorContext(
             table_name="orders",
             column_name="amount",
             analysis_results={
                 "statistics": {
                     "outlier_detection": {"iqr_outlier_ratio": 0.10},
-                    "profile_data": {"numeric_stats": {"cv": 1.5}},
+                    "profile_data": {"numeric_stats": {"robust_cv": 1.5}},
                 },
                 "semantic": {"semantic_role": "measure"},
             },
@@ -377,6 +378,27 @@ class TestOutlierRateDetector:
         # No attenuation: raw score at 10% = 0.65
         assert results[0].score == pytest.approx(0.65, abs=0.01)
         assert "cv_attenuated" not in results[0].evidence[0]
+
+    def test_cv_attenuation_falls_back_to_cv(self, detector: OutlierRateDetector):
+        """Falls back to classical cv when robust_cv is not available."""
+        context = DetectorContext(
+            table_name="orders",
+            column_name="amount",
+            analysis_results={
+                "statistics": {
+                    "outlier_detection": {"iqr_outlier_ratio": 0.10},
+                    "profile_data": {"numeric_stats": {"cv": 4.0}},
+                },
+                "semantic": {"semantic_role": "measure"},
+            },
+        )
+        results = detector.detect(context)
+        assert len(results) == 1
+        # Raw score at 10% = 0.65. cv=4.0, threshold=2.0 → dampen = 2.0/4.0 = 0.5
+        # Attenuated = 0.65 * 0.5 = 0.325
+        assert results[0].score == pytest.approx(0.325, abs=0.01)
+        assert results[0].evidence[0]["cv_attenuated"] is True
+        assert results[0].evidence[0]["cv_type"] == "cv"
 
     def test_detector_properties(self, detector: OutlierRateDetector):
         """Test detector has correct properties."""

@@ -4,6 +4,57 @@ import numpy as np
 from scipy import stats
 
 
+class TestModifiedZScore:
+    """Test Modified Z-Score outlier detection math."""
+
+    def test_known_outliers_detected(self):
+        """Modified Z-score detects known outliers in normal data."""
+        np.random.seed(42)
+        data = np.random.normal(100, 10, size=1000)
+        outliers = np.array([300, 400, -100, -200])
+        data = np.concatenate([data, outliers])
+
+        median = np.median(data)
+        mad = np.median(np.abs(data - median))
+        modified_z = 0.6745 * np.abs(data - median) / mad
+
+        # All injected outliers should exceed threshold 3.5
+        outlier_mask = modified_z > 3.5
+        detected = np.sum(outlier_mask)
+        assert detected >= 4, f"Should detect at least 4 outliers, found {detected}"
+
+    def test_constant_data_returns_zero_mad(self):
+        """Constant data has MAD=0, no outliers possible."""
+        data = np.full(100, 42.0)
+        median = np.median(data)
+        mad = np.median(np.abs(data - median))
+        assert mad == 0.0
+
+    def test_threshold_sensitivity(self):
+        """Lower threshold detects more outliers."""
+        np.random.seed(42)
+        data = np.random.normal(100, 10, size=1000)
+        median = np.median(data)
+        mad = np.median(np.abs(data - median))
+        modified_z = 0.6745 * np.abs(data - median) / mad
+
+        count_strict = np.sum(modified_z > 3.5)
+        count_loose = np.sum(modified_z > 2.5)
+        assert count_loose >= count_strict
+
+    def test_robust_to_outliers(self):
+        """MAD is not inflated by outliers (unlike stddev)."""
+        np.random.seed(42)
+        clean = np.random.normal(100, 10, size=1000)
+        dirty = np.concatenate([clean, np.array([10000, 20000, 30000])])
+
+        mad_clean = np.median(np.abs(clean - np.median(clean)))
+        mad_dirty = np.median(np.abs(dirty - np.median(dirty)))
+
+        # MAD should barely change despite extreme outliers
+        assert abs(mad_dirty - mad_clean) / mad_clean < 0.05
+
+
 class TestBenfordLaw:
     """Test Benford's Law compliance checking."""
 

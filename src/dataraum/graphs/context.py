@@ -661,7 +661,7 @@ def build_execution_context(
             cardinality_ratio = stat_prof.cardinality_ratio if stat_prof else None
             outlier_ratio = None
             if quality:
-                outlier_ratio = quality.iqr_outlier_ratio or quality.isolation_forest_anomaly_ratio
+                outlier_ratio = quality.iqr_outlier_ratio or quality.zscore_outlier_ratio
 
             # Generate column flags
             flags = _generate_column_flags(
