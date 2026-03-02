@@ -295,7 +295,7 @@ def filter_interesting_columns(
 
     if not config.enabled:
         # Filtering disabled - return all columns
-        logger.info("Slice variance filtering disabled, processing all columns")
+        logger.debug("Slice variance filtering disabled, processing all columns")
         return columns_data, {}
 
     all_metrics: dict[str, SliceVarianceMetrics] = {}
@@ -317,7 +317,7 @@ def filter_interesting_columns(
         if metrics.classification == ColumnClassification.INTERESTING:
             interesting_columns.append(col_data)
 
-    logger.info(
+    logger.debug(
         "slice_variance_filter_applied",
         total_columns=len(columns_data),
         empty=counts[ColumnClassification.EMPTY],

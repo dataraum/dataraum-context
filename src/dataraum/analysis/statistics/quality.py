@@ -458,7 +458,7 @@ def assess_statistical_quality(
         if not numeric_columns:
             return Result.ok([])
 
-        logger.info(
+        logger.debug(
             "assessing_statistical_quality",
             table=table.table_name,
             numeric_columns=len(numeric_columns),
@@ -532,7 +532,7 @@ def assess_statistical_quality(
                     )
                     session.add(db_metric)
 
-        logger.info(
+        logger.debug(
             "statistical_quality_assessment_complete",
             table=table.table_name,
             results=len(results),

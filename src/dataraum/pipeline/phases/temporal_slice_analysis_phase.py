@@ -177,7 +177,7 @@ class TemporalSliceAnalysisPhase(BasePhase):
                     break
 
             if not time_profile:
-                logger.info(
+                logger.debug(
                     "configured_time_column_not_found",
                     configured_column=time_column,
                     message="Falling back to auto-detection",
@@ -205,7 +205,7 @@ class TemporalSliceAnalysisPhase(BasePhase):
                     ):
                         time_column = entity.time_column
                         time_profile = tc
-                        logger.info(
+                        logger.debug(
                             "time_column_from_semantic",
                             time_column=time_column,
                             table_id=entity.table_id,

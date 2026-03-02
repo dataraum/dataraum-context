@@ -239,7 +239,7 @@ def analyze_column_drift(
         Result containing list of ColumnDriftResult, one per categorical column
     """
     try:
-        logger.info(
+        logger.debug(
             "drift_analysis_start",
             table=slice_table_name,
             time_column=time_column,
@@ -315,7 +315,7 @@ def analyze_column_drift(
                 )
             )
 
-        logger.info(
+        logger.debug(
             "drift_analysis_complete",
             table=slice_table_name,
             columns_analyzed=len(results),
@@ -572,7 +572,7 @@ def analyze_period_metrics(
         Result containing PeriodAnalysisResult with metrics, completeness, and anomalies
     """
     try:
-        logger.info(
+        logger.debug(
             "period_analysis_start",
             table=slice_table_name,
             time_column=time_column,
@@ -614,7 +614,7 @@ def analyze_period_metrics(
             volume_anomalies=anomalies,
         )
 
-        logger.info(
+        logger.debug(
             "period_analysis_complete",
             table=slice_table_name,
             periods=len(periods),

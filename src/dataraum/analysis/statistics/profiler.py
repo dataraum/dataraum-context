@@ -356,7 +356,7 @@ def profile_statistics(
         if unresolved:
             return Result.fail(f"Columns missing resolved_type in typed table: {unresolved}")
 
-        logger.info("profiling_statistics", table=table.table_name, columns=len(columns))
+        logger.debug("profiling_statistics", table=table.table_name, columns=len(columns))
 
         profiled_at = datetime.now(UTC)
         profiles: list[ColumnProfile] = []
@@ -415,7 +415,7 @@ def profile_statistics(
 
         duration = time.time() - start_time
 
-        logger.info(
+        logger.debug(
             "profiling_statistics_complete",
             table=table.table_name,
             profiles=len(profiles),

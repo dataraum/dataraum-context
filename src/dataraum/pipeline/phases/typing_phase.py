@@ -168,7 +168,7 @@ class TypingPhase(BasePhase):
             ctx.session.add(typed_col)
             type_decisions[new_col_id] = resolved_type
 
-        logger.info(
+        logger.debug(
             "strongly_typed_promoted",
             table=table.table_name,
             columns=len(table.columns),

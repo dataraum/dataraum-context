@@ -437,7 +437,7 @@ class EntropyPhase(BasePhase):
             typed_tables=typed_tables,
         )
         all_domain_objects.extend(dimensional_objects)
-        logger.info(
+        logger.debug(
             "dimensional_entropy_results",
             objects_count=len(dimensional_objects),
         )
@@ -601,7 +601,7 @@ def _run_dimensional_entropy(
     all_entropy_objects: list[EntropyObject] = []
     detector = DimensionalEntropyDetector()
 
-    logger.info("dimensional_entropy_start", tables=len(typed_tables))
+    logger.debug("dimensional_entropy_start", tables=len(typed_tables))
 
     for table in typed_tables:
         # Get column IDs for this typed table (FK-based scoping)
@@ -615,7 +615,7 @@ def _run_dimensional_entropy(
         )
         profiles = list(ctx.session.execute(profiles_stmt).scalars().all())
 
-        logger.info(
+        logger.debug(
             "dimensional_entropy_profiles_loaded",
             table=table.table_name,
             profile_count=len(profiles),
@@ -852,14 +852,14 @@ def _run_dimensional_entropy(
             )
             all_entropy_objects.append(column_entropy_obj)
 
-        logger.info(
+        logger.debug(
             "column_quality_reports_processed",
             table=table.table_name,
             reports_count=len(quality_reports),
             columns_with_findings=len(reports_by_column),
         )
 
-        logger.info(
+        logger.debug(
             "dimensional_entropy_context_built",
             table=table.table_name,
             columns_count=len(columns_data),
@@ -871,13 +871,13 @@ def _run_dimensional_entropy(
         entropy_objects = detector.detect(context)
         all_entropy_objects.extend(entropy_objects)
 
-        logger.info(
+        logger.debug(
             "dimensional_entropy_detected",
             table=table.table_name,
             entropy_objects=len(entropy_objects),
         )
 
-    logger.info(
+    logger.debug(
         "dimensional_entropy_complete",
         total_objects=len(all_entropy_objects),
     )

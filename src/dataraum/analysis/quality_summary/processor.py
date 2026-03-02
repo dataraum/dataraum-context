@@ -399,7 +399,7 @@ def summarize_quality(
 
         # Log classification summary
         classifications = {name: m.classification.value for name, m in variance_metrics.items()}
-        logger.info(
+        logger.debug(
             "variance_classifications",
             total=len(columns_with_data),
             filtered=len(columns_to_process),

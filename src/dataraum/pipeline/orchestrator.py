@@ -289,7 +289,7 @@ class Pipeline:
             if self._force_target and self._force_target in self._completed:
                 self._completed.discard(self._force_target)
                 self._outputs.pop(self._force_target, None)
-                logger.info(f"Force re-run: removed {self._force_target} from completed set")
+                logger.debug(f"Force re-run: removed {self._force_target} from completed set")
 
         # Get phases to run
         phases_to_run = self.get_phases_to_run(target_phase)
@@ -343,7 +343,7 @@ class Pipeline:
 
                         phase = self.phases.get(name)
                         if not phase:
-                            logger.info(f"Phase {name} skipped: no implementation registered")
+                            logger.debug(f"Phase {name} skipped: no implementation registered")
                             self._skipped.add(name)
                             continue
 

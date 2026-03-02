@@ -194,7 +194,7 @@ class ColumnEligibilityPhase(BasePhase):
                 for column, _ in columns_data:
                     ctx.session.delete(column)
 
-                logger.info(
+                logger.debug(
                     "columns_dropped",
                     table=table.table_name,
                     dropped_count=len(columns_data),

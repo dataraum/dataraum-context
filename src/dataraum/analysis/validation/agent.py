@@ -615,7 +615,7 @@ class ValidationAgent(LLMFeature):
             )
             session.add(result_record)
 
-        logger.info(
+        logger.debug(
             "validation_results_persisted",
             run_id=run_result.run_id,
             count=len(run_result.results),

@@ -79,7 +79,7 @@ def run(
             "--verbose",
             "-v",
             count=True,
-            help="Increase logging verbosity (-v=INFO, -vv=DEBUG)",
+            help="Increase logging verbosity (-v=DEBUG)",
         ),
     ] = 0,
     log_format: Annotated[

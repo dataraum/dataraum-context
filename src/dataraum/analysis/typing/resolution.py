@@ -372,7 +372,7 @@ def resolve_types(
             )
         )
 
-    logger.info(
+    logger.debug(
         "type_resolution_completed",
         table=table.table_name,
         total_rows=total_rows,

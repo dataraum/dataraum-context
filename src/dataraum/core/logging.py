@@ -281,6 +281,11 @@ def configure_logging(
         force=True,
     )
 
+    # Suppress noisy third-party loggers
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
+
 
 def get_logger(name: str | None = None) -> FilteringBoundLogger:
     """Get a structured logger.

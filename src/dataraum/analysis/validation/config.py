@@ -49,7 +49,7 @@ def load_all_validation_specs(vertical: str) -> dict[str, ValidationSpec]:
         specs[spec.validation_id] = spec
         logger.debug("validation_spec_loaded", validation_id=spec.validation_id)
 
-    logger.info("validation_specs_loaded", count=len(specs))
+    logger.debug("validation_specs_loaded", count=len(specs))
     return specs
 
 

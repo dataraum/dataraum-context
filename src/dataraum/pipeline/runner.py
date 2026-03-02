@@ -286,7 +286,7 @@ def _check_fingerprint_and_invalidate(
             return False  # Same sources, skip_completed can work
 
         # Fingerprint changed — delete all checkpoints for this source_id
-        logger.info(
+        logger.debug(
             "source_set_changed",
             source_id=source_id,
             old_fingerprint=old_fingerprint,
@@ -367,14 +367,14 @@ def run(config: RunConfig) -> Result[RunResult]:
 
                 if existing_source:
                     source_id = existing_source.source_id
-                    logger.info(
+                    logger.debug(
                         "using_existing_source",
                         source_name=source_name,
                         source_id=source_id,
                     )
                 else:
                     source_id = str(uuid4())
-                    logger.info(
+                    logger.debug(
                         "creating_new_source",
                         source_name=source_name,
                         source_id=source_id,
@@ -385,7 +385,7 @@ def run(config: RunConfig) -> Result[RunResult]:
             fingerprint = _compute_source_set_fingerprint(registered_sources)
             changed = _check_fingerprint_and_invalidate(manager, source_id, fingerprint)
             if changed:
-                logger.info("source_set_fingerprint_changed", fingerprint=fingerprint)
+                logger.debug("source_set_fingerprint_changed", fingerprint=fingerprint)
         else:
             fingerprint = None
 
