@@ -170,7 +170,7 @@ class ColumnAnnotationAgent(LLMFeature):
 
         try:
             output = ColumnAnnotationOutput.model_validate(tool_call.input)
-            logger.info(
+            logger.debug(
                 "column_annotation_complete",
                 tables=len(output.tables),
                 columns=sum(len(t.columns) for t in output.tables),

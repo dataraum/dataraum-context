@@ -85,7 +85,7 @@ def infer_type_candidates(
         if not columns:
             return Result.ok([])  # No VARCHAR columns to infer
 
-        logger.info(
+        logger.debug(
             "type_inference_started",
             table=table.table_name,
             varchar_columns=len(columns),
@@ -134,7 +134,7 @@ def infer_type_candidates(
 
             all_candidates.extend(candidates)
 
-        logger.info(
+        logger.debug(
             "type_inference_completed",
             table=table.table_name,
             total_candidates=len(all_candidates),

@@ -52,7 +52,7 @@ def detect_relationships(
         Result containing RelationshipDetectionResult
     """
     start_time = time.time()
-    logger.info(
+    logger.debug(
         "relationship_detection_started",
         table_count=len(table_ids),
         min_confidence=min_confidence,

@@ -175,7 +175,8 @@ def analyze_relationship_quality(
             valid_labels = [col_labels[i] for i in valid_indices]
 
             if data_valid.shape[1] >= 2:
-                corr_matrix = np.corrcoef(data_valid, rowvar=False)
+                with np.errstate(invalid="ignore"):
+                    corr_matrix = np.corrcoef(data_valid, rowvar=False)
                 corr_matrix = np.nan_to_num(corr_matrix, nan=0.0)
 
                 mc_result = compute_multicollinearity(corr_matrix, vdp_threshold=0.5)

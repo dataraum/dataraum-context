@@ -155,7 +155,7 @@ class EnrichedViewsPhase(BasePhase):
             )
 
             if not dimension_joins:
-                logger.info(
+                logger.debug(
                     "no_qualifying_joins",
                     fact_table=fact_table.table_name,
                 )

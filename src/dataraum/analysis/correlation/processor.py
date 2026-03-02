@@ -220,7 +220,7 @@ def analyze_cross_table_quality(
             session.add(record)
             records_created += 1
 
-        logger.info(
+        logger.debug(
             "cross_table_correlations_persisted",
             relationship_id=relationship.relationship_id,
             correlations_found=len(quality_result.cross_table_correlations),

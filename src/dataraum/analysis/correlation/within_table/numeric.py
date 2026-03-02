@@ -85,7 +85,7 @@ def compute_numeric_correlations(
         use_sampling = row_count > LARGE_TABLE_THRESHOLD
         if use_sampling:
             actual_sample_size = min(sample_size, row_count)
-            logger.info(
+            logger.debug(
                 f"Using RESERVOIR sampling ({actual_sample_size:,} rows) for "
                 f"numeric correlations on {table.table_name} ({row_count:,} rows)"
             )

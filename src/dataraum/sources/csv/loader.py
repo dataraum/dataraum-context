@@ -133,7 +133,7 @@ class CSVLoader(LoaderBase):
             session.commit()
 
             duration = time.time() - start_time
-            logger.info(
+            logger.debug(
                 "csv_loaded",
                 file=str(path),
                 table=staged_table.table_name,
@@ -188,7 +188,7 @@ class CSVLoader(LoaderBase):
         if not csv_files:
             return Result.fail(f"No CSV files found matching '{file_pattern}' in {directory}")
 
-        logger.info(
+        logger.debug(
             "csv_directory_loading",
             directory=str(directory),
             file_count=len(csv_files),
@@ -244,7 +244,7 @@ class CSVLoader(LoaderBase):
             session.commit()
 
             duration = time.time() - start_time
-            logger.info(
+            logger.debug(
                 "csv_directory_loaded",
                 directory=str(directory),
                 tables=len(staged_tables),

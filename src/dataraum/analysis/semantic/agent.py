@@ -147,7 +147,7 @@ class SemanticAgent(LLMFeature):
         # Log derived column context usage
         total_derived = sum(len(cols) for cols in derived_columns.values())
         if total_derived:
-            logger.info("derived_columns_context", derived_columns=total_derived)
+            logger.debug("derived_columns_context", derived_columns=total_derived)
         else:
             logger.debug("no_derived_columns")
 

@@ -422,7 +422,7 @@ class EntropyInterpretationPhase(BasePhase):
         else:
             llm_inputs = inputs
 
-        logger.info(
+        logger.debug(
             "baseline_filter",
             enabled=baseline_enabled,
             total=len(inputs),

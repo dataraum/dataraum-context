@@ -59,7 +59,7 @@ VerboseOption = Annotated[
         "--verbose",
         "-v",
         count=True,
-        help="Increase logging verbosity (-v=INFO, -vv=DEBUG)",
+        help="Increase logging verbosity (-v=DEBUG)",
     ),
 ]
 
@@ -68,15 +68,13 @@ def setup_logging(verbosity: int = 0, log_format: str = "console") -> None:
     """Configure structured logging based on verbosity level.
 
     Args:
-        verbosity: 0=WARNING, 1=INFO, 2+=DEBUG
+        verbosity: 0=INFO, 1+=DEBUG (with timestamps)
         log_format: "console" for development, "json" for production/cloud
     """
-    if verbosity >= 2:
+    if verbosity >= 1:
         level = "DEBUG"
-    elif verbosity >= 1:
-        level = "INFO"
     else:
-        level = "WARNING"
+        level = "INFO"
 
     configure_logging(
         log_level=level,

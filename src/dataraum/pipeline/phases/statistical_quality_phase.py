@@ -63,7 +63,7 @@ class StatisticalQualityPhase(BasePhase):
         if not typed_tables:
             return f"No typed tables found for source {ctx.source_id}"
 
-        logger.info(f"StatQuality: Found {len(typed_tables)} typed tables")
+        logger.debug(f"StatQuality: Found {len(typed_tables)} typed tables")
 
         # Get all columns for typed tables
         typed_table_ids = [t.table_id for t in typed_tables]
@@ -75,7 +75,7 @@ class StatisticalQualityPhase(BasePhase):
         for col in all_columns:
             t = col.resolved_type or "NULL"
             type_counts[t] = type_counts.get(t, 0) + 1
-        logger.info(f"StatQuality: Column types in typed tables: {type_counts}")
+        logger.debug(f"StatQuality: Column types in typed tables: {type_counts}")
 
         # Filter to numeric columns only
         numeric_types = ["INTEGER", "BIGINT", "DOUBLE", "DECIMAL"]
@@ -84,7 +84,7 @@ class StatisticalQualityPhase(BasePhase):
         if not numeric_columns:
             return f"No numeric columns to assess (types: {numeric_types}, available: {list(type_counts.keys())})"
 
-        logger.info(f"StatQuality: Found {len(numeric_columns)} numeric columns")
+        logger.debug(f"StatQuality: Found {len(numeric_columns)} numeric columns")
 
         # Check which already have quality metrics
         assessed_stmt = select(StatisticalQualityMetrics.column_id).distinct()

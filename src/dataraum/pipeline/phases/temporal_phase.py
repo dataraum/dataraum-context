@@ -70,7 +70,7 @@ class TemporalPhase(BasePhase):
         if not typed_tables:
             return f"No typed tables found for source {ctx.source_id}"
 
-        logger.info(f"Temporal: Found {len(typed_tables)} typed tables")
+        logger.debug(f"Temporal: Found {len(typed_tables)} typed tables")
 
         # Check for temporal columns
         temporal_types = ["DATE", "TIMESTAMP", "TIMESTAMPTZ"]
@@ -83,7 +83,7 @@ class TemporalPhase(BasePhase):
         for col in all_columns:
             t = col.resolved_type or "NULL"
             type_counts[t] = type_counts.get(t, 0) + 1
-        logger.info(f"Temporal: Column types in typed tables: {type_counts}")
+        logger.debug(f"Temporal: Column types in typed tables: {type_counts}")
 
         temporal_columns_stmt = select(Column).where(
             Column.table_id.in_(typed_table_ids),
@@ -94,7 +94,7 @@ class TemporalPhase(BasePhase):
         if not temporal_columns:
             return f"No temporal columns found (types: {temporal_types}, available: {list(type_counts.keys())})"
 
-        logger.info(f"Temporal: Found {len(temporal_columns)} temporal columns")
+        logger.debug(f"Temporal: Found {len(temporal_columns)} temporal columns")
 
         # Check existing profiles
         existing_count = (

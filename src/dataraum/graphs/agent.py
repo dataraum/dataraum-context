@@ -202,7 +202,7 @@ class GraphAgent(LLMFeature):
                     graph, context, cached_snippets, resolved_params
                 )
                 if generated_code:
-                    logger.info(
+                    logger.debug(
                         "assembled_from_snippets",
                         graph_id=graph.graph_id,
                         snippet_count=len(cached_snippets),
@@ -1228,7 +1228,7 @@ class GraphAgent(LLMFeature):
                 }
 
         if cached_steps:
-            logger.info(
+            logger.debug(
                 "found_cached_snippets",
                 cached=len(cached_steps),
                 total=len(graph.steps),

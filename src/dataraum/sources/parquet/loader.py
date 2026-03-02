@@ -143,7 +143,7 @@ class ParquetLoader(LoaderBase):
             session.commit()
 
             duration = time.time() - start_time
-            logger.info(
+            logger.debug(
                 "parquet_loaded",
                 file=str(path),
                 table=staged_table.table_name,
@@ -196,7 +196,7 @@ class ParquetLoader(LoaderBase):
         if not parquet_files:
             return Result.fail(f"No Parquet files found matching '{file_pattern}' in {directory}")
 
-        logger.info(
+        logger.debug(
             "parquet_directory_loading",
             directory=str(directory),
             file_count=len(parquet_files),
@@ -249,7 +249,7 @@ class ParquetLoader(LoaderBase):
             session.commit()
 
             duration = time.time() - start_time
-            logger.info(
+            logger.debug(
                 "parquet_directory_loaded",
                 directory=str(directory),
                 tables=len(staged_tables),
