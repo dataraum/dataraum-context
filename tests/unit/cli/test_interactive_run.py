@@ -1,141 +1,373 @@
-"""Tests for interactive CLI run features."""
+"""Tests for CLI pipeline driver (_drive_pipeline)."""
 
-from unittest.mock import MagicMock, patch
+from __future__ import annotations
 
-from dataraum.pipeline.runner import GateMode, RunConfig
+from collections.abc import Generator
+from io import StringIO
 
+from rich.console import Console
 
-class TestRunConfigGateHandler:
-    def test_gate_handler_default_none(self):
-        config = RunConfig()
-        assert config.gate_handler is None
-
-    def test_gate_handler_can_be_set(self):
-        handler = MagicMock()
-        config = RunConfig(gate_handler=handler)
-        assert config.gate_handler is handler
-
-
-class TestInteractiveDetection:
-    def test_non_tty_skips_interactive(self):
-        """Non-TTY should not create gate handler."""
-        import sys
-
-        # If stdin is not a TTY, is_interactive should be False
-        with patch.object(sys.stdin, "isatty", return_value=False):
-            is_interactive = sys.stdin.isatty() and True
-            assert not is_interactive
-
-    def test_tty_enables_interactive(self):
-        """TTY should enable interactive features."""
-        import sys
-
-        with patch.object(sys.stdin, "isatty", return_value=True):
-            is_interactive = sys.stdin.isatty() and True
-            assert is_interactive
-
-    def test_quiet_disables_interactive(self):
-        """--quiet should disable interactive even on TTY."""
-        import sys
-
-        with patch.object(sys.stdin, "isatty", return_value=True):
-            quiet = True
-            is_interactive = sys.stdin.isatty() and not quiet
-            assert not is_interactive
+from dataraum.cli.commands.run import _drive_pipeline
+from dataraum.pipeline.events import EventType, PipelineEvent
+from dataraum.pipeline.runner import GateMode
+from dataraum.pipeline.scheduler import (
+    ExitCheckIssue,
+    PipelineResult,
+    Resolution,
+    ResolutionAction,
+)
 
 
-class TestGateHandlerCreation:
-    def test_pause_mode_creates_handler(self):
-        """pause mode + interactive should create InteractiveCLIHandler."""
-        from dataraum.cli.gate_handler import InteractiveCLIHandler
+def _mock_generator(
+    events: list[PipelineEvent],
+    result: PipelineResult,
+    expected_resolutions: list[Resolution] | None = None,
+) -> Generator[PipelineEvent, Resolution | None, PipelineResult]:
+    """Create a mock generator that yields scripted events.
 
-        handler = InteractiveCLIHandler()
-        assert hasattr(handler, "resolve")
-        assert hasattr(handler, "notify")
+    Args:
+        events: Events to yield in order.
+        result: The final PipelineResult to return.
+        expected_resolutions: If provided, EXIT_CHECK events will
+            receive these resolutions via send().
+    """
+    resolution_iter = iter(expected_resolutions or [])
+    for event in events:
+        if event.event_type == EventType.EXIT_CHECK:
+            resolution = yield event
+            # Validate the sent resolution matches expectations
+            try:
+                expected = next(resolution_iter)
+                assert resolution is not None, "Expected a Resolution via send()"
+                assert resolution.action == expected.action
+            except StopIteration:
+                pass
+        else:
+            yield event
+    return result
 
-    def test_handler_is_sync(self):
-        """Handler methods should be sync (not coroutines)."""
-        import inspect
 
-        from dataraum.cli.gate_handler import InteractiveCLIHandler
+def _ok_result(**kwargs) -> PipelineResult:
+    """Create a successful PipelineResult with defaults."""
+    defaults = {
+        "success": True,
+        "phases_completed": ["import", "typing", "statistics"],
+        "phases_failed": [],
+        "phases_skipped": [],
+        "final_scores": {},
+        "deferred_issues": [],
+    }
+    defaults.update(kwargs)
+    return PipelineResult(**defaults)
 
-        handler = InteractiveCLIHandler()
-        # resolve and notify should not be coroutine functions
-        assert not inspect.iscoroutinefunction(handler.resolve)
-        assert not inspect.iscoroutinefunction(handler.notify)
 
+class TestDriveBasicPipeline:
+    def test_three_phase_pipeline(self):
+        """Drives 3-phase pipeline, correct print order."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
 
-class TestHandlerContext:
-    def test_set_context(self):
-        """Handler should accept pipeline context for fix execution."""
-        from dataraum.cli.gate_handler import InteractiveCLIHandler
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=3),
+            PipelineEvent(
+                event_type=EventType.PHASE_STARTED, phase="import", step=2, total=3
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_COMPLETED,
+                phase="import",
+                step=3,
+                total=3,
+                duration_seconds=1.5,
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_STARTED, phase="typing", step=4, total=3
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_COMPLETED,
+                phase="typing",
+                step=5,
+                total=3,
+                duration_seconds=2.3,
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_STARTED,
+                phase="statistics",
+                step=6,
+                total=3,
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_COMPLETED,
+                phase="statistics",
+                step=7,
+                total=3,
+                duration_seconds=0.8,
+            ),
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=8, total=3),
+        ]
 
-        handler = InteractiveCLIHandler()
-        assert handler._manager is None
-        assert handler._source_id == ""
-
-        mock_manager = MagicMock()
-        handler.set_context(mock_manager, "src_123")
-        assert handler._manager is mock_manager
-        assert handler._source_id == "src_123"
-
-    def test_keyboard_interrupt_returns_skip(self):
-        """Ctrl+C during gate resolution should return SKIP."""
-        from dataraum.cli.gate_handler import InteractiveCLIHandler
-        from dataraum.pipeline.gates import (
-            Gate,
-            GateAction,
-            GateActionType,
-            GateViolation,
+        result = _drive_pipeline(
+            gen=_mock_generator(events, _ok_result()),
+            console=console,
+            gate_mode=GateMode.SKIP,
         )
 
-        handler = InteractiveCLIHandler(console=MagicMock())
+        rendered = output.getvalue()
+        assert result.success
+        assert "import" in rendered
+        assert "typing" in rendered
+        assert "statistics" in rendered
+        # Check ordering: import appears before typing
+        assert rendered.index("import") < rendered.index("typing")
 
-        gate = Gate(
-            gate_id="gate_test",
-            gate_type="structural",
-            blocked_phase="statistics",
-            violations=[GateViolation(dimension="type_fidelity", score=0.6, threshold=0.5)],
-            suggested_actions=[
-                GateAction(index=1, action_type=GateActionType.SKIP, label="skip"),
+
+class TestDriveWithSkip:
+    def test_skipped_phase_renders(self):
+        """PHASE_SKIPPED renders with skip marker."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=2),
+            PipelineEvent(
+                event_type=EventType.PHASE_SKIPPED,
+                phase="semantic",
+                step=2,
+                total=2,
+                message="No typed tables found",
+            ),
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=3, total=2),
+        ]
+
+        _drive_pipeline(
+            gen=_mock_generator(
+                events, _ok_result(phases_skipped=["semantic"], phases_completed=[])
+            ),
+            console=console,
+            gate_mode=GateMode.SKIP,
+        )
+
+        rendered = output.getvalue()
+        assert "semantic" in rendered
+        assert "No typed tables found" in rendered
+
+
+class TestDriveWithFailure:
+    def test_failed_phase_renders(self):
+        """PHASE_FAILED renders with error."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=1),
+            PipelineEvent(
+                event_type=EventType.PHASE_STARTED, phase="import", step=2, total=1
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_FAILED,
+                phase="import",
+                step=3,
+                total=1,
+                error="File not found",
+                duration_seconds=0.1,
+            ),
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=4, total=1),
+        ]
+
+        result = _drive_pipeline(
+            gen=_mock_generator(
+                events,
+                _ok_result(
+                    success=False,
+                    phases_completed=[],
+                    phases_failed=["import"],
+                ),
+            ),
+            console=console,
+            gate_mode=GateMode.SKIP,
+        )
+
+        rendered = output.getvalue()
+        assert not result.success
+        assert "import" in rendered
+        assert "File not found" in rendered
+
+
+class TestExitCheckSkipMode:
+    def test_auto_sends_defer(self):
+        """gate_mode=SKIP auto-sends DEFER at EXIT_CHECK."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=2),
+            PipelineEvent(
+                event_type=EventType.PHASE_STARTED, phase="typing", step=2, total=2
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_COMPLETED,
+                phase="typing",
+                step=3,
+                total=2,
+                duration_seconds=1.0,
+            ),
+            PipelineEvent(
+                event_type=EventType.EXIT_CHECK,
+                step=4,
+                total=2,
+                violations={"structural.types.type_fidelity": (0.62, 0.50)},
+            ),
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=5, total=2),
+        ]
+
+        result = _drive_pipeline(
+            gen=_mock_generator(
+                events,
+                _ok_result(),
+                expected_resolutions=[Resolution(action=ResolutionAction.DEFER)],
+            ),
+            console=console,
+            gate_mode=GateMode.SKIP,
+        )
+
+        assert result.success
+        assert "deferred" in output.getvalue().lower()
+
+
+class TestExitCheckFailMode:
+    def test_auto_sends_abort(self):
+        """gate_mode=FAIL auto-sends ABORT at EXIT_CHECK."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=2),
+            PipelineEvent(
+                event_type=EventType.PHASE_COMPLETED,
+                phase="typing",
+                step=2,
+                total=2,
+                duration_seconds=1.0,
+            ),
+            PipelineEvent(
+                event_type=EventType.EXIT_CHECK,
+                step=3,
+                total=2,
+                violations={"structural.types.type_fidelity": (0.62, 0.50)},
+            ),
+            # After ABORT, the generator will raise PipelineAborted,
+            # which the scheduler catches internally and returns a failed result
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=4, total=2),
+        ]
+
+        _drive_pipeline(
+            gen=_mock_generator(
+                events,
+                _ok_result(success=False, error="Pipeline aborted by user"),
+                expected_resolutions=[Resolution(action=ResolutionAction.ABORT)],
+            ),
+            console=console,
+            gate_mode=GateMode.FAIL,
+        )
+
+        # The mock generator doesn't actually abort — it just yields remaining events.
+        # But the handle_exit_check sends ABORT resolution.
+        assert "abort" in output.getvalue().lower()
+
+
+class TestQuietMode:
+    def test_no_phase_output(self):
+        """Quiet mode suppresses phase progress output."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=1),
+            PipelineEvent(
+                event_type=EventType.PHASE_STARTED, phase="import", step=2, total=1
+            ),
+            PipelineEvent(
+                event_type=EventType.PHASE_COMPLETED,
+                phase="import",
+                step=3,
+                total=1,
+                duration_seconds=1.0,
+            ),
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=4, total=1),
+        ]
+
+        result = _drive_pipeline(
+            gen=_mock_generator(events, _ok_result()),
+            console=console,
+            gate_mode=GateMode.SKIP,
+            quiet=True,
+        )
+
+        assert result.success
+        # No output in quiet mode
+        assert output.getvalue() == ""
+
+
+class TestPipelineResultReturned:
+    def test_result_captured_from_stop_iteration(self):
+        """StopIteration.value correctly captured as PipelineResult."""
+        console = Console(file=StringIO())
+
+        expected_result = _ok_result(
+            final_scores={"structural.types.type_fidelity": 0.15},
+            deferred_issues=[
+                ExitCheckIssue(
+                    dimension_path="semantic.units",
+                    score=0.45,
+                    threshold=0.30,
+                    producing_phase="typing",
+                )
             ],
         )
 
-        # Patch _render_gate to raise KeyboardInterrupt
-        with patch.object(handler, "_render_gate", side_effect=KeyboardInterrupt):
-            resolution = handler.resolve(gate)
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=0),
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=2, total=0),
+        ]
 
-        assert resolution.action_taken == GateActionType.SKIP
-
-    def test_execute_fix_without_manager_returns_none(self):
-        """Fix execution without manager context should return None."""
-        from dataraum.cli.gate_handler import InteractiveCLIHandler
-        from dataraum.pipeline.gates import (
-            Gate,
-            GateAction,
-            GateActionType,
+        result = _drive_pipeline(
+            gen=_mock_generator(events, expected_result),
+            console=console,
+            gate_mode=GateMode.SKIP,
         )
 
-        handler = InteractiveCLIHandler(console=MagicMock())
-        action = GateAction(
-            index=1,
-            action_type=GateActionType.FIX,
-            label="fix",
-            parameters={"action_type": "override_type", "target": "column:t.c"},
+        assert result is not None
+        assert result.success
+        assert result.final_scores == {"structural.types.type_fidelity": 0.15}
+        assert len(result.deferred_issues) == 1
+
+
+class TestSummaryDisplay:
+    def test_shows_completed_failed_counts(self):
+        """Post-run summary shows completed/failed counts."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+
+        events = [
+            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=0),
+            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=2, total=0),
+        ]
+
+        result_data = _ok_result(
+            phases_completed=["import", "typing"],
+            phases_failed=["statistics"],
+            phases_skipped=["semantic"],
+            success=False,
         )
-        gate = Gate(gate_id="g", gate_type="structural", blocked_phase="test")
-        result = handler._execute_fix(action, gate)
-        assert result is None
 
+        _drive_pipeline(
+            gen=_mock_generator(events, result_data),
+            console=console,
+            gate_mode=GateMode.SKIP,
+        )
 
-class TestNonInteractiveFallback:
-    def test_pause_in_non_tty_warns(self):
-        """Pause mode in non-TTY should fall back to skip."""
-        # This tests the logic that would be applied in the CLI
-        is_interactive = False
-        gate_mode = GateMode.PAUSE
-
-        if gate_mode == GateMode.PAUSE and not is_interactive:
-            gate_mode = GateMode.SKIP
-
-        assert gate_mode == GateMode.SKIP
+        rendered = output.getvalue()
+        assert "Completed" in rendered
+        assert "Failed" in rendered
+        assert "Skipped" in rendered
+        assert "2" in rendered  # 2 completed
+        assert "1" in rendered  # 1 failed

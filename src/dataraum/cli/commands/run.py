@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import sys
 import warnings
+from collections.abc import Generator
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
+from rich.console import Console
+from rich.status import Status
 
 from dataraum.cli.common import console, setup_logging
+from dataraum.cli.gate_handler import handle_exit_check
+from dataraum.entropy.fix_executor import ActionRegistry
+from dataraum.pipeline.events import EventType, PipelineEvent
+from dataraum.pipeline.runner import GateMode
+from dataraum.pipeline.scheduler import PipelineResult, Resolution
 
 
 def run(
@@ -111,9 +119,6 @@ def run(
     """
     setup_logging(verbosity=verbose, log_format=log_format)
 
-    from dataraum.pipeline.runner import GateMode, RunConfig
-    from dataraum.pipeline.runner import run as run_pipeline
-
     # Validate --gate-mode
     try:
         resolved_gate_mode = GateMode(gate_mode)
@@ -142,11 +147,6 @@ def run(
 
     # TTY detection for interactive features
     is_interactive = sys.stdin.isatty() and not quiet
-
-    # Default gate_mode: TTY → pause, non-TTY → skip
-    if gate_mode == "skip" and is_interactive:
-        # User didn't explicitly set gate_mode; use pause for interactive sessions
-        pass  # Keep as skip unless user wants interactive — opt-in for now
 
     # Warn if pause requested in non-interactive mode
     if resolved_gate_mode == GateMode.PAUSE and not is_interactive:
@@ -186,285 +186,302 @@ def run(
             except (KeyboardInterrupt, EOFError):
                 pass
 
-    # Wire gate handler for interactive mode
-    gate_handler = None
-    if resolved_gate_mode == GateMode.PAUSE and is_interactive:
-        from dataraum.cli.gate_handler import InteractiveCLIHandler
-
-        gate_handler = InteractiveCLIHandler(console=console)
-
-    # Event-driven live display for interactive mode
-    event_callback = None
-    _live_ctx = None
-    if is_interactive:
-        from rich.live import Live
-        from rich.text import Text
-
-        from dataraum.pipeline.events import EventType, PipelineEvent
-
-        # Mutable live state
-        _live_state: dict[str, Any] = {
-            "step": 0,
-            "total": 0,
-            "running": [],
-            "latest_scores": {},
-            "latest_gate": "",
-        }
-
-        def _render_live() -> Text:
-            s = _live_state
-            step = s["step"]
-            total = s["total"]
-            running = s["running"]
-            lines = []
-
-            # Main status line
-            running_str = ", ".join(running) if running else "waiting..."
-            lines.append(f"Pipeline [{step}/{total}]  Running: {running_str}")
-
-            # Latest entropy scores
-            if s["latest_scores"]:
-                scores_str = ", ".join(f"{d}={v:.3f}" for d, v in s["latest_scores"].items())
-                lines.append(f"  entropy: {scores_str}")
-
-            # Latest gate info
-            if s["latest_gate"]:
-                lines.append(f"  gate: {s['latest_gate']}")
-
-            return Text("\n".join(lines))
-
-        def _event_handler(event: PipelineEvent) -> None:
-            s = _live_state
-            s["step"] = event.step
-            s["total"] = event.total
-
-            if event.event_type == EventType.PHASE_STARTED:
-                s["running"] = event.parallel_phases
-            elif event.event_type == EventType.PHASE_COMPLETED:
-                # Remove completed phase from running list
-                if event.phase in s["running"]:
-                    s["running"] = [p for p in s["running"] if p != event.phase]
-            elif event.event_type == EventType.POST_VERIFICATION:
-                s["latest_scores"] = event.scores
-            elif event.event_type == EventType.GATE_EVALUATED:
-                if event.gate_status == "passed":
-                    s["latest_gate"] = f"{event.phase} — passed"
-                elif event.gate_status == "skipped":
-                    s["latest_gate"] = f"{event.phase} — skipped (violations)"
-            elif event.event_type == EventType.GATE_BLOCKED:
-                s["latest_gate"] = f"{event.phase} — BLOCKED"
-            elif event.event_type == EventType.PIPELINE_COMPLETED:
-                s["running"] = []
-
-            if _live_ctx is not None:
-                try:
-                    _live_ctx.update(_render_live())
-                except Exception:
-                    pass
-
-        event_callback = _event_handler
-
-    config = RunConfig(
+    # Setup pipeline and drive it
+    gen, action_registry = _setup_pipeline(
         source_path=source_path,
         output_dir=output,
         source_name=name,
         target_phase=phase,
         force_phase=force,
-        gate_mode=resolved_gate_mode,
         contract=contract,
-        gate_handler=gate_handler,
-        event_callback=event_callback,
     )
 
-    # Run pipeline — with live display if interactive
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
         warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
 
-        if is_interactive and event_callback is not None:
-            from rich.live import Live
+        result = _drive_pipeline(
+            gen=gen,
+            console=console,
+            gate_mode=resolved_gate_mode,
+            action_registry=action_registry,
+            quiet=quiet,
+        )
 
-            with Live(console=console, refresh_per_second=4, transient=True) as live:
-                _live_ctx = live
-                if gate_handler is not None:
-                    gate_handler.set_live(live)
-                result = run_pipeline(config)
-                _live_ctx = None
-        else:
-            result = run_pipeline(config)
-    run_result = result.unwrap()
+    raise typer.Exit(0 if result.success else 1)
 
-    # Print user-facing output
+
+def _setup_pipeline(
+    *,
+    source_path: Path | None,
+    output_dir: Path,
+    source_name: str | None,
+    target_phase: str | None,
+    force_phase: bool,
+    contract: str | None,
+) -> tuple[
+    Generator[PipelineEvent, Resolution | None, PipelineResult],
+    ActionRegistry | None,
+]:
+    """Create PipelineScheduler and return its generator.
+
+    This is a best-effort wiring. Full runtime_config / phase_configs
+    integration is Phase 6's job. Phase 5 delivers the event loop + UX.
+
+    Returns:
+        Tuple of (generator, action_registry).
+    """
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from dataraum.core.connections import ConnectionConfig, ConnectionManager
+    from dataraum.entropy.fix_executor import (
+        FixExecutor,
+        get_default_action_registry,
+    )
+    from dataraum.pipeline.base import Phase
+    from dataraum.pipeline.db_models import PipelineRun
+    from dataraum.pipeline.registry import get_all_dependencies, get_registry
+    from dataraum.pipeline.scheduler import PipelineScheduler
+    from dataraum.storage import Source
+
+    # 1. Initialize storage
+    output_dir.mkdir(parents=True, exist_ok=True)
+    conn_config = ConnectionConfig.for_directory(output_dir)
+    manager = ConnectionManager(conn_config)
+    manager.initialize()
+
+    session = manager.get_session()
+    duckdb_conn = manager._duckdb_conn  # noqa: SLF001  # Phase 6 will clean up
+
+    # 2. Resolve source_id
+    source_id: str
+    if source_path is not None:
+        resolved_name = source_name or source_path.stem
+        existing = session.execute(
+            select(Source).where(Source.name == resolved_name)
+        ).scalar_one_or_none()
+        source_id = existing.source_id if existing else str(uuid4())
+    else:
+        existing = session.execute(
+            select(Source).where(Source.name == "multi_source")
+        ).scalar_one_or_none()
+        source_id = existing.source_id if existing else str(uuid4())
+
+    # 3. Load phases from registry
+    registry = get_registry()
+    phases: dict[str, Phase] = {name: cls() for name, cls in registry.items()}
+
+    # 4. Filter phases if --phase set
+    if target_phase:
+        deps = get_all_dependencies(target_phase)
+        keep = deps | {target_phase}
+        phases = {n: p for n, p in phases.items() if n in keep}
+
+    # 5. Create PipelineRun record
+    run_id = str(uuid4())
+    run_record = PipelineRun(
+        run_id=run_id,
+        source_id=source_id,
+        status="running",
+        config={"target_phase": target_phase, "force_phase": force_phase},
+    )
+    session.add(run_record)
+    session.flush()
+
+    # 6. Load contract thresholds
+    thresholds: dict[str, float] = {}
+    if contract:
+        from dataraum.entropy.contracts import get_contract
+
+        contract_obj = get_contract(contract)
+        if contract_obj:
+            thresholds = contract_obj.dimension_thresholds
+
+    # 7. Create fix executor
+    action_registry = get_default_action_registry()
+    fix_executor = FixExecutor(action_registry)
+
+    # 8. Create scheduler and return generator
+    scheduler = PipelineScheduler(
+        phases=phases,
+        source_id=source_id,
+        run_id=run_id,
+        session=session,
+        duckdb_conn=duckdb_conn,
+        contract_thresholds=thresholds,
+        fix_executor=fix_executor,
+    )
+
+    return scheduler.run(), action_registry
+
+
+def _drive_pipeline(
+    gen: Generator[PipelineEvent, Resolution | None, PipelineResult],
+    console: Console,
+    gate_mode: GateMode,
+    action_registry: ActionRegistry | None = None,
+    quiet: bool = False,
+) -> PipelineResult:
+    """Drive the scheduler generator, rendering events to the terminal.
+
+    Args:
+        gen: The scheduler generator.
+        console: Rich console for output.
+        gate_mode: How to handle EXIT_CHECK events.
+        action_registry: Available fix actions.
+        quiet: Suppress progress output.
+
+    Returns:
+        PipelineResult from the generator.
+    """
+    result: PipelineResult | None = None
+    status: Status | None = None
+
     if not quiet:
-        console.print("\n[bold]Pipeline Run[/bold]")
-        console.print("=" * 60)
-        console.print(f"Source: {config.source_path or '(registered sources)'}")
-        console.print(f"Output: {config.output_dir}")
-        console.print(f"Source ID: {run_result.source_id}")
+        status = Status("Starting pipeline...", console=console, spinner="dots")
+        status.start()
 
-        if config.target_phase:
-            console.print(f"Target Phase: {config.target_phase}")
+    try:
+        event = next(gen)
+        while True:
+            match event.event_type:
+                case EventType.PIPELINE_STARTED:
+                    if status:
+                        status.update(f"Pipeline started ({event.total} phases)")
 
-        # Build gate info lookup from gate_events
-        gate_info: dict[str, dict[str, Any]] = {}
-        for ge in run_result.gate_events:
-            phase_name_ge = ge.get("phase", "")
-            if phase_name_ge:
-                gate_info[phase_name_ge] = ge
+                case EventType.PHASE_STARTED:
+                    if status:
+                        status.update(f"[bold]{event.phase}[/bold]...")
 
-        # Show per-phase results
-        if run_result.phases:
-            console.print()
-            console.print("[bold]Phase Results[/bold]")
-            console.print("-" * 60)
-            for phase_result in run_result.phases:
-                status_icon = {
-                    "completed": "[green]✓[/green]",
-                    "failed": "[red]✗[/red]",
-                    "skipped": "[yellow]○[/yellow]",
-                    "gate_blocked": "[yellow]⊘[/yellow]",
-                }.get(phase_result.status, "?")
-                duration_str = (
-                    f" ({phase_result.duration_seconds:.1f}s)"
-                    if phase_result.duration_seconds > 0
-                    else ""
-                )
-                console.print(
-                    f"  {status_icon} {phase_result.phase_name}: "
-                    f"{phase_result.status}{duration_str}"
-                )
-                if phase_result.error and phase_result.status != "gate_blocked":
-                    console.print(f"      [red]Error: {phase_result.error}[/red]")
+                case EventType.PHASE_COMPLETED:
+                    if status:
+                        status.stop()
+                    if not quiet:
+                        console.print(
+                            f"  [green]\u2713[/green] {event.phase}"
+                            f" ({event.duration_seconds:.1f}s)"
+                        )
+                    if status:
+                        status.start()
 
-                # Show gate info for this phase
-                gi = gate_info.get(phase_result.phase_name)
-                if gi:
-                    gs = gi.get("gate_status", "")
-                    violations = gi.get("violations", {})
-                    if gs == "passed":
-                        console.print("      [dim]gate: passed[/dim]")
-                    elif gs in ("blocked", "skipped"):
-                        parts = []
-                        for dim, v in violations.items():
-                            cur = v.get("current", 0)
-                            thr = v.get("threshold", 0)
-                            if cur < 0:
-                                parts.append(
-                                    f"{dim} [red]✗[/red] (not yet measured, needs {thr:.2f})"
-                                )
-                            else:
-                                parts.append(f"{dim} [red]✗[/red] ({cur:.2f} > {thr:.2f})")
-                        if parts:
-                            console.print(f"      [yellow]gate: {', '.join(parts)}[/yellow]")
+                case EventType.PHASE_FAILED:
+                    if status:
+                        status.stop()
+                    if not quiet:
+                        console.print(
+                            f"  [red]\u2717[/red] {event.phase}: {event.error}"
+                        )
+                    if status:
+                        status.start()
 
-                # Show entropy scores produced by this phase
-                if phase_result.post_verification_scores:
-                    scores_str = ", ".join(
-                        f"{d}={s:.3f}" for d, s in phase_result.post_verification_scores.items()
+                case EventType.PHASE_SKIPPED:
+                    if status:
+                        status.stop()
+                    if not quiet:
+                        console.print(
+                            f"  [yellow]\u25cb[/yellow] {event.phase}: {event.message}"
+                        )
+                    if status:
+                        status.start()
+
+                case EventType.POST_VERIFICATION:
+                    pass  # Silent unless --verbose
+
+                case EventType.EXIT_CHECK:
+                    if status:
+                        status.stop()
+                    resolution = handle_exit_check(
+                        console, event, gate_mode, action_registry
                     )
-                    console.print(f"      [dim]entropy: {scores_str}[/dim]")
+                    event = gen.send(resolution)
+                    if status:
+                        status.start()
+                    continue
 
-        # Entropy State
-        if run_result.final_entropy_scores:
-            console.print()
-            console.print("[bold]Entropy State[/bold]")
-            console.print("-" * 60)
-            for dim, score in sorted(run_result.final_entropy_scores.items()):
-                # Truncate/pad dimension name for alignment
-                label = dim[:22].ljust(22)
-                # Build bar: 10 chars, filled proportionally
-                filled = round(score * 10)
-                bar = "\u2588" * filled + "\u2591" * (10 - filled)
-                # Color based on severity
-                if score < 0.2:
-                    color = "green"
-                elif score < 0.5:
-                    color = "yellow"
-                else:
-                    color = "red"
-                console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}")
+                case EventType.PIPELINE_COMPLETED:
+                    pass  # Handled after loop
 
-        # Gate Summary
-        if run_result.gate_events:
-            total_gates = sum(
-                1 for g in run_result.gate_events if g.get("event_type") == "gate_evaluated"
-            )
-            passed_gates = sum(
-                1
-                for g in run_result.gate_events
-                if g.get("event_type") == "gate_evaluated" and g.get("gate_status") == "passed"
-            )
-            blocked_gates = sum(
-                1
-                for g in run_result.gate_events
-                if g.get("event_type") in ("gate_evaluated", "gate_blocked")
-                and g.get("gate_status") in ("blocked", "skipped")
-            )
-            console.print()
-            console.print(
-                f"[bold]Gate Summary:[/bold] {total_gates + blocked_gates} evaluated, "
-                f"{passed_gates} passed, {blocked_gates} blocked/skipped"
-            )
+            event = next(gen)
 
-        # Summary
+    except StopIteration as e:
+        result = e.value
+    finally:
+        if status:
+            status.stop()
+
+    if result is None:
+        # Should not happen, but be defensive
+        result = PipelineResult(
+            success=False,
+            phases_completed=[],
+            phases_failed=[],
+            phases_skipped=[],
+            final_scores={},
+            deferred_issues=[],
+            error="Generator ended without returning a result",
+        )
+
+    if not quiet:
+        _print_summary(console, result)
+
+    return result
+
+
+def _print_summary(console: Console, result: PipelineResult) -> None:
+    """Print post-run summary.
+
+    Args:
+        console: Rich console for output.
+        result: The pipeline result.
+    """
+    console.print()
+    console.print("[bold]Pipeline Results[/bold]")
+    console.print("=" * 60)
+
+    # Counts
+    console.print(f"  [green]Completed:[/green] {len(result.phases_completed)}")
+    console.print(f"  [red]Failed:[/red] {len(result.phases_failed)}")
+    console.print(f"  [yellow]Skipped:[/yellow] {len(result.phases_skipped)}")
+
+    # Final entropy scores
+    if result.final_scores:
         console.print()
-        console.print("[bold]Summary[/bold]")
+        console.print("[bold]Entropy State[/bold]")
         console.print("-" * 60)
-        console.print(f"  [green]Completed:[/green] {run_result.phases_completed}")
-        console.print(f"  [red]Failed:[/red] {run_result.phases_failed}")
-        console.print(f"  [yellow]Skipped:[/yellow] {run_result.phases_skipped}")
-        console.print(f"  Duration: {run_result.duration_seconds:.2f}s")
+        for dim, score in sorted(result.final_scores.items()):
+            label = dim[:22].ljust(22)
+            filled = round(score * 10)
+            bar = "\u2588" * filled + "\u2591" * (10 - filled)
+            if score < 0.2:
+                color = "green"
+            elif score < 0.5:
+                color = "yellow"
+            else:
+                color = "red"
+            console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}")
 
-        # Data metrics
-        if run_result.total_tables_processed > 0 or run_result.total_rows_processed > 0:
-            console.print()
-            console.print("[bold]Data Metrics[/bold]")
-            console.print("-" * 60)
-            console.print(f"  Tables: {run_result.total_tables_processed}")
-            console.print(f"  Rows: {run_result.total_rows_processed:,}")
-
-        # Slowest phases (show top 5 if more than 3 phases ran)
-        slowest = run_result.get_slowest_phases(5)
-        if len(slowest) > 3:
-            console.print()
-            console.print("[bold]Slowest Phases[/bold]")
-            console.print("-" * 60)
-            for phase_name, duration in slowest:
-                pct = (
-                    (duration / run_result.duration_seconds * 100)
-                    if run_result.duration_seconds > 0
-                    else 0
-                )
-                console.print(f"  {phase_name}: {duration:.1f}s ({pct:.0f}%)")
-
-        # Bottleneck operations (if any timings recorded)
-        bottlenecks = run_result.get_bottleneck_operations(5)
-        if bottlenecks:
-            console.print()
-            console.print("[bold]Bottleneck Operations[/bold]")
-            console.print("-" * 60)
-            for phase_name, op_name, duration in bottlenecks:
-                console.print(f"  {phase_name}/{op_name}: {duration:.1f}s")
-
-        # Output files
-        if run_result.output_dir:
-            console.print()
-            console.print("[bold]Output files:[/bold]")
-            console.print(f"  Metadata: {run_result.output_dir / 'metadata.db'}")
-            console.print(f"  Data: {run_result.output_dir / 'data.duckdb'}")
-
-        # Overall error (exception during setup)
-        if run_result.error:
-            console.print()
-            console.print(f"[red]Error: {run_result.error}[/red]")
-
-        # Warnings from phase failures
-        if result.warnings:
-            console.print()
-            console.print("[yellow]Warnings:[/yellow]")
-            for warning in result.warnings:
-                console.print(f"  - {warning}")
-
+    # Deferred issues
+    if result.deferred_issues:
         console.print()
+        console.print(f"[yellow]Deferred issues: {len(result.deferred_issues)}[/yellow]")
+        for issue in result.deferred_issues:
+            console.print(
+                f"  - {issue.dimension_path}: "
+                f"{issue.score:.2f} > {issue.threshold:.2f} "
+                f"(from {issue.producing_phase})"
+            )
 
-    raise typer.Exit(0 if run_result.success else 1)
+    # Error
+    if result.error:
+        console.print()
+        console.print(f"[red]Error: {result.error}[/red]")
+
+    # Overall status
+    console.print()
+    if result.success:
+        console.print("[green]Pipeline completed successfully[/green]")
+    else:
+        console.print("[red]Pipeline completed with failures[/red]")
+    console.print()

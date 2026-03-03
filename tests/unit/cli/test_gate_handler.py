@@ -1,108 +1,191 @@
-"""Tests for InteractiveCLIHandler Live display integration."""
+"""Tests for CLI gate handler functions."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from io import StringIO
+from unittest.mock import patch
 
-from dataraum.cli.gate_handler import InteractiveCLIHandler
-from dataraum.pipeline.gates import (
-    Gate,
-    GateAction,
-    GateActionType,
-    GateResolution,
-    GateViolation,
+from rich.console import Console
+
+from dataraum.cli.gate_handler import (
+    _render_violations,
+    handle_exit_check,
 )
+from dataraum.entropy.fix_executor import ActionDefinition, ActionRegistry
+from dataraum.pipeline.events import EventType, PipelineEvent
+from dataraum.pipeline.runner import GateMode
+from dataraum.pipeline.scheduler import ResolutionAction
 
 
-def _make_gate() -> Gate:
-    """Create a minimal Gate for testing."""
-    return Gate(
-        gate_id="gate_test",
-        gate_type="structural",
-        blocked_phase="statistics",
-        violations=[
-            GateViolation(dimension="type_fidelity", score=0.6, threshold=0.5),
-        ],
-        suggested_actions=[
-            GateAction(index=1, action_type=GateActionType.SKIP, label="Skip gate"),
-        ],
+def _make_exit_check_event(
+    violations: dict[str, tuple[float, float]] | None = None,
+) -> PipelineEvent:
+    """Create a minimal EXIT_CHECK event."""
+    return PipelineEvent(
+        event_type=EventType.EXIT_CHECK,
+        step=5,
+        total=10,
+        violations=violations
+        or {
+            "structural.types.type_fidelity": (0.62, 0.50),
+        },
     )
 
 
-class TestSetLive:
-    def test_set_live_stores_reference(self):
-        handler = InteractiveCLIHandler(console=MagicMock())
-        assert handler._live is None
+def _make_registry_with_action() -> ActionRegistry:
+    """Create a registry with one action that improves type_fidelity."""
+    registry = ActionRegistry()
+    registry.register(
+        ActionDefinition(
+            action_type="override_type",
+            category="transform",
+            description="Override column type",
+            hard_verifiable=True,
+            parameters_schema={"target_type": "Target SQL type"},
+            improves_dimensions=["structural.types.type_fidelity"],
+        )
+    )
+    return registry
 
-        mock_live = MagicMock()
-        handler.set_live(mock_live)
-        assert handler._live is mock_live
 
-    def test_resolve_stops_and_starts_live(self):
-        """Live.stop() called before render, Live.start() called in finally."""
-        handler = InteractiveCLIHandler(console=MagicMock())
-        mock_live = MagicMock()
-        handler.set_live(mock_live)
-        gate = _make_gate()
+class TestSkipMode:
+    def test_returns_defer(self):
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
+        result = handle_exit_check(console, event, GateMode.SKIP)
+        assert result.action == ResolutionAction.DEFER
 
-        with (
-            patch.object(handler, "_render_gate"),
-            patch.object(
-                handler,
-                "_prompt_user",
-                return_value=GateResolution(
-                    action_taken=GateActionType.SKIP,
-                ),
-            ),
-        ):
-            handler.resolve(gate)
+    def test_prints_message(self):
+        output = StringIO()
+        console = Console(file=output, force_terminal=True)
+        event = _make_exit_check_event()
+        handle_exit_check(console, event, GateMode.SKIP)
+        assert "deferred" in output.getvalue().lower()
 
-        mock_live.stop.assert_called_once()
-        mock_live.start.assert_called_once()
 
-    def test_resolve_without_live_works(self):
-        """Handler works normally without Live injected."""
-        handler = InteractiveCLIHandler(console=MagicMock())
-        gate = _make_gate()
+class TestFailMode:
+    def test_returns_abort(self):
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
+        result = handle_exit_check(console, event, GateMode.FAIL)
+        assert result.action == ResolutionAction.ABORT
 
-        with (
-            patch.object(handler, "_render_gate"),
-            patch.object(
-                handler,
-                "_prompt_user",
-                return_value=GateResolution(
-                    action_taken=GateActionType.SKIP,
-                ),
-            ),
-        ):
-            result = handler.resolve(gate)
 
-        assert result.action_taken == GateActionType.SKIP
+class TestInteractiveMode:
+    def test_defer_choice(self):
+        """PAUSE + user picks defer → Resolution(DEFER)."""
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
 
-    def test_keyboard_interrupt_restarts_live(self):
-        """Live.start() is called even when KeyboardInterrupt occurs."""
-        handler = InteractiveCLIHandler(console=MagicMock())
-        mock_live = MagicMock()
-        handler.set_live(mock_live)
-        gate = _make_gate()
+        # The defer option is at index 1 (no fix options without registry)
+        with patch("dataraum.cli.gate_handler.Prompt") as mock_prompt:
+            mock_prompt.ask.return_value = "1"
+            result = handle_exit_check(console, event, GateMode.PAUSE)
 
-        with patch.object(handler, "_render_gate", side_effect=KeyboardInterrupt):
-            result = handler.resolve(gate)
+        assert result.action == ResolutionAction.DEFER
 
-        assert result.action_taken == GateActionType.SKIP
-        mock_live.stop.assert_called_once()
-        mock_live.start.assert_called_once()
+    def test_abort_choice(self):
+        """PAUSE + user picks abort → Resolution(ABORT)."""
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
 
-    def test_exception_in_prompt_restarts_live(self):
-        """Live.start() is called even when an unexpected error occurs in prompt."""
-        handler = InteractiveCLIHandler(console=MagicMock())
-        mock_live = MagicMock()
-        handler.set_live(mock_live)
-        gate = _make_gate()
+        # Without registry: option 1=defer, option 2=abort
+        with patch("dataraum.cli.gate_handler.Prompt") as mock_prompt:
+            mock_prompt.ask.return_value = "2"
+            result = handle_exit_check(console, event, GateMode.PAUSE)
 
-        with patch.object(handler, "_render_gate", side_effect=EOFError):
-            result = handler.resolve(gate)
+        assert result.action == ResolutionAction.ABORT
 
-        assert result.action_taken == GateActionType.SKIP
-        mock_live.stop.assert_called_once()
-        mock_live.start.assert_called_once()
+    def test_fix_choice(self):
+        """PAUSE + user picks fix → Resolution(FIX, fixes=[...])."""
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
+        registry = _make_registry_with_action()
+
+        # With registry: option 1=fix:override_type, option 2=defer, option 3=abort
+        with patch("dataraum.cli.gate_handler.Prompt") as mock_prompt:
+            # First call: choose fix (option 1)
+            # Second call: target
+            # Third call: target_type parameter
+            mock_prompt.ask.side_effect = ["1", "column:orders.amount", "DECIMAL(10,2)"]
+            result = handle_exit_check(console, event, GateMode.PAUSE, registry)
+
+        assert result.action == ResolutionAction.FIX
+        assert len(result.fixes) == 1
+        assert result.fixes[0].action_type == "override_type"
+        assert result.fixes[0].target == "column:orders.amount"
+
+    def test_keyboard_interrupt_defers(self):
+        """Ctrl+C during prompt → Resolution(DEFER)."""
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
+
+        with patch("dataraum.cli.gate_handler.Prompt") as mock_prompt:
+            mock_prompt.ask.side_effect = KeyboardInterrupt
+            result = handle_exit_check(console, event, GateMode.PAUSE)
+
+        assert result.action == ResolutionAction.DEFER
+
+    def test_eof_defers(self):
+        """EOFError during prompt → Resolution(DEFER)."""
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
+
+        with patch("dataraum.cli.gate_handler.Prompt") as mock_prompt:
+            mock_prompt.ask.side_effect = EOFError
+            result = handle_exit_check(console, event, GateMode.PAUSE)
+
+        assert result.action == ResolutionAction.DEFER
+
+
+class TestAutoFixMode:
+    def test_matching_actions_defers_with_message(self):
+        """AUTO_FIX + matching actions → DEFER (target strategy pending)."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True)
+        event = _make_exit_check_event()
+        registry = _make_registry_with_action()
+
+        result = handle_exit_check(console, event, GateMode.AUTO_FIX, registry)
+
+        assert result.action == ResolutionAction.DEFER
+        rendered = output.getvalue()
+        assert "override_type" in rendered
+        assert "target" in rendered.lower()
+
+    def test_fallback_defer_no_actions(self):
+        """AUTO_FIX + no matching actions → Resolution(DEFER)."""
+        console = Console(file=StringIO())
+        event = _make_exit_check_event(
+            violations={"some.unknown.dimension": (0.8, 0.5)}
+        )
+        registry = _make_registry_with_action()
+
+        result = handle_exit_check(console, event, GateMode.AUTO_FIX, registry)
+
+        assert result.action == ResolutionAction.DEFER
+
+    def test_fallback_defer_no_registry(self):
+        """AUTO_FIX + no registry → Resolution(DEFER)."""
+        console = Console(file=StringIO())
+        event = _make_exit_check_event()
+
+        result = handle_exit_check(console, event, GateMode.AUTO_FIX, None)
+
+        assert result.action == ResolutionAction.DEFER
+
+
+class TestRenderViolations:
+    def test_renders_panel(self):
+        """Violations panel renders without errors."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+        violations = {
+            "structural.types.type_fidelity": (0.62, 0.50),
+            "semantic.units.unit_declaration": (0.45, 0.30),
+        }
+        _render_violations(console, violations)
+        rendered = output.getvalue()
+        assert "type_fidelity" in rendered
+        assert "unit_declaration" in rendered
+        assert "0.62" in rendered
