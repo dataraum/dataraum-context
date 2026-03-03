@@ -154,7 +154,7 @@ inputs:
     required: true
 
   relationship_candidates:
-    description: Pre-computed relationship candidates from TDA and join detection
+    description: Pre-computed relationship candidates from statistical join detection
     required: true
 
   column_annotations:

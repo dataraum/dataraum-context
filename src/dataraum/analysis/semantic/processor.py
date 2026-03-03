@@ -110,8 +110,6 @@ def _build_candidate_metrics_lookup(
                 metrics["join_success_rate"] = candidate["join_success_rate"]
             if "introduces_duplicates" in candidate:
                 metrics["introduces_duplicates"] = candidate["introduces_duplicates"]
-            if "topology_similarity" in candidate:
-                metrics["topology_similarity"] = candidate["topology_similarity"]
 
             if metrics:
                 lookup[(table1, col1, table2, col2)] = metrics

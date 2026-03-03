@@ -36,21 +36,7 @@ from dataraum.storage import Column, Table
 
 logger = get_logger(__name__)
 
-# Only these cardinalities preserve fact table grain
-_GRAIN_SAFE_CARDINALITIES = {"many-to-one", "one-to-one"}
 _MIN_CONFIDENCE = 0.7
-
-_CARDINALITY_FLIP = {
-    "one-to-many": "many-to-one",
-    "many-to-one": "one-to-many",
-    "one-to-one": "one-to-one",
-    "many-to-many": "many-to-many",
-}
-
-
-def _flip_cardinality(cardinality: str | None) -> str | None:
-    """Return the cardinality as seen from the opposite join direction."""
-    return _CARDINALITY_FLIP.get(cardinality or "", cardinality)
 
 
 @analysis_phase
@@ -174,22 +160,13 @@ class EnrichedViewsPhase(BasePhase):
             if not fact_table or not fact_table.duckdb_path:
                 continue
 
-            # Get dimension joins - prefer LLM recommendations if available
+            # Get dimension joins from LLM recommendations
             dimension_joins: list[DimensionJoin] = []
 
             if llm_recommendations:
-                # Use LLM-recommended joins
                 for rec in llm_recommendations.recommendations:
                     if rec.fact_table_id == fact_table.table_id:
                         dimension_joins.extend(rec.dimension_joins)
-            else:
-                # Fallback to deterministic join finding
-                dimension_joins = self._find_dimension_joins(
-                    fact_table=fact_table,
-                    relationships=all_relationships,
-                    tables_by_id=tables_by_id,
-                    columns_by_table=columns_by_table,
-                )
 
             if not dimension_joins:
                 logger.debug(
@@ -329,14 +306,14 @@ class EnrichedViewsPhase(BasePhase):
     ) -> EnrichmentAnalysisResult | None:
         """Get LLM recommendations for valuable dimension joins.
 
-        Returns None if LLM is disabled or fails, allowing fallback to
-        deterministic join finding.
+        Returns None if LLM is disabled or fails. When None, no enriched
+        views are created for the affected fact tables.
         """
         # Try to load LLM config
         try:
             config = load_llm_config()
         except FileNotFoundError:
-            logger.info("llm_config_not_found", fallback="deterministic")
+            logger.info("llm_config_not_found", result="skipped")
             return None
 
         # Check if enrichment analysis is enabled
@@ -344,19 +321,19 @@ class EnrichedViewsPhase(BasePhase):
             not config.features.enrichment_analysis
             or not config.features.enrichment_analysis.enabled
         ):
-            logger.info("enrichment_analysis_disabled", fallback="deterministic")
+            logger.info("enrichment_analysis_disabled", result="skipped")
             return None
 
         # Create provider
         provider_config = config.providers.get(config.active_provider)
         if not provider_config:
-            logger.warning("llm_provider_not_configured", fallback="deterministic")
+            logger.warning("llm_provider_not_configured", result="skipped")
             return None
 
         try:
             provider = create_provider(config.active_provider, provider_config.model_dump())
         except Exception as e:
-            logger.warning("llm_provider_creation_failed", error=str(e), fallback="deterministic")
+            logger.warning("llm_provider_creation_failed", error=str(e), result="skipped")
             return None
 
         # Build context data for the agent
@@ -386,7 +363,7 @@ class EnrichedViewsPhase(BasePhase):
             logger.warning(
                 "enrichment_analysis_failed",
                 error=result.error,
-                fallback="deterministic",
+                result="skipped",
             )
             return None
 
@@ -508,94 +485,6 @@ class EnrichedViewsPhase(BasePhase):
             "confirmed_relationships": relationships_data,
             "existing_views": existing_views_data,
         }
-
-    def _find_dimension_joins(
-        self,
-        fact_table: Table,
-        relationships: Sequence[Relationship],
-        tables_by_id: dict[str, Table],
-        columns_by_table: dict[str, list[Column]],
-    ) -> list[DimensionJoin]:
-        """Find qualifying dimension joins for a fact table (fallback).
-
-        Only includes relationships where:
-        - Cardinality is many_to_one or one_to_one
-        - Confidence >= threshold
-        - The relationship doesn't introduce duplicates
-        """
-        joins: list[DimensionJoin] = []
-
-        for rel in relationships:
-            # Determine which side is fact, which is dimension.
-            # Cardinality is stored as "from_table → to_table", so when traversing
-            # in reverse (fact is to_table) we must flip it:
-            #   stored one-to-many (dim→fact) = many-to-one (fact→dim) = grain-safe
-            if rel.from_table_id == fact_table.table_id:
-                fk_column_id = rel.from_column_id
-                dim_table_id = rel.to_table_id
-                dim_pk_column_id = rel.to_column_id
-                cardinality = rel.cardinality
-            elif rel.to_table_id == fact_table.table_id:
-                fk_column_id = rel.to_column_id
-                dim_table_id = rel.from_table_id
-                dim_pk_column_id = rel.from_column_id
-                # Flip cardinality for the reversed direction
-                cardinality = _flip_cardinality(rel.cardinality)
-            else:
-                continue
-
-            # Check cardinality is grain-safe
-            if cardinality not in _GRAIN_SAFE_CARDINALITIES:
-                continue
-
-            # Check for duplicate flag in evidence
-            evidence = rel.evidence or {}
-            if evidence.get("introduces_duplicates"):
-                continue
-
-            dim_table = tables_by_id.get(dim_table_id)
-            if not dim_table or not dim_table.duckdb_path:
-                continue
-
-            # Find FK column name
-            fk_col_name = None
-            for col in columns_by_table.get(fact_table.table_id, []):
-                if col.column_id == fk_column_id:
-                    fk_col_name = col.column_name
-                    break
-
-            # Find dimension PK column name
-            dim_pk_col_name = None
-            for col in columns_by_table.get(dim_table_id, []):
-                if col.column_id == dim_pk_column_id:
-                    dim_pk_col_name = col.column_name
-                    break
-
-            if not fk_col_name or not dim_pk_col_name:
-                continue
-
-            # Get dimension columns to include (exclude PK/FK columns)
-            include_columns = [
-                col.column_name
-                for col in columns_by_table.get(dim_table_id, [])
-                if col.column_name != dim_pk_col_name and col.column_name != fk_col_name
-            ]
-
-            if not include_columns:
-                continue  # No useful columns to add
-
-            joins.append(
-                DimensionJoin(
-                    dim_table_name=dim_table.table_name,
-                    dim_duckdb_path=dim_table.duckdb_path,
-                    fact_fk_column=fk_col_name,
-                    dim_pk_column=dim_pk_col_name,
-                    include_columns=include_columns,
-                    relationship_id=rel.relationship_id,
-                )
-            )
-
-        return joins
 
     @staticmethod
     def _verify_grain(

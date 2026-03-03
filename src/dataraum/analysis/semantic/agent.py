@@ -117,7 +117,8 @@ class SemanticAgent(LLMFeature):
                 analysis/relationships module. Each candidate contains:
                 - table1, table2: Table names
                 - join_columns: List of column pairs with confidence scores
-                - topology_similarity: TDA-based structural similarity
+                - join_success_rate: Percentage of rows with successful joins
+                - introduces_duplicates: Whether the join causes row fan-out
             column_annotations: Tier 1 column annotations from ColumnAnnotationAgent.
                 When provided, included as context so the capable model can focus
                 on relationships, table classification, and reviewing/upgrading
