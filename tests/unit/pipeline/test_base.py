@@ -48,23 +48,8 @@ class TestPhaseRegistry:
         assert cls is not None
 
 
-class TestBasePhaseEntropyProperties:
-    """Tests for entropy_preconditions and post_verification defaults."""
-
-    def test_default_entropy_preconditions_empty(self):
-        """BasePhase subclasses default to no entropy preconditions."""
-
-        class DummyPhase(BasePhase):
-            name = "dummy"
-            description = "test"
-            dependencies: list[str] = []
-            outputs: list[str] = []
-
-            def _run(self, ctx: PhaseContext) -> PhaseResult:
-                return PhaseResult.success()
-
-        phase = DummyPhase()
-        assert phase.entropy_preconditions == {}
+class TestBasePhaseProperties:
+    """Tests for post_verification defaults."""
 
     def test_default_post_verification_empty(self):
         class DummyPhase(BasePhase):

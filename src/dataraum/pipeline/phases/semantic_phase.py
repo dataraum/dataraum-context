@@ -56,10 +56,6 @@ class SemanticPhase(BasePhase):
         return ["relationships", "correlations"]
 
     @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        return {"type_fidelity": 0.3, "join_path_determinism": 0.5}
-
-    @property
     def post_verification(self) -> list[str]:
         return ["naming_clarity", "unit_declaration"]
 

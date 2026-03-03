@@ -75,14 +75,10 @@ class TestDetectorTrustLevels:
         assert d.is_verifier is False
 
 
-# --- PhaseStatus.GATE_BLOCKED ---
+# --- PhaseStatus ---
 
 
-class TestPhaseStatusGateBlocked:
-    def test_gate_blocked_exists(self):
-        assert PhaseStatus.GATE_BLOCKED == "gate_blocked"
-
-    def test_gate_blocked_is_distinct(self):
+class TestPhaseStatus:
+    def test_all_statuses(self):
         statuses = set(PhaseStatus)
-        assert PhaseStatus.GATE_BLOCKED in statuses
-        assert len(statuses) == 6  # pending, running, completed, failed, skipped, gate_blocked
+        assert len(statuses) == 5  # pending, running, completed, failed, skipped

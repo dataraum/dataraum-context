@@ -44,10 +44,6 @@ class StatisticsPhase(BasePhase):
         return ["typing"]
 
     @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        return {"type_fidelity": 0.5}
-
-    @property
     def post_verification(self) -> list[str]:
         return ["null_ratio", "outlier_rate"]
 

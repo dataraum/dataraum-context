@@ -25,7 +25,6 @@ class PhaseStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
-    GATE_BLOCKED = "gate_blocked"
 
 
 @dataclass
@@ -39,10 +38,6 @@ class PhaseContext:
     duckdb_conn: duckdb.DuckDBPyConnection
     source_id: str
     table_ids: list[str] = field(default_factory=list)
-
-    # Deprecated: kept for orchestrator backward compatibility until Phase 6.
-    # No phase code should read this field — use DB queries instead.
-    previous_outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Configuration overrides
     config: dict[str, Any] = field(default_factory=dict)
@@ -137,11 +132,6 @@ class Phase(Protocol):
         Returns:
             PhaseResult with status and outputs
         """
-        ...
-
-    @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        """Hard entropy dimensions that must be below thresholds before this phase runs."""
         ...
 
     @property
