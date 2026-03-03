@@ -93,6 +93,7 @@ class SlicingAgent(LLMFeature):
             "tables_json": json.dumps(tables, indent=2),
             "num_tables": len(tables),
             "table_names": ", ".join(t["table_name"] for t in tables),
+            "enriched_columns_json": json.dumps(context_data.get("enriched_columns", []), indent=2),
             "max_cardinality": constraints.get("max_cardinality", 15),
             "max_recommendations": constraints.get("max_recommendations", 4),
         }
@@ -192,8 +193,10 @@ class SlicingAgent(LLMFeature):
                 top_values = col_info.get("top_values", [])
                 distinct_values = [v.get("value", "") for v in top_values]
 
-            # Build SQL template
-            duckdb_table = table_info.get("duckdb_path", f"typed_{table_name}")
+            # Use enriched view if available, otherwise fall back to typed table
+            # Enriched views include dimension columns from joined tables
+            enriched_view = table_info.get("enriched_duckdb_path")
+            duckdb_table = enriched_view or table_info.get("duckdb_path", f"typed_{table_name}")
             sql_template = self._build_sql_template(duckdb_table, column_name, distinct_values)
 
             recommendation = SliceRecommendation(
