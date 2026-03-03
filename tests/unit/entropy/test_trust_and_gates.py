@@ -7,7 +7,6 @@ from dataraum.entropy.detectors import (
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.models import EntropyObject
 from dataraum.pipeline.base import PhaseStatus
-from dataraum.pipeline.entropy_state import PipelineEntropyState
 
 # --- Trust Level Classification ---
 
@@ -87,54 +86,3 @@ class TestPhaseStatusGateBlocked:
         statuses = set(PhaseStatus)
         assert PhaseStatus.GATE_BLOCKED in statuses
         assert len(statuses) == 6  # pending, running, completed, failed, skipped, gate_blocked
-
-
-# --- PipelineEntropyState ---
-
-
-class TestPipelineEntropyState:
-    def test_update_and_get_score(self):
-        state = PipelineEntropyState()
-        state.update_score("type_fidelity", 0.4, target_count=5)
-        assert state.get_score("type_fidelity") == 0.4
-
-    def test_get_score_missing(self):
-        state = PipelineEntropyState()
-        assert state.get_score("nonexistent") is None
-
-    def test_check_preconditions_pass(self):
-        state = PipelineEntropyState()
-        state.update_score("type_fidelity", 0.3)
-        violations = state.check_preconditions({"type_fidelity": 0.5})
-        assert violations == {}
-
-    def test_check_preconditions_fail(self):
-        state = PipelineEntropyState()
-        state.update_score("type_fidelity", 0.6)
-        violations = state.check_preconditions({"type_fidelity": 0.5})
-        assert "type_fidelity" in violations
-        assert violations["type_fidelity"] == (0.6, 0.5)
-
-    def test_check_preconditions_unmeasured_passes(self):
-        """Unmeasured dimensions should not block (no data yet)."""
-        state = PipelineEntropyState()
-        violations = state.check_preconditions({"type_fidelity": 0.5})
-        assert violations == {}
-
-    def test_take_snapshot(self):
-        state = PipelineEntropyState()
-        state.update_score("type_fidelity", 0.3)
-        snap = state.take_snapshot()
-        assert "type_fidelity" in snap
-        assert len(state.snapshots) == 1
-
-        # Mutating state after snapshot doesn't affect snapshot
-        state.update_score("type_fidelity", 0.9)
-        assert snap["type_fidelity"].score == 0.3
-
-    def test_to_dict(self):
-        state = PipelineEntropyState()
-        state.update_score("type_fidelity", 0.3)
-        state.update_score("null_ratio", 0.1)
-        d = state.to_dict()
-        assert d == {"type_fidelity": 0.3, "null_ratio": 0.1}
