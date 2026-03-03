@@ -43,7 +43,7 @@ class SliceAnalysisPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["slicing"]
+        return ["slicing_view"]
 
     @property
     def outputs(self) -> list[str]:
@@ -117,8 +117,10 @@ class SliceAnalysisPhase(BasePhase):
                 records_created=0,
             )
 
-        # Execute slice SQL templates to create slice tables in DuckDB
-        # Each sql_template contains CREATE statements for ALL values in that slice
+        # Execute slice SQL templates to create slice tables in DuckDB.
+        # Each sql_template contains CREATE statements for ALL values in that slice.
+        # The templates already reference the slicing view as their source
+        # (rewritten by slicing_view_phase after view creation).
         slices_created = 0
         errors: list[str] = []
 
@@ -127,7 +129,6 @@ class SliceAnalysisPhase(BasePhase):
                 continue
 
             try:
-                # Execute the full template (contains all CREATE OR REPLACE statements)
                 ctx.duckdb_conn.execute(slice_def.sql_template)
                 slices_created += len(slice_def.distinct_values or [])
             except Exception as e:
