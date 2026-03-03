@@ -7,6 +7,7 @@ and the relationships they are based on.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -58,6 +59,9 @@ class EnrichedView(Base):
 
     # Grain verification: COUNT(*) of view == fact table row_count
     is_grain_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # LLM enrichment evidence (reasoning, dimension type, model used)
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)

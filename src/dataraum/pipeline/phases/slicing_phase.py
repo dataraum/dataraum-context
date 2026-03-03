@@ -371,6 +371,8 @@ class SlicingPhase(BasePhase):
                     columns_list.append(dim_entry)
                     column_count += 1
 
+            enriched_view_name = table_ev.view_name if table_ev else None
+
             tables_data.append(
                 {
                     "table_id": table.table_id,
@@ -378,6 +380,9 @@ class SlicingPhase(BasePhase):
                     "duckdb_path": table.duckdb_path,
                     "row_count": table.row_count,
                     "columns": columns_list,
+                    # Use enriched view if available, otherwise use typed table
+                    "enriched_view_name": enriched_view_name,
+                    "enriched_duckdb_path": enriched_view_name if table_ev else None,
                 }
             )
 
