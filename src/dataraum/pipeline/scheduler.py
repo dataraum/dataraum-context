@@ -96,6 +96,8 @@ class PipelineScheduler:
         duckdb_conn: Any,
         contract_thresholds: dict[str, float] | None = None,
         fix_executor: FixExecutor | None = None,
+        phase_configs: dict[str, dict[str, Any]] | None = None,
+        runtime_config: dict[str, Any] | None = None,
     ) -> None:
         # Validate that all declared dependencies reference known phases
         for name, phase in phases.items():
@@ -112,6 +114,8 @@ class PipelineScheduler:
         self.duckdb_conn = duckdb_conn
         self.contract_thresholds = contract_thresholds or {}
         self.fix_executor = fix_executor
+        self._phase_configs = phase_configs or {}
+        self._runtime_config = runtime_config or {}
 
         # Internal state
         self._state: dict[str, PhaseStatus] = dict.fromkeys(
@@ -145,7 +149,7 @@ class PipelineScheduler:
             while ready := self._ready_phases():
                 for phase_name in ready:
                     phase = self.phases[phase_name]
-                    ctx = self._build_context()
+                    ctx = self._build_context(phase_name)
 
                     # 1. Check should_skip
                     skip_reason = phase.should_skip(ctx)
@@ -288,12 +292,17 @@ class PipelineScheduler:
         ready.sort(key=lambda n: len(self.phases[n].dependencies))
         return ready
 
-    def _build_context(self) -> PhaseContext:
+    def _build_context(self, phase_name: str = "") -> PhaseContext:
         """Build a PhaseContext from current state."""
+        config: dict[str, Any] = {}
+        if phase_name:
+            config.update(self._phase_configs.get(phase_name, {}))
+        config.update(self._runtime_config)
         return PhaseContext(
             session=self.session,
             duckdb_conn=self.duckdb_conn,
             source_id=self.source_id,
+            config=config,
         )
 
     def _write_phase_log(

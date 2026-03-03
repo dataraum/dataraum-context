@@ -39,10 +39,16 @@ from dataraum.core.config import load_phase_config, load_pipeline_config
 from dataraum.core.connections import ConnectionConfig, ConnectionManager
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
-from dataraum.pipeline.base import PhaseStatus
-from dataraum.pipeline.db_models import PhaseCheckpoint, PipelineRun
-from dataraum.pipeline.events import EventCallback, EventType  # noqa: F401
-from dataraum.pipeline.orchestrator import Pipeline, PipelineConfig, get_pipeline
+from dataraum.pipeline.base import Phase
+from dataraum.pipeline.db_models import PhaseLog, PipelineRun
+from dataraum.pipeline.events import EventCallback, EventType, PipelineEvent  # noqa: F401
+from dataraum.pipeline.registry import get_all_dependencies, get_registry
+from dataraum.pipeline.scheduler import (
+    PipelineResult,
+    PipelineScheduler,
+    Resolution,
+    ResolutionAction,
+)
 from dataraum.storage import Source
 
 logger = get_logger(__name__)
@@ -174,40 +180,6 @@ class RunResult:
         return sorted_ops[:n]
 
 
-def create_pipeline(config: RunConfig, pipeline_yaml: dict[str, Any] | None = None) -> Pipeline:
-    """Create and configure the pipeline from YAML config + registry.
-
-    Args:
-        config: Run configuration
-        pipeline_yaml: Pre-loaded YAML config (loaded if not provided)
-
-    Returns:
-        Configured Pipeline instance
-    """
-    if pipeline_yaml is None:
-        pipeline_yaml = load_pipeline_config()
-
-    pcfg = pipeline_yaml.get("pipeline", {})
-    retry_cfg = pcfg.get("retry", {})
-    pipeline_config = PipelineConfig(
-        skip_completed=pcfg.get("skip_completed", True),
-        fail_fast=pcfg.get("fail_fast", True),
-        max_parallel=pcfg.get("max_parallel", 4),
-        max_retries=retry_cfg.get("max_retries", 2),
-        backoff_base=retry_cfg.get("backoff_base", 2.0),
-        gate_mode=config.gate_mode.value,
-        contract=config.contract,
-        gate_handler=config.gate_handler,
-        max_fix_attempts=config.max_fix_attempts,
-    )
-
-    # Active phases from YAML config (or all registered if not specified)
-    active_phases = pipeline_yaml.get("phases", None)
-
-    pipeline = get_pipeline(active_phases=active_phases)
-    pipeline.config = pipeline_config
-    return pipeline
-
 
 def _compute_source_set_fingerprint(sources: list[dict[str, Any]]) -> str:
     """Compute a SHA-256 fingerprint of the registered source set.
@@ -267,18 +239,20 @@ def _resolve_registered_sources(manager: ConnectionManager) -> list[dict[str, An
         return result
 
 
-def _check_fingerprint_and_invalidate(
+def _check_fingerprint_changed(
     manager: ConnectionManager,
     source_id: str,
     new_fingerprint: str,
 ) -> bool:
-    """Check if the source set fingerprint changed. If so, delete checkpoints.
+    """Check if the source set fingerprint changed.
+
+    The scheduler's should_skip() handles resume via DB queries, so we
+    don't need to invalidate anything here — just detect the change.
 
     Returns:
         True if fingerprint changed (full re-run needed), False otherwise.
     """
     with manager.session_scope() as session:
-        # Find the most recent pipeline run for this source_id
         stmt = (
             select(PipelineRun)
             .where(PipelineRun.source_id == source_id)
@@ -292,23 +266,14 @@ def _check_fingerprint_and_invalidate(
 
         old_fingerprint = (last_run.config or {}).get("source_set_fingerprint")
         if old_fingerprint == new_fingerprint:
-            return False  # Same sources, skip_completed can work
+            return False
 
-        # Fingerprint changed — delete all checkpoints for this source_id
         logger.debug(
             "source_set_changed",
             source_id=source_id,
             old_fingerprint=old_fingerprint,
             new_fingerprint=new_fingerprint,
         )
-        checkpoints = (
-            session.execute(select(PhaseCheckpoint).where(PhaseCheckpoint.source_id == source_id))
-            .scalars()
-            .all()
-        )
-        for cp in checkpoints:
-            session.delete(cp)
-
         return True
 
 
@@ -353,13 +318,11 @@ def run(config: RunConfig) -> Result[RunResult]:
 
         # Resolve source_id
         if multi_source_mode:
-            # Deterministic source_id from output directory name
             source_id = str(
                 uuid4()
                 if not config.output_dir.name
                 else hashlib.md5(str(config.output_dir.resolve()).encode()).hexdigest()[:32]
             )
-            # Check if we already have a source with this approach
             with manager.session_scope() as session:
                 existing = session.execute(
                     select(Source).where(Source.name == "multi_source")
@@ -392,15 +355,11 @@ def run(config: RunConfig) -> Result[RunResult]:
         # Fingerprint check for multi-source mode
         if multi_source_mode and registered_sources:
             fingerprint = _compute_source_set_fingerprint(registered_sources)
-            changed = _check_fingerprint_and_invalidate(manager, source_id, fingerprint)
+            changed = _check_fingerprint_changed(manager, source_id, fingerprint)
             if changed:
                 logger.debug("source_set_fingerprint_changed", fingerprint=fingerprint)
         else:
             fingerprint = None
-
-        # Inject pipeline context into gate handler (for fix execution)
-        if config.gate_handler and hasattr(config.gate_handler, "set_context"):
-            config.gate_handler.set_context(manager, source_id)
 
         logger.debug(
             "pipeline_run_started",
@@ -413,14 +372,11 @@ def run(config: RunConfig) -> Result[RunResult]:
         # Load pipeline configuration from YAML
         pipeline_yaml_config = load_pipeline_config()
 
-        # Create pipeline with YAML-loaded settings
-        pipeline = create_pipeline(config, pipeline_yaml=pipeline_yaml_config)
+        # Load per-phase configs
+        active_phase_names = pipeline_yaml_config.get("phases", [])
+        phase_configs = {name: load_phase_config(name) for name in active_phase_names}
 
-        # Load per-phase configs by convention
-        active_phases = pipeline_yaml_config.get("phases", [])
-        phase_configs = {name: load_phase_config(name) for name in active_phases}
-
-        # Runtime config passed to every phase
+        # Build runtime config passed to every phase
         if multi_source_mode and registered_sources:
             runtime_config: dict[str, Any] = {
                 "source_name": "multi_source",
@@ -434,122 +390,148 @@ def run(config: RunConfig) -> Result[RunResult]:
                 "source_name": config.source_name or config.source_path.stem,
             }
 
-        # Execute pipeline
-        results = pipeline.run(
-            manager=manager,
+        # Build phase dict from registry
+        registry = get_registry()
+        phases: dict[str, Phase] = {name: cls() for name, cls in registry.items()}
+
+        # Filter phases if target_phase is set
+        if config.target_phase:
+            deps = get_all_dependencies(config.target_phase)
+            keep = deps | {config.target_phase}
+            phases = {n: p for n, p in phases.items() if n in keep}
+
+        # Load contract thresholds
+        thresholds: dict[str, float] = {}
+        if config.contract:
+            from dataraum.entropy.contracts import get_contract
+
+            contract_obj = get_contract(config.contract)
+            if contract_obj:
+                thresholds = contract_obj.dimension_thresholds
+
+        # Create PipelineRun record
+        session = manager.get_session()
+        duckdb_conn = manager._duckdb_conn  # noqa: SLF001
+        run_id = str(uuid4())
+        run_record = PipelineRun(
+            run_id=run_id,
             source_id=source_id,
-            target_phase=config.target_phase,
+            status="running",
+            config={
+                "target_phase": config.target_phase,
+                "force_phase": config.force_phase,
+                "source_set_fingerprint": fingerprint,
+            },
+        )
+        session.add(run_record)
+        session.flush()
+
+        # Create fix executor
+        from dataraum.entropy.fix_executor import FixExecutor, get_default_action_registry
+
+        action_registry = get_default_action_registry()
+        fix_executor = FixExecutor(action_registry)
+
+        # Create scheduler
+        scheduler = PipelineScheduler(
+            phases=phases,
+            source_id=source_id,
+            run_id=run_id,
+            session=session,
+            duckdb_conn=duckdb_conn,
+            contract_thresholds=thresholds,
+            fix_executor=fix_executor,
             phase_configs=phase_configs,
             runtime_config=runtime_config,
-            force_phase=config.force_phase,
-            event_callback=config.event_callback,
         )
+
+        # Drive the generator — collect events, auto-defer gates
+        gen = scheduler.run()
+        collected_events: list[PipelineEvent] = []
+        pipeline_result: PipelineResult | None = None
+
+        try:
+            event = next(gen)
+            while True:
+                collected_events.append(event)
+
+                # Forward to event callback if provided
+                if config.event_callback:
+                    try:
+                        config.event_callback(event)
+                    except Exception:
+                        pass  # Never let callback failures break the pipeline
+
+                if event.event_type == EventType.EXIT_CHECK:
+                    # Programmatic callers: auto-defer gates
+                    resolution = Resolution(action=ResolutionAction.DEFER)
+                    event = gen.send(resolution)
+                else:
+                    event = next(gen)
+        except StopIteration as e:
+            pipeline_result = e.value
+
+        if pipeline_result is None:
+            pipeline_result = PipelineResult(
+                success=False,
+                phases_completed=[],
+                phases_failed=[],
+                phases_skipped=[],
+                final_scores={},
+                deferred_issues=[],
+                error="Generator ended without returning a result",
+            )
 
         duration = time.time() - start_time
 
-        # Read detailed metrics from checkpoints
-        # Checkpoints have the full metrics collected during execution
-        with manager.session_scope() as session:
-            stmt = select(PhaseCheckpoint).where(PhaseCheckpoint.source_id == source_id)
-            checkpoint_result = session.execute(stmt)
-            checkpoints = {cp.phase_name: cp for cp in checkpoint_result.scalars().all()}
+        # Read phase logs for detailed results
+        logs_stmt = select(PhaseLog).where(PhaseLog.run_id == run_id)
+        phase_logs = {
+            log.phase_name: log for log in session.execute(logs_stmt).scalars().all()
+        }
 
-        # Build detailed phase results with metrics from checkpoints
-        phase_results = []
-        for phase_name, result in results.items():
-            checkpoint = checkpoints.get(phase_name)
+        # Build phase results from logs
+        phase_results: list[PhaseRunResult] = []
+        all_phase_names = (
+            pipeline_result.phases_completed
+            + pipeline_result.phases_failed
+            + pipeline_result.phases_skipped
+        )
+        for phase_name in all_phase_names:
+            log = phase_logs.get(phase_name)
             phase_results.append(
                 PhaseRunResult(
                     phase_name=phase_name,
-                    status=result.status.value,
-                    duration_seconds=result.duration_seconds,
-                    error=result.error,
-                    records_processed=result.records_processed,
-                    records_created=result.records_created,
-                    # Detailed metrics from checkpoint
-                    tables_processed=checkpoint.tables_processed if checkpoint else 0,
-                    columns_processed=checkpoint.columns_processed if checkpoint else 0,
-                    rows_processed=checkpoint.rows_processed if checkpoint else 0,
-                    db_queries=checkpoint.db_queries if checkpoint else 0,
-                    db_writes=checkpoint.db_writes if checkpoint else 0,
-                    timings=checkpoint.timings if checkpoint else {},
-                    # Entropy / gate info from checkpoint
-                    post_verification_scores=(
-                        checkpoint.entropy_hard_scores
-                        if checkpoint and checkpoint.entropy_hard_scores
-                        else {}
-                    ),
-                    gate_status=checkpoint.gate_status or "" if checkpoint else "",
+                    status=log.status if log else "unknown",
+                    duration_seconds=log.duration_seconds if log else 0.0,
+                    error=log.error if log else None,
+                    post_verification_scores=log.entropy_scores or {} if log else {},
                 )
             )
-
-        # Extract entropy and gate data from pipeline
-        final_entropy_scores = pipeline._entropy_state.to_dict()
-        gate_events_list: list[dict[str, Any]] = []
-        for evt in pipeline._collected_events:
-            if evt.event_type in (
-                EventType.GATE_EVALUATED,
-                EventType.GATE_BLOCKED,
-                EventType.GATE_RESOLVED,
-            ):
-                gate_events_list.append(
-                    {
-                        "event_type": evt.event_type.value,
-                        "phase": evt.phase,
-                        "gate_status": evt.gate_status,
-                        "violations": {
-                            k: {"current": v[0], "threshold": v[1]}
-                            for k, v in evt.violations.items()
-                        },
-                        "message": evt.message,
-                    }
-                )
+            if log and log.status == "failed" and log.error:
+                warnings.append(f"{phase_name} failed: {log.error}")
 
         # Close connections
         manager.close()
 
-        # Count results
-        completed = sum(1 for r in results.values() if r.status == PhaseStatus.COMPLETED)
-        failed = sum(1 for r in results.values() if r.status == PhaseStatus.FAILED)
-
-        # Collect warnings from ALL phases (not just failed)
-        for phase_name, result in results.items():
-            # Collect phase-level warnings (e.g., "3 tables failed out of 5")
-            if result.warnings:
-                for warning in result.warnings:
-                    warnings.append(f"{phase_name}: {warning}")
-            # Also include error message from failed phases
-            if result.status == PhaseStatus.FAILED and result.error:
-                warnings.append(f"{phase_name} failed: {result.error}")
-
         logger.debug(
             "pipeline_run_completed",
             source_id=source_id,
-            phases_completed=completed,
-            phases_failed=failed,
-            phases_skipped=len(results) - completed - failed,
+            phases_completed=len(pipeline_result.phases_completed),
+            phases_failed=len(pipeline_result.phases_failed),
+            phases_skipped=len(pipeline_result.phases_skipped),
             duration_seconds=round(duration, 2),
-            success=failed == 0,
+            success=pipeline_result.success,
         )
 
-        # Log individual phase results at debug level
-        for phase_name, result in results.items():
-            logger.debug(
-                "phase_result",
-                phase=phase_name,
-                status=result.status.value,
-                duration_seconds=round(result.duration_seconds, 2),
-                error=result.error if result.status == PhaseStatus.FAILED else None,
-            )
-
         run_result = RunResult(
-            success=failed == 0,
+            success=pipeline_result.success,
             source_id=source_id,
             duration_seconds=duration,
             phases=phase_results,
             output_dir=config.output_dir,
-            final_entropy_scores=final_entropy_scores,
-            gate_events=gate_events_list,
+            final_entropy_scores=pipeline_result.final_scores,
+            error=pipeline_result.error,
         )
 
         return Result.ok(run_result, warnings=warnings if warnings else None)
@@ -563,7 +545,6 @@ def run(config: RunConfig) -> Result[RunResult]:
             duration_seconds=round(duration, 2),
         )
 
-        # Return a Result with an error RunResult so CLI can still show partial info
         run_result = RunResult(
             success=False,
             source_id=source_id,
