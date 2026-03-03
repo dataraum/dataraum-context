@@ -42,6 +42,8 @@ class LLMFeatures(BaseModel):
     validation: FeatureConfig | None = None
     business_cycles: FeatureConfig | None = None
     entropy_interpretation: FeatureConfig | None = None
+    entropy_query_interpretation: FeatureConfig | None = None
+    enrichment_analysis: FeatureConfig | None = None
 
 
 class LLMLimits(BaseModel):

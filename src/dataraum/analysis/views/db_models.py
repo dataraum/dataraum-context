@@ -7,6 +7,7 @@ and the relationships they are based on.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -59,9 +60,46 @@ class EnrichedView(Base):
     # Grain verification: COUNT(*) of view == fact table row_count
     is_grain_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # LLM enrichment evidence (reasoning, dimension type, model used)
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
 
 
-__all__ = ["EnrichedView"]
+class SlicingView(Base):
+    """Record of a slicing DuckDB view.
+
+    Projection of enriched_view keeping only slice-relevant dimension columns.
+    The view contains all fact table columns plus only the dimension columns
+    that correspond to SliceDefinitions for this table.
+    """
+
+    __tablename__ = "slicing_views"
+
+    view_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+
+    # The fact table this view is based on
+    fact_table_id: Mapped[str] = mapped_column(
+        ForeignKey("tables.table_id", ondelete="CASCADE"), nullable=False
+    )
+
+    view_name: Mapped[str] = mapped_column(String, nullable=False)
+    view_sql: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Which slice definitions drove column selection
+    slice_definition_ids: Mapped[list[str] | None] = mapped_column(JSON)
+
+    # Dimension columns kept in this view (subset of enriched_view.dimension_columns)
+    slice_columns: Mapped[list[str] | None] = mapped_column(JSON)
+
+    # Grain verification: COUNT(*) of view == fact table row_count
+    is_grain_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+
+__all__ = ["EnrichedView", "SlicingView"]

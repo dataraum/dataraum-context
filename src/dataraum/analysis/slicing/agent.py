@@ -88,11 +88,12 @@ class SlicingAgent(LLMFeature):
 
         # Build context for prompt
         constraints = context_data.get("constraints", {})
+        tables = context_data.get("tables", [])
         context = {
-            "tables_json": json.dumps(context_data.get("tables", []), indent=2),
-            "statistics_json": json.dumps(context_data.get("statistics", []), indent=2),
-            "semantic_json": json.dumps(context_data.get("semantic", []), indent=2),
-            "quality_json": json.dumps(context_data.get("quality", []), indent=2),
+            "tables_json": json.dumps(tables, indent=2),
+            "num_tables": len(tables),
+            "table_names": ", ".join(t["table_name"] for t in tables),
+            "enriched_columns_json": json.dumps(context_data.get("enriched_columns", []), indent=2),
             "max_cardinality": constraints.get("max_cardinality", 15),
             "max_recommendations": constraints.get("max_recommendations", 4),
         }
@@ -186,21 +187,16 @@ class SlicingAgent(LLMFeature):
             col_key = (table_name, column_name)
             col_info = column_map.get(col_key, {})
 
-            # Get distinct values from output or statistics
+            # Get distinct values from output or column dict top_values
             distinct_values = rec.distinct_values
             if not distinct_values:
-                # Try to get from statistics
-                for stat in context_data.get("statistics", []):
-                    if (
-                        stat.get("table_name") == table_name
-                        and stat.get("column_name") == column_name
-                    ):
-                        top_values = stat.get("top_values", [])
-                        distinct_values = [v.get("value", "") for v in top_values]
-                        break
+                top_values = col_info.get("top_values", [])
+                distinct_values = [v.get("value", "") for v in top_values]
 
-            # Build SQL template
-            duckdb_table = table_info.get("duckdb_path", f"typed_{table_name}")
+            # Use enriched view if available, otherwise fall back to typed table
+            # Enriched views include dimension columns from joined tables
+            enriched_view = table_info.get("enriched_duckdb_path")
+            duckdb_table = enriched_view or table_info.get("duckdb_path", f"typed_{table_name}")
             sql_template = self._build_sql_template(duckdb_table, column_name, distinct_values)
 
             recommendation = SliceRecommendation(
@@ -274,11 +270,12 @@ class SlicingAgent(LLMFeature):
 
             # Use proper quoting for column names with spaces
             quoted_column = f'"{column_name}"'
+            escaped_value = str(value).replace("'", "''")
 
             lines.append(f"-- Slice: {column_name} = '{value}'")
             lines.append(f"CREATE OR REPLACE TABLE {slice_table} AS")
             lines.append(f"SELECT * FROM {table_name}")
-            lines.append(f"WHERE {quoted_column} = '{value}';")
+            lines.append(f"WHERE {quoted_column} = '{escaped_value}';")
             lines.append("")
 
         return "\n".join(lines)
