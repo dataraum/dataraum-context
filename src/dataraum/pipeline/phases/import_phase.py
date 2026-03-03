@@ -240,7 +240,7 @@ class ImportPhase(BasePhase):
         if not table_ids:
             return PhaseResult.failed("No CSV files were successfully loaded")
 
-        # Note: commit handled by session_scope() in orchestrator
+        # Note: commit handled by session_scope() in scheduler
         duration = time.time() - start_time
 
         return PhaseResult.success(
@@ -279,7 +279,7 @@ class ImportPhase(BasePhase):
         staged_table = result.unwrap()
         duration = time.time() - start_time
 
-        # Note: commit handled by session_scope() in orchestrator
+        # Note: commit handled by session_scope() in scheduler
 
         return PhaseResult.success(
             outputs={"raw_tables": [str(staged_table.table_id)]},

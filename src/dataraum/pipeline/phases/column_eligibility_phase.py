@@ -1,6 +1,6 @@
 """Column eligibility phase implementation.
 
-Thin orchestrator — business logic lives in analysis/eligibility/evaluator.py.
+Thin wrapper — business logic lives in analysis/eligibility/evaluator.py.
 """
 
 from __future__ import annotations

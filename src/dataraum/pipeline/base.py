@@ -1,6 +1,6 @@
 """Pipeline base types and protocols.
 
-Defines the Phase protocol and related data structures used by the orchestrator.
+Defines the Phase protocol and related data structures used by the pipeline scheduler.
 """
 
 from __future__ import annotations

@@ -119,7 +119,7 @@ class CorrelationsPhase(BasePhase):
             analyzed_tables.append(typed_table.table_name)
             total_derived += len(result_data.derived_columns)
 
-        # Note: commit handled by session_scope() in orchestrator
+        # Note: commit handled by session_scope() in scheduler
 
         if not analyzed_tables and warnings:
             return PhaseResult.failed(f"All tables failed analysis: {'; '.join(warnings)}")

@@ -114,7 +114,7 @@ class TestLoadPipelineConfig:
         assert isinstance(data["phases"], list)
         assert "import" in data["phases"]
 
-    def test_pipeline_config_has_orchestrator_settings(self):
+    def test_pipeline_config_has_pipeline_settings(self):
         data = load_pipeline_config()
         pipeline_cfg = data["pipeline"]
         assert "max_parallel" in pipeline_cfg
@@ -122,7 +122,7 @@ class TestLoadPipelineConfig:
         assert "retry" in pipeline_cfg
 
     def test_pipeline_config_has_no_phase_sections(self):
-        """Pipeline.yaml should only have orchestrator config, not phase config."""
+        """Pipeline.yaml should only have pipeline config, not phase config."""
         data = load_pipeline_config()
         # These inline sections were moved to config/phases/
         for phase_section in [

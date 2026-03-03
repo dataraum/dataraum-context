@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from dataraum.pipeline.events import EventType, PipelineEvent
 
 
@@ -33,11 +35,8 @@ class TestPipelineEvent:
 
     def test_event_is_frozen(self):
         event = PipelineEvent(event_type=EventType.PHASE_COMPLETED)
-        try:
+        with pytest.raises(AttributeError):
             event.phase = "modified"  # type: ignore[misc]
-            assert False, "Should have raised"
-        except AttributeError:
-            pass
 
     def test_completed_event_has_duration(self):
         event = PipelineEvent(

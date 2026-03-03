@@ -1,6 +1,6 @@
 """Correlation analysis processor.
 
-Main orchestrator that runs all correlation analyses:
+Runs all correlation analyses:
 
 Within-table analysis (analyze_correlations):
 - Derived column detection (sum, product, ratio, etc.)

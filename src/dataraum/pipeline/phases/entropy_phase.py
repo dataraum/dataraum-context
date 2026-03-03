@@ -543,7 +543,7 @@ class EntropyPhase(BasePhase):
         )
         ctx.session.add(snapshot)
 
-        # Note: commit handled by session_scope() in orchestrator
+        # Note: commit handled by session_scope() in scheduler
 
         # Compute aggregated hard detector scores for gate checking.
         # For each hard sub_dimension, compute the mean score across all targets.

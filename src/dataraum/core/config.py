@@ -151,9 +151,9 @@ def load_phase_config(phase_name: str) -> dict[str, Any]:
 
 
 def load_pipeline_config() -> dict[str, Any]:
-    """Load pipeline orchestrator configuration.
+    """Load pipeline configuration.
 
-    Loads config/pipeline.yaml which contains only orchestrator settings
+    Loads config/pipeline.yaml which contains pipeline settings
     (active phases, max_parallel, retry config). Per-phase config lives in
     config/phases/<name>.yaml and is loaded via load_phase_config().
 

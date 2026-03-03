@@ -1,7 +1,6 @@
 """Pipeline scheduler — generator-based reactive execution loop.
 
-Replaces the orchestrator's scheduling logic with a contract-driven
-approach that uses entropy thresholds and fix replay.
+Contract-driven approach that uses entropy thresholds and fix replay.
 """
 
 from __future__ import annotations
