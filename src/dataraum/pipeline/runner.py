@@ -208,6 +208,7 @@ def run(config: RunConfig) -> Result[RunResult]:
                 phases_completed=[],
                 phases_failed=[],
                 phases_skipped=[],
+                phases_blocked=[],
                 final_scores={},
                 deferred_issues=[],
                 error="Generator ended without returning a result",

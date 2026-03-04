@@ -54,6 +54,7 @@ def _ok_result(**kwargs) -> PipelineResult:
         "phases_completed": ["import", "typing", "statistics"],
         "phases_failed": [],
         "phases_skipped": [],
+        "phases_blocked": [],
         "final_scores": {},
         "deferred_issues": [],
     }

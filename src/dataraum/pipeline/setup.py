@@ -149,7 +149,9 @@ def setup_pipeline(
         },
     )
     session.add(run_record)
-    session.flush()
+    session.commit()  # Commit immediately to release SQLite write lock.
+    # Phase sessions (via session_factory) need write access; holding an
+    # uncommitted write transaction here would block them for busy_timeout.
 
     # 11. Force-clean target phase before scheduling
     if force_phase and target_phase:
@@ -157,7 +159,7 @@ def setup_pipeline(
 
         assert duckdb_conn is not None
         cleanup_phase(target_phase, source_id, session, duckdb_conn)
-        session.flush()
+        session.commit()
 
     # 12. Create fix executor
     action_registry = get_default_action_registry()

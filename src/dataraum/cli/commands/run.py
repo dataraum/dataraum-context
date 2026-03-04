@@ -7,7 +7,7 @@ import warnings
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -212,7 +212,14 @@ def run(
             quiet=quiet,
         )
 
-    setup.session.commit()
+    # Update PipelineRun status (all phase data already committed incrementally)
+    from dataraum.pipeline.db_models import PipelineRun
+
+    run_record = setup.session.get(PipelineRun, setup.run_id)
+    if run_record:
+        run_record.status = "completed" if result.success else "failed"
+        setup.session.commit()
+
     raise typer.Exit(0 if result.success else 1)
 
 
@@ -220,18 +227,13 @@ def run(
 class _RunStats:
     """Accumulated stats from phase events during a pipeline run."""
 
-    total_processed: int = 0
-    total_created: int = 0
     total_duration: float = 0.0
     all_warnings: list[tuple[str, str]] = field(
         default_factory=list
     )  # (phase, warning)
-    phase_details: list[tuple[str, int, int, float]] = field(
+    phase_errors: list[tuple[str, str]] = field(
         default_factory=list
-    )  # (name, processed, created, duration)
-    phase_outputs: dict[str, dict[str, Any]] = field(
-        default_factory=dict
-    )  # phase_name -> outputs
+    )  # (phase, error)
 
 
 def _drive_pipeline(
@@ -278,21 +280,9 @@ def _drive_pipeline(
                         status.stop()
                     if not quiet:
                         _print_phase_completed(console, event)
-                    # Accumulate stats
-                    stats.total_processed += event.records_processed
-                    stats.total_created += event.records_created
                     stats.total_duration += event.duration_seconds
                     for w in event.warnings:
                         stats.all_warnings.append((event.phase, w))
-                    if event.records_processed or event.records_created:
-                        stats.phase_details.append((
-                            event.phase,
-                            event.records_processed,
-                            event.records_created,
-                            event.duration_seconds,
-                        ))
-                    if event.outputs:
-                        stats.phase_outputs[event.phase] = event.outputs
                     if status:
                         status.start()
 
@@ -303,6 +293,7 @@ def _drive_pipeline(
                         console.print(
                             f"  [red]\u2717[/red] {event.phase}: {event.error}"
                         )
+                    stats.phase_errors.append((event.phase, event.error or "unknown error"))
                     if status:
                         status.start()
 
@@ -357,6 +348,7 @@ def _drive_pipeline(
             phases_completed=[],
             phases_failed=[],
             phases_skipped=[],
+            phases_blocked=[],
             final_scores={},
             deferred_issues=[],
             error="Generator ended without returning a result",
@@ -369,23 +361,11 @@ def _drive_pipeline(
 
 
 def _print_phase_completed(console: Console, event: PipelineEvent) -> None:
-    """Print phase completion with metadata."""
-    parts = [f"  [green]\u2713[/green] {event.phase} ({event.duration_seconds:.1f}s)"]
-
-    # Add record counts if present
-    details: list[str] = []
-    if event.records_processed:
-        details.append(f"{event.records_processed:,} processed")
-    if event.records_created:
-        details.append(f"{event.records_created:,} created")
-    if details:
-        parts[0] += f" [dim]\u2014 {', '.join(details)}[/dim]"
-
-    console.print(parts[0])
-
-    # Show phase summary if present
+    """Print phase completion with summary."""
+    line = f"  [green]\u2713[/green] {event.phase} ({event.duration_seconds:.1f}s)"
     if event.summary:
-        console.print(f"    [dim]{event.summary}[/dim]")
+        line += f" [dim]\u2014 {event.summary}[/dim]"
+    console.print(line)
 
     # Show warnings inline
     for warning in event.warnings:
@@ -422,50 +402,29 @@ def _print_summary(
     completed = len(result.phases_completed)
     failed = len(result.phases_failed)
     skipped = len(result.phases_skipped)
+    blocked = len(result.phases_blocked)
     console.print(
         f"  Phases: [green]{completed} completed[/green]"
         f"{f', [red]{failed} failed[/red]' if failed else ''}"
         f"{f', [yellow]{skipped} skipped[/yellow]' if skipped else ''}"
+        f"{f', [yellow]{blocked} blocked[/yellow]' if blocked else ''}"
         f"  [dim]({stats.total_duration:.1f}s total)[/dim]"
     )
 
-    # Data throughput
-    if stats.total_processed or stats.total_created:
+    # Errors
+    if stats.phase_errors:
+        console.print()
+        console.print(f"[red]Errors ({len(stats.phase_errors)}):[/red]")
+        for phase, error in stats.phase_errors:
+            console.print(f"  [red]\u2717[/red] {phase}: {error}")
+
+    # Blocked phases
+    if result.phases_blocked:
+        console.print()
         console.print(
-            f"  Records: {stats.total_processed:,} processed, "
-            f"{stats.total_created:,} created"
+            f"[yellow]Blocked ({len(result.phases_blocked)}):[/yellow] "
+            f"[dim]{', '.join(result.phases_blocked)}[/dim]"
         )
-
-    # Per-phase breakdown (only phases that touched data)
-    if stats.phase_details:
-        console.print()
-        console.print("[bold]Phase Breakdown[/bold]")
-        console.print("-" * 60)
-        for name, processed, created, duration in stats.phase_details:
-            parts = []
-            if processed:
-                parts.append(f"{processed:,} in")
-            if created:
-                parts.append(f"{created:,} out")
-            detail = ", ".join(parts)
-            console.print(
-                f"  {name:<24} {duration:>5.1f}s  [dim]{detail}[/dim]"
-            )
-
-    # Discoveries (phase outputs detail)
-    if stats.phase_outputs:
-        from dataraum.pipeline.base import PhaseResult
-
-        console.print()
-        console.print("[bold]Discoveries[/bold]")
-        console.print("-" * 60)
-        for phase_name, outputs in stats.phase_outputs.items():
-            detail = PhaseResult(
-                status=PhaseResult.success().status, outputs=outputs
-            ).detail()
-            if detail:
-                console.print(f"  [bold]{phase_name}[/bold]")
-                console.print(detail)
 
     # Warnings
     if stats.all_warnings:

@@ -66,6 +66,7 @@ class PipelineResult:
     phases_completed: list[str]
     phases_failed: list[str]
     phases_skipped: list[str]
+    phases_blocked: list[str]  # PENDING phases blocked by failed dependencies
     final_scores: dict[str, float]  # dimension_path -> score
     deferred_issues: list[ExitCheckIssue]
     error: str | None = None
@@ -208,6 +209,7 @@ class PipelineScheduler:
                 phases_completed=self._phases_with_status(PhaseStatus.COMPLETED),
                 phases_failed=self._phases_with_status(PhaseStatus.FAILED),
                 phases_skipped=self._phases_with_status(PhaseStatus.SKIPPED),
+                phases_blocked=self._phases_with_status(PhaseStatus.PENDING),
                 final_scores=dict(self._scores),
                 deferred_issues=list(self._deferred_issues),
                 error=str(e) or "Pipeline aborted by user",
@@ -220,6 +222,7 @@ class PipelineScheduler:
             phases_completed=self._phases_with_status(PhaseStatus.COMPLETED),
             phases_failed=self._phases_with_status(PhaseStatus.FAILED),
             phases_skipped=self._phases_with_status(PhaseStatus.SKIPPED),
+            phases_blocked=self._phases_with_status(PhaseStatus.PENDING),
             final_scores=dict(self._scores),
             deferred_issues=list(self._deferred_issues),
         )
@@ -434,7 +437,7 @@ class PipelineScheduler:
             outputs=outputs,
         )
         self.session.add(log)
-        self.session.flush()
+        self.session.commit()
 
     def _replay_fixes(self, phase_name: str) -> list[FixResult]:
         """Replay active Fix records bound to this phase."""
@@ -473,7 +476,7 @@ class PipelineScheduler:
             results.append(result)
 
         if fixes:
-            self.session.flush()
+            self.session.commit()
         return results
 
     def _post_verify(self, phase_name: str) -> dict[str, float]:
@@ -646,7 +649,7 @@ class PipelineScheduler:
             else:
                 # All fixes failed — defer the issues so they aren't lost
                 self._deferred_issues.extend(self._pending_issues)
-            self.session.flush()
+            self.session.commit()
 
         return fix_events
 

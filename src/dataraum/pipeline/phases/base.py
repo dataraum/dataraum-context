@@ -6,10 +6,14 @@ Provides common functionality for all pipeline phases.
 from __future__ import annotations
 
 import time
+import traceback
 from abc import ABC, abstractmethod
 from types import ModuleType
 
+from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+
+logger = get_logger(__name__)
 
 
 class BasePhase(ABC):
@@ -70,7 +74,15 @@ class BasePhase(ABC):
             result = self._run(ctx)
         except Exception as e:
             elapsed = time.monotonic() - start
-            return PhaseResult.failed(str(e), duration=elapsed)
+            tb = traceback.format_exc()
+            logger.error(
+                "phase_failed",
+                phase=self.name,
+                error=str(e),
+                traceback=tb,
+            )
+            error_msg = f"{type(e).__name__}: {e}"
+            return PhaseResult.failed(error_msg, duration=elapsed)
         result.duration_seconds = time.monotonic() - start
         return result
 
