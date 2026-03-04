@@ -10,6 +10,7 @@ from rich.console import Console
 from dataraum.cli.gate_handler import (
     _render_violations,
     handle_exit_check,
+    render_fix_result,
 )
 from dataraum.entropy.fix_executor import ActionDefinition, ActionRegistry
 from dataraum.pipeline.events import EventType, PipelineEvent
@@ -210,3 +211,39 @@ class TestRenderViolations:
         assert "t.c2" in rendered
         assert "t.c3" in rendered
         assert "t.c4" not in rendered
+
+
+class TestRenderFixResult:
+    def test_renders_success(self):
+        """Successful fix shows checkmark and before/after deltas."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=120)
+        event = PipelineEvent(
+            event_type=EventType.FIX_APPLIED,
+            message="override_type on column:orders.amount",
+            scores={"type_fidelity": 0.10},
+            column_details={
+                "before": {"type_fidelity": 0.80},
+                "after": {"type_fidelity": 0.10},
+            },
+        )
+        render_fix_result(console, event)
+        rendered = output.getvalue()
+        assert "override_type" in rendered
+        assert "orders.amount" in rendered
+        assert "0.80" in rendered
+        assert "0.10" in rendered
+        assert "improved" in rendered
+
+    def test_renders_failure(self):
+        """Failed fix shows cross and error message."""
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=120)
+        event = PipelineEvent(
+            event_type=EventType.FIX_APPLIED,
+            message="override_type on column:orders.amount",
+            error="Cannot apply fix",
+        )
+        render_fix_result(console, event)
+        rendered = output.getvalue()
+        assert "Cannot apply fix" in rendered

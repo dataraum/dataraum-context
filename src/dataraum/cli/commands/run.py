@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.status import Status
 
 from dataraum.cli.common import console, setup_logging
-from dataraum.cli.gate_handler import handle_exit_check
+from dataraum.cli.gate_handler import handle_exit_check, render_fix_result
 from dataraum.entropy.fix_executor import ActionRegistry
 from dataraum.pipeline.events import EventType, PipelineEvent
 from dataraum.pipeline.runner import GateMode
@@ -414,6 +414,14 @@ def _drive_pipeline(
 
                 case EventType.POST_VERIFICATION:
                     pass  # Silent unless --verbose
+
+                case EventType.FIX_APPLIED:
+                    if status:
+                        status.stop()
+                    if not quiet:
+                        render_fix_result(console, event)
+                    if status:
+                        status.start()
 
                 case EventType.EXIT_CHECK:
                     if status:

@@ -193,3 +193,28 @@ def _render_violations(
             padding=(1, 2),
         )
     )
+
+
+def render_fix_result(console: Console, event: PipelineEvent) -> None:
+    """Render the result of a FIX_APPLIED event.
+
+    Args:
+        console: Rich console for output.
+        event: The FIX_APPLIED event.
+    """
+    if event.error:
+        console.print(f"  [red]\u2717[/red] {event.message}: {event.error}")
+        return
+
+    # Show success with before/after deltas
+    parts = [f"  [green]\u2713[/green] {event.message}"]
+    before = event.column_details.get("before", {})
+    after = event.column_details.get("after", {})
+    for dim in sorted(set(before) | set(after)):
+        b = before.get(dim, 0.0)
+        a = after.get(dim, 0.0)
+        status = "improved" if a < b else "unchanged" if a == b else "regressed"
+        color = "green" if status == "improved" else "yellow" if status == "unchanged" else "red"
+        parts.append(f"    {dim}: {b:.2f} \u2192 {a:.2f} ([{color}]{status}[/{color}])")
+
+    console.print("\n".join(parts))

@@ -233,7 +233,8 @@ class PipelineScheduler:
                         column_details=dict(self._column_details),
                     )
                     if resolution is not None:
-                        self._apply_resolution(resolution)
+                        fix_events = self._apply_resolution(resolution)
+                        yield from fix_events
                     self._pending_issues.clear()
                     self._column_details = {}
 
@@ -480,8 +481,14 @@ class PipelineScheduler:
                 return self.contract_thresholds[prefix]
         return None
 
-    def _apply_resolution(self, resolution: Resolution) -> None:
-        """Apply a caller-provided resolution to pending issues."""
+    def _apply_resolution(self, resolution: Resolution) -> list[PipelineEvent]:
+        """Apply a caller-provided resolution to pending issues.
+
+        Returns:
+            List of FIX_APPLIED events for each fix attempt.
+        """
+        fix_events: list[PipelineEvent] = []
+
         if resolution.action == ResolutionAction.DEFER:
             self._deferred_issues.extend(self._pending_issues)
         elif resolution.action == ResolutionAction.ABORT:
@@ -490,7 +497,7 @@ class PipelineScheduler:
             if self.fix_executor is None:
                 logger.warning("FIX resolution but no fix_executor configured")
                 self._deferred_issues.extend(self._pending_issues)
-                return
+                return fix_events
             any_succeeded = False
             for fix_request in resolution.fixes:
                 result = self.fix_executor.execute(
@@ -510,6 +517,25 @@ class PipelineScheduler:
                         last_applied_run_id=self.run_id,
                     )
                     self.session.add(fix)
+                    fix_events.append(
+                        self._event(
+                            EventType.FIX_APPLIED,
+                            message=f"{fix_request.action_type} on {fix_request.target}",
+                            scores=result.after_scores,
+                            column_details={
+                                "before": result.before_scores,
+                                "after": result.after_scores,
+                            },
+                        )
+                    )
+                else:
+                    fix_events.append(
+                        self._event(
+                            EventType.FIX_APPLIED,
+                            message=f"{fix_request.action_type} on {fix_request.target}",
+                            error=result.error or "Fix failed",
+                        )
+                    )
             # Invalidate downstream once per unique producing phase
             if any_succeeded:
                 phases_to_invalidate = {
@@ -521,6 +547,8 @@ class PipelineScheduler:
                 # All fixes failed — defer the issues so they aren't lost
                 self._deferred_issues.extend(self._pending_issues)
             self.session.flush()
+
+        return fix_events
 
     def _invalidate_downstream(self, phase_name: str) -> None:
         """Reset downstream phases to PENDING so they re-run.

@@ -698,6 +698,94 @@ class TestFixResolution:
         fixes = session.execute(select(Fix)).scalars().all()
         assert len(fixes) == 0
 
+    def test_fix_success_emits_fix_applied_event(self, session: Session, duckdb_conn):
+        """Successful fix emits FIX_APPLIED event with scores."""
+        run_id = _make_run(session)
+        phase = MockPhase("alpha", post_verification_dims=["type_fidelity"])
+
+        mock_executor = MagicMock(spec=FixExecutor)
+        mock_executor.execute.return_value = FixResult(
+            success=True,
+            improved=True,
+            before_scores={"type_fidelity": 0.80},
+            after_scores={"type_fidelity": 0.10},
+        )
+
+        scheduler = PipelineScheduler(
+            phases={"alpha": phase},
+            source_id="src-1",
+            run_id=run_id,
+            session=session,
+            duckdb_conn=duckdb_conn,
+            contract_thresholds={"structural.types": 0.3},
+            fix_executor=mock_executor,
+        )
+
+        fix_request = FixRequest(
+            action_type="override_type",
+            target="column:orders.amount",
+            parameters={"target_type": "DECIMAL(10,2)"},
+            blocked_phase="alpha",
+        )
+
+        with patch.object(
+            scheduler, "_post_verify", return_value={"structural.types.type_fidelity": 0.8}
+        ):
+            events, result = _drive(
+                scheduler.run(),
+                resolutions={
+                    0: Resolution(action=ResolutionAction.FIX, fixes=[fix_request])
+                },
+            )
+
+        fix_applied = [e for e in events if e.event_type == EventType.FIX_APPLIED]
+        assert len(fix_applied) == 1
+        assert "override_type" in fix_applied[0].message
+        assert "orders.amount" in fix_applied[0].message
+        assert fix_applied[0].error == ""
+        assert fix_applied[0].scores == {"type_fidelity": 0.10}
+
+    def test_fix_failure_emits_fix_applied_with_error(self, session: Session, duckdb_conn):
+        """Failed fix emits FIX_APPLIED event with error message."""
+        run_id = _make_run(session)
+        phase = MockPhase("alpha", post_verification_dims=["type_fidelity"])
+
+        mock_executor = MagicMock(spec=FixExecutor)
+        mock_executor.execute.return_value = FixResult(
+            success=False, error="Cannot apply fix"
+        )
+
+        scheduler = PipelineScheduler(
+            phases={"alpha": phase},
+            source_id="src-1",
+            run_id=run_id,
+            session=session,
+            duckdb_conn=duckdb_conn,
+            contract_thresholds={"structural.types": 0.3},
+            fix_executor=mock_executor,
+        )
+
+        fix_request = FixRequest(
+            action_type="override_type",
+            target="column:orders.amount",
+            parameters={"target_type": "DECIMAL(10,2)"},
+            blocked_phase="alpha",
+        )
+
+        with patch.object(
+            scheduler, "_post_verify", return_value={"structural.types.type_fidelity": 0.8}
+        ):
+            events, result = _drive(
+                scheduler.run(),
+                resolutions={
+                    0: Resolution(action=ResolutionAction.FIX, fixes=[fix_request])
+                },
+            )
+
+        fix_applied = [e for e in events if e.event_type == EventType.FIX_APPLIED]
+        assert len(fix_applied) == 1
+        assert "Cannot apply fix" in fix_applied[0].error
+
 
 class TestColumnDetails:
     def test_assess_impact_populates_affected_targets(self, session: Session, duckdb_conn):
