@@ -174,6 +174,8 @@ def setup_pipeline(
         fix_executor=fix_executor,
         phase_configs=phase_configs,
         runtime_config=runtime_config,
+        session_factory=manager.session_scope,
+        manager=manager,
     )
 
     return PipelineSetup(

@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 
@@ -85,6 +86,9 @@ class PhaseRunResult:
 
     # Entropy scores from post-verification
     post_verification_scores: dict[str, float] = field(default_factory=dict)
+
+    # Phase outputs (typed tables, relationship counts, etc.)
+    outputs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -233,6 +237,7 @@ def run(config: RunConfig) -> Result[RunResult]:
                     duration_seconds=log.duration_seconds if log else 0.0,
                     error=log.error if log else None,
                     post_verification_scores=log.entropy_scores or {} if log else {},
+                    outputs=log.outputs or {} if log else {},
                 )
             )
             if log and log.status == "failed" and log.error:

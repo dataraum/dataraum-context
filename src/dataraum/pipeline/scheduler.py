@@ -10,6 +10,7 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import select
@@ -97,6 +98,8 @@ class PipelineScheduler:
         fix_executor: FixExecutor | None = None,
         phase_configs: dict[str, dict[str, Any]] | None = None,
         runtime_config: dict[str, Any] | None = None,
+        session_factory: Callable[[], Any] | None = None,
+        manager: Any | None = None,
     ) -> None:
         # Validate that all declared dependencies reference known phases
         for name, phase in phases.items():
@@ -115,6 +118,8 @@ class PipelineScheduler:
         self.fix_executor = fix_executor
         self._phase_configs = phase_configs or {}
         self._runtime_config = runtime_config or {}
+        self.session_factory = session_factory
+        self.manager = manager
 
         # Internal state
         self._state: dict[str, PhaseStatus] = dict.fromkeys(
@@ -195,6 +200,7 @@ class PipelineScheduler:
                         "completed",
                         started_at=started_at,
                         duration=result.duration_seconds,
+                        outputs=result.outputs or None,
                     )
                     yield self._event(
                         EventType.PHASE_COMPLETED,
@@ -309,6 +315,8 @@ class PipelineScheduler:
             duckdb_conn=self.duckdb_conn,
             source_id=self.source_id,
             config=config,
+            session_factory=self.session_factory,
+            manager=self.manager,
         )
 
     def _write_phase_log(
@@ -320,6 +328,7 @@ class PipelineScheduler:
         duration: float = 0.0,
         error: str | None = None,
         scores: dict[str, float] | None = None,
+        outputs: dict[str, Any] | None = None,
     ) -> None:
         """Write a PhaseLog record."""
         now = datetime.now(UTC)
@@ -333,6 +342,7 @@ class PipelineScheduler:
             duration_seconds=duration,
             error=error,
             entropy_scores=scores,
+            outputs=outputs,
         )
         self.session.add(log)
         self.session.flush()
