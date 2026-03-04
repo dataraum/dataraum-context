@@ -60,7 +60,6 @@ class GateMode(str, Enum):
     SKIP = "skip"  # Log warning, continue (backward compatible)
     PAUSE = "pause"  # Return GateBlockedResult, pipeline state saved
     FAIL = "fail"  # Treat as pipeline failure
-    AUTO_FIX = "auto_fix"  # Attempt automatic fix, fall back to skip
 
 
 @dataclass
@@ -544,8 +543,7 @@ def _resolve_exit_check(gate_mode: GateMode, event: PipelineEvent) -> Resolution
     """
     if gate_mode == GateMode.FAIL:
         return Resolution(action=ResolutionAction.ABORT)
-    # SKIP, PAUSE (non-interactive — can't prompt), AUTO_FIX (no targets available)
-    # all fall back to DEFER in programmatic context.
+    # SKIP and PAUSE (non-interactive — can't prompt) both defer in programmatic context.
     return Resolution(action=ResolutionAction.DEFER)
 
 

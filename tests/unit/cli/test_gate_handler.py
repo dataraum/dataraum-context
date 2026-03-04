@@ -138,43 +138,6 @@ class TestInteractiveMode:
         assert result.action == ResolutionAction.DEFER
 
 
-class TestAutoFixMode:
-    def test_matching_actions_defers_with_message(self):
-        """AUTO_FIX + matching actions → DEFER (target strategy pending)."""
-        output = StringIO()
-        console = Console(file=output, force_terminal=True)
-        event = _make_exit_check_event()
-        registry = _make_registry_with_action()
-
-        result = handle_exit_check(console, event, GateMode.AUTO_FIX, registry)
-
-        assert result.action == ResolutionAction.DEFER
-        rendered = output.getvalue()
-        assert "override_type" in rendered
-        assert "target" in rendered.lower()
-
-    def test_fallback_defer_no_actions(self):
-        """AUTO_FIX + no matching actions → Resolution(DEFER)."""
-        console = Console(file=StringIO())
-        event = _make_exit_check_event(
-            violations={"some.unknown.dimension": (0.8, 0.5)}
-        )
-        registry = _make_registry_with_action()
-
-        result = handle_exit_check(console, event, GateMode.AUTO_FIX, registry)
-
-        assert result.action == ResolutionAction.DEFER
-
-    def test_fallback_defer_no_registry(self):
-        """AUTO_FIX + no registry → Resolution(DEFER)."""
-        console = Console(file=StringIO())
-        event = _make_exit_check_event()
-
-        result = handle_exit_check(console, event, GateMode.AUTO_FIX, None)
-
-        assert result.action == ResolutionAction.DEFER
-
-
 class TestRenderViolations:
     def test_renders_panel(self):
         """Violations panel renders without errors."""

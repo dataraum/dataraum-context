@@ -29,7 +29,7 @@ def handle_exit_check(
         console: Rich console for output.
         event: The EXIT_CHECK event with violations.
         gate_mode: How to handle the check.
-        action_registry: Available fix actions (needed for PAUSE/AUTO_FIX).
+        action_registry: Available fix actions (needed for PAUSE).
 
     Returns:
         Resolution telling the scheduler what to do.
@@ -45,9 +45,6 @@ def handle_exit_check(
 
         case GateMode.PAUSE:
             return _interactive_resolution(console, event, action_registry)
-
-        case GateMode.AUTO_FIX:
-            return _auto_fix_resolution(console, event, action_registry)
 
         case _:
             return Resolution(action=ResolutionAction.DEFER)
@@ -132,46 +129,6 @@ def _interactive_resolution(
         return Resolution(action=ResolutionAction.DEFER)
     except (ValueError, IndexError):
         return Resolution(action=ResolutionAction.DEFER)
-
-
-def _auto_fix_resolution(
-    console: Console,
-    event: PipelineEvent,
-    action_registry: ActionRegistry | None = None,
-) -> Resolution:
-    """Handle AUTO_FIX mode — automatically build fix requests.
-
-    Args:
-        console: Rich console for output.
-        event: The EXIT_CHECK event with violations.
-        action_registry: Available fix actions.
-
-    Returns:
-        Resolution with auto-generated fixes, or DEFER if none applicable.
-    """
-    if not action_registry:
-        console.print("  [yellow]~[/yellow] Auto-fix: no action registry, deferring")
-        return Resolution(action=ResolutionAction.DEFER)
-
-    # Auto-fix requires a target resolution strategy (e.g., iterating affected
-    # columns). Until Phase 6 wires that, we identify matching actions but defer
-    # since we cannot construct valid FixRequests without targets.
-    matched_any = False
-    for dim_path in event.violations:
-        for action_def in action_registry.list_actions():
-            if dim_path in action_def.improves_dimensions:
-                console.print(
-                    f"  [yellow]~[/yellow] Auto-fix: {action_def.action_type} "
-                    f"could improve {dim_path} (target resolution not yet implemented)"
-                )
-                matched_any = True
-                break  # One match per dimension
-
-    if matched_any:
-        console.print("  [yellow]~[/yellow] Auto-fix: deferring (target strategy pending)")
-    else:
-        console.print("  [yellow]~[/yellow] Auto-fix: no applicable actions, deferring")
-    return Resolution(action=ResolutionAction.DEFER)
 
 
 def _render_violations(

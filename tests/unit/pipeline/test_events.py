@@ -47,14 +47,12 @@ class TestPipelineEvent:
         with pytest.raises(AttributeError):
             event.phase = "other"  # type: ignore[misc]
 
-    def test_event_with_gate_fields(self):
+    def test_event_with_violations(self):
         event = PipelineEvent(
             event_type=EventType.EXIT_CHECK,
             phase="semantic",
-            gate_status="blocked",
             violations={"join_path_determinism": (-1.0, 0.5)},
         )
-        assert event.gate_status == "blocked"
         assert event.violations["join_path_determinism"] == (-1.0, 0.5)
 
     def test_parallel_phases(self):

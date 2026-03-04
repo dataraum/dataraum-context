@@ -56,7 +56,7 @@ def run(
         typer.Option(
             "--gate-mode",
             "-g",
-            help="How to handle entropy gates: skip (default), pause (interactive), fail, auto_fix",
+            help="How to handle entropy gates: skip (default), pause (interactive), fail",
         ),
     ] = "skip",
     contract: Annotated[
@@ -124,7 +124,7 @@ def run(
         resolved_gate_mode = GateMode(gate_mode)
     except ValueError:
         console.print(
-            f"[red]Error: Invalid gate mode: {gate_mode}. Use: skip, pause, fail, auto_fix[/red]"
+            f"[red]Error: Invalid gate mode: {gate_mode}. Use: skip, pause, fail[/red]"
         )
         raise typer.Exit(1) from None
 

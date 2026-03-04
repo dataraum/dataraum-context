@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,25 +38,8 @@ class PipelineRun(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    # Phase counts
-    phases_completed: Mapped[int] = mapped_column(Integer, default=0)
-    phases_failed: Mapped[int] = mapped_column(Integer, default=0)
-    phases_skipped: Mapped[int] = mapped_column(Integer, default=0)
-
-    # Timing metrics
-    total_duration_seconds: Mapped[float] = mapped_column(Float, default=0.0)
-
-    # Aggregate data metrics
-    total_tables_processed: Mapped[int] = mapped_column(Integer, default=0)
-    total_rows_processed: Mapped[int] = mapped_column(Integer, default=0)
-
     # Error info
     error: Mapped[str | None] = mapped_column(String)
-
-    # Gate configuration
-    contract_name: Mapped[str | None] = mapped_column(String)
-    gate_mode: Mapped[str | None] = mapped_column(String)  # skip, pause, fail
-    final_entropy_state: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class PhaseLog(Base):

@@ -35,7 +35,6 @@ class PipelineEvent:
     total: int = 0
     message: str = ""
     scores: dict[str, float] = field(default_factory=dict)
-    gate_status: str = ""  # "passed" | "blocked" | "skipped"
     violations: dict[str, tuple[float, float]] = field(default_factory=dict)
     duration_seconds: float = 0.0
     error: str = ""
