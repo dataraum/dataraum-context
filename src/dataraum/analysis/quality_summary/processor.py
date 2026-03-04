@@ -203,8 +203,9 @@ def aggregate_slice_results(
         # Find slice tables in database
         slice_tables = []
         for value in slice_values:
-            # Generate expected slice table name
-            # Note: naming convention matches SlicingAgent (without source table name)
+            # Generate expected slice table name (namespaced by source table)
+            safe_source = re.sub(r"[^a-zA-Z0-9]", "_", source_table.table_name)
+            safe_source = re.sub(r"_+", "_", safe_source).strip("_").lower()
             safe_column = re.sub(r"[^a-zA-Z0-9]", "_", effective_slice_col_name)
             safe_column = re.sub(r"_+", "_", safe_column).strip("_").lower()
             safe_value = re.sub(r"[^a-zA-Z0-9]", "_", str(value))
@@ -213,7 +214,7 @@ def aggregate_slice_results(
             if not safe_value:
                 safe_value = "unknown"
 
-            slice_table_name = f"slice_{safe_column}_{safe_value}"
+            slice_table_name = f"slice_{safe_source}_{safe_column}_{safe_value}"
 
             # Find in database
             slice_table_stmt = select(Table).where(

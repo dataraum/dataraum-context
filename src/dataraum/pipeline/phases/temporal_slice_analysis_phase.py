@@ -215,8 +215,12 @@ class TemporalSliceAnalysisPhase(BasePhase):
                 continue
 
             effective_col_name = slice_def.column_name or slice_col.column_name
+            source_table = ctx.session.get(Table, slice_def.table_id)
+            if not source_table:
+                continue
+            sanitized_source = _sanitize_name(source_table.table_name)
             sanitized_col_name = _sanitize_name(effective_col_name)
-            prefix = f"slice_{sanitized_col_name}_"
+            prefix = f"slice_{sanitized_source}_{sanitized_col_name}_"
             slice_infos = []
             for st in all_slice_tables:
                 if st.table_name.lower().startswith(prefix):

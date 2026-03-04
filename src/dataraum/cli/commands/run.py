@@ -17,6 +17,7 @@ from rich.text import Text
 
 from dataraum.cli.common import console, setup_logging
 from dataraum.cli.gate_handler import handle_exit_check, render_fix_result
+from dataraum.core.logging import activate_console, deactivate_console
 from dataraum.entropy.fix_executor import ActionRegistry
 from dataraum.pipeline.events import EventType, PipelineEvent
 from dataraum.pipeline.runner import GateMode
@@ -318,6 +319,7 @@ def _drive_pipeline(
     if not quiet:
         live = Live(tracker, console=console, transient=True)
         live.start()
+        activate_console(console)
 
     try:
         event = next(gen)
@@ -370,6 +372,7 @@ def _drive_pipeline(
 
                 case EventType.EXIT_CHECK:
                     if live:
+                        deactivate_console()
                         live.stop()
                     resolution = handle_exit_check(
                         console, event, gate_mode, action_registry
@@ -377,6 +380,7 @@ def _drive_pipeline(
                     event = gen.send(resolution)
                     if live:
                         live.start()
+                        activate_console(console)
                     continue
 
                 case EventType.PIPELINE_COMPLETED:
@@ -387,6 +391,7 @@ def _drive_pipeline(
     except StopIteration as e:
         result = e.value
     finally:
+        deactivate_console()
         if live:
             live.stop()
 

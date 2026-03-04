@@ -230,21 +230,28 @@ def load_column_analysis(
             .scalars()
             .all()
         )
-        col_name_map = {c.column_id: c.column_name for c in [col]}
         # Load all columns in the table for name resolution
         all_cols = (
             session.execute(select(Column).where(Column.table_id == table_id)).scalars().all()
         )
         col_name_map = {c.column_id: c.column_name for c in all_cols}
 
+        # Resolve source table name for namespaced slice table names
+        source_table_name = table_name
+        if not source_table_name:
+            source_table = session.get(Table, table_id)
+            source_table_name = source_table.table_name if source_table else ""
+
         slice_table_names: list[str] = []
         for sd in slice_defs:
             # Prefer sd.column_name (enriched FK-prefixed name used by slice_runner
             # to derive table names), fall back to column_id lookup for older records.
             sd_col_name = sd.column_name or col_name_map.get(sd.column_id)
-            if sd_col_name and sd.distinct_values:
+            if sd_col_name and sd.distinct_values and source_table_name:
                 for value in sd.distinct_values:
-                    slice_table_names.append(_get_slice_table_name(sd_col_name, value))
+                    slice_table_names.append(
+                        _get_slice_table_name(source_table_name, sd_col_name, value)
+                    )
 
         if slice_table_names:
             drift_stmt = select(ColumnDriftSummary).where(

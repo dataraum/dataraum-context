@@ -15,11 +15,19 @@ from sqlalchemy import select
 
 from dataraum.analysis.slicing.agent import SlicingAgent
 from dataraum.analysis.slicing.db_models import SliceDefinition
+from dataraum.analysis.slicing.models import (
+    SliceRecommendation,
+    SliceSQL,
+    SlicingAnalysisResult,
+)
+from dataraum.core.logging import get_logger
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+logger = get_logger(__name__)
 
 
 @analysis_phase
@@ -179,6 +187,10 @@ class SlicingPhase(BasePhase):
 
         slicing = analysis_result.unwrap()
 
+        # Propagate enriched FK dimension recommendations to other tables
+        # that share the same dimension column
+        slicing = self._propagate_enriched_dimensions(slicing, context_data, agent)
+
         # Store slice definitions
         for rec in slicing.recommendations:
             slice_def = SliceDefinition(
@@ -207,6 +219,121 @@ class SlicingPhase(BasePhase):
             records_created=len(slicing.recommendations),
             summary=f"{len(slicing.recommendations)} definitions, {len(slicing.slice_queries)} queries",
         )
+
+    def _propagate_enriched_dimensions(
+        self,
+        result: SlicingAnalysisResult,
+        context_data: dict[str, Any],
+        agent: SlicingAgent,
+    ) -> SlicingAnalysisResult:
+        """Copy enriched FK dim recommendations to all tables sharing the same dimension column.
+
+        When the LLM recommends an enriched dimension (e.g. ``account_id__account_type``)
+        for one fact table, this method finds other fact tables that also have that
+        enriched column and creates matching recommendations + SQL for them.
+
+        Args:
+            result: LLM slicing analysis result.
+            context_data: Context data with table/column metadata.
+            agent: Slicing agent (for SQL generation helpers).
+
+        Returns:
+            Updated result with propagated recommendations.
+        """
+        tables_data = context_data.get("tables", [])
+        if len(tables_data) < 2:
+            return result
+
+        # Build lookup: dim_column_name → list of table dicts that have it
+        dim_col_to_tables: dict[str, list[dict[str, Any]]] = {}
+        for tdata in tables_data:
+            for col in tdata.get("columns", []):
+                if col.get("is_enriched_dimension") and "__" in col.get("column_name", ""):
+                    dim_col_to_tables.setdefault(col["column_name"], []).append(tdata)
+
+        # Track which (table_name, column_name) combos already have recommendations
+        existing_recs: set[tuple[str, str]] = set()
+        for rec in result.recommendations:
+            existing_recs.add((rec.table_name, rec.column_name))
+
+        new_recs: list[SliceRecommendation] = []
+        new_queries: list[SliceSQL] = []
+
+        for rec in result.recommendations:
+            col_name = rec.column_name
+            if "__" not in col_name:
+                continue
+
+            candidate_tables = dim_col_to_tables.get(col_name, [])
+            for tdata in candidate_tables:
+                target_table_name = tdata["table_name"]
+                if (target_table_name, col_name) in existing_recs:
+                    continue
+
+                # Find the FK column_id in the target table (prefix before __)
+                fk_prefix = col_name.split("__")[0]
+                target_col_id = ""
+                for col in tdata.get("columns", []):
+                    if col["column_name"] == fk_prefix:
+                        target_col_id = col.get("column_id", "")
+                        break
+
+                # Build SQL using target table's enriched view
+                enriched_view = tdata.get("enriched_duckdb_path")
+                duckdb_table = enriched_view or tdata.get("duckdb_path", f"typed_{target_table_name}")
+
+                safe_source = agent._sanitize_for_table_name(target_table_name)
+                sql_template = agent._build_sql_template(
+                    duckdb_table, col_name, rec.distinct_values,
+                    source_table_name=target_table_name,
+                )
+
+                new_rec = SliceRecommendation(
+                    table_id=tdata.get("table_id", ""),
+                    table_name=target_table_name,
+                    column_id=target_col_id,
+                    column_name=col_name,
+                    slice_priority=rec.slice_priority,
+                    distinct_values=rec.distinct_values,
+                    value_count=rec.value_count,
+                    reasoning=f"Propagated from {rec.table_name}: {rec.reasoning}",
+                    business_context=rec.business_context,
+                    confidence=rec.confidence,
+                    sql_template=sql_template,
+                )
+                new_recs.append(new_rec)
+                existing_recs.add((target_table_name, col_name))
+
+                # Generate slice queries for the new table
+                for value in rec.distinct_values:
+                    safe_value = agent._sanitize_for_table_name(str(value))
+                    safe_column = agent._sanitize_for_table_name(col_name)
+                    slice_table_name = f"slice_{safe_source}_{safe_column}_{safe_value}"
+
+                    sql_query = agent._build_slice_sql(
+                        duckdb_table, col_name, value, slice_table_name
+                    )
+                    new_queries.append(
+                        SliceSQL(
+                            slice_name=f"{col_name}={value}",
+                            slice_value=str(value),
+                            table_name=slice_table_name,
+                            sql_query=sql_query,
+                        )
+                    )
+
+                logger.info(
+                    "propagated_enriched_dimension",
+                    column=col_name,
+                    from_table=rec.table_name,
+                    to_table=target_table_name,
+                )
+
+        if new_recs:
+            result.recommendations.extend(new_recs)
+            result.slice_queries.extend(new_queries)
+
+        return result
 
     def _build_context_data(self, ctx: PhaseContext, tables: list[Table]) -> dict[str, Any]:
         """Build context data for the slicing agent.

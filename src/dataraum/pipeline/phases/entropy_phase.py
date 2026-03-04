@@ -233,10 +233,10 @@ class EntropyPhase(BasePhase):
         for table in typed_tables:
             sd_stmt = select(SliceDefinition).where(SliceDefinition.table_id == table.table_id)
             for sd in ctx.session.execute(sd_stmt).scalars().all():
-                col_name = col_name_by_id.get(sd.column_id)
+                col_name = sd.column_name or col_name_by_id.get(sd.column_id)
                 if col_name and sd.distinct_values:
                     for value in sd.distinct_values:
-                        stn = _get_slice_table_name(col_name, value)
+                        stn = _get_slice_table_name(table.table_name, col_name, value)
                         slice_table_to_typed[stn] = table.table_id
         if slice_table_to_typed:
             drift_stmt = select(ColumnDriftSummary).where(
@@ -711,10 +711,12 @@ def _run_dimensional_entropy(
             # Derive slice table names from this table's slice definitions
             col_name_by_id = {c.column_id: c.column_name for c in table_columns}
             for sd in slice_defs:
-                sd_col_name = col_name_by_id.get(sd.column_id)
+                sd_col_name = sd.column_name or col_name_by_id.get(sd.column_id)
                 if sd_col_name and sd.distinct_values:
                     for value in sd.distinct_values:
-                        slice_table_names.append(_get_slice_table_name(sd_col_name, value))
+                        slice_table_names.append(
+                            _get_slice_table_name(table.table_name, sd_col_name, value)
+                        )
 
             if slice_table_names:
                 drift_stmt = select(ColumnDriftSummary).where(

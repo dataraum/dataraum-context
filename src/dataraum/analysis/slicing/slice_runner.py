@@ -54,11 +54,21 @@ def _sanitize_name(value: str) -> str:
     return safe
 
 
-def _get_slice_table_name(column_name: str, value: str) -> str:
-    """Generate slice table name from components."""
+def _get_slice_table_name(source_table_name: str, column_name: str, value: str) -> str:
+    """Generate slice table name from components.
+
+    Args:
+        source_table_name: Name of the source (fact) table.
+        column_name: Column being sliced on.
+        value: Distinct value for this slice.
+
+    Returns:
+        Namespaced slice table name: ``slice_{source}_{column}_{value}``.
+    """
+    safe_source = _sanitize_name(source_table_name)
     safe_column = _sanitize_name(column_name)
     safe_value = _sanitize_name(value)
-    return f"slice_{safe_column}_{safe_value}"
+    return f"slice_{safe_source}_{safe_column}_{safe_value}"
 
 
 def register_slice_tables(
@@ -116,6 +126,7 @@ def register_slice_tables(
             # Process each slice value
             for value in slice_def.distinct_values or []:
                 slice_table_name = _get_slice_table_name(
+                    source_table.table_name,
                     effective_column_name,
                     value,
                 )

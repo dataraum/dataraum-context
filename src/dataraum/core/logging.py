@@ -32,10 +32,46 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import structlog
+from rich.console import Console as _RichConsole
+from rich.text import Text as _RichText
 from structlog.typing import FilteringBoundLogger
 
 # Context variables for correlation
 _run_context: ContextVar[dict[str, Any] | None] = ContextVar("run_context", default=None)
+
+
+_active_console: _RichConsole | None = None
+
+
+class _ProxyLogger:
+    """Logger that routes to Rich console when active, stderr otherwise."""
+
+    def msg(self, message: str) -> None:
+        c = _active_console
+        if c is not None:
+            c.print(_RichText.from_ansi(message), highlight=False)
+        else:
+            print(message, file=sys.stderr, flush=True)
+
+    log = debug = info = warn = warning = msg
+    fatal = failure = err = error = critical = exception = msg
+
+
+class _ProxyLoggerFactory:
+    def __call__(self, *args: Any) -> _ProxyLogger:
+        return _ProxyLogger()
+
+
+def activate_console(console: _RichConsole) -> None:
+    """Route structlog output through a Rich console (for Live display)."""
+    global _active_console
+    _active_console = console
+
+
+def deactivate_console() -> None:
+    """Restore structlog output to stderr."""
+    global _active_console
+    _active_console = None
 
 
 @dataclass
@@ -105,7 +141,7 @@ def configure_logging(
         processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level.upper())),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
+        logger_factory=_ProxyLoggerFactory(),
         cache_logger_on_first_use=True,
     )
 

@@ -38,8 +38,9 @@ system_prompt: |
   1. Appropriate Cardinality: At most {max_cardinality} distinct values
   2. Business Meaning: Represent a meaningful business dimension (e.g. region, product line, customer segment — not internal IDs or codes)
   3. Balanced Distribution: Values should have reasonable row counts (avoid 99% in one value)
-  4. Independence: Not redundant with other recommendations — across tables too.
-     If table_a.country and table_b.region encode the same geographical split, pick one.
+  4. Independence: Not redundant with other recommendations within the same table.
+     If two columns in the same table encode the same split (e.g. country_code + country_name), pick one.
+     Shared FK dimensions across tables are fine — each table's slices contain different data.
   5. Analytical Leverage: Prioritize dimensions that partition the MOST rows or the MOST tables
      (e.g. a shared foreign-key dimension that appears in 3 tables beats a column unique to 1 table)
   6. Insight Potential: May help explain data quality issues in related columns or give additional context about the data and business processes
