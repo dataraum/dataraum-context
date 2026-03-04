@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import warnings
 from collections.abc import Generator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated
 
@@ -343,6 +344,21 @@ def _setup_pipeline(
     return scheduler.run(), action_registry
 
 
+@dataclass
+class _RunStats:
+    """Accumulated stats from phase events during a pipeline run."""
+
+    total_processed: int = 0
+    total_created: int = 0
+    total_duration: float = 0.0
+    all_warnings: list[tuple[str, str]] = field(
+        default_factory=list
+    )  # (phase, warning)
+    phase_details: list[tuple[str, int, int, float]] = field(
+        default_factory=list
+    )  # (name, processed, created, duration)
+
+
 def _drive_pipeline(
     gen: Generator[PipelineEvent, Resolution | None, PipelineResult],
     console: Console,
@@ -364,6 +380,7 @@ def _drive_pipeline(
     """
     result: PipelineResult | None = None
     status: Status | None = None
+    stats = _RunStats()
 
     if not quiet:
         status = Status("Starting pipeline...", console=console, spinner="dots")
@@ -386,6 +403,19 @@ def _drive_pipeline(
                         status.stop()
                     if not quiet:
                         _print_phase_completed(console, event)
+                    # Accumulate stats
+                    stats.total_processed += event.records_processed
+                    stats.total_created += event.records_created
+                    stats.total_duration += event.duration_seconds
+                    for w in event.warnings:
+                        stats.all_warnings.append((event.phase, w))
+                    if event.records_processed or event.records_created:
+                        stats.phase_details.append((
+                            event.phase,
+                            event.records_processed,
+                            event.records_created,
+                            event.duration_seconds,
+                        ))
                     if status:
                         status.start()
 
@@ -456,7 +486,7 @@ def _drive_pipeline(
         )
 
     if not quiet:
-        _print_summary(console, result)
+        _print_summary(console, result, stats)
 
     return result
 
@@ -493,21 +523,60 @@ def _print_post_verification(console: Console, event: PipelineEvent) -> None:
         console.print(f"    [{color}]\u25c6[/{color}] {dim}: [{color}]{score:.2f}[/{color}]")
 
 
-def _print_summary(console: Console, result: PipelineResult) -> None:
-    """Print post-run summary.
+def _print_summary(
+    console: Console, result: PipelineResult, stats: _RunStats
+) -> None:
+    """Print post-run summary with phase breakdown and data overview.
 
     Args:
         console: Rich console for output.
         result: The pipeline result.
+        stats: Accumulated stats from phase events.
     """
     console.print()
     console.print("[bold]Pipeline Results[/bold]")
     console.print("=" * 60)
 
-    # Counts
-    console.print(f"  [green]Completed:[/green] {len(result.phases_completed)}")
-    console.print(f"  [red]Failed:[/red] {len(result.phases_failed)}")
-    console.print(f"  [yellow]Skipped:[/yellow] {len(result.phases_skipped)}")
+    # Overview line
+    completed = len(result.phases_completed)
+    failed = len(result.phases_failed)
+    skipped = len(result.phases_skipped)
+    console.print(
+        f"  Phases: [green]{completed} completed[/green]"
+        f"{f', [red]{failed} failed[/red]' if failed else ''}"
+        f"{f', [yellow]{skipped} skipped[/yellow]' if skipped else ''}"
+        f"  [dim]({stats.total_duration:.1f}s total)[/dim]"
+    )
+
+    # Data throughput
+    if stats.total_processed or stats.total_created:
+        console.print(
+            f"  Records: {stats.total_processed:,} processed, "
+            f"{stats.total_created:,} created"
+        )
+
+    # Per-phase breakdown (only phases that touched data)
+    if stats.phase_details:
+        console.print()
+        console.print("[bold]Phase Breakdown[/bold]")
+        console.print("-" * 60)
+        for name, processed, created, duration in stats.phase_details:
+            parts = []
+            if processed:
+                parts.append(f"{processed:,} in")
+            if created:
+                parts.append(f"{created:,} out")
+            detail = ", ".join(parts)
+            console.print(
+                f"  {name:<24} {duration:>5.1f}s  [dim]{detail}[/dim]"
+            )
+
+    # Warnings
+    if stats.all_warnings:
+        console.print()
+        console.print(f"[yellow]Warnings ({len(stats.all_warnings)}):[/yellow]")
+        for phase, warning in stats.all_warnings:
+            console.print(f"  [yellow]![/yellow] {phase}: {warning}")
 
     # Final entropy scores
     if result.final_scores:
@@ -515,7 +584,7 @@ def _print_summary(console: Console, result: PipelineResult) -> None:
         console.print("[bold]Entropy State[/bold]")
         console.print("-" * 60)
         for dim, score in sorted(result.final_scores.items()):
-            label = dim[:22].ljust(22)
+            label = dim[:28].ljust(28)
             filled = round(score * 10)
             bar = "\u2588" * filled + "\u2591" * (10 - filled)
             if score < 0.2:
