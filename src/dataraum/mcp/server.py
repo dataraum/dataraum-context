@@ -550,16 +550,11 @@ def _analyze(
 
     # Resolve gate mode
     resolved_gate_mode = GateMode.SKIP
-    gate_handler = None
     if gate_mode:
         try:
             resolved_gate_mode = GateMode(gate_mode)
         except ValueError:
             pass  # Fall back to skip
-    if resolved_gate_mode == GateMode.PAUSE:
-        from dataraum.mcp.gate_handler import MCPGateHandler
-
-        gate_handler = MCPGateHandler()
 
     config = RunConfig(
         source_path=source_path,
@@ -567,7 +562,6 @@ def _analyze(
         source_name=name,
         event_callback=event_callback,
         gate_mode=resolved_gate_mode,
-        gate_handler=gate_handler,
     )
 
     result = run(config)

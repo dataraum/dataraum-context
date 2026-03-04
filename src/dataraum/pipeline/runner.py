@@ -470,8 +470,8 @@ def run(config: RunConfig) -> Result[RunResult]:
                         pass  # Never let callback failures break the pipeline
 
                 if event.event_type == EventType.EXIT_CHECK:
-                    # Programmatic callers: auto-defer gates
-                    resolution = Resolution(action=ResolutionAction.DEFER)
+                    # Resolve based on gate_mode
+                    resolution = _resolve_exit_check(config.gate_mode, event)
                     event = gen.send(resolution)
                 else:
                     event = next(gen)
@@ -562,6 +562,23 @@ def run(config: RunConfig) -> Result[RunResult]:
             error=str(e),
         )
         return Result.ok(run_result, warnings=[f"Pipeline error: {e}"])
+
+
+def _resolve_exit_check(gate_mode: GateMode, event: PipelineEvent) -> Resolution:
+    """Resolve an EXIT_CHECK event for programmatic callers.
+
+    Args:
+        gate_mode: How the caller wants gates handled.
+        event: The EXIT_CHECK event with violations.
+
+    Returns:
+        Resolution for the scheduler.
+    """
+    if gate_mode == GateMode.FAIL:
+        return Resolution(action=ResolutionAction.ABORT)
+    # SKIP, PAUSE (non-interactive — can't prompt), AUTO_FIX (no targets available)
+    # all fall back to DEFER in programmatic context.
+    return Resolution(action=ResolutionAction.DEFER)
 
 
 def _print_run_result(run_result: RunResult, config: RunConfig, warnings: list[str]) -> None:
