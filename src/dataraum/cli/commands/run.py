@@ -411,6 +411,16 @@ def _drive_pipeline(
     return result
 
 
+def _match_threshold(dim: str, thresholds: dict[str, float]) -> float | None:
+    """Find threshold by prefix match (same logic as scheduler)."""
+    parts = dim.split(".")
+    for i in range(len(parts), 0, -1):
+        prefix = ".".join(parts[:i])
+        if prefix in thresholds:
+            return thresholds[prefix]
+    return None
+
+
 def _print_phase_completed(console: Console, event: PipelineEvent) -> None:
     """Print phase completion with summary."""
     line = f"  [green]\u2713[/green] {event.phase} ({event.duration_seconds:.1f}s)"
@@ -520,7 +530,7 @@ def _print_summary(
         not_measured = 0
 
         for dim, score in sorted(result.final_scores.items()):
-            label = dim[:28].ljust(28)
+            label = dim[:34].ljust(34)
             filled = round(score * 10)
             bar = "\u2588" * filled + "\u2591" * (10 - filled)
             if score < 0.2:
@@ -530,7 +540,7 @@ def _print_summary(
             else:
                 color = "red"
 
-            threshold = thresholds.get(dim)
+            threshold = _match_threshold(dim, thresholds)
             if threshold is not None:
                 evaluated += 1
                 if score <= threshold:
@@ -548,11 +558,17 @@ def _print_summary(
             else:
                 console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}")
 
-        # Show contracted dimensions that were never measured
+        # Show contracted dimensions that were never measured.
+        # A threshold like "structural.types" is considered measured if any
+        # score key starts with it (e.g. "structural.types.type_fidelity").
+        measured_dims = set(result.final_scores.keys())
         for dim in sorted(thresholds):
-            if dim not in result.final_scores:
+            has_measurement = dim in measured_dims or any(
+                k.startswith(dim + ".") for k in measured_dims
+            )
+            if not has_measurement:
                 not_measured += 1
-                label = dim[:28].ljust(28)
+                label = dim[:34].ljust(34)
                 console.print(
                     f"  {label} [dim]  ---   not measured[/dim]"
                 )

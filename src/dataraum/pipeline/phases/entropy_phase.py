@@ -546,7 +546,8 @@ class EntropyPhase(BasePhase):
         # Note: commit handled by session_scope() in scheduler
 
         # Compute aggregated hard detector scores for gate checking.
-        # For each hard sub_dimension, compute the mean score across all targets.
+        # Keys use full dimension paths (layer.dimension.sub_dimension) so they
+        # match contract threshold prefix matching in the scheduler.
         registry = get_default_registry()
         hard_sub_dims = {
             d.sub_dimension
@@ -556,7 +557,8 @@ class EntropyPhase(BasePhase):
         hard_scores_by_dim: dict[str, list[float]] = {}
         for obj in all_domain_objects:
             if obj.sub_dimension in hard_sub_dims:
-                hard_scores_by_dim.setdefault(obj.sub_dimension, []).append(obj.score)
+                path = f"{obj.layer}.{obj.dimension}.{obj.sub_dimension}"
+                hard_scores_by_dim.setdefault(path, []).append(obj.score)
 
         entropy_hard_scores = {
             dim: sum(scores) / len(scores) for dim, scores in hard_scores_by_dim.items() if scores
