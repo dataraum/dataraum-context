@@ -34,7 +34,7 @@ from typing import Any, cast
 import structlog
 from rich.console import Console as _RichConsole
 from rich.text import Text as _RichText
-from structlog.typing import FilteringBoundLogger
+from structlog.typing import EventDict, FilteringBoundLogger
 
 # Context variables for correlation
 _run_context: ContextVar[dict[str, Any] | None] = ContextVar("run_context", default=None)
@@ -42,16 +42,76 @@ _run_context: ContextVar[dict[str, Any] | None] = ContextVar("run_context", defa
 
 _active_console: _RichConsole | None = None
 
+_LEVEL_STYLES: dict[str, str] = {
+    "debug": "dim",
+    "info": "green",
+    "warning": "yellow",
+    "error": "red bold",
+    "critical": "red bold reverse",
+}
+
+
+def _fmt_value(v: Any) -> str:
+    """Format a log value for display — round floats, pass through rest."""
+    if isinstance(v, float):
+        return f"{v:.2f}" if v != int(v) else str(int(v))
+    return str(v)
+
 
 class _ProxyLogger:
-    """Logger that routes to Rich console when active, stderr otherwise."""
+    """Logger that routes structured log events to Rich or stderr.
 
-    def msg(self, message: str) -> None:
+    When a Rich console is active (via ``activate_console``), builds a
+    ``rich.text.Text`` object directly from the structured event dict —
+    no ANSI round-trip.  When inactive, formats a plain string for stderr.
+
+    structlog dispatches ``dict`` return values from the final processor
+    as ``logger.msg(**event_dict)``, so ``msg`` receives keyword arguments.
+    """
+
+    def msg(self, **kv: Any) -> None:
+        kv.pop("timestamp", None)
+        level = kv.pop("level", "")
+        event = kv.pop("event", "")
+        phase = kv.pop("phase", "")
+
         c = _active_console
         if c is not None:
-            c.print(_RichText.from_ansi(message), highlight=False)
+            self._rich_print(c, level, event, phase, kv)
         else:
-            print(message, file=sys.stderr, flush=True)
+            self._stderr_print(level, event, phase, kv)
+
+    @staticmethod
+    def _rich_print(
+        c: _RichConsole, level: str, event: str, phase: str, kv: dict[str, Any]
+    ) -> None:
+        text = _RichText()
+        level_style = _LEVEL_STYLES.get(level, "")
+
+        if phase:
+            text.append(f"{phase:<16}", style="bold " + level_style)
+        text.append(str(event), style=level_style)
+
+        if kv:
+            pairs = ", ".join(f"{k}: {_fmt_value(v)}" for k, v in kv.items())
+            text.append(f"  ({pairs})", style="dim")
+
+        c.print(text, highlight=False)
+
+    @staticmethod
+    def _stderr_print(
+        level: str, event: str, phase: str, kv: dict[str, Any]
+    ) -> None:
+        parts: list[str] = []
+        if level and level not in ("info", "debug"):
+            parts.append(f"[{level}]")
+        if phase:
+            parts.append(phase)
+        parts.append(str(event))
+        if kv:
+            pairs = ", ".join(f"{k}: {_fmt_value(v)}" for k, v in kv.items())
+            parts.append(f"({pairs})")
+        print("  ".join(parts), file=sys.stderr, flush=True)
 
     log = debug = info = warn = warning = msg
     fatal = failure = err = error = critical = exception = msg
@@ -60,6 +120,13 @@ class _ProxyLogger:
 class _ProxyLoggerFactory:
     def __call__(self, *args: Any) -> _ProxyLogger:
         return _ProxyLogger()
+
+
+def _passthrough_renderer(
+    logger: Any, method_name: str, event_dict: EventDict
+) -> EventDict:
+    """Final processor that passes the structured dict to the logger as-is."""
+    return event_dict
 
 
 def activate_console(console: _RichConsole) -> None:
@@ -128,12 +195,10 @@ def configure_logging(
             structlog.processors.JSONRenderer(),
         ]
     else:
-        # Console format for development
+        # Console format — pass structured dict to _ProxyLogger for rendering
         processors = shared_processors + [
-            structlog.dev.ConsoleRenderer(
-                colors=color,
-                exception_formatter=structlog.dev.plain_traceback,
-            ),
+            structlog.processors.format_exc_info,
+            _passthrough_renderer,
         ]
 
     # Configure structlog

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -65,9 +65,6 @@ class GeneratedCode:
     prompt_hash: str
     generated_at: datetime
 
-    # Validation
-    is_validated: bool = False
-    validation_errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -320,7 +317,6 @@ class GraphAgent(LLMFeature):
             llm_model="cached",
             prompt_hash="snippets",
             generated_at=datetime.now(UTC),
-            is_validated=True,  # Snippets are pre-validated
         )
 
     def _generate_sql(
@@ -478,17 +474,6 @@ class GraphAgent(LLMFeature):
             prompt_hash=prompt_hash,
             generated_at=datetime.now(UTC),
         )
-
-        # Validate generated SQL
-        validation_result = self._validate_sql(generated_code, context)
-        generated_code.is_validated = validation_result.success
-        if not validation_result.success:
-            generated_code.validation_errors = [validation_result.error or "Unknown"]
-            logger.warning(
-                "sql_validation_failed",
-                graph_id=graph.graph_id,
-                error=validation_result.error,
-            )
 
         return Result.ok(generated_code)
 
@@ -866,17 +851,6 @@ class GraphAgent(LLMFeature):
             }
 
         return yaml.dump(graph_dict, default_flow_style=False, allow_unicode=True)
-
-    def _validate_sql(
-        self, generated_code: GeneratedCode, context: ExecutionContext
-    ) -> Result[bool]:
-        """Validate generated SQL syntax and column references."""
-        # Try to explain the SQL (validates syntax without executing)
-        try:
-            context.duckdb_conn.execute(f"EXPLAIN {generated_code.final_sql}")
-            return Result.ok(True)
-        except Exception as e:
-            return Result.fail(f"SQL validation failed: {e}")
 
     def _repair_sql(
         self,

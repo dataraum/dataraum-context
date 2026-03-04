@@ -592,10 +592,6 @@ class SnippetLibrary:
             SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
         )
         snippets = list(self.session.scalars(stmt))
-
-        for snippet in snippets:
-            snippet.is_validated = False
-
         count = len(snippets)
         if count > 0:
             logger.info("snippets_invalidated", count=count, schema_mapping_id=schema_mapping_id)

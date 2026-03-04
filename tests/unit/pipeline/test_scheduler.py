@@ -578,7 +578,7 @@ class TestPipelineResult:
 
 
 class TestEntropyScoresInResult:
-    def test_entropy_hard_scores_in_final_scores(self, session: Session, duckdb_conn):
+    def test_entropy_scores_in_final_scores(self, session: Session, duckdb_conn):
         """Entropy phase outputs flow into PipelineResult.final_scores."""
         run_id = _make_run(session)
         a = MockPhase("A")
@@ -586,7 +586,7 @@ class TestEntropyScoresInResult:
             "B",
             dependencies=["A"],
             outputs={
-                "entropy_hard_scores": {
+                "entropy_scores": {
                     "structural.types": 0.12,
                     "semantic.business_meaning": 0.45,
                 }

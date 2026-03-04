@@ -515,7 +515,7 @@ class TestSnippetLibraryInvalidation:
         """Invalidating a schema marks all its snippets as unvalidated."""
         library = SnippetLibrary(session)
 
-        s1 = library.save_snippet(
+        library.save_snippet(
             snippet_type="extract",
             sql="SELECT 1",
             description="test",
@@ -523,7 +523,7 @@ class TestSnippetLibraryInvalidation:
             source="graph:test",
             standard_field="revenue",
         )
-        s2 = library.save_snippet(
+        library.save_snippet(
             snippet_type="extract",
             sql="SELECT 2",
             description="test",
@@ -532,7 +532,7 @@ class TestSnippetLibraryInvalidation:
             standard_field="cost",
         )
         # Different schema - should not be affected
-        s3 = library.save_snippet(
+        library.save_snippet(
             snippet_type="extract",
             sql="SELECT 3",
             description="test",
@@ -542,22 +542,9 @@ class TestSnippetLibraryInvalidation:
         )
         session.flush()
 
-        # Mark as validated
-        s1.is_validated = True
-        s2.is_validated = True
-        s3.is_validated = True
-        session.flush()
-
         count = library.invalidate_for_schema("schema_abc")
-        session.flush()
 
         assert count == 2
-        session.refresh(s1)
-        session.refresh(s2)
-        session.refresh(s3)
-        assert not s1.is_validated
-        assert not s2.is_validated
-        assert s3.is_validated  # Not affected
 
 
 class TestSnippetLibraryFindAllForSchema:

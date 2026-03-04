@@ -106,8 +106,6 @@ class TestGeneratedCode:
         assert code.graph_id == "dso"
         assert code.summary == "Calculates Days Sales Outstanding (DSO) metric."
         assert len(code.steps) == 1
-        assert code.is_validated is False
-        assert code.validation_errors == []
 
 
 class TestExecutionContext:
@@ -207,67 +205,6 @@ class TestGraphAgentExecution:
         col_names = [c["name"] for c in result["tables"][0]["columns"]]
         assert "id" in col_names
         assert "amount" in col_names
-
-    def test_validate_sql_valid(self, duckdb_with_data):
-        """Test SQL validation with valid SQL."""
-        agent = GraphAgent(
-            config=MagicMock(),
-            provider=MagicMock(),
-            prompt_renderer=MagicMock(),
-        )
-
-        context = ExecutionContext(
-            duckdb_conn=duckdb_with_data,
-            table_name="test_data",
-        )
-
-        code = GeneratedCode(
-            code_id="test",
-            graph_id="test",
-            graph_version="1.0",
-            schema_mapping_id="test",
-            summary="Test query.",
-            steps=[],
-            final_sql="SELECT SUM(amount) FROM test_data",
-            column_mappings={},
-            llm_model="test",
-            prompt_hash="test",
-            generated_at=datetime.now(UTC),
-        )
-
-        result = agent._validate_sql(code, context)
-        assert result.success
-
-    def test_validate_sql_invalid(self, duckdb_with_data):
-        """Test SQL validation with invalid SQL."""
-        agent = GraphAgent(
-            config=MagicMock(),
-            provider=MagicMock(),
-            prompt_renderer=MagicMock(),
-        )
-
-        context = ExecutionContext(
-            duckdb_conn=duckdb_with_data,
-            table_name="test_data",
-        )
-
-        code = GeneratedCode(
-            code_id="test",
-            graph_id="test",
-            graph_version="1.0",
-            schema_mapping_id="test",
-            summary="Test query.",
-            steps=[],
-            final_sql="SELECT * FROM nonexistent_table",
-            column_mappings={},
-            llm_model="test",
-            prompt_hash="test",
-            generated_at=datetime.now(UTC),
-        )
-
-        result = agent._validate_sql(code, context)
-        assert not result.success
-
 
 class TestGraphAgentIntegration:
     """Integration tests for GraphAgent with mocked LLM."""

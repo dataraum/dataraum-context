@@ -314,8 +314,8 @@ class PipelineScheduler:
         )
 
         # Merge entropy scores from phase outputs (e.g. entropy phase)
-        if result.outputs and "entropy_hard_scores" in result.outputs:
-            self._scores.update(result.outputs["entropy_hard_scores"])
+        if result.outputs and "entropy_scores" in result.outputs:
+            self._scores.update(result.outputs["entropy_scores"])
 
         # Replay active fixes for this phase
         self._replay_fixes(phase_name)
@@ -332,8 +332,8 @@ class PipelineScheduler:
 
         # Assess contract impact on newly produced scores
         phase_scores = dict(scores)
-        if result.outputs and "entropy_hard_scores" in result.outputs:
-            phase_scores.update(result.outputs["entropy_hard_scores"])
+        if result.outputs and "entropy_scores" in result.outputs:
+            phase_scores.update(result.outputs["entropy_scores"])
         issues = self._assess_impact(phase_scores, phase_name)
         self._pending_issues.extend(issues)
 

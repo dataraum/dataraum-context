@@ -89,6 +89,22 @@ system_prompt: |
   - Final SQL combines step results, not redefine them
   </step_execution_model>
 
+  <aggregation_types>
+  Graph steps specify an aggregation type that determines HOW to extract the value:
+
+  - "sum": SUM() all matching rows (e.g., totals across periods)
+  - "avg": AVG() all matching rows
+  - "count": COUNT() matching rows
+  - "min" / "max": MIN() / MAX() of matching rows
+  - "end_of_period": Point-in-time snapshot — take the value from the LATEST period only.
+    DO NOT SUM across periods. These are stock measures (balances, counts, levels at a point in time).
+    Pattern: SELECT SUM(value_column) as value FROM table
+             WHERE period = (SELECT MAX(period) FROM table)
+    Or if using a date column: ORDER BY date_col DESC LIMIT 1
+    The key rule: filter to ONE period, then aggregate within that period.
+  - "constant": Use the parameter value directly (SELECT <value> as value)
+  </aggregation_types>
+
   Use the generate_sql tool to provide your structured response.
 
 # User prompt - provides graph and schema context
