@@ -820,6 +820,40 @@ class TestColumnDetails:
         assert "column:orders.discount" in issue.affected_targets
         assert "column:orders.id" not in issue.affected_targets
 
+    def test_exit_check_event_carries_column_details(self, session: Session, duckdb_conn):
+        """EXIT_CHECK event has column_details populated from _post_verify."""
+        run_id = _make_run(session)
+        phase = MockPhase("alpha", post_verification_dims=["type_fidelity"])
+        scheduler = PipelineScheduler(
+            phases={"alpha": phase},
+            source_id="src-1",
+            run_id=run_id,
+            session=session,
+            duckdb_conn=duckdb_conn,
+            contract_thresholds={"structural.types": 0.3},
+        )
+
+        col_data = {
+            "structural.types.type_fidelity": {
+                "column:orders.amount": 0.95,
+                "column:orders.id": 0.10,
+            }
+        }
+
+        def mock_post_verify(phase_name):
+            scheduler._column_details = dict(col_data)
+            return {"structural.types.type_fidelity": 0.8}
+
+        with patch.object(scheduler, "_post_verify", side_effect=mock_post_verify):
+            events, result = _drive(
+                scheduler.run(),
+                resolutions={0: Resolution(action=ResolutionAction.DEFER)},
+            )
+
+        exit_checks = [e for e in events if e.event_type == EventType.EXIT_CHECK]
+        assert len(exit_checks) == 1
+        assert exit_checks[0].column_details == col_data
+
     def test_column_details_cleared_after_exit_check(self, session: Session, duckdb_conn):
         """_column_details is cleared after EXIT_CHECK emission."""
         run_id = _make_run(session)

@@ -434,11 +434,11 @@ class PipelineScheduler:
             result[path] = mean_score
             self._scores[path] = mean_score
 
-        # Store per-column details keyed by dimension_path
-        self._column_details = {
-            sub_dim_to_path.get(sd, sd): targets
-            for sd, targets in column_scores.items()
-        }
+        # Merge per-column details keyed by dimension_path (not replace,
+        # so that multiple phases in the same wave accumulate correctly)
+        for sd, targets in column_scores.items():
+            path = sub_dim_to_path.get(sd, sd)
+            self._column_details[path] = targets
 
         return result
 
