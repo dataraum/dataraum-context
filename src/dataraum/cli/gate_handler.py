@@ -36,11 +36,11 @@ def handle_exit_check(
     """
     match gate_mode:
         case GateMode.SKIP:
-            console.print("  [yellow]~[/yellow] Exit check: violations deferred")
+            _print_violations_summary(console, event, "yellow", "deferred")
             return Resolution(action=ResolutionAction.DEFER)
 
         case GateMode.FAIL:
-            console.print("  [red]~[/red] Exit check: violations found, aborting")
+            _print_violations_summary(console, event, "red", "aborting")
             return Resolution(action=ResolutionAction.ABORT)
 
         case GateMode.PAUSE:
@@ -48,6 +48,26 @@ def handle_exit_check(
 
         case _:
             return Resolution(action=ResolutionAction.DEFER)
+
+
+def _print_violations_summary(
+    console: Console,
+    event: PipelineEvent,
+    color: str,
+    action: str,
+) -> None:
+    """Print a concise summary of exit-check violations."""
+    n = len(event.violations)
+    dims = ", ".join(
+        f"{dim} ({score:.2f} > {thresh:.2f})"
+        for dim, (score, thresh) in sorted(event.violations.items())
+    )
+    console.print(
+        f"  [{color}]~[/{color}] Exit check after [bold]{event.phase}[/bold]: "
+        f"{n} violation{'s' if n != 1 else ''} {action}"
+    )
+    if dims:
+        console.print(f"    [dim]{dims}[/dim]")
 
 
 def _interactive_resolution(

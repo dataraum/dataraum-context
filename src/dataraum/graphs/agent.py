@@ -252,6 +252,16 @@ class GraphAgent(LLMFeature):
         # Execute the generated SQL
         exec_result = self._execute_sql(generated_code, context, graph, resolved_params)
         if not exec_result.success or not exec_result.value:
+            # Mark cached snippets as failed so they get skipped next time
+            if cached_snippets:
+                from dataraum.query.snippet_library import SnippetLibrary
+
+                failed_ids = [
+                    s["snippet_id"]
+                    for s in cached_snippets.values()
+                    if s.get("snippet_id")
+                ]
+                SnippetLibrary(session).record_failure(failed_ids)
             return Result.fail(exec_result.error or "SQL execution failed")
 
         execution = exec_result.value

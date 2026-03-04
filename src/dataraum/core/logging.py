@@ -85,11 +85,11 @@ class _ProxyLogger:
     def _rich_print(
         c: _RichConsole, level: str, event: str, phase: str, kv: dict[str, Any]
     ) -> None:
-        text = _RichText()
+        text = _RichText("  ")
         level_style = _LEVEL_STYLES.get(level, "")
 
         if phase:
-            text.append(f"{phase:<16}", style="bold " + level_style)
+            text.append(f"{phase:<16} ", style="bold " + level_style)
         text.append(str(event), style=level_style)
 
         if kv:

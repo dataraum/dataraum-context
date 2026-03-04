@@ -158,6 +158,7 @@ class SnippetLibrary:
         stmt = select(SQLSnippetRecord).where(
             SQLSnippetRecord.snippet_type == snippet_type,
             SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+            SQLSnippetRecord.failure_count == 0,
         )
 
         if standard_field is not None:
@@ -181,6 +182,23 @@ class SnippetLibrary:
             stmt = stmt.where(SQLSnippetRecord.parameter_value.is_(None))
 
         record = self.session.execute(stmt).scalar_one_or_none()
+
+        # Check session.new for pending objects not yet visible to SQLite (autoflush=False)
+        if record is None:
+            for obj in self.session.new:
+                if (
+                    isinstance(obj, SQLSnippetRecord)
+                    and obj.snippet_type == snippet_type
+                    and obj.schema_mapping_id == schema_mapping_id
+                    and obj.standard_field == standard_field
+                    and obj.statement == statement
+                    and obj.aggregation == aggregation
+                    and obj.parameter_value == parameter_value
+                    and obj.failure_count == 0
+                ):
+                    record = obj
+                    break
+
         if record is None:
             return None
 
@@ -189,6 +207,61 @@ class SnippetLibrary:
             match_confidence=1.0,
             match_strategy="exact_key",
         )
+
+    def _find_by_key_any(
+        self,
+        snippet_type: str,
+        schema_mapping_id: str,
+        *,
+        standard_field: str | None = None,
+        statement: str | None = None,
+        aggregation: str | None = None,
+        parameter_value: str | None = None,
+    ) -> SQLSnippetRecord | None:
+        """Find snippet by key, including failed ones. Used by save_snippet."""
+        stmt = select(SQLSnippetRecord).where(
+            SQLSnippetRecord.snippet_type == snippet_type,
+            SQLSnippetRecord.schema_mapping_id == schema_mapping_id,
+        )
+
+        if standard_field is not None:
+            stmt = stmt.where(SQLSnippetRecord.standard_field == standard_field)
+        else:
+            stmt = stmt.where(SQLSnippetRecord.standard_field.is_(None))
+
+        if statement is not None:
+            stmt = stmt.where(SQLSnippetRecord.statement == statement)
+        else:
+            stmt = stmt.where(SQLSnippetRecord.statement.is_(None))
+
+        if aggregation is not None:
+            stmt = stmt.where(SQLSnippetRecord.aggregation == aggregation)
+        else:
+            stmt = stmt.where(SQLSnippetRecord.aggregation.is_(None))
+
+        if parameter_value is not None:
+            stmt = stmt.where(SQLSnippetRecord.parameter_value == parameter_value)
+        else:
+            stmt = stmt.where(SQLSnippetRecord.parameter_value.is_(None))
+
+        record = self.session.execute(stmt).scalar_one_or_none()
+
+        # Check session.new for pending objects (autoflush=False)
+        if record is None:
+            for obj in self.session.new:
+                if (
+                    isinstance(obj, SQLSnippetRecord)
+                    and obj.snippet_type == snippet_type
+                    and obj.schema_mapping_id == schema_mapping_id
+                    and obj.standard_field == standard_field
+                    and obj.statement == statement
+                    and obj.aggregation == aggregation
+                    and obj.parameter_value == parameter_value
+                ):
+                    record = obj
+                    break
+
+        return record
 
     def find_by_expression(
         self,
@@ -453,10 +526,10 @@ class SnippetLibrary:
         Returns:
             The created or updated SQLSnippetRecord
         """
-        # Try to find existing snippet by key
+        # Try to find existing snippet by key (including failed ones)
         existing: SQLSnippetRecord | None = None
         if snippet_type in ("extract", "constant"):
-            match = self.find_by_key(
+            existing = self._find_by_key_any(
                 snippet_type=snippet_type,
                 schema_mapping_id=schema_mapping_id,
                 standard_field=standard_field,
@@ -464,8 +537,6 @@ class SnippetLibrary:
                 aggregation=aggregation,
                 parameter_value=parameter_value,
             )
-            if match:
-                existing = match.snippet
         elif snippet_type == "formula" and normalized_expression:
             # Check for existing formula with same expression
             stmt = select(SQLSnippetRecord).where(
@@ -475,22 +546,20 @@ class SnippetLibrary:
             )
             existing = self.session.execute(stmt).scalar_one_or_none()
 
-        if existing:
-            # Update existing snippet
+        if existing and existing.failure_count > 0:
+            # Replace failed snippet with fresh generation
             existing.sql = sql
             existing.description = description
             existing.source = source
             existing.llm_model = llm_model
             existing.column_mappings = column_mappings or {}
             existing.column_hash = column_hash
+            existing.failure_count = 0
             existing.updated_at = datetime.now(UTC)
             record = existing
-            logger.debug(
-                "snippet_updated",
-                snippet_id=record.snippet_id,
-                snippet_type=snippet_type,
-                field=standard_field,
-            )
+        elif existing:
+            # Healthy snippet — keep the original (first writer wins)
+            record = existing
         else:
             # Create new snippet
             record = SQLSnippetRecord(
@@ -574,6 +643,20 @@ class SnippetLibrary:
             )
 
         return record
+
+    def record_failure(self, snippet_ids: list[str]) -> None:
+        """Increment failure_count for snippets that produced execution errors.
+
+        Args:
+            snippet_ids: Snippet IDs whose SQL failed during execution.
+        """
+        if not snippet_ids:
+            return
+        self.session.execute(
+            update(SQLSnippetRecord)
+            .where(SQLSnippetRecord.snippet_id.in_(snippet_ids))
+            .values(failure_count=SQLSnippetRecord.failure_count + 1)
+        )
 
     # --- Invalidation ---
 

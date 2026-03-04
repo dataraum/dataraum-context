@@ -142,7 +142,7 @@ class EnrichedViewsPhase(BasePhase):
         for col in all_columns:
             columns_by_table.setdefault(col.table_id, []).append(col)
 
-        # Try to get LLM recommendations for valuable enrichments
+        # Get LLM recommendations for valuable enrichments
         llm_recommendations = self._get_llm_recommendations(
             ctx=ctx,
             typed_tables=typed_tables,
@@ -151,6 +151,14 @@ class EnrichedViewsPhase(BasePhase):
             columns_by_table=columns_by_table,
             tables_by_id=tables_by_id,
         )
+
+        if not llm_recommendations:
+            return PhaseResult.success(
+                outputs={"enriched_views": 0, "message": "LLM unavailable, skipping enrichment"},
+                records_processed=0,
+                records_created=0,
+                summary="skipped (LLM unavailable)",
+            )
 
         views_created = 0
         views_dropped = 0
@@ -281,7 +289,6 @@ class EnrichedViewsPhase(BasePhase):
                 fact_table=fact_table.table_name,
                 dimension_joins=len(dimension_joins),
                 dimension_columns=len(dim_columns),
-                llm_powered=llm_recommendations is not None,
             )
 
         return PhaseResult.success(
@@ -289,7 +296,6 @@ class EnrichedViewsPhase(BasePhase):
                 "enriched_views": views_created,
                 "views_dropped": views_dropped,
                 "fact_tables": len(fact_entities),
-                "llm_powered": llm_recommendations is not None,
             },
             records_processed=len(fact_entities),
             records_created=views_created,

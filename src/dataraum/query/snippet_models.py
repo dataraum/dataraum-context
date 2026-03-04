@@ -78,6 +78,7 @@ class SQLSnippetRecord(Base):
 
     # --- Quality tracking ---
     execution_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     column_hash: Mapped[str | None] = mapped_column(
         String, nullable=True
