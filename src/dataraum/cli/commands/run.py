@@ -306,6 +306,13 @@ def _setup_pipeline(
     session.add(run_record)
     session.flush()
 
+    # 6b. Force-clean target phase before scheduling
+    if force_phase and target_phase:
+        from dataraum.pipeline.cleanup import cleanup_phase
+
+        cleanup_phase(target_phase, source_id, session, duckdb_conn)
+        session.flush()
+
     # 7. Load contract thresholds
     thresholds: dict[str, float] = {}
     if contract:

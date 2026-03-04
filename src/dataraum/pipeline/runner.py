@@ -426,6 +426,13 @@ def run(config: RunConfig) -> Result[RunResult]:
         session.add(run_record)
         session.flush()
 
+        # Force-clean target phase before scheduling
+        if config.force_phase and config.target_phase:
+            from dataraum.pipeline.cleanup import cleanup_phase
+
+            cleanup_phase(config.target_phase, source_id, session, duckdb_conn)
+            session.flush()
+
         # Create fix executor
         from dataraum.entropy.fix_executor import FixExecutor, get_default_action_registry
 
