@@ -49,7 +49,7 @@ class TestPhaseRegistry:
 
 
 class TestBasePhaseProperties:
-    """Tests for post_verification defaults."""
+    """Tests for post_verification defaults and timing."""
 
     def test_default_post_verification_empty(self):
         class DummyPhase(BasePhase):
@@ -63,6 +63,41 @@ class TestBasePhaseProperties:
 
         phase = DummyPhase()
         assert phase.post_verification == []
+
+    def test_run_measures_duration(self):
+        """BasePhase.run() sets duration_seconds on the result."""
+
+        class SlowPhase(BasePhase):
+            name = "slow"
+            description = "test"
+            dependencies: list[str] = []
+
+            def _run(self, ctx: PhaseContext) -> PhaseResult:
+                return PhaseResult.success(records_processed=1)
+
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock(spec=PhaseContext)
+        result = SlowPhase().run(ctx)
+        assert result.duration_seconds > 0
+
+    def test_run_measures_duration_on_failure(self):
+        """BasePhase.run() sets duration even when _run raises."""
+
+        class CrashPhase(BasePhase):
+            name = "crash"
+            description = "test"
+            dependencies: list[str] = []
+
+            def _run(self, ctx: PhaseContext) -> PhaseResult:
+                raise RuntimeError("boom")
+
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock(spec=PhaseContext)
+        result = CrashPhase().run(ctx)
+        assert result.status.value == "failed"
+        assert result.duration_seconds > 0
 
 
 class TestDependencyResolution:

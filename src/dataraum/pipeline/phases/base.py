@@ -5,6 +5,7 @@ Provides common functionality for all pipeline phases.
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from types import ModuleType
 
@@ -62,12 +63,16 @@ class BasePhase(ABC):
     def run(self, ctx: PhaseContext) -> PhaseResult:
         """Execute the phase.
 
-        Wraps _run with common error handling.
+        Wraps _run with wall-clock timing and error handling.
         """
+        start = time.monotonic()
         try:
-            return self._run(ctx)
+            result = self._run(ctx)
         except Exception as e:
-            return PhaseResult.failed(str(e))
+            elapsed = time.monotonic() - start
+            return PhaseResult.failed(str(e), duration=elapsed)
+        result.duration_seconds = time.monotonic() - start
+        return result
 
     @abstractmethod
     def _run(self, ctx: PhaseContext) -> PhaseResult:

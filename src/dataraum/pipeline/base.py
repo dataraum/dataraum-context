@@ -68,16 +68,17 @@ class PhaseResult:
     def success(
         cls,
         outputs: dict[str, Any] | None = None,
-        duration: float = 0.0,
         records_processed: int = 0,
         records_created: int = 0,
         warnings: list[str] | None = None,
     ) -> PhaseResult:
-        """Create a successful result."""
+        """Create a successful result.
+
+        Duration is set by BasePhase.run() — phases should not set it.
+        """
         return cls(
             status=PhaseStatus.COMPLETED,
             outputs=outputs or {},
-            duration_seconds=duration,
             records_processed=records_processed,
             records_created=records_created,
             warnings=warnings or [],
@@ -85,7 +86,11 @@ class PhaseResult:
 
     @classmethod
     def failed(cls, error: str, duration: float = 0.0) -> PhaseResult:
-        """Create a failed result."""
+        """Create a failed result.
+
+        Duration is normally set by BasePhase.run(). The parameter exists
+        only for BasePhase.run() itself to pass elapsed time on exceptions.
+        """
         return cls(
             status=PhaseStatus.FAILED,
             error=error,

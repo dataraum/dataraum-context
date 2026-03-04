@@ -8,7 +8,6 @@ This is the first phase in the pipeline. It:
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -204,7 +203,6 @@ class ImportPhase(BasePhase):
         junk_columns: list[str],
     ) -> PhaseResult:
         """Load all CSV files from a directory."""
-        start_time = time.time()
         null_config = load_null_value_config()
         warnings: list[str] = []
 
@@ -241,13 +239,13 @@ class ImportPhase(BasePhase):
             return PhaseResult.failed("No CSV files were successfully loaded")
 
         # Note: commit handled by session_scope() in scheduler
-        duration = time.time() - start_time
+
 
         return PhaseResult.success(
             outputs={"raw_tables": table_ids},
             records_processed=total_rows,
             records_created=len(table_ids),
-            duration=duration,
+
             warnings=warnings,
         )
 
@@ -260,7 +258,6 @@ class ImportPhase(BasePhase):
         junk_columns: list[str],
     ) -> PhaseResult:
         """Load a single CSV file."""
-        start_time = time.time()
         null_config = load_null_value_config()
 
         # Use the loader's internal method with our source_id
@@ -277,7 +274,7 @@ class ImportPhase(BasePhase):
             return PhaseResult.failed(result.error or "Failed to load file")
 
         staged_table = result.unwrap()
-        duration = time.time() - start_time
+
 
         # Note: commit handled by session_scope() in scheduler
 
@@ -285,7 +282,7 @@ class ImportPhase(BasePhase):
             outputs={"raw_tables": [str(staged_table.table_id)]},
             records_processed=staged_table.row_count,
             records_created=1,
-            duration=duration,
+
             warnings=result.warnings,
         )
 
@@ -296,7 +293,6 @@ class ImportPhase(BasePhase):
         path: Path,
     ) -> PhaseResult:
         """Load Parquet file(s) using ParquetLoader."""
-        start_time = time.time()
         loader = ParquetLoader()
 
         if path.is_dir():
@@ -333,12 +329,12 @@ class ImportPhase(BasePhase):
             if not table_ids:
                 return PhaseResult.failed("No Parquet files were successfully loaded")
 
-            duration = time.time() - start_time
+    
             return PhaseResult.success(
                 outputs={"raw_tables": table_ids},
                 records_processed=total_rows,
                 records_created=len(table_ids),
-                duration=duration,
+    
                 warnings=warnings,
             )
         else:
@@ -353,13 +349,13 @@ class ImportPhase(BasePhase):
                 return PhaseResult.failed(result.error or "Failed to load Parquet file")
 
             staged_table = result.unwrap()
-            duration = time.time() - start_time
+    
 
             return PhaseResult.success(
                 outputs={"raw_tables": [str(staged_table.table_id)]},
                 records_processed=staged_table.row_count,
                 records_created=1,
-                duration=duration,
+    
                 warnings=result.warnings,
             )
 
@@ -402,7 +398,6 @@ class ImportPhase(BasePhase):
         Returns:
             PhaseResult with all loaded table IDs
         """
-        start_time = time.time()
         warnings: list[str] = []
         table_ids: list[str] = []
         total_rows = 0
@@ -442,12 +437,12 @@ class ImportPhase(BasePhase):
         if not table_ids:
             return PhaseResult.failed("No tables were loaded from any registered source")
 
-        duration = time.time() - start_time
+
         return PhaseResult.success(
             outputs={"raw_tables": table_ids},
             records_processed=total_rows,
             records_created=len(table_ids),
-            duration=duration,
+
             warnings=warnings,
         )
 
