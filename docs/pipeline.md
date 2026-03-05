@@ -43,11 +43,10 @@ ctx = Context("./pipeline_output")
 | 3 | **temporal** | Temporal pattern and trend analysis | — | — |
 | 4 | **statistics** | Statistical profiling of typed columns | — | type_fidelity ≤ 0.5 |
 | 5 | **column_eligibility** | Determine which columns qualify for analysis | — | — |
-| 6 | **correlations** | Within-table correlation analysis | — | — |
+| 6 | **correlations** | Derived column detection (same + cross-table via enriched views) | — | — |
 | 7 | **relationships** | Cross-table join detection (FK candidates) | — | — |
 | 8 | **statistical_quality** | Benford's Law compliance, outlier detection | — | — |
 | 9 | **semantic** | Business meaning, roles, entity types (dual-tier) | Yes | type_fidelity ≤ 0.3, join_path_determinism ≤ 0.5 |
-| — | ~~cross_table_quality~~ | Cross-table correlation analysis (de-configured) | — | — |
 | 10 | **enriched_views** | Fact + dimension joined views | — | — |
 | 11 | **slicing** | Identify slice dimensions for analysis | Yes | — |
 | 12 | **slicing_view** | Create enriched views projected to slice-relevant columns | — | — |

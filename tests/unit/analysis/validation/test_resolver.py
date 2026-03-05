@@ -185,9 +185,9 @@ def test_get_multi_table_schema_for_llm(session, two_tables_with_relationship):
     # Check relationship is included
     assert len(schema["relationships"]) == 1
     rel = schema["relationships"][0]
-    assert rel["from_table"] == "transactions"
+    assert rel["from_table"] == "typed_transactions"
     assert rel["from_column"] == "account_id"
-    assert rel["to_table"] == "accounts"
+    assert rel["to_table"] == "typed_accounts"
     assert rel["to_column"] == "account_id"
     assert rel["relationship_type"] == "foreign_key"
     assert rel["confidence"] == 0.95

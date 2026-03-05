@@ -41,6 +41,7 @@ _run_context: ContextVar[dict[str, Any] | None] = ContextVar("run_context", defa
 
 
 _active_console: _RichConsole | None = None
+_active_log_buffer: LogBuffer | None = None  # forward ref, defined below
 
 _LEVEL_STYLES: dict[str, str] = {
     "debug": "dim",
@@ -57,6 +58,22 @@ _LEVEL_ICONS: dict[str, str] = {
     "error": "\U0001f6a8",
     "critical": "\U0001f6a8",
 }
+
+
+@dataclass
+class LogBuffer:
+    """Prints log lines permanently above a Rich Live widget.
+
+    When a Live display is active, Rich's ``console.print()`` automatically
+    renders above it. This class simply holds a console reference so the
+    ``_ProxyLogger`` can route there instead of bypassing Live.
+    """
+
+    console: _RichConsole
+
+    def append(self, text: _RichText) -> None:
+        """Print a log line above the Live widget."""
+        self.console.print(text, highlight=False)
 
 
 def _fmt_value(v: Any) -> str:
@@ -83,18 +100,20 @@ class _ProxyLogger:
         event = kv.pop("event", "")
         phase = kv.pop("phase", "")
 
-        c = _active_console
-        if c is not None:
-            self._rich_print(c, level, event, phase, kv)
+        buf = _active_log_buffer
+        if buf is not None:
+            buf.append(self._build_text(level, event, phase, kv))
+        elif _active_console is not None:
+            _active_console.print(self._build_text(level, event, phase, kv), highlight=False)
         else:
             self._stderr_print(level, event, phase, kv)
 
     @staticmethod
-    def _rich_print(
-        c: _RichConsole, level: str, event: str, phase: str, kv: dict[str, Any]
-    ) -> None:
+    def _build_text(
+        level: str, event: str, phase: str, kv: dict[str, Any]
+    ) -> _RichText:
         icon = _LEVEL_ICONS.get(level, "")
-        text = _RichText(f"  {icon} " if icon else "  ")
+        text = _RichText(f" {icon} " if icon else "  ")
         level_style = _LEVEL_STYLES.get(level, "")
 
         if phase:
@@ -105,7 +124,7 @@ class _ProxyLogger:
             pairs = ", ".join(f"{k}: {_fmt_value(v)}" for k, v in kv.items())
             text.append(f"  ({pairs})", style="dim")
 
-        c.print(text, highlight=False)
+        return text
 
     @staticmethod
     def _stderr_print(
@@ -138,16 +157,24 @@ def _passthrough_renderer(
     return event_dict
 
 
-def activate_console(console: _RichConsole) -> None:
-    """Route structlog output through a Rich console (for Live display)."""
-    global _active_console
+def activate_console(console: _RichConsole, log_buffer: LogBuffer | None = None) -> None:
+    """Route structlog output through a Rich console or log buffer.
+
+    Args:
+        console: Rich console for direct printing (used when no buffer).
+        log_buffer: If provided, log lines are appended here instead of
+            printed directly — intended for rendering inside a Live widget.
+    """
+    global _active_console, _active_log_buffer
     _active_console = console
+    _active_log_buffer = log_buffer
 
 
 def deactivate_console() -> None:
     """Restore structlog output to stderr."""
-    global _active_console
+    global _active_console, _active_log_buffer
     _active_console = None
+    _active_log_buffer = None
 
 
 @dataclass

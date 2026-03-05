@@ -90,6 +90,7 @@ def get_multi_table_schema_for_llm(
         for col in table.columns:
             column_id_to_info[col.column_id] = {
                 "table_name": table.table_name,
+                "duckdb_path": table.duckdb_path,
                 "column_name": col.column_name,
             }
 
@@ -114,9 +115,9 @@ def get_multi_table_schema_for_llm(
         if from_info and to_info:
             formatted_rels.append(
                 {
-                    "from_table": from_info.get("table_name"),
+                    "from_table": from_info.get("duckdb_path") or from_info.get("table_name"),
                     "from_column": from_info.get("column_name"),
-                    "to_table": to_info.get("table_name"),
+                    "to_table": to_info.get("duckdb_path") or to_info.get("table_name"),
                     "to_column": to_info.get("column_name"),
                     "relationship_type": rel.relationship_type,
                     "cardinality": rel.cardinality,

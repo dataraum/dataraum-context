@@ -8,6 +8,7 @@ These analyses run BEFORE semantic analysis to enrich the context.
 
 from dataraum.analysis.correlation.within_table.derived_columns import (
     detect_derived_columns,
+    detect_enriched_derived_columns,
 )
 from dataraum.analysis.correlation.within_table.numeric import (
     compute_numeric_correlations,
@@ -16,4 +17,5 @@ from dataraum.analysis.correlation.within_table.numeric import (
 __all__ = [
     "compute_numeric_correlations",
     "detect_derived_columns",
+    "detect_enriched_derived_columns",
 ]

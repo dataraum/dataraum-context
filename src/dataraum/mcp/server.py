@@ -421,7 +421,6 @@ _PHASE_LABELS: dict[str, str] = {
     "typing": "Detecting column types",
     "statistics": "Profiling value distributions",
     "correlations": "Checking for correlations",
-    "cross_table_quality": "Cross-table correlation analysis",
     "relationships": "Finding table relationships",
     "semantic": "Understanding business meaning (AI step)",
     "temporal": "Detecting date/time patterns",

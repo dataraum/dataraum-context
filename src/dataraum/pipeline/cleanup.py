@@ -124,21 +124,13 @@ def _cleanup_relationships(
 def _cleanup_correlations(
     session: Session, source_id: str, table_ids: list[str], column_ids: list[str]
 ) -> int:
-    from dataraum.analysis.correlation.db_models import CrossTableCorrelationRecord, DerivedColumn
+    from dataraum.analysis.correlation.db_models import DerivedColumn
 
-    count = 0
-    if table_ids:
-        count += _exec_delete(
-            session, delete(DerivedColumn).where(DerivedColumn.table_id.in_(table_ids))
-        )
-        count += _exec_delete(
-            session,
-            delete(CrossTableCorrelationRecord).where(
-                CrossTableCorrelationRecord.from_table_id.in_(table_ids)
-                | CrossTableCorrelationRecord.to_table_id.in_(table_ids)
-            ),
-        )
-    return count
+    if not table_ids:
+        return 0
+    return _exec_delete(
+        session, delete(DerivedColumn).where(DerivedColumn.table_id.in_(table_ids))
+    )
 
 
 def _cleanup_semantic(
@@ -329,22 +321,6 @@ def _cleanup_temporal_slice_analysis(
     return count
 
 
-def _cleanup_cross_table_quality(
-    session: Session, source_id: str, table_ids: list[str], column_ids: list[str]
-) -> int:
-    from dataraum.analysis.correlation.db_models import CrossTableCorrelationRecord
-
-    if not table_ids:
-        return 0
-    return _exec_delete(
-        session,
-        delete(CrossTableCorrelationRecord).where(
-            CrossTableCorrelationRecord.from_table_id.in_(table_ids)
-            | CrossTableCorrelationRecord.to_table_id.in_(table_ids)
-        ),
-    )
-
-
 # Registry mapping phase names to their cleanup functions.
 # Import phase is intentionally excluded — use a full run for that.
 _CLEANUP_MAP: dict[str, CleanupFn] = {
@@ -366,7 +342,6 @@ _CLEANUP_MAP: dict[str, CleanupFn] = {
     "entropy": _cleanup_entropy,
     "entropy_interpretation": _cleanup_entropy_interpretation,
     "temporal_slice_analysis": _cleanup_temporal_slice_analysis,
-    "cross_table_quality": _cleanup_cross_table_quality,
 }
 
 

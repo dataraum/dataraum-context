@@ -154,8 +154,10 @@ def build_cycle_detection_context(
         if from_col and to_col and from_table and to_table:
             rel_list.append(
                 {
+                    "from_table_id": rel.from_table_id,
                     "from_table": from_table.table_name,
                     "from_column": from_col.column_name,
+                    "to_table_id": rel.to_table_id,
                     "to_table": to_table.table_name,
                     "to_column": to_col.column_name,
                     "relationship_type": rel.relationship_type,
