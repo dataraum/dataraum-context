@@ -67,7 +67,7 @@ Traditional semantic layers tell BI tools "what things are called." DataRaum tel
 │                           PIPELINE ORCHESTRATOR                             │
 │                                                                             │
 │   19 phases with dependency-based execution                                 │
-│   Entropy gates between phases (hard detector preconditions)                │
+│   Entropy gates between phases (detector preconditions)                     │
 │   ThreadPoolExecutor (true parallelism via Python 3.14 free-threading)      │
 │   Idempotent phases, checkpoint-based resumption                            │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -163,7 +163,7 @@ src/dataraum/
 │   │   └── computational/ # Derived values, aggregation safety
 │   ├── contracts/         # Use-case threshold evaluation
 │   ├── network/           # Bayesian causal network
-│   ├── hard_snapshot.py   # HardSnapshot: run hard detectors, before/after measurement
+│   ├── snapshot.py        # Snapshot: run detectors, before/after measurement
 │   ├── decisions.py       # Decision dataclass + DecisionRecord DB model
 │   ├── fix_executor.py    # ActionRegistry, FixExecutor, FixRequest/FixResult
 │   ├── action_executors.py # 6 seed action executors
@@ -227,7 +227,7 @@ Source (CSV/Parquet)
 Context document → MCP / CLI / Python API → AI consumer
 ```
 
-At each gate (⊘), the pipeline checks hard detector scores against thresholds. Gate behavior depends on `--gate-mode` (skip, pause, fail, auto_fix). Fixes applied at gates are recorded in the decision ledger.
+At each gate (⊘), the pipeline checks detector scores against thresholds. Gate behavior depends on `--gate-mode` (skip, pause, fail, auto_fix). Fixes applied at gates are recorded in the decision ledger.
 
 ## Interfaces
 

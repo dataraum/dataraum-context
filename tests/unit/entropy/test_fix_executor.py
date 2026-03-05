@@ -21,7 +21,7 @@ class TestActionRegistry:
             action_type="test_action",
             category=ActionCategory.ANNOTATE,
             description="Test action",
-            hard_verifiable=False,
+            verifiable=False,
         )
         registry.register(defn)
         assert registry.has("test_action")
@@ -38,13 +38,13 @@ class TestActionRegistry:
             action_type="a1",
             category=ActionCategory.TRANSFORM,
             description="Action 1",
-            hard_verifiable=True,
+            verifiable=True,
         )
         defn2 = ActionDefinition(
             action_type="a2",
             category=ActionCategory.ANNOTATE,
             description="Action 2",
-            hard_verifiable=False,
+            verifiable=False,
         )
         registry.register(defn1)
         registry.register(defn2)
@@ -72,11 +72,11 @@ class TestSeedActions:
         assert actions["declare_unit"].category == ActionCategory.ANNOTATE
         assert actions["create_filtered_view"].category == ActionCategory.TRANSFORM
 
-    def test_hard_verifiable_flags(self):
+    def test_verifiable_flags(self):
         actions = {a.action_type: a for a in get_seed_actions()}
-        assert actions["override_type"].hard_verifiable is True
-        assert actions["declare_unit"].hard_verifiable is False
-        assert actions["create_filtered_view"].hard_verifiable is True
+        assert actions["override_type"].verifiable is True
+        assert actions["declare_unit"].verifiable is False
+        assert actions["create_filtered_view"].verifiable is True
 
 
 class TestDefaultRegistry:
@@ -105,7 +105,7 @@ class TestFixExecutor:
                 action_type="test",
                 category=ActionCategory.ANNOTATE,
                 description="Test",
-                hard_verifiable=False,
+                verifiable=False,
                 executor=None,
             )
         )
@@ -136,7 +136,7 @@ class TestFixExecutor:
                 action_type="mock_fix",
                 category=ActionCategory.ANNOTATE,
                 description="Mock fix",
-                hard_verifiable=False,
+                verifiable=False,
                 executor=mock_executor,
             )
         )
@@ -175,9 +175,9 @@ class TestFixExecutor:
         session.close()
         engine.dispose()
 
-    def test_hard_verifiable_action_takes_snapshots(self, tmp_path):
+    def test_verifiable_action_takes_snapshots(self, tmp_path):
         """Hard-verifiable actions should have before/after scores populated."""
-        from dataraum.entropy.hard_snapshot import HardSnapshot
+        from dataraum.entropy.snapshot import Snapshot
 
         calls: list[dict[str, str]] = []
 
@@ -196,7 +196,7 @@ class TestFixExecutor:
                 action_type="hard_fix",
                 category="transform",
                 description="Hard fix",
-                hard_verifiable=True,
+                verifiable=True,
                 executor=mock_executor,
             )
         )
@@ -212,17 +212,17 @@ class TestFixExecutor:
         Session = sessionmaker(bind=engine)
         session = Session()
 
-        before_snap = HardSnapshot(
+        before_snap = Snapshot(
             scores={"type_fidelity": 0.6},
             detectors_run=["type_fidelity"],
         )
-        after_snap = HardSnapshot(
+        after_snap = Snapshot(
             scores={"type_fidelity": 0.1},
             detectors_run=["type_fidelity"],
         )
 
         with patch(
-            "dataraum.entropy.hard_snapshot.take_hard_snapshot",
+            "dataraum.entropy.snapshot.take_snapshot",
             side_effect=[before_snap, after_snap],
         ):
             result = executor.execute(
@@ -247,8 +247,8 @@ class TestFixExecutor:
         session.close()
         engine.dispose()
 
-    def test_non_hard_verifiable_skips_snapshots(self, tmp_path):
-        """Non-hard-verifiable actions should not take snapshots."""
+    def test_non_verifiable_skips_snapshots(self, tmp_path):
+        """Non-verifiable actions should not take snapshots."""
 
         def mock_executor(
             session: object,
@@ -264,7 +264,7 @@ class TestFixExecutor:
                 action_type="soft_fix",
                 category="annotate",
                 description="Soft fix",
-                hard_verifiable=False,
+                verifiable=False,
                 executor=mock_executor,
             )
         )
@@ -280,9 +280,9 @@ class TestFixExecutor:
         Session = sessionmaker(bind=engine)
         session = Session()
 
-        # Should NOT call take_hard_snapshot at all
+        # Should NOT call take_snapshot at all
         with patch(
-            "dataraum.entropy.hard_snapshot.take_hard_snapshot",
+            "dataraum.entropy.snapshot.take_snapshot",
             side_effect=AssertionError("Should not be called"),
         ):
             result = executor.execute(

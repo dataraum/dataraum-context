@@ -320,7 +320,7 @@ class PipelineScheduler:
         # Replay active fixes for this phase
         self._replay_fixes(phase_name)
 
-        # Post-verify (run hard detectors)
+        # Post-verify (run detectors)
         scores = self._post_verify(phase_name)
         if scores:
             yield self._event(
@@ -495,16 +495,30 @@ class PipelineScheduler:
         return results
 
     def _post_verify(self, phase_name: str) -> dict[str, float]:
-        """Run hard detectors for dimensions listed in phase.post_verification."""
+        """Run detectors for dimensions listed in phase.post_verification.
+
+        Dispatches column-scoped and table-scoped detectors separately:
+        - Column dims: snapshot per column on each typed table
+        - Table dims: snapshot per typed table (cross-column analysis)
+        """
         phase = self.phases[phase_name]
         dims = phase.post_verification
         if not dims:
             return {}
 
         from dataraum.entropy.detectors.base import get_default_registry
-        from dataraum.entropy.hard_snapshot import take_hard_snapshot
+        from dataraum.entropy.snapshot import take_snapshot
         from dataraum.storage.models import Column as ColumnModel
         from dataraum.storage.models import Table
+
+        registry = get_default_registry()
+
+        # Partition dims into column vs table scope
+        table_sub_dims = {
+            d.sub_dimension for d in registry.get_all_detectors() if d.scope == "table"
+        }
+        col_dims = [d for d in dims if d not in table_sub_dims]
+        tbl_dims = [d for d in dims if d in table_sub_dims]
 
         # Get all typed tables for this source
         typed_tables = (
@@ -519,28 +533,43 @@ class PipelineScheduler:
 
         scores_by_dim: dict[str, list[float]] = defaultdict(list)
         column_scores: dict[str, dict[str, float]] = defaultdict(dict)
-        for table in typed_tables:
-            columns = (
-                self.session.execute(
-                    select(ColumnModel).where(ColumnModel.table_id == table.table_id)
+
+        # Column-scoped pass
+        if col_dims:
+            for table in typed_tables:
+                columns = (
+                    self.session.execute(
+                        select(ColumnModel).where(ColumnModel.table_id == table.table_id)
+                    )
+                    .scalars()
+                    .all()
                 )
-                .scalars()
-                .all()
-            )
-            for col in columns:
-                target = f"column:{table.table_name}.{col.column_name}"
-                snapshot = take_hard_snapshot(
+                for col in columns:
+                    target = f"column:{table.table_name}.{col.column_name}"
+                    snapshot = take_snapshot(
+                        target=target,
+                        session=self.session,
+                        duckdb_conn=self.duckdb_conn,
+                        dimensions=col_dims,
+                    )
+                    for sub_dim, score in snapshot.scores.items():
+                        scores_by_dim[sub_dim].append(score)
+                        column_scores[sub_dim][target] = score
+
+        # Table-scoped pass
+        if tbl_dims:
+            for table in typed_tables:
+                target = f"table:{table.table_name}"
+                snapshot = take_snapshot(
                     target=target,
                     session=self.session,
                     duckdb_conn=self.duckdb_conn,
-                    dimensions=dims,
+                    dimensions=tbl_dims,
                 )
                 for sub_dim, score in snapshot.scores.items():
                     scores_by_dim[sub_dim].append(score)
-                    column_scores[sub_dim][target] = score
 
         # Build sub_dimension -> dimension_path mapping
-        registry = get_default_registry()
         sub_dim_to_path = {
             d.sub_dimension: d.dimension_path
             for d in registry.get_all_detectors()

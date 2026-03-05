@@ -4,7 +4,7 @@ Provides:
 - ActionDefinition: Declarative action specification
 - ActionRegistry: Registry of available fix actions
 - FixRequest/FixResult: Request and result types
-- FixExecutor: Executes fixes with before/after hard verification
+- FixExecutor: Executes fixes with before/after verification
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class ActionDefinition:
     action_type: str  # e.g., "override_type", "declare_unit"
     category: str  # ActionCategory.TRANSFORM or .ANNOTATE
     description: str
-    hard_verifiable: bool  # Whether before/after hard scores can be compared
+    verifiable: bool  # Whether before/after scores can be compared
     parameters_schema: dict[str, str] = field(default_factory=dict)  # param_name -> description
 
     # Full dimension paths this action improves (e.g., ["structural.types.type_fidelity"])
@@ -103,12 +103,12 @@ class ActionRegistry:
 
 
 class FixExecutor:
-    """Executes fix actions with before/after hard verification.
+    """Executes fix actions with before/after verification.
 
     Flow:
-    1. Take hard snapshot (before)
+    1. Take snapshot (before)
     2. Execute the action
-    3. Take hard snapshot (after)
+    3. Take snapshot (after)
     4. Create Decision with before/after scores
     5. Persist DecisionRecord
     6. Return FixResult
@@ -147,12 +147,12 @@ class FixExecutor:
             )
 
         try:
-            from dataraum.entropy.hard_snapshot import take_hard_snapshot
+            from dataraum.entropy.snapshot import take_snapshot
 
-            # Before snapshot (if action is hard-verifiable)
+            # Before snapshot (if action is verifiable)
             before_scores: dict[str, float] = {}
-            if definition.hard_verifiable:
-                before = take_hard_snapshot(
+            if definition.verifiable:
+                before = take_snapshot(
                     target=request.target,
                     session=session,
                     duckdb_conn=duckdb_conn,
@@ -167,19 +167,19 @@ class FixExecutor:
                 parameters=request.parameters,
             )
 
-            # After snapshot (if action is hard-verifiable)
+            # After snapshot (if action is verifiable)
             after_scores: dict[str, float] = {}
-            if definition.hard_verifiable:
+            if definition.verifiable:
                 # Flush so the snapshot sees the action's writes
                 session.flush()
-                after = take_hard_snapshot(
+                after = take_snapshot(
                     target=request.target,
                     session=session,
                     duckdb_conn=duckdb_conn,
                 )
                 after_scores = after.scores
 
-            # Determine improvement from hard scores (if available),
+            # Determine improvement from scores (if available),
             # otherwise fall back to action_result
             if before_scores and after_scores:
                 improved = any(

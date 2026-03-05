@@ -1,7 +1,6 @@
-"""Tests for detector trust levels and gate data model."""
+"""Tests for detector registry and gate data model."""
 
 from dataraum.entropy.detectors import (
-    DetectorTrust,
     get_default_registry,
 )
 from dataraum.pipeline.base import PhaseStatus
@@ -22,29 +21,13 @@ ALL_DETECTOR_IDS = {
 }
 
 
-class TestDetectorTrustLevels:
-    """All detectors are machine-verifiable (HARD)."""
-
-    def test_all_detectors_are_hard(self):
-        registry = get_default_registry()
-        for d in registry.get_all_detectors():
-            assert d.trust_level == DetectorTrust.HARD, (
-                f"{d.detector_id} should be HARD but is {d.trust_level}"
-            )
-
-    def test_all_detectors_are_verifiers(self):
-        registry = get_default_registry()
-        for d in registry.get_all_detectors():
-            assert d.is_verifier, f"{d.detector_id} should be a verifier"
+class TestDetectorRegistry:
+    """All expected detectors are registered."""
 
     def test_all_expected_detectors_registered(self):
         registry = get_default_registry()
         registered = {d.detector_id for d in registry.get_all_detectors()}
         assert registered == ALL_DETECTOR_IDS
-
-    def test_no_soft_detectors(self):
-        registry = get_default_registry()
-        assert registry.get_soft_detectors() == []
 
 
 # --- PhaseStatus ---

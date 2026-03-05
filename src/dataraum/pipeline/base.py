@@ -162,7 +162,7 @@ class Phase(Protocol):
 
     @property
     def post_verification(self) -> list[str]:
-        """Hard detector sub_dimensions to re-measure after this phase completes."""
+        """Detector sub_dimensions to re-measure after this phase completes."""
         ...
 
     def should_skip(self, ctx: PhaseContext) -> str | None:

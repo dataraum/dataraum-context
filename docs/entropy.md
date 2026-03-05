@@ -150,14 +150,14 @@ Actions are scored based on:
 
 When an action is applied (at a gate or via MCP), the `FixExecutor` runs it through a verified flow:
 
-1. Take a **before snapshot** — run hard detectors on the target to measure current scores
+1. Take a **before snapshot** — run detectors on the target to measure current scores
 2. Execute the action (e.g., override a column type, declare a unit)
-3. Take an **after snapshot** — re-run hard detectors to measure improvement
+3. Take an **after snapshot** — re-run detectors to measure improvement
 4. Create an immutable `Decision` record with before/after scores and evidence
 5. Persist a `DecisionRecord` to the database for audit
 6. Return a `FixResult` with `success`, `improved`, and score deltas
 
-The before/after `HardSnapshot` mechanism ensures every fix is measurably verified — not just "did it run" but "did it actually reduce entropy."
+The before/after `Snapshot` mechanism ensures every fix is measurably verified — not just "did it run" but "did it actually reduce entropy."
 
 Available seed actions:
 

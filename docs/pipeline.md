@@ -90,7 +90,7 @@ Gates are checkpoints between pipeline phases where **entropy preconditions** ar
 | `fail` | Treat as pipeline failure |
 | `auto_fix` | Attempt automatic fix via FixExecutor, skip if fix fails |
 
-Gates use only **hard detectors** — machine-verifiable scores that can objectively gate the pipeline. Soft detectors (LLM-derived, like business meaning) inform actions but don't block phases. See [Entropy: Detector Trust](entropy.md#detector-trust) for the classification.
+Gates use **detector scores** — machine-verifiable metrics that can objectively gate the pipeline. All detectors calculate metrics from pre-computed metadata and can be used at gates.
 
 When a gate fires in `pause` mode, the user sees:
 - Which dimensions are blocking (e.g., `type_fidelity: 0.62 > threshold 0.5`)
@@ -98,11 +98,11 @@ When a gate fires in `pause` mode, the user sees:
 - A skip option to continue anyway
 - A free-text escape hatch for LLM-powered questions about the gate
 
-Fix actions execute through the `FixExecutor`, which takes before/after hard snapshots to verify improvement. Every decision is recorded in an immutable **decision ledger** for audit and reproducibility.
+Fix actions execute through the `FixExecutor`, which takes before/after snapshots to verify improvement. Every decision is recorded in an immutable **decision ledger** for audit and reproducibility.
 
 ### Post-Verification
 
-After each phase completes, the orchestrator runs **post-verification** — re-measuring the hard detector scores for dimensions that the phase's output affects. For example:
+After each phase completes, the orchestrator runs **post-verification** — re-measuring detector scores for dimensions that the phase's output affects. For example:
 
 - After `typing`: measures `type_fidelity`
 - After `statistics`: measures `null_ratio`, `outlier_rate`

@@ -56,7 +56,7 @@ class BasePhase(ABC):
 
     @property
     def post_verification(self) -> list[str]:
-        """Hard detector sub_dimensions to re-measure after this phase completes.
+        """Detector sub_dimensions to re-measure after this phase completes.
 
         Used to verify that this phase improved (or at least didn't worsen)
         the specified entropy dimensions.

@@ -1,9 +1,9 @@
-"""Hard snapshot — run hard detectors on a target and return canonical scores.
+"""Snapshot — run detectors on a target and return canonical scores.
 
-Provides the core trust mechanism for entropy gates:
-- `take_hard_snapshot()`: measure hard entropy for a column/table
+Provides the core measurement mechanism for entropy gates:
+- `take_snapshot()`: measure entropy for a column/table
 - `load_column_analysis()`: load analysis results for a single column
-- `HardSnapshot`: immutable result with scores, detectors run, timestamp
+- `Snapshot`: immutable result with scores, detectors run, timestamp
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class HardSnapshot:
-    """Immutable snapshot of hard detector scores for a target."""
+class Snapshot:
+    """Immutable snapshot of detector scores for a target."""
 
     scores: dict[str, float]  # sub_dimension -> score
     detectors_run: list[str]  # detector_ids that were executed
@@ -265,6 +265,247 @@ def load_column_analysis(
     return analysis_results
 
 
+def _resolve_table_target(
+    session: Session,
+    target: str,
+) -> tuple[str, str] | None:
+    """Parse table target string and resolve to (table_id, table_name).
+
+    Supports format: "table:table_name"
+
+    Returns None if target cannot be resolved.
+    """
+    from dataraum.storage import Table
+
+    ref = target.split(":", 1)[1] if ":" in target else target
+
+    table = session.execute(
+        select(Table).where(Table.table_name == ref, Table.layer == "typed")
+    ).scalar_one_or_none()
+    if not table:
+        return None
+
+    return table.table_id, ref
+
+
+def load_table_analysis(
+    session: Session,
+    table_id: str,
+    table_name: str,
+) -> dict[str, Any]:
+    """Load table-scoped analysis results for cross-column detectors.
+
+    Builds the analysis_results dict expected by DimensionalEntropyDetector:
+    - "slice_variance": {columns, slice_data, temporal_columns, temporal_drift}
+    - "drift_summaries": list of ColumnDriftSummary objects
+
+    This is a simplified extraction from entropy_phase._run_dimensional_entropy().
+    It only builds the analysis dict — it does NOT create per-column EntropyObjects.
+
+    Args:
+        session: SQLAlchemy session
+        table_id: ID of the typed table
+        table_name: Name of the typed table
+
+    Returns:
+        Dict with slice_variance and drift_summaries data.
+    """
+    from dataraum.analysis.quality_summary.db_models import ColumnSliceProfile
+    from dataraum.analysis.slicing.db_models import SliceDefinition
+    from dataraum.analysis.slicing.slice_runner import _get_slice_table_name
+    from dataraum.analysis.temporal_slicing.db_models import ColumnDriftSummary
+    from dataraum.storage import Column, Table
+
+    # Get columns for this typed table
+    table_columns = list(
+        session.execute(select(Column).where(Column.table_id == table_id)).scalars().all()
+    )
+    table_column_ids = [c.column_id for c in table_columns]
+
+    # Check for slicing_view table (FK-based scoping)
+    sv_table = session.execute(
+        select(Table).where(
+            Table.table_name == f"slicing_{table_name}",
+            Table.layer == "slicing_view",
+        )
+    ).scalar_one_or_none()
+
+    if sv_table:
+        sv_cols = (
+            session.execute(select(Column).where(Column.table_id == sv_table.table_id))
+            .scalars()
+            .all()
+        )
+        lookup_column_ids = [c.column_id for c in sv_cols]
+    else:
+        lookup_column_ids = table_column_ids
+
+    # Load column slice profiles
+    profiles = list(
+        session.execute(
+            select(ColumnSliceProfile).where(
+                ColumnSliceProfile.source_column_id.in_(lookup_column_ids)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if not profiles:
+        return {}
+
+    # Build slice_data: slice_value -> column_name -> metrics
+    slice_data: dict[str, dict[str, dict[str, Any]]] = {}
+    columns_data: dict[str, dict[str, Any]] = {}
+
+    for profile in profiles:
+        slice_val = profile.slice_value
+        col_name = profile.column_name
+
+        if slice_val not in slice_data:
+            slice_data[slice_val] = {}
+
+        slice_data[slice_val][col_name] = {
+            "null_ratio": profile.null_ratio,
+            "distinct_count": profile.distinct_count,
+            "row_count": profile.row_count,
+            "quality_score": profile.quality_score,
+            "has_issues": profile.has_issues,
+        }
+
+        if col_name not in columns_data:
+            columns_data[col_name] = {
+                "classification": profile.variance_classification or "stable",
+                "null_ratios": [],
+                "distinct_counts": [],
+                "exceeded_thresholds": [],
+            }
+        if profile.null_ratio is not None:
+            columns_data[col_name]["null_ratios"].append(profile.null_ratio)
+        if profile.distinct_count is not None:
+            columns_data[col_name]["distinct_counts"].append(profile.distinct_count)
+
+    # Calculate variance metrics per column
+    for col_metrics in columns_data.values():
+        null_ratios = col_metrics.get("null_ratios", [])
+        distinct_counts = col_metrics.get("distinct_counts", [])
+
+        if null_ratios and len(null_ratios) > 1:
+            col_metrics["null_spread"] = max(null_ratios) - min(null_ratios)
+        else:
+            col_metrics["null_spread"] = 0.0
+
+        if distinct_counts and len(distinct_counts) > 1 and min(distinct_counts) > 0:
+            col_metrics["distinct_ratio"] = max(distinct_counts) / min(distinct_counts)
+        else:
+            col_metrics["distinct_ratio"] = 1.0
+
+        if col_metrics["null_spread"] > 0.1 or col_metrics["distinct_ratio"] > 2.0:
+            col_metrics["classification"] = "interesting"
+            if col_metrics["null_spread"] > 0.1:
+                col_metrics["exceeded_thresholds"].append("null_spread")
+            if col_metrics["distinct_ratio"] > 2.0:
+                col_metrics["exceeded_thresholds"].append("distinct_ratio")
+
+    # Load drift summaries for slice tables
+    col_name_by_id = {c.column_id: c.column_name for c in table_columns}
+    slice_defs = list(
+        session.execute(
+            select(SliceDefinition).where(SliceDefinition.table_id == table_id)
+        )
+        .scalars()
+        .all()
+    )
+
+    slice_table_names: list[str] = []
+    for sd in slice_defs:
+        sd_col_name = sd.column_name or col_name_by_id.get(sd.column_id)
+        if sd_col_name and sd.distinct_values:
+            for value in sd.distinct_values:
+                slice_table_names.append(
+                    _get_slice_table_name(table_name, sd_col_name, value)
+                )
+
+    drift_summaries: list[Any] = []
+    if slice_table_names:
+        drift_summaries = list(
+            session.execute(
+                select(ColumnDriftSummary).where(
+                    ColumnDriftSummary.slice_table_name.in_(slice_table_names)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    # Build temporal_drift from drift summaries
+    temporal_drift: list[dict[str, Any]] = []
+    for ds in drift_summaries:
+        if ds.max_js_divergence > 0:
+            evidence = ds.drift_evidence_json or {}
+            change_points = evidence.get("change_points", [])
+            temporal_drift.append(
+                {
+                    "column_name": ds.column_name,
+                    "js_divergence": ds.max_js_divergence,
+                    "has_significant_drift": ds.periods_with_drift > 0,
+                    "has_category_changes": bool(
+                        evidence.get("emerged_categories")
+                        or evidence.get("vanished_categories")
+                    ),
+                    "change_points": change_points,
+                }
+            )
+
+    # Load temporal analyses
+    temporal_columns: dict[str, dict[str, Any]] = {}
+    if slice_table_names:
+        from dataraum.analysis.temporal_slicing.db_models import TemporalSliceAnalysis
+
+        period_analyses = list(
+            session.execute(
+                select(TemporalSliceAnalysis).where(
+                    TemporalSliceAnalysis.slice_table_name.in_(slice_table_names)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        for ta in period_analyses:
+            col_name = ta.time_column
+            if col_name not in temporal_columns:
+                temporal_columns[col_name] = {
+                    "is_interesting": False,
+                    "reasons": [],
+                    "coverage_ratio": ta.coverage_ratio,
+                    "last_day_ratio": ta.last_day_ratio,
+                    "is_volume_anomaly": bool(ta.is_volume_anomaly),
+                }
+            if (
+                (ta.coverage_ratio is not None and ta.coverage_ratio < 0.5)
+                or (ta.last_day_ratio is not None and ta.last_day_ratio > 1.5)
+                or ta.is_volume_anomaly
+            ):
+                temporal_columns[col_name]["is_interesting"] = True
+                if ta.coverage_ratio is not None and ta.coverage_ratio < 0.5:
+                    temporal_columns[col_name]["reasons"].append("low_coverage")
+                if ta.last_day_ratio is not None and ta.last_day_ratio > 1.5:
+                    temporal_columns[col_name]["reasons"].append("period_end_spike")
+                if ta.is_volume_anomaly:
+                    temporal_columns[col_name]["reasons"].append("volume_anomaly")
+
+    return {
+        "slice_variance": {
+            "columns": columns_data,
+            "slice_data": slice_data,
+            "temporal_columns": temporal_columns,
+            "temporal_drift": temporal_drift,
+        },
+        "drift_summaries": drift_summaries,
+    }
+
+
 def _resolve_column_target(
     session: Session,
     target: str,
@@ -305,52 +546,12 @@ def _resolve_column_target(
     return table.table_id, column.column_id, table_name, column_name
 
 
-def take_hard_snapshot(
+def _run_detectors(
     target: str,
-    session: Session,
-    duckdb_conn: Any = None,
-    dimensions: list[str] | None = None,
-) -> HardSnapshot:
-    """Run hard detectors on a target and return canonical scores.
-
-    Args:
-        target: Target reference (e.g., "column:orders.amount")
-        session: SQLAlchemy session for loading analysis data
-        duckdb_conn: DuckDB connection (unused currently, reserved for future)
-        dimensions: Optional filter — only run detectors for these sub_dimensions
-
-    Returns:
-        HardSnapshot with scores from all applicable hard detectors
-    """
-    resolved = _resolve_column_target(session, target)
-    if resolved is None:
-        logger.warning(f"Cannot resolve target for hard snapshot: {target}")
-        return HardSnapshot(scores={}, detectors_run=[])
-
-    table_id, column_id, table_name, column_name = resolved
-
-    # Load analysis data
-    analysis_results = load_column_analysis(session, table_id, column_id, table_name)
-
-    # Build detector context
-    context = DetectorContext(
-        table_id=table_id,
-        column_id=column_id,
-        table_name=table_name,
-        column_name=column_name,
-        analysis_results=analysis_results,
-    )
-
-    # Get detectors (all are machine-verifiable)
-    registry = get_default_registry()
-    detectors = registry.get_all_detectors()
-
-    # Filter by dimensions if specified
-    if dimensions:
-        dim_set = set(dimensions)
-        detectors = [d for d in detectors if d.sub_dimension in dim_set]
-
-    # Run each detector
+    context: DetectorContext,
+    detectors: list[Any],
+) -> Snapshot:
+    """Run a list of detectors against a context and return a Snapshot."""
     scores: dict[str, float] = {}
     detectors_run: list[str] = []
 
@@ -368,7 +569,71 @@ def take_hard_snapshot(
                 exc_info=True,
             )
 
-    return HardSnapshot(
-        scores=scores,
-        detectors_run=detectors_run,
-    )
+    return Snapshot(scores=scores, detectors_run=detectors_run)
+
+
+def take_snapshot(
+    target: str,
+    session: Session,
+    duckdb_conn: Any = None,
+    dimensions: list[str] | None = None,
+) -> Snapshot:
+    """Run detectors on a target and return canonical scores.
+
+    Dispatches on target prefix:
+    - "table:" → table-scoped detectors (scope="table")
+    - "column:" or default → column-scoped detectors (scope="column")
+
+    Args:
+        target: Target reference (e.g., "column:orders.amount" or "table:orders")
+        session: SQLAlchemy session for loading analysis data
+        duckdb_conn: DuckDB connection (unused currently, reserved for future)
+        dimensions: Optional filter — only run detectors for these sub_dimensions
+
+    Returns:
+        Snapshot with scores from all applicable detectors
+    """
+    registry = get_default_registry()
+    is_table_target = target.startswith("table:")
+
+    if is_table_target:
+        resolved = _resolve_table_target(session, target)
+        if resolved is None:
+            logger.warning(f"Cannot resolve table target for snapshot: {target}")
+            return Snapshot(scores={}, detectors_run=[])
+
+        table_id, table_name = resolved
+        analysis_results = load_table_analysis(session, table_id, table_name)
+
+        context = DetectorContext(
+            table_id=table_id,
+            table_name=table_name,
+            analysis_results=analysis_results,
+        )
+
+        detectors = [d for d in registry.get_all_detectors() if d.scope == "table"]
+    else:
+        resolved_col = _resolve_column_target(session, target)
+        if resolved_col is None:
+            logger.warning(f"Cannot resolve target for snapshot: {target}")
+            return Snapshot(scores={}, detectors_run=[])
+
+        table_id, column_id, table_name, column_name = resolved_col
+        analysis_results = load_column_analysis(session, table_id, column_id, table_name)
+
+        context = DetectorContext(
+            table_id=table_id,
+            column_id=column_id,
+            table_name=table_name,
+            column_name=column_name,
+            analysis_results=analysis_results,
+        )
+
+        detectors = [d for d in registry.get_all_detectors() if d.scope == "column"]
+
+    # Filter by dimensions if specified
+    if dimensions:
+        dim_set = set(dimensions)
+        detectors = [d for d in detectors if d.sub_dimension in dim_set]
+
+    return _run_detectors(target, context, detectors)

@@ -41,7 +41,7 @@ def _make_registry_with_action() -> ActionRegistry:
             action_type="override_type",
             category="transform",
             description="Override column type",
-            hard_verifiable=True,
+            verifiable=True,
             parameters_schema={"target_type": "Target SQL type"},
             improves_dimensions=["structural.types.type_fidelity"],
         )

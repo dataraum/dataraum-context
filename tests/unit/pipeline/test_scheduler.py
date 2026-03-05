@@ -1127,3 +1127,112 @@ class TestParallelExecution:
         # Both phases run successfully — each was the only phase in its wave
         assert result.success is True
         assert result.phases_completed == ["A", "B"]
+
+
+class TestPostVerifyWithTableDimension:
+    """Tests for _post_verify dispatching table-scoped dimensions."""
+
+    def test_post_verify_with_table_dimension(self, session: Session, duckdb_conn):
+        """Table dims trigger table-scoped snapshots alongside column snapshots."""
+        from dataraum.entropy.detectors.base import DetectorRegistry, EntropyDetector
+        from dataraum.entropy.snapshot import Snapshot
+
+        run_id = _make_run(session)
+        phase = MockPhase(
+            "alpha",
+            post_verification_dims=["type_fidelity", "cross_column_patterns"],
+        )
+        scheduler = PipelineScheduler(
+            phases={"alpha": phase},
+            source_id="src-1",
+            run_id=run_id,
+            session=session,
+            duckdb_conn=duckdb_conn,
+        )
+
+        # Build a registry with one column-scoped and one table-scoped detector
+        class StubCol(EntropyDetector):
+            detector_id = "stub_col"
+            layer = "structural"
+            dimension = "types"
+            sub_dimension = "type_fidelity"
+            scope = "column"
+            required_analyses: list[str] = []
+
+            def detect(self, ctx):
+                return [self.create_entropy_object(ctx, score=0.3)]
+
+        class StubTbl(EntropyDetector):
+            detector_id = "stub_tbl"
+            layer = "semantic"
+            dimension = "dimensional"
+            sub_dimension = "cross_column_patterns"
+            scope = "table"
+            required_analyses: list[str] = []
+
+            def detect(self, ctx):
+                return [self.create_entropy_object(ctx, score=0.7)]
+
+        registry = DetectorRegistry()
+        registry.register(StubCol())
+        registry.register(StubTbl())
+
+        # Track take_snapshot calls to verify correct targets
+        snapshot_calls: list[str] = []
+
+        def mock_take_snapshot(target, session, duckdb_conn=None, dimensions=None):
+            snapshot_calls.append(target)
+            if target.startswith("table:"):
+                return Snapshot(
+                    scores={"cross_column_patterns": 0.7},
+                    detectors_run=["stub_tbl"],
+                )
+            else:
+                return Snapshot(
+                    scores={"type_fidelity": 0.3},
+                    detectors_run=["stub_col"],
+                )
+
+        # Mock typed tables and columns (avoid FK constraints)
+        mock_table = MagicMock()
+        mock_table.table_id = "tbl-1"
+        mock_table.table_name = "orders"
+
+        mock_col = MagicMock()
+        mock_col.column_name = "amount"
+
+        # Two queries: first for typed tables, second for columns
+        call_count = 0
+
+        def mock_execute(stmt, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:  # typed tables query
+                result.scalars.return_value.all.return_value = [mock_table]
+            elif call_count == 2:  # columns query
+                result.scalars.return_value.all.return_value = [mock_col]
+            else:
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        with (
+            patch(
+                "dataraum.entropy.detectors.base.get_default_registry",
+                return_value=registry,
+            ),
+            patch(
+                "dataraum.entropy.snapshot.take_snapshot",
+                side_effect=mock_take_snapshot,
+            ),
+            patch.object(session, "execute", side_effect=mock_execute),
+        ):
+            scores = scheduler._post_verify("alpha")
+
+        # Both column and table targets were called
+        assert any(t.startswith("column:") for t in snapshot_calls)
+        assert any(t.startswith("table:") for t in snapshot_calls)
+
+        # Both dimension paths present in result
+        assert "structural.types.type_fidelity" in scores
+        assert "semantic.dimensional.cross_column_patterns" in scores

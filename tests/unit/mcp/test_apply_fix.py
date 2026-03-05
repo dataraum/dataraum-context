@@ -32,7 +32,7 @@ class TestApplyFixIntegration:
                 action_type="test_fix",
                 category=ActionCategory.ANNOTATE,
                 description="Test fix",
-                hard_verifiable=False,
+                verifiable=False,
                 executor=mock_executor,
             )
         )
@@ -90,7 +90,7 @@ class TestApplyFixIntegration:
                 action_type="json_test",
                 category=ActionCategory.TRANSFORM,
                 description="JSON test",
-                hard_verifiable=True,
+                verifiable=True,
                 executor=mock_executor,
             )
         )
