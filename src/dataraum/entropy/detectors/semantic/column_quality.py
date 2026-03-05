@@ -159,7 +159,7 @@ class ColumnQualityDetector(EntropyDetector):
                 "avg_quality_score": avg_quality_score,
                 "grades": grades,
                 "slices_analyzed": len(col_reports),
-                "key_findings": all_key_findings[:5],
+                "key_findings": all_key_findings,
                 "quality_issues": all_quality_issues,
                 "quality_issues_count": len(all_quality_issues),
                 "recommendations": all_recommendations,

@@ -81,7 +81,7 @@ class TypeFidelityDetector(EntropyDetector):
         ]
 
         if failed_examples:
-            evidence[0]["failed_examples"] = failed_examples[:5]  # Limit to 5 examples
+            evidence[0]["failed_examples"] = failed_examples
 
         # Build resolution options based on configurable thresholds
         resolution_options: list[ResolutionOption] = []

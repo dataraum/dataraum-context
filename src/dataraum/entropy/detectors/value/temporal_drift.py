@@ -113,7 +113,7 @@ class TemporalDriftDetector(EntropyDetector):
             evidence_data["worst_period"] = de.get("worst_period")
             top_shifts = de.get("top_shifts", [])
             if top_shifts:
-                evidence_data["top_shifts"] = top_shifts[:3]
+                evidence_data["top_shifts"] = top_shifts
 
         evidence = [evidence_data]
 
