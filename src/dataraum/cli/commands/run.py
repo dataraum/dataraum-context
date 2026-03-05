@@ -375,7 +375,8 @@ def _drive_pipeline(
                         deactivate_console()
                         live.stop()
                     resolution = handle_exit_check(
-                        console, event, gate_mode, action_registry
+                        console, event, gate_mode, action_registry,
+                        contract_thresholds=contract_thresholds,
                     )
                     event = gen.send(resolution)
                     if live:
@@ -439,7 +440,8 @@ def _print_phase_completed(console: Console, event: PipelineEvent) -> None:
 
 
 def _print_post_verification(console: Console, event: PipelineEvent) -> None:
-    """Print post-verification entropy scores."""
+    """Print post-verification entropy scores with deltas."""
+    before = event.before_scores
     for dim, score in sorted(event.scores.items()):
         if score < 0.2:
             color = "green"
@@ -447,7 +449,24 @@ def _print_post_verification(console: Console, event: PipelineEvent) -> None:
             color = "yellow"
         else:
             color = "red"
-        console.print(f"    [{color}]\u25c6[/{color}] {dim}: [{color}]{score:.2f}[/{color}]")
+
+        prev = before.get(dim)
+        if prev is not None:
+            delta = score - prev
+            if delta < -0.005:
+                delta_str = f" [green]\u2193{abs(delta):.2f}[/green]"
+            elif delta > 0.005:
+                delta_str = f" [red]\u2191{delta:.2f}[/red]"
+            else:
+                delta_str = " [dim]==[/dim]"
+            console.print(
+                f"    [{color}]\u25c6[/{color}] {dim}: "
+                f"[dim]{prev:.2f}[/dim] \u2192 [{color}]{score:.2f}[/{color}]{delta_str}"
+            )
+        else:
+            console.print(
+                f"    [{color}]\u25c6[/{color}] {dim}: [{color}]{score:.2f}[/{color}]"
+            )
 
 
 def _print_summary(

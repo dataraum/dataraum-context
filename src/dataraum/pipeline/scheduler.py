@@ -195,6 +195,7 @@ class PipelineScheduler:
                         EventType.EXIT_CHECK,
                         total=total,
                         violations=violations,
+                        scores=dict(self._scores),
                         column_details=dict(self._column_details),
                     )
                     if resolution is not None:
@@ -321,6 +322,12 @@ class PipelineScheduler:
         self._replay_fixes(phase_name)
 
         # Post-verify (run detectors)
+        # Capture previous scores before _post_verify updates self._scores
+        dims_to_verify = self.phases[phase_name].post_verification
+        before = {
+            dim: score for dim, score in self._scores.items()
+            if any(dim.endswith(d) for d in dims_to_verify)
+        } if dims_to_verify else {}
         scores = self._post_verify(phase_name)
         if scores:
             yield self._event(
@@ -328,6 +335,7 @@ class PipelineScheduler:
                 phase=phase_name,
                 total=total,
                 scores=scores,
+                before_scores=before,
             )
 
         # Assess contract impact on newly produced scores

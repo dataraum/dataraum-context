@@ -50,6 +50,14 @@ _LEVEL_STYLES: dict[str, str] = {
     "critical": "red bold reverse",
 }
 
+_LEVEL_ICONS: dict[str, str] = {
+    "debug": "\U0001f916",
+    "info": "\U0001f4a1",
+    "warning": "\U0001f4e2",
+    "error": "\U0001f6a8",
+    "critical": "\U0001f6a8",
+}
+
 
 def _fmt_value(v: Any) -> str:
     """Format a log value for display — round floats, pass through rest."""
@@ -85,7 +93,8 @@ class _ProxyLogger:
     def _rich_print(
         c: _RichConsole, level: str, event: str, phase: str, kv: dict[str, Any]
     ) -> None:
-        text = _RichText("  ")
+        icon = _LEVEL_ICONS.get(level, "")
+        text = _RichText(f"  {icon} " if icon else "  ")
         level_style = _LEVEL_STYLES.get(level, "")
 
         if phase:

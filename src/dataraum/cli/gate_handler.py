@@ -22,6 +22,7 @@ def handle_exit_check(
     event: PipelineEvent,
     gate_mode: GateMode,
     action_registry: ActionRegistry | None = None,
+    contract_thresholds: dict[str, float] | None = None,
 ) -> Resolution:
     """Resolve an EXIT_CHECK event based on gate mode.
 
@@ -30,6 +31,7 @@ def handle_exit_check(
         event: The EXIT_CHECK event with violations.
         gate_mode: How to handle the check.
         action_registry: Available fix actions (needed for PAUSE).
+        contract_thresholds: Dimension thresholds from the contract.
 
     Returns:
         Resolution telling the scheduler what to do.
@@ -44,7 +46,9 @@ def handle_exit_check(
             return Resolution(action=ResolutionAction.ABORT)
 
         case GateMode.PAUSE:
-            return _interactive_resolution(console, event, action_registry)
+            return _interactive_resolution(
+                console, event, action_registry, contract_thresholds
+            )
 
         case _:
             return Resolution(action=ResolutionAction.DEFER)
@@ -74,6 +78,7 @@ def _interactive_resolution(
     console: Console,
     event: PipelineEvent,
     action_registry: ActionRegistry | None = None,
+    contract_thresholds: dict[str, float] | None = None,
 ) -> Resolution:
     """Handle PAUSE mode — interactive prompt for user resolution.
 
@@ -81,12 +86,17 @@ def _interactive_resolution(
         console: Rich console for output.
         event: The EXIT_CHECK event with violations.
         action_registry: Available fix actions.
+        contract_thresholds: Dimension thresholds from the contract.
 
     Returns:
         Resolution based on user's choice.
     """
     try:
-        _render_violations(console, event.violations, event.column_details)
+        _render_violations(
+            console, event.violations, event.column_details,
+            all_scores=event.scores or None,
+            contract_thresholds=contract_thresholds,
+        )
 
         # Build fix options from registry
         fix_options: list[tuple[int, str, str, str]] = []  # (idx, action_type, target, label)
@@ -155,6 +165,8 @@ def _render_violations(
     console: Console,
     violations: dict[str, tuple[float, float]],
     column_details: dict[str, dict[str, float]] | None = None,
+    all_scores: dict[str, float] | None = None,
+    contract_thresholds: dict[str, float] | None = None,
 ) -> None:
     """Render violations as a Rich panel with table.
 
@@ -162,6 +174,8 @@ def _render_violations(
         console: Rich console for output.
         violations: dimension_path -> (score, threshold).
         column_details: dimension_path -> {target -> score}. Optional.
+        all_scores: All measured entropy scores (for distance-to-green display).
+        contract_thresholds: Contract thresholds keyed by dimension path.
     """
     table = Table(show_header=True, box=None, padding=(0, 2))
     table.add_column("Dimension", style="bold")
@@ -203,6 +217,34 @@ def _render_violations(
                     "",
                 )
 
+    # Show passing dimensions with headroom (distance to green)
+    if all_scores and contract_thresholds:
+        passing_rows: list[tuple[str, float, float, float]] = []
+        for dim_path, score in sorted(all_scores.items()):
+            if dim_path in violations:
+                continue
+            matched = _match_threshold(dim_path, contract_thresholds)
+            if matched is not None:
+                threshold = matched
+                headroom = threshold - score
+                passing_rows.append((dim_path, score, threshold, headroom))
+
+        if passing_rows:
+            # Sort by headroom ascending (closest to flipping first)
+            passing_rows.sort(key=lambda r: r[3])
+            table.add_row("", "", "", "", "")  # spacer
+            for dim_path, score, threshold, headroom in passing_rows:
+                filled = round(score * 10)
+                bar = "\u2593" * filled + "\u2591" * (10 - filled)
+                color = "yellow" if headroom < 0.1 else "green"
+                table.add_row(
+                    f"[{color}]{dim_path}[/{color}]",
+                    f"[{color}]{score:.2f}[/{color}]",
+                    f"{threshold:.2f}",
+                    f"[{color}]\u2212{headroom:.2f}[/{color}]",
+                    bar,
+                )
+
     console.print()
     console.print(
         Panel(
@@ -213,6 +255,18 @@ def _render_violations(
             padding=(1, 2),
         )
     )
+
+
+def _match_threshold(
+    dimension_path: str, thresholds: dict[str, float]
+) -> float | None:
+    """Match a dimension path to a threshold using prefix matching."""
+    parts = dimension_path.split(".")
+    for i in range(len(parts), 0, -1):
+        prefix = ".".join(parts[:i])
+        if prefix in thresholds:
+            return thresholds[prefix]
+    return None
 
 
 def render_fix_result(console: Console, event: PipelineEvent) -> None:

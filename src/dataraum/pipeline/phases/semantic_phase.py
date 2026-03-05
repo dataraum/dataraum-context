@@ -253,6 +253,19 @@ class SemanticPhase(BasePhase):
         entities_count = len(enrichment.entity_detections)
         relationships_count = len(enrichment.relationships)
 
+        # Surface entity discoveries as preview lines
+        previews: list[str] = []
+        for ent in enrichment.entity_detections:
+            kind = "FACT" if ent.is_fact_table else "DIMENSION" if ent.is_dimension_table else ""
+            label = f"{ent.table_name}: {ent.entity_type}"
+            if kind:
+                label += f" ({kind})"
+            previews.append(label)
+        for r in enrichment.relationships:
+            previews.append(
+                f"{r.from_table}.{r.from_column} \u2192 {r.to_table}.{r.to_column}"
+            )
+
         return PhaseResult.success(
             outputs={
                 "annotations": annotations_count,
@@ -263,5 +276,6 @@ class SemanticPhase(BasePhase):
             },
             records_processed=len(unannotated_columns),
             records_created=annotations_count + entities_count + relationships_count,
+            warnings=previews,
             summary=f"{annotations_count} annotations, {entities_count} entities, {relationships_count} relationships",
         )

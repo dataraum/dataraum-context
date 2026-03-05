@@ -138,6 +138,14 @@ class BusinessCyclesPhase(BasePhase):
 
         analysis = analysis_result.unwrap()
 
+        # Surface detected cycles and processes as preview lines
+        previews: list[str] = []
+        for c in analysis.cycles:
+            rate = f", {c.completion_rate:.0%} complete" if c.completion_rate is not None else ""
+            previews.append(f"{c.cycle_name} ({c.cycle_type}{rate})")
+        for obs in analysis.data_quality_observations:
+            previews.append(obs)
+
         return PhaseResult.success(
             outputs={
                 "detected_cycles": len(analysis.cycles),
@@ -149,5 +157,6 @@ class BusinessCyclesPhase(BasePhase):
             },
             records_processed=len(table_ids),
             records_created=len(analysis.cycles),
+            warnings=previews,
             summary=f"{len(analysis.cycles)} cycles, {len(analysis.detected_processes)} processes",
         )
