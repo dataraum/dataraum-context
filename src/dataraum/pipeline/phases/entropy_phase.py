@@ -6,13 +6,11 @@ Runs detectors to quantify uncertainty in each column and table.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from types import ModuleType
 from typing import Any
 
 from sqlalchemy import func, select
 
-from dataraum.analysis.quality_summary.db_models import ColumnQualityReport
 from dataraum.core.logging import get_logger
 from dataraum.entropy.db_models import (
     EntropyObjectRecord,
@@ -98,7 +96,7 @@ class EntropyPhase(BasePhase):
         return None
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
-        """Run entropy detection on all columns."""
+        """Run entropy detection on all columns and tables."""
         # Verify detectors are registered
         from dataraum.entropy.detectors.base import get_default_registry
 
@@ -131,113 +129,70 @@ class EntropyPhase(BasePhase):
         for col in all_columns:
             columns_by_table.setdefault(col.table_id, []).append(col)
 
-        # Process each table's columns via take_snapshot
+        # Build column_id lookup for table-scoped objects that reference columns
+        column_id_by_table_col: dict[tuple[str, str], str] = {}
+        for col in all_columns:
+            column_id_by_table_col[(col.table_id, col.column_name)] = col.column_id
+
         total_entropy_objects = 0
         tables_processed = 0
         all_domain_objects: list[Any] = []  # Collect EntropyObject for network inference
         all_records: list[EntropyObjectRecord] = []  # Batch for session.add_all()
+
+        # Build table name -> table_id lookup for target resolution
+        table_id_by_name = {t.table_name: t.table_id for t in typed_tables}
 
         for table in typed_tables:
             table_columns = columns_by_table.get(table.table_id, [])
             if not table_columns:
                 continue
 
+            # --- Column-scoped detectors ---
             for col in table_columns:
                 target = f"column:{table.table_name}.{col.column_name}"
                 snapshot = take_snapshot(target=target, session=ctx.session)
 
                 all_domain_objects.extend(snapshot.objects)
 
-                # Persist each EntropyObject with full evidence
                 for entropy_obj in snapshot.objects:
-                    resolution_dicts = [
-                        {
-                            "action": opt.action,
-                            "parameters": opt.parameters,
-                            "effort": opt.effort,
-                            "description": opt.description,
-                        }
-                        for opt in entropy_obj.resolution_options
-                    ]
-
-                    record = EntropyObjectRecord(
-                        source_id=ctx.source_id,
+                    record = _make_record(
+                        ctx=ctx,
+                        entropy_obj=entropy_obj,
                         table_id=table.table_id,
                         column_id=col.column_id,
-                        target=entropy_obj.target,
-                        layer=entropy_obj.layer,
-                        dimension=entropy_obj.dimension,
-                        sub_dimension=entropy_obj.sub_dimension,
-                        score=entropy_obj.score,
-                        evidence=entropy_obj.evidence,
-                        resolution_options=resolution_dicts if resolution_dicts else None,
-                        detector_id=entropy_obj.detector_id,
                     )
                     all_records.append(record)
                     total_entropy_objects += 1
 
-            tables_processed += 1
-
-        # Run table-level dimensional entropy detection
-        # This detects cross-column patterns from quality_summary data
-        dimensional_objects = _run_dimensional_entropy(
-            ctx=ctx,
-            typed_tables=typed_tables,
-        )
-        all_domain_objects.extend(dimensional_objects)
-        logger.debug(
-            "dimensional_entropy_results",
-            objects_count=len(dimensional_objects),
-        )
-        for entropy_obj in dimensional_objects:
-            resolution_dicts = [
-                {
-                    "action": opt.action,
-                    "parameters": opt.parameters,
-                    "effort": opt.effort,
-                    "description": opt.description,
-                }
-                for opt in entropy_obj.resolution_options
-            ]
-
-            # Determine table_id for the record
-            # For dimensional_entropy detector, extract table name and look up the ID
-            record_table_id: str | None = None
-            if entropy_obj.detector_id.startswith("dimensional_entropy"):
-                # Target is like "table:kontobuchungen" - look up actual table_id
-                if ":" in entropy_obj.target:
-                    target_table_name = entropy_obj.target.split(":")[1].split(".")[0]
-                    # Find matching table from typed_tables
-                    for t in typed_tables:
-                        if t.table_name == target_table_name:
-                            record_table_id = t.table_id
-                            break
-            else:
-                # For other detectors, the target might contain the table_id directly
-                # Keep existing logic as fallback but be safe
-                record_table_id = None
-
-            record = EntropyObjectRecord(
-                source_id=ctx.source_id,
-                table_id=record_table_id,
-                column_id=None,  # Table-level, no specific column
-                target=entropy_obj.target,
-                layer=entropy_obj.layer,
-                dimension=entropy_obj.dimension,
-                sub_dimension=entropy_obj.sub_dimension,
-                score=entropy_obj.score,
-                evidence=entropy_obj.evidence,
-                resolution_options=resolution_dicts if resolution_dicts else None,
-                detector_id=entropy_obj.detector_id,
+            # --- Table-scoped detectors (dimensional_entropy, column_quality, etc.) ---
+            table_snapshot = take_snapshot(
+                target=f"table:{table.table_name}", session=ctx.session
             )
-            all_records.append(record)
-            total_entropy_objects += 1
+            all_domain_objects.extend(table_snapshot.objects)
+
             logger.debug(
-                "dimensional_entropy_object_saved",
-                detector_id=entropy_obj.detector_id,
-                target=entropy_obj.target,
-                score=entropy_obj.score,
+                "table_scoped_detectors",
+                table=table.table_name,
+                entropy_objects=len(table_snapshot.objects),
             )
+
+            for entropy_obj in table_snapshot.objects:
+                # Resolve column_id from evidence if this is a column-level object
+                # (e.g. column_quality produces per-column objects from table scope)
+                record_column_id = _extract_column_id(entropy_obj, column_id_by_table_col)
+
+                record = _make_record(
+                    ctx=ctx,
+                    entropy_obj=entropy_obj,
+                    table_id=_resolve_table_id_from_target(
+                        entropy_obj.target, table_id_by_name, table.table_id
+                    ),
+                    column_id=record_column_id,
+                )
+                all_records.append(record)
+                total_entropy_objects += 1
+
+            tables_processed += 1
 
         # Batch insert all entropy records at once
         ctx.session.add_all(all_records)
@@ -324,154 +279,74 @@ class EntropyPhase(BasePhase):
         )
 
 
-def _run_dimensional_entropy(
+def _make_record(
     ctx: PhaseContext,
-    typed_tables: Sequence[Table],
-) -> list[Any]:
-    """Run dimensional entropy detection for cross-column patterns.
+    entropy_obj: Any,
+    table_id: str | None,
+    column_id: str | None,
+) -> EntropyObjectRecord:
+    """Create an EntropyObjectRecord from an EntropyObject."""
+    resolution_dicts = [
+        {
+            "action": opt.action,
+            "parameters": opt.parameters,
+            "effort": opt.effort,
+            "description": opt.description,
+        }
+        for opt in entropy_obj.resolution_options
+    ]
 
-    Uses take_snapshot("table:...") for table-scoped detectors, then builds
-    ColumnQualityReport-based EntropyObjects (phase-specific, not a detector).
-
-    Args:
-        ctx: Phase context with session
-        typed_tables: List of typed tables to analyze
-
-    Returns:
-        List of EntropyObject instances from detection
-    """
-    from dataraum.entropy.models import EntropyObject, ResolutionOption
-
-    all_entropy_objects: list[EntropyObject] = []
-
-    logger.debug("dimensional_entropy_start", tables=len(typed_tables))
-
-    for table in typed_tables:
-        # Get column IDs for this typed table (FK-based scoping)
-        table_cols_stmt = select(Column).where(Column.table_id == table.table_id)
-        table_columns = list(ctx.session.execute(table_cols_stmt).scalars().all())
-        table_column_ids = [c.column_id for c in table_columns]
-
-        # If a slicing_view was registered for this fact table, profiles and reports
-        # reference its columns (not the typed table's) — include those IDs too.
-        sv_table = ctx.session.execute(
-            select(Table).where(
-                Table.source_id == ctx.source_id,
-                Table.table_name == f"slicing_{table.table_name}",
-                Table.layer == "slicing_view",
-            )
-        ).scalar_one_or_none()
-
-        if sv_table:
-            sv_cols = (
-                ctx.session.execute(select(Column).where(Column.table_id == sv_table.table_id))
-                .scalars()
-                .all()
-            )
-            lookup_column_ids = [c.column_id for c in sv_cols]
-            sv_col_name_to_typed_id = {c.column_name: c.column_id for c in table_columns}
-        else:
-            lookup_column_ids = table_column_ids
-            sv_col_name_to_typed_id = None
-
-        # Run table-scoped detectors via take_snapshot
-        table_snapshot = take_snapshot(f"table:{table.table_name}", session=ctx.session)
-        all_entropy_objects.extend(table_snapshot.objects)
-
-        logger.debug(
-            "dimensional_entropy_detected",
-            table=table.table_name,
-            entropy_objects=len(table_snapshot.objects),
-        )
-
-        # ColumnQualityReport → EntropyObject (phase-specific, not a detector)
-        quality_reports_stmt = select(ColumnQualityReport).where(
-            ColumnQualityReport.source_column_id.in_(lookup_column_ids)
-        )
-        quality_reports = list(ctx.session.execute(quality_reports_stmt).scalars().all())
-
-        # Group reports by column
-        reports_by_column: dict[str, list[Any]] = {}
-        for report in quality_reports:
-            col_name = report.column_name
-            reports_by_column.setdefault(col_name, []).append(report)
-
-        column_id_lookup = {c.column_name: c.column_id for c in table_columns}
-
-        for col_name, reports in reports_by_column.items():
-            avg_quality_score = sum(r.overall_quality_score for r in reports) / len(reports)
-            entropy_score_val = 1.0 - avg_quality_score
-
-            grades = [r.quality_grade for r in reports]
-
-            all_key_findings: list[str] = []
-            all_quality_issues: list[dict[str, Any]] = []
-            all_recommendations: list[str] = []
-
-            for report in reports:
-                data = report.report_data or {}
-                all_key_findings.extend(data.get("key_findings", []))
-                all_quality_issues.extend(data.get("quality_issues", []))
-                all_recommendations.extend(data.get("recommendations", []))
-
-            # Resolve column_id: prefer typed table column, fall back to slicing_view column
-            col_id = column_id_lookup.get(col_name)
-            effective_table_id = table.table_id
-            effective_table_name = table.table_name
-            if col_id is None and sv_table and sv_col_name_to_typed_id is not None:
-                col_id = reports[0].source_column_id if reports else None
-                effective_table_id = sv_table.table_id
-                effective_table_name = sv_table.table_name
-            if col_id is None:
-                continue
-
-            column_entropy_obj = EntropyObject(
-                layer="semantic",
-                dimension="dimensional",
-                sub_dimension="column_quality",
-                target=f"column:{effective_table_name}.{col_name}",
-                score=entropy_score_val,
-                evidence=[
-                    {
-                        "source": "column_quality_report",
-                        "column_id": col_id,
-                        "table_id": effective_table_id,
-                        "slices_analyzed": len(reports),
-                        "avg_quality_score": avg_quality_score,
-                        "grades": grades,
-                        "key_findings": all_key_findings[:5],
-                        "quality_issues_count": len(all_quality_issues),
-                        "recommendations_count": len(all_recommendations),
-                    }
-                ],
-                resolution_options=[
-                    ResolutionOption(
-                        action="investigate_quality_issues",
-                        parameters={
-                            "column_name": col_name,
-                            "key_findings": all_key_findings,
-                            "quality_issues": all_quality_issues,
-                            "recommendations": all_recommendations,
-                        },
-                        effort="medium",
-                        description=f"Review {len(all_quality_issues)} quality issues and {len(all_recommendations)} recommendations for {col_name}",
-                    ),
-                ],
-                detector_id="dimensional_entropy_column_quality",
-                source_analysis_ids=[],
-            )
-            all_entropy_objects.append(column_entropy_obj)
-
-        logger.debug(
-            "column_quality_reports_processed",
-            table=table.table_name,
-            reports_count=len(quality_reports),
-            columns_with_findings=len(reports_by_column),
-        )
-
-    logger.debug(
-        "dimensional_entropy_complete",
-        total_objects=len(all_entropy_objects),
+    return EntropyObjectRecord(
+        source_id=ctx.source_id,
+        table_id=table_id,
+        column_id=column_id,
+        target=entropy_obj.target,
+        layer=entropy_obj.layer,
+        dimension=entropy_obj.dimension,
+        sub_dimension=entropy_obj.sub_dimension,
+        score=entropy_obj.score,
+        evidence=entropy_obj.evidence,
+        resolution_options=resolution_dicts if resolution_dicts else None,
+        detector_id=entropy_obj.detector_id,
     )
 
-    return all_entropy_objects
+
+def _resolve_table_id_from_target(
+    target: str,
+    table_id_by_name: dict[str, str],
+    fallback_table_id: str,
+) -> str:
+    """Resolve table_id from a target string like 'table:name' or 'column:name.col'."""
+    if ":" in target:
+        ref = target.split(":", 1)[1]
+        table_name = ref.split(".")[0]
+        return table_id_by_name.get(table_name, fallback_table_id)
+    return fallback_table_id
+
+
+def _extract_column_id(
+    entropy_obj: Any,
+    column_id_by_table_col: dict[tuple[str, str], str],
+) -> str | None:
+    """Extract column_id from an entropy object's evidence or target.
+
+    For column-level objects produced by table-scoped detectors (e.g. column_quality),
+    the evidence contains column_id and the target is 'column:table.col'.
+    """
+    # Check evidence for explicit column_id
+    for ev in entropy_obj.evidence or []:
+        col_id = ev.get("column_id")
+        table_id = ev.get("table_id")
+        if col_id and table_id:
+            return str(col_id)
+
+    # Fall back to parsing column target
+    if entropy_obj.target.startswith("column:"):
+        ref = entropy_obj.target.split(":", 1)[1]
+        parts = ref.split(".", 1)
+        if len(parts) == 2:
+            # Try to find in our lookup — but we'd need table_id too
+            # For now, return None for pure table-scoped objects
+            pass
+
+    return None

@@ -40,6 +40,7 @@ from dataraum.entropy.detectors.computational import (
 # Semantic layer detectors
 from dataraum.entropy.detectors.semantic import (
     BusinessMeaningDetector,
+    ColumnQualityDetector,
     DimensionalEntropyDetector,
     TemporalEntropyDetector,
     UnitEntropyDetector,
@@ -118,6 +119,7 @@ __all__ = [
     "BusinessMeaningDetector",
     "UnitEntropyDetector",
     "TemporalEntropyDetector",
+    "ColumnQualityDetector",
     "DimensionalEntropyDetector",
     # Computational detectors
     "DerivedValueDetector",

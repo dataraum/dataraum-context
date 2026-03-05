@@ -169,10 +169,14 @@ class SlicingPhase(BasePhase):
         # Build context data for the agent
         context_data = self._build_context_data(ctx, unsliced_tables)
 
+        # Pre-filter columns: remove objectively bad slice candidates
+        # before sending to LLM (saves tokens, prevents bad recommendations)
+        min_row_fraction = ctx.config.get("min_row_fraction", 0.01)
+        self._pre_filter_columns(context_data)
+
         # Pass config constraints so the prompt can reference them
         context_data["constraints"] = {
-            "max_cardinality": ctx.config.get("max_cardinality", 15),
-            "max_recommendations": ctx.config.get("max_recommendations", 4),
+            "max_recommendations": ctx.config.get("max_recommendations", 6),
         }
 
         # Run slicing analysis
@@ -186,6 +190,10 @@ class SlicingPhase(BasePhase):
             return PhaseResult.failed(analysis_result.error or "Slicing analysis failed")
 
         slicing = analysis_result.unwrap()
+
+        # Trim slice values by minimum row fraction — drop values that
+        # would produce statistically meaningless slices
+        slicing = self._trim_by_row_fraction(slicing, context_data, min_row_fraction)
 
         # Propagate enriched FK dimension recommendations to other tables
         # that share the same dimension column
@@ -219,6 +227,137 @@ class SlicingPhase(BasePhase):
             records_created=len(slicing.recommendations),
             summary=f"{len(slicing.recommendations)} definitions, {len(slicing.slice_queries)} queries",
         )
+
+    def _pre_filter_columns(self, context_data: dict[str, Any]) -> None:
+        """Remove columns that are objectively bad slice candidates.
+
+        Mutates context_data in place, removing columns with:
+        - distinct_count > 50 (too high cardinality for slicing)
+        - null_ratio > 0.5 (majority NULL)
+        - cardinality_ratio > 0.5 (approaching identifier territory)
+
+        Enriched dimension columns are exempt from the cardinality_ratio
+        check since they are specifically designed for analytical grouping.
+        """
+        for table_data in context_data.get("tables", []):
+            original = table_data.get("columns", [])
+            filtered = []
+            for col in original:
+                distinct = col.get("distinct_count")
+                null_ratio = col.get("null_ratio")
+                card_ratio = col.get("cardinality_ratio")
+                is_enriched = col.get("is_enriched_dimension", False)
+
+                if distinct is not None and distinct > 50:
+                    continue
+                if null_ratio is not None and null_ratio > 0.5:
+                    continue
+                if not is_enriched and card_ratio is not None and card_ratio > 0.5:
+                    continue
+
+                filtered.append(col)
+
+            if len(filtered) < len(original):
+                logger.debug(
+                    "pre_filtered_columns",
+                    table=table_data.get("table_name"),
+                    removed=len(original) - len(filtered),
+                    kept=len(filtered),
+                )
+            table_data["columns"] = filtered
+
+    def _trim_by_row_fraction(
+        self,
+        result: SlicingAnalysisResult,
+        context_data: dict[str, Any],
+        min_row_fraction: float,
+    ) -> SlicingAnalysisResult:
+        """Trim slice values that cover too few rows to be meaningful.
+
+        Uses top_values from the column statistics to determine each value's
+        row count relative to the table total. Values below min_row_fraction
+        are removed from distinct_values and value_count is updated.
+
+        Recommendations left with zero values are dropped entirely.
+
+        Args:
+            result: LLM slicing analysis result.
+            context_data: Context data with table/column metadata.
+            min_row_fraction: Minimum fraction of rows a value must cover.
+
+        Returns:
+            Updated result with trimmed values.
+        """
+        if min_row_fraction <= 0:
+            return result
+
+        # Build lookup: (table_name, column_name) -> (top_values, row_count)
+        col_lookup: dict[tuple[str, str], tuple[list[dict[str, Any]], int]] = {}
+        for table_data in context_data.get("tables", []):
+            table_name = table_data.get("table_name", "")
+            row_count = table_data.get("row_count", 0)
+            for col in table_data.get("columns", []):
+                key = (table_name, col.get("column_name", ""))
+                col_lookup[key] = (col.get("top_values", []), row_count)
+
+        trimmed_recs: list[SliceRecommendation] = []
+        for rec in result.recommendations:
+            lookup = col_lookup.get((rec.table_name, rec.column_name))
+            if not lookup or not lookup[1]:
+                # No stats available — keep as-is
+                trimmed_recs.append(rec)
+                continue
+
+            top_values, total_rows = lookup
+            min_rows = total_rows * min_row_fraction
+
+            # Build value->count map from top_values
+            value_counts: dict[str, int] = {
+                str(tv.get("value", "")): tv.get("count", 0) for tv in top_values
+            }
+
+            # Filter distinct_values
+            kept = [
+                v for v in rec.distinct_values if value_counts.get(v, 0) >= min_rows
+            ]
+
+            if not kept:
+                logger.info(
+                    "slice_dimension_dropped",
+                    table=rec.table_name,
+                    column=rec.column_name,
+                    reason=f"all {len(rec.distinct_values)} values below {min_row_fraction:.1%} row threshold",
+                )
+                continue
+
+            if len(kept) < len(rec.distinct_values):
+                dropped = len(rec.distinct_values) - len(kept)
+                logger.info(
+                    "slice_values_trimmed",
+                    table=rec.table_name,
+                    column=rec.column_name,
+                    kept=len(kept),
+                    dropped=dropped,
+                    min_rows=int(min_rows),
+                )
+
+            rec.distinct_values = kept
+            rec.value_count = len(kept)
+            trimmed_recs.append(rec)
+
+        result.recommendations = trimmed_recs
+
+        # Rebuild slice_queries to match trimmed values
+        kept_values: set[str] = set()
+        for rec in trimmed_recs:
+            for v in rec.distinct_values:
+                kept_values.add(f"{rec.column_name}={v}")
+
+        result.slice_queries = [
+            sq for sq in result.slice_queries if sq.slice_name in kept_values
+        ]
+
+        return result
 
     def _propagate_enriched_dimensions(
         self,

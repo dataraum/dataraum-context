@@ -1,6 +1,9 @@
 # Slicing settings
-# Maximum distinct values for a column to be considered for slicing
-max_cardinality: 10
 
-# Maximum number of slice dimension recommendations per table
+# Minimum fraction of total rows a slice value must cover to be materialized.
+# Values below this threshold produce statistically meaningless slices.
+# E.g. 0.01 = a value must represent at least 1% of the table's rows.
+min_row_fraction: 0.01
+
+# Maximum number of slice dimension recommendations across all tables
 max_recommendations: 6

@@ -10,6 +10,9 @@ Detectors for semantic uncertainty:
 from dataraum.entropy.detectors.semantic.business_meaning import (
     BusinessMeaningDetector,
 )
+from dataraum.entropy.detectors.semantic.column_quality import (
+    ColumnQualityDetector,
+)
 from dataraum.entropy.detectors.semantic.dimensional_entropy import (
     ColumnVariancePattern,
     CrossColumnPattern,
@@ -27,6 +30,7 @@ from dataraum.entropy.detectors.semantic.unit_entropy import (
 
 __all__ = [
     "BusinessMeaningDetector",
+    "ColumnQualityDetector",
     "DimensionalEntropyDetector",
     "TemporalEntropyDetector",
     "UnitEntropyDetector",

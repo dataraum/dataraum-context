@@ -348,6 +348,10 @@ def _register_builtin_detectors(registry: DetectorRegistry) -> None:
     registry.register(TemporalEntropyDetector())
     registry.register(DimensionalEntropyDetector())
 
+    from dataraum.entropy.detectors.semantic.column_quality import ColumnQualityDetector
+
+    registry.register(ColumnQualityDetector())
+
     # Computational layer detectors
     from dataraum.entropy.detectors.computational.derived_values import (
         DerivedValueDetector,

@@ -94,8 +94,7 @@ class SlicingAgent(LLMFeature):
             "num_tables": len(tables),
             "table_names": ", ".join(t["table_name"] for t in tables),
             "enriched_columns_json": json.dumps(context_data.get("enriched_columns", []), indent=2),
-            "max_cardinality": constraints.get("max_cardinality", 15),
-            "max_recommendations": constraints.get("max_recommendations", 4),
+            "max_recommendations": constraints.get("max_recommendations", 6),
         }
 
         # Render prompt with system/user split

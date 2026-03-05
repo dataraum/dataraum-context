@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 from dataraum.entropy.detectors.loaders import (
+    load_column_quality_reports,
     load_correlation,
     load_drift_summaries,
     load_relationships,
@@ -311,3 +312,95 @@ class TestLoadSliceVariance:
         assert result is not None
         assert "slice_variance" in result
         assert "amount" in result["slice_variance"]["columns"]
+
+
+class TestLoadColumnQualityReports:
+    def test_returns_none_when_no_reports(self):
+        session = MagicMock()
+
+        # table_columns query
+        cols_result = MagicMock()
+        cols_result.scalars.return_value.all.return_value = []
+
+        # slicing_view query
+        sv_result = MagicMock()
+        sv_result.scalar_one_or_none.return_value = None
+
+        # reports query
+        reports_result = MagicMock()
+        reports_result.scalars.return_value.all.return_value = []
+
+        session.execute.side_effect = [cols_result, sv_result, reports_result]
+
+        assert load_column_quality_reports(session, "tbl1", "orders") is None
+
+    def test_returns_grouped_reports(self):
+        session = MagicMock()
+
+        col = MagicMock()
+        col.column_id = "col1"
+        col.column_name = "amount"
+
+        # table_columns query
+        cols_result = MagicMock()
+        cols_result.scalars.return_value.all.return_value = [col]
+
+        # slicing_view query
+        sv_result = MagicMock()
+        sv_result.scalar_one_or_none.return_value = None
+
+        # reports query
+        report = MagicMock()
+        report.column_name = "amount"
+        report.source_column_id = "col1"
+        report.overall_quality_score = 0.85
+        report.quality_grade = "B"
+        report.report_data = {
+            "key_findings": ["Finding 1"],
+            "quality_issues": [{"type": "nulls"}],
+            "recommendations": ["Fix nulls"],
+        }
+
+        reports_result = MagicMock()
+        reports_result.scalars.return_value.all.return_value = [report]
+
+        session.execute.side_effect = [cols_result, sv_result, reports_result]
+
+        result = load_column_quality_reports(session, "tbl1", "orders")
+        assert result is not None
+        assert "amount" in result
+        assert result["amount"]["column_id"] == "col1"
+        assert result["amount"]["table_id"] == "tbl1"
+        assert result["amount"]["table_name"] == "orders"
+        assert result["amount"]["avg_quality_score"] == 0.85
+        assert result["amount"]["grades"] == ["B"]
+        assert result["amount"]["slices_analyzed"] == 1
+        assert result["amount"]["key_findings"] == ["Finding 1"]
+        assert result["amount"]["quality_issues_count"] == 1
+        assert result["amount"]["recommendations_count"] == 1
+
+    def test_skips_columns_not_in_typed_table(self):
+        session = MagicMock()
+
+        # No typed table columns
+        cols_result = MagicMock()
+        cols_result.scalars.return_value.all.return_value = []
+
+        # No slicing_view
+        sv_result = MagicMock()
+        sv_result.scalar_one_or_none.return_value = None
+
+        # Report for a column not in the typed table
+        report = MagicMock()
+        report.column_name = "unknown_col"
+        report.source_column_id = "col_x"
+        report.overall_quality_score = 0.5
+        report.quality_grade = "C"
+        report.report_data = {}
+
+        reports_result = MagicMock()
+        reports_result.scalars.return_value.all.return_value = [report]
+
+        session.execute.side_effect = [cols_result, sv_result, reports_result]
+
+        assert load_column_quality_reports(session, "tbl1", "orders") is None
