@@ -185,6 +185,24 @@ def _cleanup_slicing(
     )
 
 
+def _cleanup_slicing_view(
+    session: Session, source_id: str, table_ids: list[str], column_ids: list[str]
+) -> int:
+    from dataraum.analysis.views.db_models import SlicingView
+
+    count = 0
+    if table_ids:
+        count += _exec_delete(
+            session, delete(SlicingView).where(SlicingView.fact_table_id.in_(table_ids))
+        )
+    # Delete slicing_view layer Tables (CASCADE deletes their Columns)
+    count += _exec_delete(
+        session,
+        delete(Table).where(Table.source_id == source_id, Table.layer == "slicing_view"),
+    )
+    return count
+
+
 def _cleanup_slice_analysis(
     session: Session, source_id: str, table_ids: list[str], column_ids: list[str]
 ) -> int:
@@ -345,6 +363,7 @@ _CLEANUP_MAP: dict[str, CleanupFn] = {
     "semantic": _cleanup_semantic,
     "temporal": _cleanup_temporal,
     "slicing": _cleanup_slicing,
+    "slicing_view": _cleanup_slicing_view,
     "slice_analysis": _cleanup_slice_analysis,
     "column_eligibility": _cleanup_column_eligibility,
     "enriched_views": _cleanup_enriched_views,
@@ -362,6 +381,7 @@ _CLEANUP_MAP: dict[str, CleanupFn] = {
 # Phases that create DuckDB tables/views, mapped to the layers they own.
 _DUCKDB_LAYER_MAP: dict[str, list[str]] = {
     "typing": ["typed", "quarantine"],
+    "slicing_view": ["slicing_view"],
     "slice_analysis": ["slice"],
     "enriched_views": ["enriched"],
 }
@@ -381,8 +401,9 @@ def _drop_duckdb_tables(
     duckdb_conn: duckdb.DuckDBPyConnection, paths: list[str], layers: list[str]
 ) -> None:
     """Drop DuckDB tables/views that were collected before metadata cleanup."""
-    # Enriched layer creates VIEWs, other layers create TABLEs
-    has_views = "enriched" in layers
+    # Enriched and slicing_view layers create VIEWs, other layers create TABLEs
+    view_layers = {"enriched", "slicing_view"}
+    has_views = bool(view_layers & set(layers))
     for path in paths:
         kind = "VIEW" if has_views else "TABLE"
         try:
