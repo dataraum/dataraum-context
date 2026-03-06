@@ -20,7 +20,6 @@ class EventType(str, Enum):
     PHASE_FAILED = "phase_failed"
     PHASE_SKIPPED = "phase_skipped"
     POST_VERIFICATION = "post_verification"
-    FIX_APPLIED = "fix_applied"
     EXIT_CHECK = "exit_check"
     PIPELINE_STARTED = "pipeline_started"
     PIPELINE_COMPLETED = "pipeline_completed"
@@ -48,9 +47,8 @@ class PipelineEvent:
     warnings: list[str] = field(default_factory=list)
     outputs: dict[str, Any] = field(default_factory=dict)
     summary: str = ""
-    # FIX_APPLIED only: before/after scores keyed by dimension
+    # POST_VERIFICATION: scores before this phase ran (for delta display)
     before_scores: dict[str, float] = field(default_factory=dict)
-    after_scores: dict[str, float] = field(default_factory=dict)
 
 
 # Callback type for structured events

@@ -1,7 +1,6 @@
 """CLI gate handler — functions for resolving EXIT_CHECK events.
 
 Presents violations to the user and collects resolution decisions.
-No class needed since the generator protocol handles state.
 """
 
 from __future__ import annotations
@@ -11,7 +10,6 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 
-from dataraum.entropy.fix_executor import ActionRegistry, FixRequest
 from dataraum.pipeline.events import PipelineEvent
 from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import Resolution, ResolutionAction
@@ -21,7 +19,6 @@ def handle_exit_check(
     console: Console,
     event: PipelineEvent,
     gate_mode: GateMode,
-    action_registry: ActionRegistry | None = None,
     contract_thresholds: dict[str, float] | None = None,
 ) -> Resolution:
     """Resolve an EXIT_CHECK event based on gate mode.
@@ -30,7 +27,6 @@ def handle_exit_check(
         console: Rich console for output.
         event: The EXIT_CHECK event with violations.
         gate_mode: How to handle the check.
-        action_registry: Available fix actions (needed for PAUSE).
         contract_thresholds: Dimension thresholds from the contract.
 
     Returns:
@@ -47,7 +43,7 @@ def handle_exit_check(
 
         case GateMode.PAUSE:
             return _interactive_resolution(
-                console, event, action_registry, contract_thresholds
+                console, event, contract_thresholds
             )
 
         case _:
@@ -77,15 +73,13 @@ def _print_violations_summary(
 def _interactive_resolution(
     console: Console,
     event: PipelineEvent,
-    action_registry: ActionRegistry | None = None,
     contract_thresholds: dict[str, float] | None = None,
 ) -> Resolution:
-    """Handle PAUSE mode — interactive prompt for user resolution.
+    """Handle PAUSE mode — show violations and ask Continue/Abort.
 
     Args:
         console: Rich console for output.
         event: The EXIT_CHECK event with violations.
-        action_registry: Available fix actions.
         contract_thresholds: Dimension thresholds from the contract.
 
     Returns:
@@ -98,66 +92,20 @@ def _interactive_resolution(
             contract_thresholds=contract_thresholds,
         )
 
-        # Build fix options from registry
-        fix_options: list[tuple[int, str, str, str]] = []  # (idx, action_type, target, label)
-        option_idx = 1
-
-        if action_registry:
-            for dim_path in event.violations:
-                for action_def in action_registry.list_actions():
-                    if dim_path in action_def.improves_dimensions:
-                        label = f"Fix: {action_def.action_type} (improves {dim_path})"
-                        fix_options.append((option_idx, action_def.action_type, "", label))
-                        option_idx += 1
-
-        # Show options
         console.print()
-        for idx, _, _, label in fix_options:
-            console.print(f"  [bold cyan][{idx}][/bold cyan] {label}")
-        console.print(f"  [bold cyan][{option_idx}][/bold cyan] Defer all (continue pipeline)")
-        console.print(f"  [bold cyan][{option_idx + 1}][/bold cyan] Abort pipeline")
-        console.print()
+        choice = Prompt.ask(
+            "  Continue?",
+            choices=["y", "n"],
+            default="y",
+            console=console,
+        )
 
-        choice = Prompt.ask("  Choice", console=console)
-        choice = choice.strip()
-
-        if not choice or choice == str(option_idx):
-            return Resolution(action=ResolutionAction.DEFER)
-
-        if choice == str(option_idx + 1):
+        if choice.strip().lower() == "n":
             return Resolution(action=ResolutionAction.ABORT)
-
-        # Check for fix option
-        choice_int = int(choice)
-        matching = [opt for opt in fix_options if opt[0] == choice_int]
-        if matching:
-            _, action_type, target, _ = matching[0]
-            # Prompt for target if not set
-            if not target:
-                target = Prompt.ask("  Target (e.g. column:table.col)", console=console)
-            # Prompt for action parameters
-            params: dict[str, str] = {}
-            if action_registry:
-                resolved_def = action_registry.get(action_type)
-                if resolved_def:
-                    for param_name, param_desc in resolved_def.parameters_schema.items():
-                        value = Prompt.ask(f"  {param_desc}", console=console)
-                        params[param_name] = value
-
-            fix_request = FixRequest(
-                action_type=action_type,
-                target=target,
-                parameters=params,
-            )
-            return Resolution(action=ResolutionAction.FIX, fixes=[fix_request])
-
-        # Invalid choice — defer
         return Resolution(action=ResolutionAction.DEFER)
 
     except (KeyboardInterrupt, EOFError):
         console.print("\n  [dim]Interrupted — deferring[/dim]")
-        return Resolution(action=ResolutionAction.DEFER)
-    except (ValueError, IndexError):
         return Resolution(action=ResolutionAction.DEFER)
 
 
@@ -267,28 +215,3 @@ def _match_threshold(
         if prefix in thresholds:
             return thresholds[prefix]
     return None
-
-
-def render_fix_result(console: Console, event: PipelineEvent) -> None:
-    """Render the result of a FIX_APPLIED event.
-
-    Args:
-        console: Rich console for output.
-        event: The FIX_APPLIED event.
-    """
-    if event.error:
-        console.print(f"  [red]\u2717[/red] {event.message}: {event.error}")
-        return
-
-    # Show success with before/after deltas
-    parts = [f"  [green]\u2713[/green] {event.message}"]
-    before = event.before_scores
-    after = event.after_scores
-    for dim in sorted(set(before) | set(after)):
-        b = before.get(dim, 0.0)
-        a = after.get(dim, 0.0)
-        status = "improved" if a < b else "unchanged" if a == b else "regressed"
-        color = "green" if status == "improved" else "yellow" if status == "unchanged" else "red"
-        parts.append(f"    {dim}: {b:.2f} \u2192 {a:.2f} ([{color}]{status}[/{color}])")
-
-    console.print("\n".join(parts))

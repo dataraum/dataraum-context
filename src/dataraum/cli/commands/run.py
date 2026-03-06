@@ -16,9 +16,8 @@ from rich.live import Live
 from rich.text import Text
 
 from dataraum.cli.common import console, setup_logging
-from dataraum.cli.gate_handler import handle_exit_check, render_fix_result
+from dataraum.cli.gate_handler import handle_exit_check
 from dataraum.core.logging import LogBuffer, activate_console, deactivate_console
-from dataraum.entropy.fix_executor import ActionRegistry
 from dataraum.pipeline.events import EventType, PipelineEvent
 from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import PipelineResult, Resolution
@@ -220,7 +219,6 @@ def run(
             gen=gen,
             console=console,
             gate_mode=resolved_gate_mode,
-            action_registry=setup.action_registry,
             quiet=quiet,
             contract_name=setup.contract_name,
             contract_thresholds=setup.contract_thresholds,
@@ -248,9 +246,6 @@ class _RunStats:
     phase_errors: list[tuple[str, str]] = field(
         default_factory=list
     )  # (phase, error)
-    fixes_applied: list[tuple[str, dict[str, float], dict[str, float]]] = field(
-        default_factory=list
-    )  # (message, before_scores, after_scores)
 
 
 _BRAILLE_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -293,7 +288,6 @@ def _drive_pipeline(
     gen: Generator[PipelineEvent, Resolution | None, PipelineResult],
     console: Console,
     gate_mode: GateMode,
-    action_registry: ActionRegistry | None = None,
     quiet: bool = False,
     contract_name: str | None = None,
     contract_thresholds: dict[str, float] | None = None,
@@ -304,7 +298,6 @@ def _drive_pipeline(
         gen: The scheduler generator.
         console: Rich console for output.
         gate_mode: How to handle EXIT_CHECK events.
-        action_registry: Available fix actions.
         quiet: Suppress progress output.
         contract_name: Name of the target contract (for summary display).
         contract_thresholds: Dimension thresholds from the contract.
@@ -365,19 +358,12 @@ def _drive_pipeline(
                     if not quiet and event.scores:
                         _print_post_verification(console, event)
 
-                case EventType.FIX_APPLIED:
-                    if not quiet:
-                        render_fix_result(console, event)
-                    stats.fixes_applied.append(
-                        (event.message, event.before_scores, event.after_scores)
-                    )
-
                 case EventType.EXIT_CHECK:
                     if live:
                         deactivate_console()
                         live.stop()
                     resolution = handle_exit_check(
-                        console, event, gate_mode, action_registry,
+                        console, event, gate_mode,
                         contract_thresholds=contract_thresholds,
                     )
                     event = gen.send(resolution)
@@ -527,20 +513,6 @@ def _print_summary(
         console.print(f"[yellow]Warnings ({len(stats.all_warnings)}):[/yellow]")
         for phase, warning in stats.all_warnings:
             console.print(f"  [yellow]![/yellow] {phase}: {warning}")
-
-    # Fixes applied
-    if stats.fixes_applied:
-        console.print()
-        console.print(f"[bold]Fixes Applied ({len(stats.fixes_applied)}):[/bold]")
-        for message, before, after in stats.fixes_applied:
-            console.print(f"  {message}")
-            for dim in sorted(set(before) | set(after)):
-                b = before.get(dim)
-                a = after.get(dim)
-                if b is not None and a is not None:
-                    improved = a < b
-                    tag = "[green]improved[/green]" if improved else "[yellow]unchanged[/yellow]"
-                    console.print(f"    {dim}: {b:.2f} -> {a:.2f} ({tag})")
 
     # Final entropy scores with contract evaluation
     if result.final_scores or thresholds:

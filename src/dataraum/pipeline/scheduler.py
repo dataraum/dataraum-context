@@ -1,6 +1,6 @@
 """Pipeline scheduler — generator-based reactive execution loop.
 
-Contract-driven approach that uses entropy thresholds and fix replay.
+Contract-driven approach that uses entropy thresholds for quality gates.
 """
 
 from __future__ import annotations
@@ -17,10 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from dataraum.core.logging import get_logger
-from dataraum.entropy.fix_executor import FixExecutor, FixRequest, FixResult
 from dataraum.pipeline.base import Phase, PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.cleanup import cleanup_phase
-from dataraum.pipeline.db_models import Fix, PhaseLog
+from dataraum.pipeline.db_models import PhaseLog
 from dataraum.pipeline.events import EventType, PipelineEvent
 
 logger = get_logger(__name__)
@@ -45,7 +44,6 @@ class ExitCheckIssue:
 class ResolutionAction(str, Enum):
     """How the caller wants to resolve an exit check."""
 
-    FIX = "fix"
     DEFER = "defer"
     ABORT = "abort"
 
@@ -55,7 +53,6 @@ class Resolution:
     """Caller's response to an EXIT_CHECK event."""
 
     action: ResolutionAction
-    fixes: list[FixRequest] = field(default_factory=list)
 
 
 @dataclass
@@ -96,7 +93,6 @@ class PipelineScheduler:
         session: Session,
         duckdb_conn: Any,
         contract_thresholds: dict[str, float] | None = None,
-        fix_executor: FixExecutor | None = None,
         phase_configs: dict[str, dict[str, Any]] | None = None,
         runtime_config: dict[str, Any] | None = None,
         session_factory: Callable[[], Any] | None = None,
@@ -116,7 +112,6 @@ class PipelineScheduler:
         self.session = session
         self.duckdb_conn = duckdb_conn
         self.contract_thresholds = contract_thresholds or {}
-        self.fix_executor = fix_executor
         self._phase_configs = phase_configs or {}
         self._runtime_config = runtime_config or {}
         self.session_factory = session_factory
@@ -318,9 +313,6 @@ class PipelineScheduler:
         if result.outputs and "entropy_scores" in result.outputs:
             self._scores.update(result.outputs["entropy_scores"])
 
-        # Replay active fixes for this phase
-        self._replay_fixes(phase_name)
-
         # Post-verify (run detectors)
         # Capture previous scores before _post_verify updates self._scores
         dims_to_verify = self.phases[phase_name].post_verification
@@ -461,46 +453,6 @@ class PipelineScheduler:
         )
         self.session.add(log)
         self.session.commit()
-
-    def _replay_fixes(self, phase_name: str) -> list[FixResult]:
-        """Replay active Fix records bound to this phase."""
-        if self.fix_executor is None:
-            return []
-
-        fixes = (
-            self.session.execute(
-                select(Fix).where(
-                    Fix.source_id == self.source_id,
-                    Fix.after_phase == phase_name,
-                    Fix.status == "active",
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        results: list[FixResult] = []
-        now = datetime.now(UTC)
-        for fix in fixes:
-            request = FixRequest(
-                action_type=fix.action_type,
-                target=fix.target,
-                parameters=fix.parameters,
-                source_id=self.source_id,
-                run_id=self.run_id,
-            )
-            result = self.fix_executor.execute(
-                request, self.session, self.duckdb_conn
-            )
-            fix.last_applied_at = now
-            fix.last_applied_run_id = self.run_id
-            if result.success:
-                fix.status = "applied"
-            results.append(result)
-
-        if fixes:
-            self.session.commit()
-        return results
 
     def _post_verify(self, phase_name: str) -> dict[str, float]:
         """Run detectors for dimensions listed in phase.post_verification.
@@ -667,71 +619,12 @@ class PipelineScheduler:
         return None
 
     def _apply_resolution(self, resolution: Resolution) -> list[PipelineEvent]:
-        """Apply a caller-provided resolution to pending issues.
-
-        Returns:
-            List of FIX_APPLIED events for each fix attempt.
-        """
-        fix_events: list[PipelineEvent] = []
-
+        """Apply a caller-provided resolution to pending issues."""
         if resolution.action == ResolutionAction.DEFER:
             self._deferred_issues.extend(self._pending_issues)
         elif resolution.action == ResolutionAction.ABORT:
             raise PipelineAborted("Pipeline aborted by user")
-        elif resolution.action == ResolutionAction.FIX:
-            if self.fix_executor is None:
-                logger.warning("FIX resolution but no fix_executor configured")
-                self._deferred_issues.extend(self._pending_issues)
-                return fix_events
-            any_succeeded = False
-            for fix_request in resolution.fixes:
-                result = self.fix_executor.execute(
-                    fix_request, self.session, self.duckdb_conn
-                )
-                if result.success:
-                    any_succeeded = True
-                    # Create persistent Fix record
-                    fix = Fix(
-                        source_id=self.source_id,
-                        action_type=fix_request.action_type,
-                        target=fix_request.target,
-                        parameters=fix_request.parameters,
-                        after_phase=fix_request.blocked_phase or "",
-                        status="active",
-                        last_applied_at=datetime.now(UTC),
-                        last_applied_run_id=self.run_id,
-                    )
-                    self.session.add(fix)
-                    fix_events.append(
-                        self._event(
-                            EventType.FIX_APPLIED,
-                            message=f"{fix_request.action_type} on {fix_request.target}",
-                            scores=result.after_scores,
-                            before_scores=result.before_scores,
-                            after_scores=result.after_scores,
-                        )
-                    )
-                else:
-                    fix_events.append(
-                        self._event(
-                            EventType.FIX_APPLIED,
-                            message=f"{fix_request.action_type} on {fix_request.target}",
-                            error=result.error or "Fix failed",
-                        )
-                    )
-            # Invalidate downstream once per unique producing phase
-            if any_succeeded:
-                phases_to_invalidate = {
-                    issue.producing_phase for issue in self._pending_issues
-                }
-                for phase_name in phases_to_invalidate:
-                    self._invalidate_downstream(phase_name)
-            else:
-                # All fixes failed — defer the issues so they aren't lost
-                self._deferred_issues.extend(self._pending_issues)
-            self.session.commit()
-
-        return fix_events
+        return []
 
     def _invalidate_downstream(self, phase_name: str) -> None:
         """Reset downstream phases to PENDING so they re-run.

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, String
+from sqlalchemy import DateTime, Float, ForeignKey, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -67,30 +67,3 @@ class PhaseLog(Base):
     outputs: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
 
 
-class Fix(Base):
-    """Persistent, replayable fix record.
-
-    Fixes are applied after specific phases complete. They are replayed
-    on subsequent pipeline runs to maintain data corrections.
-    """
-
-    __tablename__ = "fixes"
-
-    fix_id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4())
-    )
-    source_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    action_type: Mapped[str] = mapped_column(String, nullable=False)
-    target: Mapped[str] = mapped_column(String, nullable=False)
-    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    after_phase: Mapped[str] = mapped_column(String, nullable=False)
-    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(UTC)
-    )
-    last_applied_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_applied_run_id: Mapped[str | None] = mapped_column(String)
-
-
-# Composite index for _replay_fixes query: WHERE source_id=? AND after_phase=? AND status=?
-Index("idx_fix_source_phase_status", Fix.source_id, Fix.after_phase, Fix.status)

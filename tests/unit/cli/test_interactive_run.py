@@ -412,37 +412,6 @@ class TestSummaryDisplay:
         assert "1/2" in rendered
         assert "50%" in rendered
 
-    def test_fixes_in_summary(self):
-        """Summary shows accumulated fix decisions."""
-        output = StringIO()
-        console = Console(file=output, force_terminal=True, width=100)
-
-        events = [
-            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=1),
-            PipelineEvent(
-                event_type=EventType.FIX_APPLIED,
-                step=2,
-                total=1,
-                message="override_type on column:orders.amount",
-                before_scores={"structural.types": 0.65},
-                after_scores={"structural.types": 0.18},
-            ),
-            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=3, total=1),
-        ]
-
-        _drive_pipeline(
-            gen=_mock_generator(events, _ok_result()),
-            console=console,
-            gate_mode=GateMode.SKIP,
-        )
-
-        rendered = _strip_ansi(output.getvalue())
-        assert "Fixes Applied (1):" in rendered
-        assert "override_type" in rendered
-        assert "0.65" in rendered
-        assert "0.18" in rendered
-
-
     def test_unmeasured_contracted_dimensions_shown(self):
         """Contracted dimensions not in final_scores shown as 'not measured'."""
         output = StringIO()

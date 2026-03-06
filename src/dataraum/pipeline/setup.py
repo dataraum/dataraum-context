@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 from dataraum.core.config import load_phase_config, load_pipeline_config
 from dataraum.core.connections import ConnectionConfig, ConnectionManager
 from dataraum.core.logging import get_logger
-from dataraum.entropy.fix_executor import ActionRegistry, FixExecutor, get_default_action_registry
 from dataraum.pipeline.base import Phase
 from dataraum.pipeline.db_models import PipelineRun
 from dataraum.pipeline.registry import get_all_dependencies, get_registry
@@ -38,7 +37,6 @@ class PipelineSetup:
     session: Session
     source_id: str
     run_id: str
-    action_registry: ActionRegistry | None
     contract_name: str | None = None
     contract_thresholds: dict[str, float] = field(default_factory=dict)
 
@@ -164,11 +162,7 @@ def setup_pipeline(
         cleanup_phase(target_phase, source_id, session, duckdb_conn)
         session.commit()
 
-    # 12. Create fix executor
-    action_registry = get_default_action_registry()
-    fix_executor = FixExecutor(action_registry)
-
-    # 13. Create scheduler
+    # 12. Create scheduler
     scheduler = PipelineScheduler(
         phases=phases,
         source_id=source_id,
@@ -176,7 +170,6 @@ def setup_pipeline(
         session=session,
         duckdb_conn=duckdb_conn,
         contract_thresholds=thresholds,
-        fix_executor=fix_executor,
         phase_configs=phase_configs,
         runtime_config=runtime_config,
         session_factory=manager.session_scope,
@@ -189,7 +182,6 @@ def setup_pipeline(
         session=session,
         source_id=source_id,
         run_id=run_id,
-        action_registry=action_registry,
         contract_name=contract,
         contract_thresholds=thresholds,
     )
