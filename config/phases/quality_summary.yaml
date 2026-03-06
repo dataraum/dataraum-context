@@ -6,6 +6,11 @@ workers: 4
 # Skip tables that already have summaries
 skip_existing: true
 
+# Minimum rows a slice must have for reliable statistics.
+# Slices below this threshold are excluded from quality analysis
+# (but remain available for BI context).
+min_slice_rows: 20
+
 # Variance filter for slice-based analysis
 # Filters out columns with no interesting variance across slices
 # to reduce LLM noise and token costs.

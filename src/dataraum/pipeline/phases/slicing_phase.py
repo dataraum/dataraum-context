@@ -171,8 +171,6 @@ class SlicingPhase(BasePhase):
 
         # Pre-filter columns: remove objectively bad slice candidates
         # before sending to LLM (saves tokens, prevents bad recommendations)
-        min_row_fraction = ctx.config.get("min_row_fraction", 0.01)
-        max_slices = ctx.config.get("max_slices_per_dimension", 10)
         self._pre_filter_columns(context_data)
 
         # Pass config constraints so the prompt can reference them
@@ -191,12 +189,6 @@ class SlicingPhase(BasePhase):
             return PhaseResult.failed(analysis_result.error or "Slicing analysis failed")
 
         slicing = analysis_result.unwrap()
-
-        # Trim slice values: first drop values below min_row_fraction,
-        # then cap at max_slices_per_dimension (top-N by row count)
-        slicing = self._trim_slice_values(
-            slicing, context_data, min_row_fraction, max_slices,
-        )
 
         # Propagate enriched FK dimension recommendations to other tables
         # that share the same dimension column
@@ -268,136 +260,6 @@ class SlicingPhase(BasePhase):
                     kept=len(filtered),
                 )
             table_data["columns"] = filtered
-
-    def _trim_slice_values(
-        self,
-        result: SlicingAnalysisResult,
-        context_data: dict[str, Any],
-        min_row_fraction: float,
-        max_slices_per_dimension: int,
-    ) -> SlicingAnalysisResult:
-        """Trim slice values in two passes: floor filter then ceiling cap.
-
-        Pass 1 (min_row_fraction): Drop values covering fewer rows than
-        ``total_rows * min_row_fraction``. Removes statistically meaningless slices.
-
-        Pass 2 (max_slices_per_dimension): If more values survive, keep the
-        top-N by row count. Quality analysis benefits from moderate cardinality;
-        the most populated slices produce the most reliable statistics.
-
-        Uses top_values from the column statistics for row counts.
-        Recommendations left with zero values are dropped entirely.
-
-        Args:
-            result: LLM slicing analysis result.
-            context_data: Context data with table/column metadata.
-            min_row_fraction: Minimum fraction of rows a value must cover.
-            max_slices_per_dimension: Maximum values to keep per dimension.
-
-        Returns:
-            Updated result with trimmed values.
-        """
-        # Build lookup: (table_name, column_name) -> (top_values, row_count)
-        col_lookup: dict[tuple[str, str], tuple[list[dict[str, Any]], int]] = {}
-        for table_data in context_data.get("tables", []):
-            table_name = table_data.get("table_name", "")
-            row_count = table_data.get("row_count", 0)
-            for col in table_data.get("columns", []):
-                key = (table_name, col.get("column_name", ""))
-                col_lookup[key] = (col.get("top_values", []), row_count)
-
-        trimmed_recs: list[SliceRecommendation] = []
-        for rec in result.recommendations:
-            original_count = len(rec.distinct_values)
-            lookup = col_lookup.get((rec.table_name, rec.column_name))
-            if not lookup or not lookup[1]:
-                # No stats available — keep as-is
-                trimmed_recs.append(rec)
-                continue
-
-            top_values, total_rows = lookup
-
-            # Build value->count map from top_values
-            value_counts: dict[str, int] = {
-                str(tv.get("value", "")): tv.get("count", 0) for tv in top_values
-            }
-
-            # Pass 1: floor filter — drop values below min_row_fraction
-            min_rows = total_rows * min_row_fraction
-            kept = rec.distinct_values
-            if min_row_fraction > 0:
-                kept = [v for v in kept if value_counts.get(v, 0) >= min_rows]
-
-            floor_dropped = original_count - len(kept)
-
-            if not kept:
-                logger.info(
-                    "slice_dimension_dropped",
-                    table=rec.table_name,
-                    column=rec.column_name,
-                    original_values=original_count,
-                    reason=f"all values below {min_row_fraction:.1%} threshold ({int(min_rows)} rows)",
-                )
-                continue
-
-            if floor_dropped > 0:
-                # Show the scale: how many rows we're excluding
-                dropped_values = [
-                    v for v in rec.distinct_values if v not in set(kept)
-                ]
-                dropped_rows = sum(value_counts.get(v, 0) for v in dropped_values)
-                logger.info(
-                    "slice_values_floor_filter",
-                    table=rec.table_name,
-                    column=rec.column_name,
-                    dropped=floor_dropped,
-                    kept=len(kept),
-                    dropped_rows=dropped_rows,
-                    dropped_row_pct=f"{dropped_rows / total_rows:.1%}" if total_rows else "n/a",
-                    threshold=f"{min_row_fraction:.1%} ({int(min_rows)} rows)",
-                )
-
-            # Pass 2: ceiling cap — keep top-N by row count
-            ceiling_dropped = 0
-            if max_slices_per_dimension > 0 and len(kept) > max_slices_per_dimension:
-                # Sort by row count descending, keep top-N
-                kept.sort(key=lambda v: value_counts.get(v, 0), reverse=True)
-                capped = kept[:max_slices_per_dimension]
-                excluded = kept[max_slices_per_dimension:]
-                ceiling_dropped = len(excluded)
-
-                excluded_rows = sum(value_counts.get(v, 0) for v in excluded)
-                kept_rows = sum(value_counts.get(v, 0) for v in capped)
-                logger.info(
-                    "slice_values_ceiling_cap",
-                    table=rec.table_name,
-                    column=rec.column_name,
-                    dropped=ceiling_dropped,
-                    kept=len(capped),
-                    kept_rows=kept_rows,
-                    excluded_rows=excluded_rows,
-                    excluded_row_pct=f"{excluded_rows / total_rows:.1%}" if total_rows else "n/a",
-                    cap=max_slices_per_dimension,
-                )
-                kept = capped
-
-            rec.distinct_values = kept
-            rec.value_count = len(kept)
-            trimmed_recs.append(rec)
-
-        result.recommendations = trimmed_recs
-
-        # Rebuild slice_queries to match trimmed values
-        kept_values: set[str] = set()
-        for rec in trimmed_recs:
-            for v in rec.distinct_values:
-                kept_values.add(f"{rec.column_name}={v}")
-
-        result.slice_queries = [
-            sq for sq in result.slice_queries if sq.slice_name in kept_values
-        ]
-
-        return result
 
     def _propagate_enriched_dimensions(
         self,

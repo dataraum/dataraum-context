@@ -49,6 +49,7 @@ def _process_slice_definition(
     config: LLMConfig,
     provider: LLMProvider,
     skip_existing: bool,
+    min_slice_rows: int = 20,
 ) -> SliceProcessingResult:
     """Process a single slice definition in a worker thread.
 
@@ -60,6 +61,7 @@ def _process_slice_definition(
         config: LLM configuration
         provider: LLM provider instance
         skip_existing: Whether to skip existing reports
+        min_slice_rows: Minimum rows for a slice to be included in quality analysis
 
     Returns:
         SliceProcessingResult with counts or error
@@ -81,6 +83,7 @@ def _process_slice_definition(
                 slice_definition=slice_def,
                 skip_existing=skip_existing,
                 session_factory=session_factory,
+                min_slice_rows=min_slice_rows,
             )
 
             if not summary_result.success:
@@ -225,6 +228,7 @@ class QualitySummaryPhase(BasePhase):
         # Get settings from phase config
         skip_existing = ctx.config.get("skip_existing", True)
         max_workers = ctx.config.get("workers", 4)
+        min_slice_rows = ctx.config.get("min_slice_rows", 20)
 
         # Process slice definitions
         total_reports = 0
@@ -243,6 +247,7 @@ class QualitySummaryPhase(BasePhase):
                         config,
                         provider,
                         skip_existing,
+                        min_slice_rows,
                     ): slice_def
                     for slice_def in slice_definitions
                 }
@@ -270,6 +275,7 @@ class QualitySummaryPhase(BasePhase):
                     slice_definition=slice_def,
                     skip_existing=skip_existing,
                     session_factory=ctx.session_factory,
+                    min_slice_rows=min_slice_rows,
                 )
 
                 if not summary_result.success:
