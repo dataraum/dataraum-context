@@ -5,7 +5,7 @@ A column with 80% NULLs provides unreliable slicing — this detector
 quantifies that uncertainty so contracts and the Bayesian network
 can factor it in.
 
-Source: EnrichedView.dimension_columns + DuckDB NULL counts
+Source: EnrichedView + StatisticalProfile (persisted during enriched_views phase)
 Score = mean NULL rate across dimension columns (0.0 = fully populated, 1.0 = all NULLs).
 """
 
@@ -28,7 +28,7 @@ class DimensionCoverageDetector(EntropyDetector):
     Measures how well dimension columns (added via LEFT JOIN) are populated.
     High NULL rates in dimension columns mean unreliable slicing/grouping.
 
-    Source: EnrichedView metadata + DuckDB queries on the view
+    Source: EnrichedView metadata + StatisticalProfile records
     Score = mean NULL rate across all dimension columns.
     """
 
@@ -57,8 +57,8 @@ class DimensionCoverageDetector(EntropyDetector):
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect dimension coverage entropy.
 
-        For each dimension column on the enriched view, queries DuckDB
-        for the NULL rate. The overall score is the mean NULL rate.
+        Reads NULL rates from persisted StatisticalProfile records for
+        dimension columns. Falls back to DuckDB if profiles are missing.
 
         Args:
             context: Detector context with enriched_view in analysis_results
@@ -79,11 +79,17 @@ class DimensionCoverageDetector(EntropyDetector):
                 )
             ]
 
+        # Load null rates from StatisticalProfile via the enriched view's Table record
+        null_rate_by_name = self._load_null_rates(context, view)
+
         evidence: list[dict[str, Any]] = []
         null_rates: list[float] = []
 
         for col in dimension_columns:
-            null_rate = self._query_null_rate(context, col)
+            null_rate = null_rate_by_name.get(col)
+            if null_rate is None:
+                # Fallback: query DuckDB directly (profile missing)
+                null_rate = self._query_null_rate(context, col)
             null_rates.append(null_rate)
             evidence.append(
                 {
@@ -123,9 +129,44 @@ class DimensionCoverageDetector(EntropyDetector):
         ]
 
     @staticmethod
-    def _query_null_rate(context: DetectorContext, column: str) -> float:
-        """Query DuckDB for the NULL rate of a column on the view.
+    def _load_null_rates(context: DetectorContext, view: Any) -> dict[str, float]:
+        """Load null rates from StatisticalProfile records for dimension columns.
 
+        Returns a dict mapping column_name → null_ratio. Empty if no
+        view_table_id or no profiles found.
+        """
+        if context.session is None or not getattr(view, "view_table_id", None):
+            return {}
+
+        from dataraum.analysis.statistics.db_models import StatisticalProfile
+        from dataraum.storage import Column
+
+        # Get Column records for the enriched view table
+        col_stmt = select(Column).where(Column.table_id == view.view_table_id)
+        columns = context.session.execute(col_stmt).scalars().all()
+        if not columns:
+            return {}
+
+        col_ids = [c.column_id for c in columns]
+        col_name_by_id = {c.column_id: c.column_name for c in columns}
+
+        # Get profiles
+        prof_stmt = select(StatisticalProfile).where(
+            StatisticalProfile.column_id.in_(col_ids)
+        )
+        profiles = context.session.execute(prof_stmt).scalars().all()
+
+        return {
+            col_name_by_id[p.column_id]: p.null_ratio or 0.0
+            for p in profiles
+            if p.column_id in col_name_by_id
+        }
+
+    @staticmethod
+    def _query_null_rate(context: DetectorContext, column: str) -> float:
+        """Fallback: query DuckDB for the NULL rate of a column.
+
+        Used when StatisticalProfile records are not available.
         Returns 1.0 if the query fails (assume worst case).
         """
         if context.duckdb_conn is None:

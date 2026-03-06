@@ -16,13 +16,17 @@ Post-creation: verifies row count matches fact table. Drops view if grain violat
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from types import ModuleType
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import select
 
 from dataraum.analysis.relationships.db_models import Relationship
 from dataraum.analysis.semantic.db_models import SemanticAnnotation, TableEntity
+from dataraum.analysis.statistics.db_models import StatisticalProfile
+from dataraum.analysis.statistics.profiler import _profile_column_stats_parallel
 from dataraum.analysis.views.builder import DimensionJoin, build_enriched_view_sql
 from dataraum.analysis.views.db_models import EnrichedView
 from dataraum.analysis.views.enrichment_agent import EnrichmentAgent
@@ -245,6 +249,11 @@ class EnrichedViewsPhase(BasePhase):
             )
             existing_view = ctx.session.execute(existing_view_stmt).scalar_one_or_none()
 
+            # Register and profile dimension columns
+            view_table = self._register_and_profile_dim_columns(
+                ctx, fact_table, view_name, dim_columns,
+            )
+
             if existing_view:
                 # Update existing view record
                 existing_view.view_name = view_name
@@ -260,6 +269,8 @@ class EnrichedViewsPhase(BasePhase):
                 existing_view.dimension_columns = dim_columns
                 existing_view.is_grain_verified = is_grain_verified
                 existing_view.evidence = evidence if evidence else None
+                if view_table:
+                    existing_view.view_table_id = view_table.table_id
                 logger.info(
                     "enriched_view_updated",
                     view_name=view_name,
@@ -282,6 +293,7 @@ class EnrichedViewsPhase(BasePhase):
                     dimension_columns=dim_columns,
                     is_grain_verified=is_grain_verified,
                     evidence=evidence if evidence else None,
+                    view_table_id=view_table.table_id if view_table else None,
                 )
                 ctx.session.add(view_record)
 
@@ -305,6 +317,106 @@ class EnrichedViewsPhase(BasePhase):
             records_created=views_created,
             summary=f"{views_created} enriched views created ({len(fact_entities)} fact tables)",
         )
+
+    def _register_and_profile_dim_columns(
+        self,
+        ctx: PhaseContext,
+        fact_table: Table,
+        view_name: str,
+        dim_columns: list[str],
+    ) -> Table | None:
+        """Register enriched-layer Table + Column records for dimension columns and profile them.
+
+        Args:
+            ctx: Phase context.
+            fact_table: The fact table this view is based on.
+            view_name: Name of the enriched DuckDB view.
+            dim_columns: List of dimension column names in the view.
+
+        Returns:
+            The enriched-layer Table record, or None if no dimension columns.
+        """
+        if not dim_columns:
+            return None
+
+        try:
+            view_table = Table(
+                table_id=str(uuid4()),
+                source_id=fact_table.source_id,
+                table_name=view_name,
+                layer="enriched",
+                duckdb_path=view_name,
+                row_count=fact_table.row_count,
+            )
+            ctx.session.add(view_table)
+
+            # Get DuckDB types for dimension columns
+            duckdb_cols = ctx.duckdb_conn.execute(f'DESCRIBE "{view_name}"').fetchall()
+            type_by_name = {row[0]: row[1] for row in duckdb_cols}
+
+            registered_columns: list[Column] = []
+            for pos, col_name in enumerate(dim_columns):
+                col_type = type_by_name.get(col_name, "VARCHAR")
+                col = Column(
+                    column_id=str(uuid4()),
+                    table_id=view_table.table_id,
+                    column_name=col_name,
+                    column_position=pos,
+                    raw_type=col_type,
+                    resolved_type=col_type,
+                )
+                ctx.session.add(col)
+                registered_columns.append(col)
+
+            # Profile each dimension column inline
+            profiled_at = datetime.now(UTC)
+            profiled_count = 0
+            for col in registered_columns:
+                profile = _profile_column_stats_parallel(
+                    duckdb_conn=ctx.duckdb_conn,
+                    table_name=view_name,
+                    table_duckdb_path=view_name,
+                    column_id=col.column_id,
+                    column_name=col.column_name,
+                    resolved_type=col.resolved_type or "VARCHAR",
+                    profiled_at=profiled_at,
+                    top_k=10,
+                )
+                if profile:
+                    non_null = profile.total_count - profile.null_count
+                    is_unique = profile.distinct_count == non_null if non_null > 0 else False
+                    db_profile = StatisticalProfile(
+                        profile_id=str(uuid4()),
+                        column_id=col.column_id,
+                        profiled_at=profiled_at,
+                        layer="enriched",
+                        total_count=profile.total_count,
+                        null_count=profile.null_count,
+                        distinct_count=profile.distinct_count,
+                        null_ratio=profile.null_ratio,
+                        cardinality_ratio=profile.cardinality_ratio,
+                        is_unique=is_unique,
+                        is_numeric=profile.numeric_stats is not None,
+                        profile_data=profile.model_dump(mode="json"),
+                    )
+                    ctx.session.add(db_profile)
+                    profiled_count += 1
+
+            logger.info(
+                "dim_columns_profiled",
+                view_name=view_name,
+                columns=len(registered_columns),
+                profiles=profiled_count,
+            )
+            return view_table
+
+        except Exception as e:
+            logger.warning(
+                "dim_column_registration_failed",
+                view_name=view_name,
+                error=str(e),
+            )
+            return None
 
     def _get_llm_recommendations(
         self,

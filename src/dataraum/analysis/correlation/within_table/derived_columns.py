@@ -9,7 +9,6 @@ Uses parallel processing for large tables to speed up detection.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -27,27 +26,6 @@ from dataraum.core.models.base import Result
 from dataraum.storage import Column, Table
 
 logger = get_logger(__name__)
-
-# DuckDB numeric types that can participate in arithmetic derivation checks
-_DUCKDB_NUMERIC = {
-    "INTEGER",
-    "BIGINT",
-    "DOUBLE",
-    "FLOAT",
-    "DECIMAL",
-    "HUGEINT",
-    "SMALLINT",
-    "TINYINT",
-}
-
-
-@dataclass
-class _VirtualColumn:
-    """Stand-in for Column, used for dimension columns without DB records."""
-
-    column_id: str
-    column_name: str
-    resolved_type: str
 
 
 def _check_derived_triple(
@@ -309,7 +287,7 @@ def detect_enriched_derived_columns(
     on the view finds both same-table and cross-table derivations.
 
     Only fact columns can be targets (FK constraint: derived_column_id → columns.column_id).
-    Dimension columns from the view use ``dim:{name}`` IDs in source_column_ids.
+    Dimension columns are loaded from Column records registered during the enriched_views phase.
 
     Args:
         enriched_view: EnrichedView DB model with view_name and dimension_columns.
@@ -337,35 +315,17 @@ def detect_enriched_derived_columns(
         if not fact_columns:
             return Result.ok([])
 
-        # 2. Get dimension column types from DuckDB DESCRIBE
-        dim_col_names = enriched_view.dimension_columns or []
-        dim_columns: list[_VirtualColumn] = []
+        # 2. Get dimension columns from Column records (registered during enriched_views phase)
+        dim_columns: list[Column] = []
 
-        if dim_col_names:
-            cursor = duckdb_conn.cursor()
-            try:
-                desc = cursor.execute(f'DESCRIBE "{view_name}"').fetchall()
-                view_col_types = {row[0]: row[1] for row in desc}
-            finally:
-                cursor.close()
+        if enriched_view.view_table_id:
+            dim_stmt = select(Column).where(Column.table_id == enriched_view.view_table_id)
+            dim_columns = list(session.execute(dim_stmt).scalars().all())
 
-            for name in dim_col_names:
-                col_type = view_col_types.get(name, "")
-                # Normalize type: DECIMAL(18,2) → DECIMAL
-                base_type = col_type.split("(")[0].upper()
-                if base_type in _DUCKDB_NUMERIC:
-                    dim_columns.append(
-                        _VirtualColumn(
-                            column_id=f"dim:{name}",
-                            column_name=name,
-                            resolved_type=base_type,
-                        )
-                    )
-
-        # 3. Load statistical profiles for fact columns (degenerate filtering)
-        fact_col_ids = [c.column_id for c in fact_columns]
+        # 3. Load statistical profiles for fact + dimension columns (degenerate filtering)
+        all_col_ids = [c.column_id for c in fact_columns] + [c.column_id for c in dim_columns]
         profile_stmt = select(StatisticalProfile).where(
-            StatisticalProfile.column_id.in_(fact_col_ids)
+            StatisticalProfile.column_id.in_(all_col_ids)
         )
         profiles_by_col: dict[str, StatisticalProfile] = {
             p.column_id: p for p in session.execute(profile_stmt).scalars().all()
@@ -384,8 +344,8 @@ def detect_enriched_derived_columns(
         numeric_types = {"INTEGER", "BIGINT", "DOUBLE", "DECIMAL"}
         numeric_fact = [c for c in fact_columns if c.resolved_type in numeric_types]
 
-        # Union: use a common interface via duck typing (both have column_id, column_name)
-        all_numeric: list[Column | _VirtualColumn] = list(numeric_fact) + list(dim_columns)
+        numeric_dim = [c for c in dim_columns if c.resolved_type in numeric_types]
+        all_numeric: list[Column] = list(numeric_fact) + numeric_dim
 
         if len(all_numeric) < 2:
             return Result.ok([])
@@ -399,7 +359,7 @@ def detect_enriched_derived_columns(
             ("/", "ratio", False),
         ]
 
-        checks: list[tuple[Column | _VirtualColumn, Column | _VirtualColumn, Column | _VirtualColumn, str, str]] = []
+        checks: list[tuple[Column, Column, Column, str, str]] = []
         for target in all_numeric:
             # Only fact columns can be targets (FK constraint)
             if target.column_id not in fact_col_id_set:
@@ -489,7 +449,7 @@ def detect_enriched_derived_columns(
             view=view_name,
             fact_table=fact_table.table_name,
             derived_count=len(derived_columns),
-            dim_numeric_cols=len(dim_columns),
+            dim_numeric_cols=len(numeric_dim),
         )
 
         return Result.ok(derived_columns)

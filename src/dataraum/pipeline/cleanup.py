@@ -203,9 +203,14 @@ def _cleanup_enriched_views(
 
     if not table_ids:
         return 0
-    return _exec_delete(
+    count = _exec_delete(
         session, delete(EnrichedView).where(EnrichedView.fact_table_id.in_(table_ids))
     )
+    # Delete enriched-layer Table records (CASCADE deletes Columns + StatisticalProfiles)
+    count += _exec_delete(
+        session, delete(Table).where(Table.source_id == source_id, Table.layer == "enriched")
+    )
+    return count
 
 
 def _cleanup_statistical_quality(

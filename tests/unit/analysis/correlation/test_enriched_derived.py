@@ -105,11 +105,27 @@ def _make_stat_profile(session: Session, column: Column, distinct_count: int = 1
     session.flush()
 
 
+def _make_view_table(session: Session, name: str, source_id: str = "src1") -> Table:
+    """Create an enriched-layer Table record for dimension columns."""
+    t = Table(
+        table_id=str(uuid4()),
+        source_id=source_id,
+        table_name=name,
+        layer="enriched",
+        duckdb_path=name,
+        row_count=200,
+    )
+    session.add(t)
+    session.flush()
+    return t
+
+
 def _make_enriched_view(
     session: Session,
     fact_table: Table,
     view_name: str,
     dimension_columns: list[str] | None,
+    view_table: Table | None = None,
 ) -> EnrichedView:
     ev = EnrichedView(
         view_id=str(uuid4()),
@@ -117,6 +133,7 @@ def _make_enriched_view(
         view_name=view_name,
         view_sql=f"CREATE VIEW {view_name} AS ...",
         dimension_columns=dimension_columns,
+        view_table_id=view_table.table_id if view_table else None,
     )
     session.add(ev)
     session.flush()
@@ -140,8 +157,14 @@ class TestDetectsEnrichedDerivedColumns:
         _make_stat_profile(session, col_qty)
         _make_stat_profile(session, col_total)
 
+        # Register dimension column via view_table
+        view_table = _make_view_table(session, "enriched_orders")
+        dim_col = _make_column(session, view_table, "products__unit_price", "DOUBLE")
+        _make_stat_profile(session, dim_col)
+
         ev = _make_enriched_view(
-            session, table, "enriched_orders", ["products__unit_price"]
+            session, table, "enriched_orders", ["products__unit_price"],
+            view_table=view_table,
         )
 
         result = detect_enriched_derived_columns(ev, table, enriched_duckdb, session)
@@ -149,8 +172,12 @@ class TestDetectsEnrichedDerivedColumns:
         derived = result.unwrap()
         assert len(derived) >= 1
 
-        # Find the cross-table derivation
-        cross = [d for d in derived if any("dim:" in sid for sid in d.source_column_ids)]
+        # Find the cross-table derivation (source includes dim column's real ID)
+        fact_col_ids = {col_qty.column_id, col_total.column_id}
+        cross = [
+            d for d in derived
+            if any(sid not in fact_col_ids for sid in d.source_column_ids)
+        ]
         assert len(cross) >= 1
         assert cross[0].derived_column_name == "total"
         assert cross[0].derivation_type == "product"
@@ -226,7 +253,14 @@ class TestDetectsEnrichedDerivedColumns:
         col_amount = _make_column(session, table, "amount", "DOUBLE")
         _make_stat_profile(session, col_amount)
 
-        ev = _make_enriched_view(session, table, "enriched_varchar", ["dim__name"])
+        # Register VARCHAR dimension column via view_table
+        view_table = _make_view_table(session, "enriched_varchar")
+        _make_column(session, view_table, "dim__name", "VARCHAR")
+
+        ev = _make_enriched_view(
+            session, table, "enriched_varchar", ["dim__name"],
+            view_table=view_table,
+        )
 
         result = detect_enriched_derived_columns(ev, table, conn, session)
         assert result.success
@@ -235,41 +269,60 @@ class TestDetectsEnrichedDerivedColumns:
         conn.close()
 
     def test_derived_column_id_is_fact_column(self, enriched_duckdb, session):
-        """derived_column_id must always be a real Column ID (not dim:*)."""
+        """derived_column_id must always be a fact table Column ID."""
         table = _make_table(session, "orders")
         col_qty = _make_column(session, table, "quantity", "INTEGER")
         col_total = _make_column(session, table, "total", "DOUBLE")
         _make_stat_profile(session, col_qty)
         _make_stat_profile(session, col_total)
 
+        view_table = _make_view_table(session, "enriched_orders")
+        dim_col = _make_column(session, view_table, "products__unit_price", "DOUBLE")
+        _make_stat_profile(session, dim_col)
+
         ev = _make_enriched_view(
-            session, table, "enriched_orders", ["products__unit_price"]
+            session, table, "enriched_orders", ["products__unit_price"],
+            view_table=view_table,
         )
 
         result = detect_enriched_derived_columns(ev, table, enriched_duckdb, session)
         assert result.success
+        fact_col_ids = {col_qty.column_id, col_total.column_id}
         for dc in result.unwrap():
-            assert not dc.derived_column_id.startswith("dim:")
+            assert dc.derived_column_id in fact_col_ids
 
-    def test_source_column_ids_include_dim_prefix(self, enriched_duckdb, session):
-        """Cross-table sources should use dim:{name} format."""
+    def test_source_column_ids_include_dim_column(self, enriched_duckdb, session):
+        """Cross-table sources should include the dimension column's real ID."""
         table = _make_table(session, "orders")
         col_qty = _make_column(session, table, "quantity", "INTEGER")
         col_total = _make_column(session, table, "total", "DOUBLE")
         _make_stat_profile(session, col_qty)
         _make_stat_profile(session, col_total)
 
+        view_table = _make_view_table(session, "enriched_orders")
+        dim_col = _make_column(session, view_table, "products__unit_price", "DOUBLE")
+        _make_stat_profile(session, dim_col)
+
         ev = _make_enriched_view(
-            session, table, "enriched_orders", ["products__unit_price"]
+            session, table, "enriched_orders", ["products__unit_price"],
+            view_table=view_table,
         )
 
         result = detect_enriched_derived_columns(ev, table, enriched_duckdb, session)
         assert result.success
         derived = result.unwrap()
-        cross = [d for d in derived if any("dim:" in sid for sid in d.source_column_ids)]
+        fact_col_ids = {col_qty.column_id, col_total.column_id}
+        cross = [
+            d for d in derived
+            if any(sid not in fact_col_ids for sid in d.source_column_ids)
+        ]
         assert len(cross) >= 1
-        dim_ids = [sid for d in cross for sid in d.source_column_ids if sid.startswith("dim:")]
-        assert "dim:products__unit_price" in dim_ids
+        # The dimension column's real column_id should appear in source_column_ids
+        dim_ids = [
+            sid for d in cross for sid in d.source_column_ids
+            if sid not in fact_col_ids
+        ]
+        assert dim_col.column_id in dim_ids
 
     def test_deduplication(self, session):
         """Algebraic equivalences should be deduplicated."""

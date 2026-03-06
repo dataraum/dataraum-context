@@ -40,7 +40,7 @@ class SemanticPhase(BasePhase):
     Tier 2 (capable model): Table classification, relationship evaluation,
         cross-column unit detection, and annotation review/upgrade.
 
-    Requires: statistics, relationships, correlations phases.
+    Requires: statistics, relationships phases.
     """
 
     @property
@@ -53,7 +53,7 @@ class SemanticPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["relationships", "correlations"]
+        return ["relationships"]
 
     @property
     def post_verification(self) -> list[str]:
