@@ -8,7 +8,7 @@ from io import StringIO
 
 from rich.console import Console
 
-from dataraum.cli.commands.run import _drive_pipeline, _PhaseTracker
+from dataraum.cli.commands.run import _drive_pipeline, _PhaseTracker, _print_summary
 from dataraum.pipeline.events import EventType, PipelineEvent
 from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import (
@@ -112,7 +112,7 @@ class TestDriveBasicPipeline:
             PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=8, total=3),
         ]
 
-        result = _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
             gate_mode=GateMode.SKIP,
@@ -180,7 +180,7 @@ class TestDriveWithFailure:
             PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=4, total=1),
         ]
 
-        result = _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(
                 events,
                 _ok_result(
@@ -226,7 +226,7 @@ class TestExitCheckSkipMode:
             PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=5, total=2),
         ]
 
-        result = _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(
                 events,
                 _ok_result(),
@@ -304,7 +304,7 @@ class TestQuietMode:
             PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=4, total=1),
         ]
 
-        result = _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
             gate_mode=GateMode.SKIP,
@@ -338,7 +338,7 @@ class TestPipelineResultReturned:
             PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=2, total=0),
         ]
 
-        result = _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(events, expected_result),
             console=console,
             gate_mode=GateMode.SKIP,
@@ -368,11 +368,12 @@ class TestSummaryDisplay:
             success=False,
         )
 
-        _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
             gate_mode=GateMode.SKIP,
         )
+        _print_summary(console, result, stats)
 
         rendered = output.getvalue()
         assert "completed" in rendered
@@ -398,10 +399,13 @@ class TestSummaryDisplay:
             },
         )
 
-        _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
             gate_mode=GateMode.SKIP,
+        )
+        _print_summary(
+            console, result, stats,
             contract_name="aggregation_safe",
             contract_thresholds={
                 "structural.types.type_fidelity": 0.30,
@@ -430,10 +434,13 @@ class TestSummaryDisplay:
             },
         )
 
-        _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
             gate_mode=GateMode.SKIP,
+        )
+        _print_summary(
+            console, result, stats,
             contract_name="test_contract",
             contract_thresholds={
                 "structural.types.type_fidelity": 0.30,
@@ -484,7 +491,7 @@ class TestParallelSpinner:
             PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=6, total=2),
         ]
 
-        result = _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
             gate_mode=GateMode.SKIP,

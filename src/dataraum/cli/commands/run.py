@@ -127,9 +127,7 @@ def run(
     try:
         resolved_gate_mode = GateMode(gate_mode)
     except ValueError:
-        console.print(
-            f"[red]Error: Invalid gate mode: {gate_mode}. Use: skip, fail[/red]"
-        )
+        console.print(f"[red]Error: Invalid gate mode: {gate_mode}. Use: skip, fail[/red]")
         raise typer.Exit(1) from None
 
     # Validate --force flag
@@ -187,8 +185,7 @@ def run(
         contract = "aggregation_safe"
         if not quiet:
             console.print(
-                f"[dim]No contract specified, using {contract} "
-                f"(override with --contract)[/dim]"
+                f"[dim]No contract specified, using {contract} (override with --contract)[/dim]"
             )
 
     # Setup pipeline using shared logic
@@ -207,7 +204,7 @@ def run(
         warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
         warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
 
-        result = _drive_pipeline(
+        result, stats = _drive_pipeline(
             gen=gen,
             console=console,
             gate_mode=resolved_gate_mode,
@@ -224,6 +221,16 @@ def run(
         run_record.status = "completed" if result.success else "failed"
         setup.session.commit()
 
+    if not quiet:
+        _print_summary(
+            console,
+            result,
+            stats,
+            contract,
+            setup.contract_thresholds,
+            output_dir=output,
+        )
+
     raise typer.Exit(0 if result.success else 1)
 
 
@@ -232,12 +239,10 @@ class _RunStats:
     """Accumulated stats from phase events during a pipeline run."""
 
     total_duration: float = 0.0
-    all_warnings: list[tuple[str, str]] = field(
-        default_factory=list
-    )  # (phase, warning)
-    phase_errors: list[tuple[str, str]] = field(
-        default_factory=list
-    )  # (phase, error)
+    all_warnings: list[tuple[str, str]] = field(default_factory=list)  # (phase, warning)
+    phase_errors: list[tuple[str, str]] = field(default_factory=list)  # (phase, error)
+    # First-seen score per dimension (before any phase changed it)
+    first_scores: dict[str, float] = field(default_factory=dict)
 
 
 _BRAILLE_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -275,7 +280,6 @@ class _PhaseTracker:
         return Text("\n".join(lines))
 
 
-
 def _drive_pipeline(
     gen: Generator[PipelineEvent, Resolution | None, PipelineResult],
     console: Console,
@@ -283,7 +287,7 @@ def _drive_pipeline(
     quiet: bool = False,
     contract_name: str | None = None,
     contract_thresholds: dict[str, float] | None = None,
-) -> PipelineResult:
+) -> tuple[PipelineResult, _RunStats]:
     """Drive the scheduler generator, rendering events to the terminal.
 
     Args:
@@ -295,7 +299,7 @@ def _drive_pipeline(
         contract_thresholds: Dimension thresholds from the contract.
 
     Returns:
-        PipelineResult from the generator.
+        Tuple of (PipelineResult, _RunStats) from the generator.
     """
     result: PipelineResult | None = None
     stats = _RunStats()
@@ -314,12 +318,8 @@ def _drive_pipeline(
             match event.event_type:
                 case EventType.PIPELINE_STARTED:
                     if not quiet:
-                        contract_info = (
-                            f", contract: {contract_name}" if contract_name else ""
-                        )
-                        console.print(
-                            f"Pipeline started ({event.total} phases{contract_info})"
-                        )
+                        contract_info = f", contract: {contract_name}" if contract_name else ""
+                        console.print(f"Pipeline started ({event.total} phases{contract_info})")
 
                 case EventType.PHASE_STARTED:
                     tracker.start(event.phase)
@@ -335,27 +335,29 @@ def _drive_pipeline(
                 case EventType.PHASE_FAILED:
                     tracker.stop(event.phase)
                     if not quiet:
-                        console.print(
-                            f"  [red]\u2717[/red] {event.phase}: {event.error}"
-                        )
+                        console.print(f"  [red]\u2717[/red] {event.phase}: {event.error}")
                     stats.phase_errors.append((event.phase, event.error or "unknown error"))
 
                 case EventType.PHASE_SKIPPED:
                     if not quiet:
-                        console.print(
-                            f"  [yellow]\u25cb[/yellow] {event.phase}: {event.message}"
-                        )
+                        console.print(f"  [yellow]\u25cb[/yellow] {event.phase}: {event.message}")
 
                 case EventType.POST_VERIFICATION:
-                    if not quiet and event.scores:
-                        _print_post_verification(console, event)
+                    if event.scores:
+                        for dim in event.scores:
+                            if dim not in stats.first_scores:
+                                stats.first_scores[dim] = event.before_scores.get(
+                                    dim, event.scores[dim]
+                                )
 
                 case EventType.EXIT_CHECK:
                     if live:
                         deactivate_console()
                         live.stop()
                     resolution = handle_exit_check(
-                        console, event, gate_mode,
+                        console,
+                        event,
+                        gate_mode,
                         contract_thresholds=contract_thresholds,
                     )
                     event = gen.send(resolution)
@@ -389,12 +391,7 @@ def _drive_pipeline(
             error="Generator ended without returning a result",
         )
 
-    if not quiet:
-        _print_summary(
-            console, result, stats, contract_name, contract_thresholds or {}
-        )
-
-    return result
+    return result, stats
 
 
 def _match_threshold(dim: str, thresholds: dict[str, float]) -> float | None:
@@ -419,42 +416,13 @@ def _print_phase_completed(console: Console, event: PipelineEvent) -> None:
         console.print(f"    [yellow]! {warning}[/yellow]")
 
 
-def _print_post_verification(console: Console, event: PipelineEvent) -> None:
-    """Print post-verification entropy scores with deltas."""
-    before = event.before_scores
-    for dim, score in sorted(event.scores.items()):
-        if score < 0.2:
-            color = "green"
-        elif score < 0.5:
-            color = "yellow"
-        else:
-            color = "red"
-
-        prev = before.get(dim)
-        if prev is not None:
-            delta = score - prev
-            if delta < -0.005:
-                delta_str = f" [green]\u2193{abs(delta):.2f}[/green]"
-            elif delta > 0.005:
-                delta_str = f" [red]\u2191{delta:.2f}[/red]"
-            else:
-                delta_str = " [dim]==[/dim]"
-            console.print(
-                f"    [{color}]\u25c6[/{color}] {dim}: "
-                f"[dim]{prev:.2f}[/dim] \u2192 [{color}]{score:.2f}[/{color}]{delta_str}"
-            )
-        else:
-            console.print(
-                f"    [{color}]\u25c6[/{color}] {dim}: [{color}]{score:.2f}[/{color}]"
-            )
-
-
 def _print_summary(
     console: Console,
     result: PipelineResult,
     stats: _RunStats,
     contract_name: str | None = None,
     contract_thresholds: dict[str, float] | None = None,
+    output_dir: Path | None = None,
 ) -> None:
     """Print post-run summary with phase breakdown and data overview.
 
@@ -464,6 +432,7 @@ def _print_summary(
         stats: Accumulated stats from phase events.
         contract_name: Name of the evaluated contract.
         contract_thresholds: Dimension thresholds from the contract.
+        output_dir: Pipeline output directory (for fix command hint).
     """
     thresholds = contract_thresholds or {}
 
@@ -511,7 +480,7 @@ def _print_summary(
         console.print()
         header = "[bold]Entropy State[/bold]"
         if contract_name:
-            header += f" [dim][{contract_name}][/dim]"
+            header += f" [dim]\\[{contract_name}][/dim]"
         console.print(header)
         console.print("-" * 60)
 
@@ -530,6 +499,16 @@ def _print_summary(
             else:
                 color = "red"
 
+            # Delta from first measurement
+            prev = stats.first_scores.get(dim)
+            delta_str = ""
+            if prev is not None:
+                delta = score - prev
+                if delta < -0.005:
+                    delta_str = f" [green]\u2193{abs(delta):.2f}[/green]"
+                elif delta > 0.005:
+                    delta_str = f" [red]\u2191{delta:.2f}[/red]"
+
             threshold = _match_threshold(dim, thresholds)
             if threshold is not None:
                 evaluated += 1
@@ -538,15 +517,10 @@ def _print_summary(
                     mark = f"[green]\u2713[/green] [dim](<= {threshold:.2f})[/dim]"
                 else:
                     gap = score - threshold
-                    mark = (
-                        f"[red]\u2717[/red] [dim](<= {threshold:.2f}, "
-                        f"gap: {gap:.2f})[/dim]"
-                    )
-                console.print(
-                    f"  {label} [{color}]{score:.3f}[/{color}]  {bar}  {mark}"
-                )
+                    mark = f"[red]\u2717[/red] [dim](<= {threshold:.2f}, gap: {gap:.2f})[/dim]"
+                console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}  {mark}{delta_str}")
             else:
-                console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}")
+                console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}{delta_str}")
 
         # Show contracted dimensions that were never measured.
         # A threshold like "structural.types" is considered measured if any
@@ -559,9 +533,7 @@ def _print_summary(
             if not has_measurement:
                 not_measured += 1
                 label = dim[:34].ljust(34)
-                console.print(
-                    f"  {label} [dim]  ---   not measured[/dim]"
-                )
+                console.print(f"  {label} [dim]  ---   not measured[/dim]")
 
         total_contracted = evaluated + not_measured
         if total_contracted > 0:
@@ -572,9 +544,7 @@ def _print_summary(
                 compliance_color = "yellow"
             pct = round(100 * passing / total_contracted)
             console.print()
-            console.print(
-                f"  [{compliance_color}]Contract: {parts} ({pct}%)[/{compliance_color}]"
-            )
+            console.print(f"  [{compliance_color}]Contract: {parts} ({pct}%)[/{compliance_color}]")
 
     # Deferred issues
     if result.deferred_issues:
@@ -598,4 +568,12 @@ def _print_summary(
         console.print("[green]Pipeline completed successfully[/green]")
     else:
         console.print("[red]Pipeline completed with failures[/red]")
+
+    # Fix command hint (when there are deferred issues or high-entropy dimensions)
+    has_high_entropy = any(s >= 0.5 for s in result.final_scores.values())
+    if result.deferred_issues or has_high_entropy:
+        out = output_dir
+        console.print()
+        console.print("[dim]To improve data quality, document domain knowledge:[/dim]")
+        console.print(f"[dim]  dataraum fix {out}[/dim]")
     console.print()
