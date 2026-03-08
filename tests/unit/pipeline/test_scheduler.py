@@ -80,6 +80,16 @@ class MockPhase(BasePhase):
         return self._fix_handlers
 
 
+def _ensure_source(session: Session, source_id: str = "src-1") -> None:
+    """Ensure a Source row exists for FK-dependent writes (e.g. fix_ledger)."""
+    from dataraum.storage import Source
+
+    existing = session.get(Source, source_id)
+    if not existing:
+        session.add(Source(source_id=source_id, name=source_id, source_type="csv"))
+        session.flush()
+
+
 def _make_run(session: Session, source_id: str = "src-1") -> str:
     """Create a PipelineRun and return its run_id."""
     run_id = str(uuid4())
@@ -1012,6 +1022,7 @@ class TestFixResolution:
 
     def test_fix_calls_handler_and_resets_phase(self, session: Session, duckdb_conn):
         """FIX resolution calls handler, applies patches, resets affected phase."""
+        _ensure_source(session)
         run_id = _make_run(session)
         handler, calls = self._make_fix_handler(rerun_phase="alpha")
 
@@ -1076,8 +1087,18 @@ class TestFixResolution:
         # Pipeline succeeded (score now below threshold)
         assert result.success is True
 
+        # Fix was logged to ledger
+        from dataraum.documentation.ledger import get_active_fixes
+
+        fixes = get_active_fixes(session, "src-1")
+        assert len(fixes) == 1
+        assert fixes[0].action_name == "override_type"
+        assert fixes[0].table_name == "orders"
+        assert fixes[0].column_name == "amount"
+
     def test_fix_handler_not_found_continues(self, session: Session, duckdb_conn):
         """Unknown action_name in FIX resolution logs warning, doesn't crash."""
+        _ensure_source(session)
         run_id = _make_run(session)
         alpha = MockPhase("alpha", post_verification_dims=["type_fidelity"])
 
@@ -1109,6 +1130,7 @@ class TestFixResolution:
 
     def test_fix_invalidates_downstream(self, session: Session, duckdb_conn):
         """FIX resets affected phase and all downstream to PENDING."""
+        _ensure_source(session)
         run_id = _make_run(session)
         handler, _ = self._make_fix_handler(rerun_phase="alpha")
 
@@ -1163,6 +1185,7 @@ class TestFixResolution:
 
     def test_fix_multiple_attempts(self, session: Session, duckdb_conn):
         """If fix doesn't resolve violation, EXIT_CHECK fires again."""
+        _ensure_source(session)
         run_id = _make_run(session)
         handler, calls = self._make_fix_handler(rerun_phase="alpha")
 

@@ -353,11 +353,22 @@ def _run_fix_flow(
         console.print("[yellow]Fix cancelled, deferring.[/yellow]")
         return Resolution(action=ResolutionAction.DEFER)
 
+    # Thread entropy evidence into FixInput for audit trail
+    dim_path = action_info["dimension"]
+    evidence: dict[str, Any] = {}
+    score, threshold = event.violations.get(dim_path, (0.0, 0.0))
+    evidence["score"] = score
+    evidence["threshold"] = threshold
+    col_scores = event.column_details.get(dim_path, {})
+    if col_scores:
+        evidence["column_scores"] = col_scores
+
     fix_input = FixInput(
         action_name=interp.config_action or action_info["action_name"],
         parameters=interp.parameters,
         interpretation=interp.interpretation,
         affected_columns=interp.affected_columns,
+        entropy_evidence=evidence,
     )
 
     return Resolution(action=ResolutionAction.FIX, fix_inputs=[fix_input])

@@ -640,12 +640,13 @@ class PipelineScheduler:
         return []
 
     def _apply_fixes(self, fix_inputs: list[FixInput]) -> None:
-        """Apply fix inputs: call handlers, patch config, cleanup, reset.
+        """Apply fix inputs: call handlers, patch config, log to ledger, reset.
 
         After this method returns the scheduler loop naturally re-runs
         the reset phases, triggering fresh post-verification.
         """
         from dataraum.core.config import _get_config_root
+        from dataraum.documentation.ledger import log_fix
 
         config_root = _get_config_root()
         phases_to_rerun: set[str] = set()
@@ -667,6 +668,21 @@ class PipelineScheduler:
 
             if fix_result.requires_rerun:
                 phases_to_rerun.add(fix_result.requires_rerun)
+
+            # Log to fix ledger
+            for col_ref in fix_input.affected_columns or [fix_input.action_name]:
+                parts = col_ref.split(".", 1)
+                table_name = parts[0]
+                column_name = parts[1] if len(parts) > 1 else None
+                log_fix(
+                    session=self.session,
+                    source_id=self.source_id,
+                    action_name=fix_input.action_name,
+                    table_name=table_name,
+                    column_name=column_name,
+                    user_input=fix_input.interpretation,
+                    interpretation=fix_result.summary,
+                )
 
             logger.info(
                 "fix_applied",
@@ -713,20 +729,24 @@ class PipelineScheduler:
         from dataraum.entropy.detectors.base import get_default_registry
 
         registry = get_default_registry()
-        result: dict[str, list[dict[str, str]]] = {}
+        all_fixable = registry.get_fixable_actions()
 
-        # Build dim_path -> detector lookup
+        # Build dim_path -> detector lookup for matching issues
         detector_by_path = {
             d.dimension_path: d for d in registry.get_all_detectors()
         }
 
+        result: dict[str, list[dict[str, str]]] = {}
         for issue in issues:
             detector = detector_by_path.get(issue.dimension_path)
-            if detector and detector.fixable_actions:
-                result[issue.dimension_path] = [
+            if detector:
+                actions = [
                     {"action_name": action, "phase_name": phase}
-                    for action, phase in detector.fixable_actions.items()
+                    for action, (_, phase) in all_fixable.items()
+                    if action in detector.fixable_actions
                 ]
+                if actions:
+                    result[issue.dimension_path] = actions
 
         return result
 

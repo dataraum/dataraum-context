@@ -343,6 +343,7 @@ def _assess_column_quality_parallel(
     column_id: str,
     column_name: str,
     column_resolved_type: str,
+    skip_outliers: bool = False,
 ) -> tuple[str, str, BenfordAnalysis | None, OutlierDetection | None] | None:
     """Assess statistical quality for a single column in a worker thread.
 
@@ -368,22 +369,24 @@ def _assess_column_quality_parallel(
 
     cursor = duckdb_conn.cursor()
     try:
-        # Run Benford's Law test
+        # Run Benford's Law test (always — independent of outlier exclusion)
         benford_result = check_benford_law(table, column, cursor)  # type: ignore[arg-type]
         benford_analysis = benford_result.value if benford_result.success else None
 
-        # Run IQR outlier detection
-        iqr_result = detect_outliers_iqr(table, column, cursor)  # type: ignore[arg-type]
-        outlier_detection = iqr_result.value if iqr_result.success else None
+        outlier_detection: OutlierDetection | None = None
+        if not skip_outliers:
+            # Run IQR outlier detection
+            iqr_result = detect_outliers_iqr(table, column, cursor)  # type: ignore[arg-type]
+            outlier_detection = iqr_result.value if iqr_result.success else None
 
-        # Run Modified Z-Score outlier detection and merge into OutlierDetection
-        zscore_data = detect_outliers_zscore(table, column, cursor)  # type: ignore[arg-type]
-        if zscore_data and outlier_detection:
-            zscore_count, zscore_ratio, zscore_samples = zscore_data
-            outlier_detection.zscore_outlier_count = zscore_count
-            outlier_detection.zscore_outlier_ratio = zscore_ratio
-            if zscore_samples:
-                outlier_detection.outlier_samples.extend(zscore_samples)
+            # Run Modified Z-Score outlier detection and merge into OutlierDetection
+            zscore_data = detect_outliers_zscore(table, column, cursor)  # type: ignore[arg-type]
+            if zscore_data and outlier_detection:
+                zscore_count, zscore_ratio, zscore_samples = zscore_data
+                outlier_detection.zscore_outlier_count = zscore_count
+                outlier_detection.zscore_outlier_ratio = zscore_ratio
+                if zscore_samples:
+                    outlier_detection.outlier_samples.extend(zscore_samples)
 
         return (column_id, column_name, benford_analysis, outlier_detection)
     except Exception as e:
@@ -398,6 +401,7 @@ def assess_statistical_quality(
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: Session,
     max_workers: int = 4,
+    exclude_outlier_columns: set[str] | None = None,
 ) -> Result[list[StatisticalQualityResult]]:
     """Assess statistical quality for all numeric columns in a table.
 
@@ -415,6 +419,8 @@ def assess_statistical_quality(
         duckdb_conn: DuckDB connection
         session: SQLAlchemy session
         max_workers: Maximum parallel workers
+        exclude_outlier_columns: Columns to skip for outlier detection
+            (format: "table.column"). Benford analysis still runs.
 
     Returns:
         Result containing list of StatisticalQualityResult objects
@@ -472,6 +478,8 @@ def assess_statistical_quality(
         results: list[StatisticalQualityResult] = []
         computed_at = datetime.now(UTC)
 
+        _exclude = exclude_outlier_columns or set()
+
         # Use parallel processing with cursors from shared connection
         # DuckDB cursors are thread-safe for read operations
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -484,6 +492,7 @@ def assess_statistical_quality(
                     column.column_id,
                     column.column_name,
                     column.resolved_type,  # type: ignore[arg-type]  # filtered to numeric above
+                    f"{table.table_name}.{column.column_name}" in _exclude,
                 )
                 for column in numeric_columns
             ]

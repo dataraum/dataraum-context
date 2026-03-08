@@ -308,6 +308,19 @@ class DetectorRegistry:
         """
         return list({d.dimension for d in self.detectors.values() if d.layer == layer})
 
+    def get_fixable_actions(self) -> dict[str, tuple[str, str]]:
+        """Get all fixable actions across registered detectors.
+
+        Returns:
+            action_name -> (detector_id, phase_name) for actions that have
+            config-level fix handlers.
+        """
+        result: dict[str, tuple[str, str]] = {}
+        for detector in self.detectors.values():
+            for action_name, phase_name in detector.fixable_actions.items():
+                result[action_name] = (detector.detector_id, phase_name)
+        return result
+
 
 # Global registry instance
 _default_registry: DetectorRegistry | None = None

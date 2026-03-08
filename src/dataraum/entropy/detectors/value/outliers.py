@@ -35,6 +35,11 @@ class OutlierRateDetector(EntropyDetector):
     # Semantic roles where outlier detection is meaningless
     _SKIP_ROLES = frozenset({"key", "foreign_key"})
 
+    @property
+    def fixable_actions(self) -> dict[str, str]:
+        """Outlier exclusion is handled by the statistical_quality phase."""
+        return {"transform_exclude_outliers": "statistical_quality"}
+
     def load_data(self, context: DetectorContext) -> None:
         """Load statistics and semantic annotation for this column."""
         if context.session is None or context.column_id is None:
