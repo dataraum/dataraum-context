@@ -181,6 +181,19 @@ class EntropyDetector(ABC):
         )
 
     @property
+    def fixable_actions(self) -> dict[str, str]:
+        """Map action_name to the phase_name that can fix it.
+
+        Returns which resolution actions have config-level fix handlers
+        and which phase owns the handler. Actions not listed here are
+        document-only (domain knowledge capture via the fix ledger).
+
+        Default: empty (all actions are document-only).
+        Override in subclasses to declare fixable actions.
+        """
+        return {}
+
+    @property
     def dimension_path(self) -> str:
         """Get full dimension path."""
         return f"{self.layer}.{self.dimension}.{self.sub_dimension}"

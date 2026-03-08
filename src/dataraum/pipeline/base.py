@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from dataraum.core.connections import ConnectionManager
+    from dataraum.pipeline.fixes import FixInput, FixResult
 
 
 class PhaseStatus(str, Enum):
@@ -163,6 +164,11 @@ class Phase(Protocol):
     @property
     def post_verification(self) -> list[str]:
         """Detector sub_dimensions to re-measure after this phase completes."""
+        ...
+
+    @property
+    def fix_handlers(self) -> dict[str, Callable[[FixInput, dict], FixResult]]:
+        """Map action_name to handler function for config fixes."""
         ...
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
