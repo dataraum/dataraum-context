@@ -6,7 +6,7 @@ Generates clarifying questions, interprets answers, and logs fixes.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,32 @@ class DocumentFixQuestions(BaseModel):
 class DocumentFixInterpretation(BaseModel):
     """Structured interpretation of user answers."""
 
+    interpretation: str
+    confidence: Literal["high", "medium", "low"]
+    summary: str
+
+
+# --- Config fix tool schemas ---
+
+
+class ConfigFixQuestions(BaseModel):
+    """Questions generated for a config fix action."""
+
+    questions: list[ClarifyingQuestion]
+    context_summary: str
+    suggested_action: str = ""
+
+
+class ConfigFixInterpretation(BaseModel):
+    """Structured interpretation for config fix actions.
+
+    Unlike DocumentFixInterpretation, this includes structured parameters
+    suitable for passing to a phase fix handler via FixInput.
+    """
+
+    parameters: dict[str, Any]
+    config_action: str
+    affected_columns: list[str] = Field(default_factory=list)
     interpretation: str
     confidence: Literal["high", "medium", "low"]
     summary: str
@@ -184,3 +210,125 @@ class DocumentAgent:
             return Result.ok(output)
         except Exception as e:
             return Result.fail(f"Failed to parse interpretation: {e}")
+
+    # --- Config fix mode ---
+
+    def generate_config_questions(
+        self,
+        context: str,
+    ) -> Result[ConfigFixQuestions]:
+        """Generate questions for a config fix action.
+
+        Uses the config_fix prompt template. Questions focus on concrete
+        config decisions (which type, which columns to exclude, etc.)
+        rather than abstract domain knowledge.
+
+        Args:
+            context: Structured context string with action details,
+                entropy evidence, data profile, and semantic annotations.
+
+        Returns:
+            Result containing ConfigFixQuestions.
+        """
+        template_context = {
+            "mode": "questions",
+            "column_context": context,
+            "user_answers": "",
+        }
+
+        try:
+            system_prompt, user_prompt, temperature = self.renderer.render_split(
+                "config_fix", template_context
+            )
+        except Exception as e:
+            return Result.fail(f"Failed to render prompt: {e}")
+
+        tool = ToolDefinition(
+            name="config_fix_questions",
+            description="Generate questions about config changes to fix data quality issues.",
+            input_schema=ConfigFixQuestions.model_json_schema(),
+        )
+
+        request = ConversationRequest(
+            messages=[Message(role="user", content=user_prompt)],
+            system=system_prompt,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": "config_fix_questions"},
+            max_tokens=2048,
+            temperature=temperature,
+            model=self.model,
+        )
+
+        response_result = self.provider.converse(request)
+        if not response_result.success or not response_result.value:
+            return Result.fail(response_result.error or "LLM call failed")
+
+        response = response_result.value
+        if not response.tool_calls:
+            return Result.fail("LLM did not use the tool")
+
+        try:
+            output = ConfigFixQuestions.model_validate(response.tool_calls[0].input)
+            return Result.ok(output)
+        except Exception as e:
+            return Result.fail(f"Failed to parse config questions: {e}")
+
+    def interpret_config_answers(
+        self,
+        context: str,
+        user_answers: str,
+    ) -> Result[ConfigFixInterpretation]:
+        """Interpret user answers into structured config fix parameters.
+
+        Returns a ConfigFixInterpretation with structured parameters
+        suitable for passing directly to a phase fix handler via FixInput.
+
+        Args:
+            context: Structured context string.
+            user_answers: Formatted user answers to config questions.
+
+        Returns:
+            Result containing ConfigFixInterpretation.
+        """
+        template_context = {
+            "mode": "interpret",
+            "column_context": context,
+            "user_answers": user_answers,
+        }
+
+        try:
+            system_prompt, user_prompt, temperature = self.renderer.render_split(
+                "config_fix", template_context
+            )
+        except Exception as e:
+            return Result.fail(f"Failed to render prompt: {e}")
+
+        tool = ToolDefinition(
+            name="config_fix_interpretation",
+            description="Provide structured config fix parameters from user answers.",
+            input_schema=ConfigFixInterpretation.model_json_schema(),
+        )
+
+        request = ConversationRequest(
+            messages=[Message(role="user", content=user_prompt)],
+            system=system_prompt,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": "config_fix_interpretation"},
+            max_tokens=2048,
+            temperature=temperature,
+            model=self.model,
+        )
+
+        response_result = self.provider.converse(request)
+        if not response_result.success or not response_result.value:
+            return Result.fail(response_result.error or "LLM call failed")
+
+        response = response_result.value
+        if not response.tool_calls:
+            return Result.fail("LLM did not use the tool")
+
+        try:
+            output = ConfigFixInterpretation.model_validate(response.tool_calls[0].input)
+            return Result.ok(output)
+        except Exception as e:
+            return Result.fail(f"Failed to parse config interpretation: {e}")
