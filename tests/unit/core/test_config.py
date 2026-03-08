@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-import yaml
 
 from dataraum.core.config import (
     _get_config_root,

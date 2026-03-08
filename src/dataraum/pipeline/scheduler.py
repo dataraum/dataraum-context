@@ -688,7 +688,7 @@ class PipelineScheduler:
 
     def _find_fix_handler(
         self, action_name: str
-    ) -> tuple[Callable[[FixInput, dict], FixResult] | None, str]:
+    ) -> tuple[Callable[[FixInput, dict[str, Any]], FixResult] | None, str]:
         """Find the fix handler for an action by scanning phase fix_handlers.
 
         Returns:
