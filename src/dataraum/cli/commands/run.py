@@ -8,7 +8,7 @@ from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -215,6 +215,8 @@ def run(
             quiet=quiet,
             contract_name=setup.contract_name,
             contract_thresholds=setup.contract_thresholds,
+            session=setup.session,
+            source_id=setup.source_id,
         )
 
     # Update PipelineRun status (all phase data already committed incrementally)
@@ -291,6 +293,8 @@ def _drive_pipeline(
     quiet: bool = False,
     contract_name: str | None = None,
     contract_thresholds: dict[str, float] | None = None,
+    session: Any = None,
+    source_id: str | None = None,
 ) -> tuple[PipelineResult, _RunStats]:
     """Drive the scheduler generator, rendering events to the terminal.
 
@@ -301,6 +305,8 @@ def _drive_pipeline(
         quiet: Suppress progress output.
         contract_name: Name of the target contract (for summary display).
         contract_thresholds: Dimension thresholds from the contract.
+        session: DB session (required for PAUSE gate mode).
+        source_id: Source ID (required for PAUSE gate mode).
 
     Returns:
         Tuple of (PipelineResult, _RunStats) from the generator.
@@ -363,6 +369,8 @@ def _drive_pipeline(
                         event,
                         gate_mode,
                         contract_thresholds=contract_thresholds,
+                        session=session,
+                        source_id=source_id,
                     )
                     event = gen.send(resolution)
                     if live:
