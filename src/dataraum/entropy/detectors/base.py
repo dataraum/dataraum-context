@@ -90,13 +90,13 @@ class EntropyDetector(ABC):
     detector_id: str = "base"
     layer: str = ""  # structural, semantic, value, computational
     dimension: str = ""  # types, relations, units, etc.
-    sub_dimension: SubDimension | str = ""  # type_fidelity, naming_clarity, etc.
+    sub_dimension: SubDimension  # subclasses must set this
 
     # Target scope: "column" (per-column analysis) or "table" (cross-column analysis)
     scope: str = "column"
 
     # What analysis modules this detector requires
-    required_analyses: list[AnalysisKey] | list[str] = []
+    required_analyses: list[AnalysisKey] = []
 
     # Human-readable description
     description: str = ""
@@ -182,7 +182,7 @@ class EntropyDetector(ABC):
         )
 
     @property
-    def fixable_actions(self) -> set[FixAction] | set[str]:
+    def fixable_actions(self) -> set[FixAction]:
         """Action names that have config-level fix handlers.
 
         Actions not listed here are document-only (domain knowledge
@@ -318,8 +318,8 @@ class DetectorRegistry:
         """
         result: dict[str, str] = {}
         for detector in self.detectors.values():
-            for action_name in detector.fixable_actions:
-                result[action_name] = detector.detector_id
+            for action in detector.fixable_actions:
+                result[str(action)] = detector.detector_id
         return result
 
 

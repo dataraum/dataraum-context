@@ -70,16 +70,6 @@ class BasePhase(ABC):
         return []
 
     @property
-    def post_verification(self) -> list[str]:
-        """Deprecated — use produces_analyses instead.
-
-        The scheduler now auto-derives which detectors to run based on
-        accumulated AnalysisKey values from produces_analyses.
-        Kept for backward compatibility; returns empty list.
-        """
-        return []
-
-    @property
     def fix_handlers(self) -> dict[str, Callable[[FixInput, dict[str, Any]], FixResult]]:
         """Map action_name to a handler function that applies the fix.
 

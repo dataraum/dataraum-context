@@ -11,7 +11,18 @@ from __future__ import annotations
 from enum import Enum
 
 
-class AnalysisKey(str, Enum):
+class _StrValueMixin(str, Enum):
+    """Mixin that ensures str() returns the value, not the enum repr.
+
+    Python 3.12+ changed str(StrEnum) to return 'ClassName.MEMBER'.
+    We override __str__ so these enums remain drop-in for bare strings.
+    """
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+
+class AnalysisKey(_StrValueMixin):
     """Analysis outputs that phases produce and detectors consume."""
 
     TYPING = "typing"
@@ -25,7 +36,7 @@ class AnalysisKey(str, Enum):
     ENRICHED_VIEW = "enriched_view"
 
 
-class SubDimension(str, Enum):
+class SubDimension(_StrValueMixin):
     """Entropy sub-dimensions measured by detectors."""
 
     TYPE_FIDELITY = "type_fidelity"
@@ -44,7 +55,7 @@ class SubDimension(str, Enum):
     DIMENSION_COVERAGE = "dimension_coverage"
 
 
-class FixAction(str, Enum):
+class FixAction(_StrValueMixin):
     """Actions that detectors can flag as fixable."""
 
     TRANSFORM_EXCLUDE_OUTLIERS = "transform_exclude_outliers"

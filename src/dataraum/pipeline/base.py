@@ -168,11 +168,6 @@ class Phase(Protocol):
         ...
 
     @property
-    def post_verification(self) -> list[str]:
-        """Deprecated — use produces_analyses instead."""
-        ...
-
-    @property
     def fix_handlers(self) -> dict[str, Callable[[FixInput, dict[str, Any]], FixResult]]:
         """Map action_name to handler function for config fixes."""
         ...

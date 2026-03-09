@@ -11,6 +11,7 @@ lets each detector load only the data it needs.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -189,7 +190,7 @@ def take_snapshot(
     target: str,
     session: Session,
     duckdb_conn: Any = None,
-    dimensions: list[str] | None = None,
+    dimensions: Sequence[str] | None = None,
 ) -> Snapshot:
     """Run detectors on a target and return canonical scores.
 

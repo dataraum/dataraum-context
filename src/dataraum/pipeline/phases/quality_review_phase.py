@@ -1,8 +1,9 @@
 """Quality review checkpoint phase.
 
 A no-op phase that sits after semantic and before enriched_views.
-Its sole purpose is to run foundation entropy detectors in post_verification,
-creating the first quality gate checkpoint for the inline fix system.
+Its sole purpose is to act as a quality gate — the scheduler auto-derives
+which detectors to run, and this phase triggers contract assessment on all
+accumulated scores.
 
 In PAUSE gate mode, this is where the pipeline pauses to show all foundation
 entropy violations and allows the user to apply fixes before proceeding.
@@ -35,7 +36,7 @@ class QualityReviewPhase(BasePhase):
         return True
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
-        """No-op — the checkpoint's value is in post_verification."""
+        """No-op — the checkpoint's value is in being a quality gate."""
         return PhaseResult.success(summary="Quality review checkpoint")
 
     def should_skip(self, ctx: PhaseContext) -> str | None:

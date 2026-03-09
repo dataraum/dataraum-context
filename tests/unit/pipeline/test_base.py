@@ -49,9 +49,9 @@ class TestPhaseRegistry:
 
 
 class TestBasePhaseProperties:
-    """Tests for post_verification defaults and timing."""
+    """Tests for produces_analyses defaults and timing."""
 
-    def test_default_post_verification_empty(self):
+    def test_default_produces_analyses_empty(self):
         class DummyPhase(BasePhase):
             name = "dummy"
             description = "test"
@@ -62,7 +62,7 @@ class TestBasePhaseProperties:
                 return PhaseResult.success()
 
         phase = DummyPhase()
-        assert phase.post_verification == []
+        assert phase.produces_analyses == set()
 
     def test_run_measures_duration(self):
         """BasePhase.run() sets duration_seconds on the result."""

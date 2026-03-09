@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey, SubDimension
 from dataraum.pipeline.base import Phase, PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.cleanup import cleanup_phase
 from dataraum.pipeline.db_models import PhaseLog
@@ -38,7 +39,7 @@ class ExitCheckIssue:
     dimension_path: str  # e.g. "structural.types.type_fidelity"
     score: float
     threshold: float
-    producing_phase: str  # phase whose post_verification measured this
+    producing_phase: str  # phase after which this was measured
     affected_targets: list[str] = field(default_factory=list)
 
 
@@ -131,8 +132,8 @@ class PipelineScheduler:
         self._pending_issues: list[ExitCheckIssue] = []
         self._deferred_issues: list[ExitCheckIssue] = []
         self._step = 0
-        self._accumulated_analyses: set[str] = set()
-        self._measured_sub_dims: set[str] = set()
+        self._accumulated_analyses: set[AnalysisKey] = set()
+        self._measured_sub_dims: set[SubDimension] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -583,9 +584,10 @@ class PipelineScheduler:
         # Mark these sub-dimensions as measured
         self._measured_sub_dims.update(d.sub_dimension for d in newly_runnable)
 
-        # Build sub_dimension -> dimension_path mapping
-        sub_dim_to_path = {
-            d.sub_dimension: d.dimension_path
+        # Build sub_dimension -> dimension_path mapping (str keys for
+        # lookup against snapshot scores which are plain strings).
+        sub_dim_to_path: dict[str, str] = {
+            str(d.sub_dimension): d.dimension_path
             for d in registry.get_all_detectors()
         }
 
@@ -722,6 +724,7 @@ class PipelineScheduler:
         # Cleanup and reset affected phases + all downstream, then commit
         # so per-phase sessions (via session_factory) see the cleared state.
         try:
+            all_reset: set[str] = set()
             for phase_name in phases_to_rerun:
                 if phase_name in self.phases:
                     cleanup_phase(
@@ -729,6 +732,12 @@ class PipelineScheduler:
                     )
                     self._state[phase_name] = PhaseStatus.PENDING
                     self._invalidate_downstream(phase_name)
+                    all_reset.add(phase_name)
+                    all_reset.update(self._transitive_dependents(phase_name))
+
+            # Roll back accumulated analyses and measured sub-dimensions
+            # so auto-derive re-runs the affected detectors.
+            self._rollback_auto_derive(all_reset)
 
             if phases_to_rerun:
                 self.session.commit()
@@ -782,7 +791,7 @@ class PipelineScheduler:
             detector = detector_by_path.get(issue.dimension_path)
             if detector:
                 actions = [
-                    {"action_name": action, "phase_name": handler_phases[action]}
+                    {"action_name": str(action), "phase_name": handler_phases[action]}
                     for action in detector.fixable_actions
                     if action in handler_phases
                 ]
@@ -790,6 +799,43 @@ class PipelineScheduler:
                     result[issue.dimension_path] = actions
 
         return result
+
+    def _rollback_auto_derive(self, reset_phases: set[str]) -> None:
+        """Roll back auto-derive state for reset phases.
+
+        Removes accumulated analyses produced by reset phases and clears
+        measured sub-dimensions for detectors whose required analyses are
+        no longer fully satisfied. Also removes stale scores.
+        """
+        from dataraum.entropy.detectors.base import get_default_registry
+
+        # Remove analyses produced by reset phases
+        for pname in reset_phases:
+            phase = self.phases.get(pname)
+            if phase:
+                for key in phase.produces_analyses:
+                    self._accumulated_analyses.discard(key)
+
+        # Find detectors whose requirements are no longer met
+        registry = get_default_registry()
+        to_remeasure: set[SubDimension] = set()
+        for detector in registry.get_all_detectors():
+            if detector.sub_dimension not in self._measured_sub_dims:
+                continue
+            if not all(a in self._accumulated_analyses for a in detector.required_analyses):
+                to_remeasure.add(detector.sub_dimension)
+
+        # Clear measured state and stale scores
+        self._measured_sub_dims -= to_remeasure
+        sub_dim_to_path: dict[str, str] = {
+            str(d.sub_dimension): d.dimension_path
+            for d in registry.get_all_detectors()
+        }
+        for sd in to_remeasure:
+            path = sub_dim_to_path.get(str(sd))
+            if path:
+                self._scores.pop(path, None)
+                self._column_details.pop(path, None)
 
     def _invalidate_downstream(self, phase_name: str) -> None:
         """Reset downstream phases to PENDING so they re-run.
