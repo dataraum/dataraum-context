@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import builtins
 import html as html_mod
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -47,9 +48,15 @@ class Context:
     def manager(self) -> ConnectionManager:
         """Get the connection manager (lazy initialization)."""
         if self._manager is None:
-            from dataraum.cli.common import get_manager
+            from dataraum.core.connections import get_manager_for_directory
 
-            self._manager = get_manager(self._output_dir)
+            try:
+                self._manager = get_manager_for_directory(self._output_dir)
+            except FileNotFoundError:
+                raise RuntimeError(
+                    f"No pipeline output found at {self._output_dir}. "
+                    "Run ctx.run() first or point to an existing output directory."
+                ) from None
         return self._manager
 
     def close(self) -> None:
@@ -150,27 +157,32 @@ class Context:
         # Drive the scheduler generator (no interactive gates — skip all)
         gen = setup.scheduler.run()
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
-            warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
+                warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
 
-            result: PipelineResult | None = None
-            try:
-                event = next(gen)
-                while True:
-                    from dataraum.pipeline.events import EventType
+                result: PipelineResult | None = None
+                try:
+                    event = next(gen)
+                    while True:
+                        from dataraum.pipeline.events import EventType
 
-                    if event.event_type == EventType.EXIT_CHECK:
-                        event = gen.send(Resolution(action=ResolutionAction.DEFER))
-                    else:
-                        event = next(gen)
-            except StopIteration as e:
-                result = e.value
+                        if event.event_type == EventType.EXIT_CHECK:
+                            event = gen.send(Resolution(action=ResolutionAction.DEFER))
+                        else:
+                            event = next(gen)
+                except StopIteration as e:
+                    result = e.value
+        finally:
+            # Close the setup's own connections (not self._manager)
+            setup.session.close()
+            setup.manager.close()
 
-        # Invalidate cached manager so it picks up new data
-        if self._manager is not None:
-            self._manager.close()
-            self._manager = None
+            # Invalidate cached manager so it picks up new data
+            if self._manager is not None:
+                self._manager.close()
+                self._manager = None
 
         if result is None:
             return RunResultWrapper(
@@ -608,8 +620,6 @@ class ContractsAccessor:
 class SourcesAccessor:
     """Accessor for source management."""
 
-    _List = builtins.list  # avoid shadowing by the list() method
-
     def __init__(self, ctx: Context) -> None:
         self._ctx = ctx
 
@@ -867,7 +877,7 @@ class ActionsResultWrapper:
     def __len__(self) -> int:
         return len(self._actions)
 
-    def __iter__(self) -> Any:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         return iter(self._actions)
 
     def __getitem__(self, index: int) -> dict[str, Any]:
@@ -888,11 +898,10 @@ class ActionsResultWrapper:
             score = action.get("priority_score", 0)
             effort = action.get("effort", "?")
             cols = len(action.get("affected_columns", []))
-            sc = _score_color(score)
             parts.append(
                 f"<tr><td>{i}</td>"
                 f"<td>{html_mod.escape(action.get('action', ''))}</td>"
-                f"<td style='color:{sc}'>{score:.3f}</td>"
+                f"<td>{score:.3f}</td>"
                 f"<td>{html_mod.escape(str(effort))}</td>"
                 f"<td>{cols}</td></tr>"
             )
@@ -916,6 +925,14 @@ class RunResultWrapper:
     def __contains__(self, key: str) -> bool:
         return key in self._data
 
+    def keys(self) -> Any:
+        """Dict-like keys access."""
+        return self._data.keys()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-like get."""
+        return self._data.get(key, default)
+
     @property
     def success(self) -> bool:
         """Whether the pipeline succeeded."""
@@ -936,8 +953,9 @@ class RunResultWrapper:
         ]
 
         if failed:
+            escaped_failed = ", ".join(html_mod.escape(p) for p in failed)
             parts.append(
-                f"<b style='color:#e74c3c'>Failed:</b> {', '.join(failed)}<br>"
+                f"<b style='color:#e74c3c'>Failed:</b> {escaped_failed}<br>"
             )
 
         error = self._data.get("error")
