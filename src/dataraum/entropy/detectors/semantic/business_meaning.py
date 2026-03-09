@@ -13,6 +13,7 @@ Scoring formula (additive):
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -33,8 +34,8 @@ class BusinessMeaningDetector(EntropyDetector):
     detector_id = "business_meaning"
     layer = "semantic"
     dimension = "business_meaning"
-    sub_dimension = "naming_clarity"
-    required_analyses = ["semantic"]
+    sub_dimension = SubDimension.NAMING_CLARITY
+    required_analyses = [AnalysisKey.SEMANTIC]
     description = "Measures clarity of business meaning and description"
 
     def load_data(self, context: DetectorContext) -> None:

@@ -22,6 +22,7 @@ from dataraum.analysis.semantic.column_agent import ColumnAnnotationAgent
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.semantic.processor import enrich_semantic
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -56,8 +57,8 @@ class SemanticPhase(BasePhase):
         return ["relationships"]
 
     @property
-    def post_verification(self) -> list[str]:
-        return ["naming_clarity", "unit_declaration", "time_role"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.SEMANTIC}
 
     @property
     def db_models(self) -> list[ModuleType]:

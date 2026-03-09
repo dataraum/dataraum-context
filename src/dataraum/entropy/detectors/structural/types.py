@@ -6,6 +6,7 @@ High parse failure rate indicates the detected type may not be correct.
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -24,8 +25,8 @@ class TypeFidelityDetector(EntropyDetector):
     detector_id = "type_fidelity"
     layer = "structural"
     dimension = "types"
-    sub_dimension = "type_fidelity"
-    required_analyses = ["typing"]
+    sub_dimension = SubDimension.TYPE_FIDELITY
+    required_analyses = [AnalysisKey.TYPING]
     description = "Measures uncertainty in type inference based on parse success rate"
 
     def load_data(self, context: DetectorContext) -> None:

@@ -8,6 +8,7 @@ from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, FixAction, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -28,17 +29,17 @@ class OutlierRateDetector(EntropyDetector):
     detector_id = "outlier_rate"
     layer = "value"
     dimension = "outliers"
-    sub_dimension = "outlier_rate"
-    required_analyses = ["statistics", "semantic"]
+    sub_dimension = SubDimension.OUTLIER_RATE
+    required_analyses = [AnalysisKey.STATISTICS, AnalysisKey.SEMANTIC]
     description = "Measures uncertainty from outlier values"
 
     # Semantic roles where outlier detection is meaningless
     _SKIP_ROLES = frozenset({"key", "foreign_key"})
 
     @property
-    def fixable_actions(self) -> set[str]:
+    def fixable_actions(self) -> set[FixAction]:
         """Outlier exclusion is handled by the statistical_quality phase."""
-        return {"transform_exclude_outliers"}
+        return {FixAction.TRANSFORM_EXCLUDE_OUTLIERS}
 
     def load_data(self, context: DetectorContext) -> None:
         """Load statistics and semantic annotation for this column."""

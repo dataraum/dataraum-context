@@ -20,6 +20,7 @@ from dataraum.analysis.correlation import analyze_correlations
 from dataraum.analysis.correlation.db_models import DerivedColumn
 from dataraum.analysis.correlation.processor import analyze_enriched_correlations
 from dataraum.analysis.views.db_models import EnrichedView
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
@@ -47,8 +48,8 @@ class CorrelationsPhase(BasePhase):
         return ["enriched_views"]
 
     @property
-    def post_verification(self) -> list[str]:
-        return ["formula_match"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.CORRELATION}
 
     @property
     def db_models(self) -> list[ModuleType]:

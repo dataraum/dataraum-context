@@ -17,30 +17,13 @@ class TestQualityReviewPhase:
         assert "semantic" in phase.dependencies
         assert "statistical_quality" in phase.dependencies
 
-    def test_post_verification_lists_foundation_detectors(self) -> None:
+    def test_is_quality_gate(self) -> None:
         phase = QualityReviewPhase()
-        pv = phase.post_verification
-        # Structural
-        assert "type_fidelity" in pv
-        assert "join_path_determinism" in pv
-        assert "relationship_quality" in pv
-        # Value
-        assert "null_ratio" in pv
-        assert "outlier_rate" in pv
-        # Semantic
-        assert "naming_clarity" in pv
-        assert "unit_declaration" in pv
-        assert "time_role" in pv
+        assert phase.is_quality_gate is True
 
-    def test_post_verification_excludes_later_detectors(self) -> None:
+    def test_produces_no_analyses(self) -> None:
         phase = QualityReviewPhase()
-        pv = phase.post_verification
-        # These need data from phases after quality_review
-        assert "dimension_coverage" not in pv
-        assert "formula_match" not in pv
-        assert "temporal_drift" not in pv
-        assert "cross_column_patterns" not in pv
-        assert "column_quality" not in pv
+        assert phase.produces_analyses == set()
 
     def test_run_is_noop(self) -> None:
         phase = QualityReviewPhase()

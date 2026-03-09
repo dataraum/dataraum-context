@@ -26,6 +26,7 @@ from dataraum.analysis.temporal_slicing.analyzer import (
 )
 from dataraum.analysis.temporal_slicing.models import TemporalSliceConfig, TimeGrain
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
@@ -68,8 +69,8 @@ class TemporalSliceAnalysisPhase(BasePhase):
         return ["slice_analysis", "temporal"]
 
     @property
-    def post_verification(self) -> list[str]:
-        return ["temporal_drift"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.DRIFT_SUMMARIES}
 
     @property
     def db_models(self) -> list[ModuleType]:

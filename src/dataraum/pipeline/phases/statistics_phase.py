@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from dataraum.analysis.statistics import profile_statistics
 from dataraum.analysis.statistics.db_models import StatisticalProfile
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
@@ -44,8 +45,8 @@ class StatisticsPhase(BasePhase):
         return ["typing"]
 
     @property
-    def post_verification(self) -> list[str]:
-        return ["null_ratio"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.STATISTICS}
 
     @property
     def db_models(self) -> list[ModuleType]:

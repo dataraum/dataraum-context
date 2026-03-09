@@ -30,27 +30,9 @@ class QualityReviewPhase(BasePhase):
         return ["semantic", "statistical_quality"]
 
     @property
-    def post_verification(self) -> list[str]:
-        """Foundation detectors whose input data is available at this point.
-
-        Only includes detectors that can run after import through semantic.
-        Detectors that need enriched_views, correlations, quality_summary, etc.
-        are NOT included — those belong to Gate 2 (analysis_review).
-        """
-        return [
-            # structural
-            "type_fidelity",
-            "join_path_determinism",
-            "relationship_quality",
-            # value
-            "null_ratio",
-            "outlier_rate",
-            "benford_compliance",
-            # semantic
-            "naming_clarity",
-            "unit_declaration",
-            "time_role",
-        ]
+    def is_quality_gate(self) -> bool:
+        """Quality gates assess ALL accumulated scores against contracts."""
+        return True
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
         """No-op — the checkpoint's value is in post_verification."""

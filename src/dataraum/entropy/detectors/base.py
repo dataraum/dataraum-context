@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from dataraum.entropy.dimensions import AnalysisKey, FixAction, SubDimension
 from dataraum.entropy.models import (
     EntropyObject,
     ResolutionOption,
@@ -89,13 +90,13 @@ class EntropyDetector(ABC):
     detector_id: str = "base"
     layer: str = ""  # structural, semantic, value, computational
     dimension: str = ""  # types, relations, units, etc.
-    sub_dimension: str = ""  # type_fidelity, naming_clarity, etc.
+    sub_dimension: SubDimension | str = ""  # type_fidelity, naming_clarity, etc.
 
     # Target scope: "column" (per-column analysis) or "table" (cross-column analysis)
     scope: str = "column"
 
     # What analysis modules this detector requires
-    required_analyses: list[str] = []
+    required_analyses: list[AnalysisKey] | list[str] = []
 
     # Human-readable description
     description: str = ""
@@ -181,7 +182,7 @@ class EntropyDetector(ABC):
         )
 
     @property
-    def fixable_actions(self) -> set[str]:
+    def fixable_actions(self) -> set[FixAction] | set[str]:
         """Action names that have config-level fix handlers.
 
         Actions not listed here are document-only (domain knowledge

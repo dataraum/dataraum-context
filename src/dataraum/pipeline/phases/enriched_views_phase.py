@@ -32,6 +32,7 @@ from dataraum.analysis.views.db_models import EnrichedView
 from dataraum.analysis.views.enrichment_agent import EnrichmentAgent
 from dataraum.analysis.views.enrichment_models import EnrichmentAnalysisResult
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
@@ -64,8 +65,8 @@ class EnrichedViewsPhase(BasePhase):
         return "Create enriched views joining fact + dimension tables"
 
     @property
-    def post_verification(self) -> list[str]:
-        return ["dimension_coverage"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.ENRICHED_VIEW}
 
     @property
     def dependencies(self) -> list[str]:

@@ -13,6 +13,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 
 if TYPE_CHECKING:
@@ -51,6 +52,15 @@ class BasePhase(ABC):
         ...
 
     @property
+    def produces_analyses(self) -> set[AnalysisKey]:
+        """Analysis keys this phase produces. Override in subclasses.
+
+        Used by the scheduler to auto-derive which entropy detectors
+        should run after each phase completes.
+        """
+        return set()
+
+    @property
     def db_models(self) -> list[ModuleType]:
         """Modules containing SQLAlchemy models owned by this phase.
 
@@ -61,11 +71,11 @@ class BasePhase(ABC):
 
     @property
     def post_verification(self) -> list[str]:
-        """Detector sub_dimensions to re-measure after this phase completes.
+        """Deprecated — use produces_analyses instead.
 
-        Used to verify that this phase improved (or at least didn't worsen)
-        the specified entropy dimensions.
-        Default: empty (no post-verification).
+        The scheduler now auto-derives which detectors to run based on
+        accumulated AnalysisKey values from produces_analyses.
+        Kept for backward compatibility; returns empty list.
         """
         return []
 

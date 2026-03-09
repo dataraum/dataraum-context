@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from dataraum.core.connections import ConnectionManager
+    from dataraum.entropy.dimensions import AnalysisKey
     from dataraum.pipeline.fixes import FixInput, FixResult
 
 
@@ -162,8 +163,13 @@ class Phase(Protocol):
         ...
 
     @property
+    def produces_analyses(self) -> set[AnalysisKey]:
+        """Analysis keys this phase produces (used for auto-derive)."""
+        ...
+
+    @property
     def post_verification(self) -> list[str]:
-        """Detector sub_dimensions to re-measure after this phase completes."""
+        """Deprecated — use produces_analyses instead."""
         ...
 
     @property

@@ -12,6 +12,7 @@ from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -35,8 +36,8 @@ class RelationshipEntropyDetector(EntropyDetector):
     detector_id = "relationship_entropy"
     layer = "structural"
     dimension = "relations"
-    sub_dimension = "relationship_quality"
-    required_analyses = ["relationships"]
+    sub_dimension = SubDimension.RELATIONSHIP_QUALITY
+    required_analyses = [AnalysisKey.RELATIONSHIPS]
     description = "Measures relationship quality from evaluation metrics"
 
     def load_data(self, context: DetectorContext) -> None:

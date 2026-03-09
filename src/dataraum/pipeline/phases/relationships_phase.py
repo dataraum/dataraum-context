@@ -17,6 +17,7 @@ from dataraum.analysis.relationships import detect_relationships
 from dataraum.analysis.relationships.db_models import Relationship
 from dataraum.core.config import load_phase_config
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
@@ -46,8 +47,8 @@ class RelationshipsPhase(BasePhase):
         return ["column_eligibility"]
 
     @property
-    def post_verification(self) -> list[str]:
-        return ["join_path_determinism", "relationship_quality"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.RELATIONSHIPS}
 
     @property
     def db_models(self) -> list[ModuleType]:

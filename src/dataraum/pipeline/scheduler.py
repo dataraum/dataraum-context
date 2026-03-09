@@ -131,6 +131,8 @@ class PipelineScheduler:
         self._pending_issues: list[ExitCheckIssue] = []
         self._deferred_issues: list[ExitCheckIssue] = []
         self._step = 0
+        self._accumulated_analyses: set[str] = set()
+        self._measured_sub_dims: set[str] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -324,29 +326,33 @@ class PipelineScheduler:
         if result.outputs and "entropy_scores" in result.outputs:
             self._scores.update(result.outputs["entropy_scores"])
 
-        # Post-verify (run detectors)
-        # Capture previous scores before _post_verify updates self._scores
-        dims_to_verify = self.phases[phase_name].post_verification
-        before = {
-            dim: score for dim, score in self._scores.items()
-            if any(dim.endswith(d) for d in dims_to_verify)
-        } if dims_to_verify else {}
-        scores = self._post_verify(phase_name)
+        # Auto-derive: accumulate analyses, then run newly-runnable detectors
+        phase = self.phases[phase_name]
+        self._accumulated_analyses.update(phase.produces_analyses)
+
+        before = dict(self._scores)
+        scores = self._auto_post_verify(phase_name)
         if scores:
+            before_scores = {k: v for k, v in before.items() if k in scores}
             yield self._event(
                 EventType.POST_VERIFICATION,
                 phase=phase_name,
                 total=total,
                 scores=scores,
-                before_scores=before,
+                before_scores=before_scores,
             )
 
-        # Assess contract impact on newly produced scores
-        phase_scores = dict(scores)
-        if result.outputs and "entropy_scores" in result.outputs:
-            phase_scores.update(result.outputs["entropy_scores"])
-        issues = self._assess_impact(phase_scores, phase_name)
-        self._pending_issues.extend(issues)
+        # Quality gate: assess ALL accumulated scores against contracts
+        if getattr(phase, "is_quality_gate", False):
+            issues = self._assess_impact(dict(self._scores), phase_name)
+            self._pending_issues.extend(issues)
+        else:
+            # Normal phase: only assess newly produced scores
+            phase_scores = dict(scores)
+            if result.outputs and "entropy_scores" in result.outputs:
+                phase_scores.update(result.outputs["entropy_scores"])
+            issues = self._assess_impact(phase_scores, phase_name)
+            self._pending_issues.extend(issues)
 
     def _run_sequential(
         self, phase_names: list[str], total: int
@@ -465,18 +471,14 @@ class PipelineScheduler:
         self.session.add(log)
         self.session.commit()
 
-    def _post_verify(self, phase_name: str) -> dict[str, float]:
-        """Run detectors for dimensions listed in phase.post_verification.
+    def _auto_post_verify(self, phase_name: str) -> dict[str, float]:
+        """Run detectors whose required analyses are now fully accumulated.
 
-        Dispatches column-scoped and table-scoped detectors separately:
-        - Column dims: snapshot per column on each typed table
-        - Table dims: snapshot per typed table (cross-column analysis)
+        After each phase, checks which detectors have all their
+        required_analyses satisfied and haven't been measured yet.
+        Dispatches column-scoped, table-scoped, and view-scoped
+        detectors to the appropriate targets.
         """
-        phase = self.phases[phase_name]
-        dims = phase.post_verification
-        if not dims:
-            return {}
-
         from dataraum.entropy.detectors.base import get_default_registry
         from dataraum.entropy.snapshot import take_snapshot
         from dataraum.storage.models import Column as ColumnModel
@@ -484,12 +486,25 @@ class PipelineScheduler:
 
         registry = get_default_registry()
 
-        # Partition dims into column vs table scope
-        table_sub_dims = {
-            d.sub_dimension for d in registry.get_all_detectors() if d.scope == "table"
-        }
-        col_dims = [d for d in dims if d not in table_sub_dims]
-        tbl_dims = [d for d in dims if d in table_sub_dims]
+        # Find newly-runnable detectors
+        newly_runnable = []
+        for detector in registry.get_all_detectors():
+            if detector.sub_dimension in self._measured_sub_dims:
+                continue  # already measured
+            if all(a in self._accumulated_analyses for a in detector.required_analyses):
+                newly_runnable.append(detector)
+
+        if not newly_runnable:
+            return {}
+
+        # Partition by scope
+        col_detectors = [d for d in newly_runnable if d.scope == "column"]
+        tbl_detectors = [d for d in newly_runnable if d.scope == "table"]
+        view_detectors = [d for d in newly_runnable if d.scope == "view"]
+
+        col_dims = [d.sub_dimension for d in col_detectors]
+        tbl_dims = [d.sub_dimension for d in tbl_detectors]
+        view_dims = [d.sub_dimension for d in view_detectors]
 
         # Get all typed tables for this source
         typed_tables = (
@@ -541,9 +556,6 @@ class PipelineScheduler:
                     scores_by_dim[sub_dim].append(score)
 
         # View-scoped pass
-        view_sub_dims = {d.sub_dimension for d in registry.get_all_detectors() if d.scope == "view"}
-        view_dims = [d for d in dims if d in view_sub_dims]
-
         if view_dims:
             from dataraum.analysis.views.db_models import EnrichedView
 
@@ -568,6 +580,9 @@ class PipelineScheduler:
                 for sub_dim, score in snapshot.scores.items():
                     scores_by_dim[sub_dim].append(score)
 
+        # Mark these sub-dimensions as measured
+        self._measured_sub_dims.update(d.sub_dimension for d in newly_runnable)
+
         # Build sub_dimension -> dimension_path mapping
         sub_dim_to_path = {
             d.sub_dimension: d.dimension_path
@@ -582,8 +597,7 @@ class PipelineScheduler:
             result[path] = mean_score
             self._scores[path] = mean_score
 
-        # Merge per-column details keyed by dimension_path (not replace,
-        # so that multiple phases in the same wave accumulate correctly)
+        # Merge per-column details keyed by dimension_path
         for sd, targets in column_scores.items():
             path = sub_dim_to_path.get(sd, sd)
             self._column_details[path] = targets

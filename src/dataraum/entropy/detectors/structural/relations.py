@@ -10,6 +10,7 @@ from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -29,8 +30,8 @@ class JoinPathDeterminismDetector(EntropyDetector):
     detector_id = "join_path_determinism"
     layer = "structural"
     dimension = "relations"
-    sub_dimension = "join_path_determinism"
-    required_analyses = ["relationships"]
+    sub_dimension = SubDimension.JOIN_PATH_DETERMINISM
+    required_analyses = [AnalysisKey.RELATIONSHIPS]
     description = "Measures ambiguity in join paths (not just connectivity)"
 
     def load_data(self, context: DetectorContext) -> None:

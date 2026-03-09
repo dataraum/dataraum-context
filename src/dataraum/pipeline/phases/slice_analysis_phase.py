@@ -16,6 +16,7 @@ from dataraum.analysis.slicing.slice_runner import (
     register_slice_tables,
     run_analysis_on_slices,
 )
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
@@ -40,6 +41,10 @@ class SliceAnalysisPhase(BasePhase):
     @property
     def description(self) -> str:
         return "Execute slice SQL and analyze slice tables"
+
+    @property
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.SLICE_VARIANCE}
 
     @property
     def dependencies(self) -> list[str]:

@@ -14,6 +14,7 @@ Source: typing.detected_unit, typing.unit_confidence, semantic.semantic_role,
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -35,8 +36,8 @@ class UnitEntropyDetector(EntropyDetector):
     detector_id = "unit_entropy"
     layer = "semantic"
     dimension = "units"
-    sub_dimension = "unit_declaration"
-    required_analyses = ["typing", "semantic"]
+    sub_dimension = SubDimension.UNIT_DECLARATION
+    required_analyses = [AnalysisKey.TYPING, AnalysisKey.SEMANTIC]
     description = "Measures whether numeric columns have declared units"
 
     def load_data(self, context: DetectorContext) -> None:
