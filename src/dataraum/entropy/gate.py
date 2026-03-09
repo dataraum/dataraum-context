@@ -211,6 +211,10 @@ def match_threshold(
 ) -> float | None:
     """Find contract threshold by prefix match.
 
+    Single source of truth for threshold resolution, used by gate
+    assessment (``assess_contracts``), contract evaluation, and CLI
+    display (``render_gate_scores``, ``_print_summary``).
+
     Given "structural.types.type_fidelity", checks for thresholds at:
     - "structural.types.type_fidelity" (exact)
     - "structural.types" (prefix)

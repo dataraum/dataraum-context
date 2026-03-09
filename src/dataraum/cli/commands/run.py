@@ -18,6 +18,7 @@ from rich.text import Text
 from dataraum.cli.common import console, setup_logging
 from dataraum.cli.gate_handler import handle_exit_check
 from dataraum.core.logging import LogBuffer, activate_console, deactivate_console
+from dataraum.entropy.gate import match_threshold
 from dataraum.pipeline.events import EventType, PipelineEvent
 from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import PipelineResult, Resolution
@@ -419,13 +420,6 @@ def _drive_pipeline(
     return result, stats
 
 
-def _match_threshold(dim: str, thresholds: dict[str, float]) -> float | None:
-    """Find threshold by prefix match."""
-    from dataraum.entropy.gate import match_threshold
-
-    return match_threshold(dim, thresholds)
-
-
 def _print_phase_completed(console: Console, event: PipelineEvent) -> None:
     """Print phase completion with summary."""
     line = f"  [green]\u2713[/green] {event.phase} ({event.duration_seconds:.1f}s)"
@@ -531,7 +525,7 @@ def _print_summary(
                 elif delta > 0.005:
                     delta_str = f" [red]\u2191{delta:.2f}[/red]"
 
-            threshold = _match_threshold(dim, thresholds)
+            threshold = match_threshold(dim, thresholds)
             if threshold is not None:
                 evaluated += 1
                 if score <= threshold:

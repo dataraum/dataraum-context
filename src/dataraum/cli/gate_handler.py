@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from dataraum.entropy.gate import match_threshold
 from dataraum.pipeline.events import PipelineEvent
 from dataraum.pipeline.fixes import FixInput
 from dataraum.pipeline.runner import GateMode
@@ -102,7 +103,7 @@ def render_gate_scores(
     passing = 0
 
     for dim_path, score in sorted(scores.items()):
-        threshold = _match_threshold(dim_path, thresholds)
+        threshold = match_threshold(dim_path, thresholds)
         filled = round(score * 10)
         bar = "\u2593" * filled + "\u2591" * (10 - filled)
 
@@ -218,7 +219,7 @@ def render_violations(
         for dim_path, score in sorted(all_scores.items()):
             if dim_path in violations:
                 continue
-            matched = _match_threshold(dim_path, contract_thresholds)
+            matched = match_threshold(dim_path, contract_thresholds)
             if matched is not None:
                 threshold = matched
                 headroom = threshold - score
@@ -253,15 +254,6 @@ def render_violations(
             padding=(1, 2),
         )
     )
-
-
-def _match_threshold(
-    dimension_path: str, thresholds: dict[str, float]
-) -> float | None:
-    """Match a dimension path to a threshold using prefix matching."""
-    from dataraum.entropy.gate import match_threshold
-
-    return match_threshold(dimension_path, thresholds)
 
 
 # ---------------------------------------------------------------------------
