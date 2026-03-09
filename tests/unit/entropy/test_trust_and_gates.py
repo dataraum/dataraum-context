@@ -18,6 +18,8 @@ ALL_DETECTOR_IDS = {
     "unit_entropy",
     "temporal_entropy",
     "dimensional_entropy",
+    "column_quality",
+    "dimension_coverage",
 }
 
 

@@ -62,6 +62,7 @@ class TestNodeQueries:
             "time_role",
             "temporal_drift",
             "benford_compliance",
+            "dimension_coverage",
         }
         assert set(roots) == expected
 
