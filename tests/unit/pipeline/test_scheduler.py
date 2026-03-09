@@ -316,7 +316,7 @@ class TestContractExitCheck:
     def test_no_contract_no_exit_check(self, session: Session, duckdb_conn):
         """Without contract thresholds, no EXIT_CHECK events."""
         run_id = _make_run(session)
-        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
             source_id="src-1",
@@ -325,17 +325,16 @@ class TestContractExitCheck:
             duckdb_conn=duckdb_conn,
             # No contract_thresholds
         )
-        # Mock _post_verify to return scores without needing real typed tables
-        with patch.object(scheduler, "_auto_post_verify", return_value={"structural.types.type_fidelity": 0.8}):
+        with patch.object(scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}):
             events, result = _drive(scheduler.run())
 
         types = [e.event_type for e in events]
         assert EventType.EXIT_CHECK not in types
 
     def test_exit_check_fires(self, session: Session, duckdb_conn):
-        """Post-verify score exceeds contract → EXIT_CHECK yielded."""
+        """Gate score exceeds contract → EXIT_CHECK yielded."""
         run_id = _make_run(session)
-        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
             source_id="src-1",
@@ -345,7 +344,7 @@ class TestContractExitCheck:
             contract_thresholds={"structural.types": 0.3},
         )
         with patch.object(
-            scheduler, "_auto_post_verify", return_value={"structural.types.type_fidelity": 0.8}
+            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
         ):
             events, result = _drive(scheduler.run())
 
@@ -356,7 +355,7 @@ class TestContractExitCheck:
     def test_exit_check_defer(self, session: Session, duckdb_conn):
         """Resolution(DEFER) → issues in deferred_issues."""
         run_id = _make_run(session)
-        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
             source_id="src-1",
@@ -366,7 +365,7 @@ class TestContractExitCheck:
             contract_thresholds={"structural.types": 0.3},
         )
         with patch.object(
-            scheduler, "_auto_post_verify", return_value={"structural.types.type_fidelity": 0.8}
+            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
         ):
             events, result = _drive(
                 scheduler.run(),
@@ -380,7 +379,7 @@ class TestContractExitCheck:
     def test_exit_check_abort(self, session: Session, duckdb_conn):
         """Resolution(ABORT) → PipelineResult(success=False)."""
         run_id = _make_run(session)
-        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
             source_id="src-1",
@@ -390,7 +389,7 @@ class TestContractExitCheck:
             contract_thresholds={"structural.types": 0.3},
         )
         with patch.object(
-            scheduler, "_auto_post_verify", return_value={"structural.types.type_fidelity": 0.8}
+            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
         ):
             events, result = _drive(
                 scheduler.run(),
@@ -399,6 +398,24 @@ class TestContractExitCheck:
 
         assert result.success is False
         assert "aborted" in (result.error or "").lower()
+
+    def test_non_gate_phase_no_exit_check(self, session: Session, duckdb_conn):
+        """Non-gate phases never trigger EXIT_CHECK even with contracts."""
+        run_id = _make_run(session)
+        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        scheduler = PipelineScheduler(
+            phases={"alpha": phase},
+            source_id="src-1",
+            run_id=run_id,
+            session=session,
+            duckdb_conn=duckdb_conn,
+            contract_thresholds={"structural.types": 0.3},
+        )
+        events, result = _drive(scheduler.run())
+
+        types = [e.event_type for e in events]
+        assert EventType.POST_VERIFICATION not in types
+        assert EventType.EXIT_CHECK not in types
 
 
 class TestInvalidateDownstream:
@@ -626,9 +643,9 @@ class TestColumnDetails:
         assert "column:orders.id" not in issue.affected_targets
 
     def test_exit_check_event_carries_column_details(self, session: Session, duckdb_conn):
-        """EXIT_CHECK event has column_details populated from _post_verify."""
+        """EXIT_CHECK event has column_details populated from gate measurement."""
         run_id = _make_run(session)
-        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
             source_id="src-1",
@@ -645,11 +662,11 @@ class TestColumnDetails:
             }
         }
 
-        def mock_post_verify(phase_name):
+        def mock_measure(gate_phase_name):
             scheduler._column_details = dict(col_data)
             return {"structural.types.type_fidelity": 0.8}
 
-        with patch.object(scheduler, "_auto_post_verify", side_effect=mock_post_verify):
+        with patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure):
             events, result = _drive(
                 scheduler.run(),
                 resolutions={0: Resolution(action=ResolutionAction.DEFER)},
@@ -662,7 +679,7 @@ class TestColumnDetails:
     def test_column_details_cleared_after_exit_check(self, session: Session, duckdb_conn):
         """_column_details is cleared after EXIT_CHECK emission."""
         run_id = _make_run(session)
-        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
             source_id="src-1",
@@ -672,7 +689,7 @@ class TestColumnDetails:
             contract_thresholds={"structural.types": 0.3},
         )
 
-        def mock_post_verify(phase_name):
+        def mock_measure(gate_phase_name):
             scheduler._column_details = {
                 "structural.types.type_fidelity": {
                     "column:orders.amount": 0.95,
@@ -680,7 +697,7 @@ class TestColumnDetails:
             }
             return {"structural.types.type_fidelity": 0.8}
 
-        with patch.object(scheduler, "_auto_post_verify", side_effect=mock_post_verify):
+        with patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure):
             events, result = _drive(
                 scheduler.run(),
                 resolutions={0: Resolution(action=ResolutionAction.DEFER)},
@@ -893,10 +910,10 @@ class TestParallelExecution:
         assert result.phases_completed == ["A", "B"]
 
 
-class TestAutoPostVerifyWithTableDimension:
-    """Tests for _auto_post_verify dispatching table-scoped dimensions."""
+class TestMeasureAtGate:
+    """Tests for _measure_at_gate dispatching scoped dimensions."""
 
-    def test_auto_post_verify_with_table_dimension(self, session: Session, duckdb_conn):
+    def test_measure_at_gate_with_table_dimension(self, session: Session, duckdb_conn):
         """Table dims trigger table-scoped snapshots alongside column snapshots."""
         from dataraum.entropy.detectors.base import DetectorRegistry, EntropyDetector
         from dataraum.entropy.snapshot import Snapshot
@@ -905,6 +922,7 @@ class TestAutoPostVerifyWithTableDimension:
         phase = MockPhase(
             "alpha",
             produces_analyses_keys={AnalysisKey.TYPING, AnalysisKey.SLICE_VARIANCE},
+            is_quality_gate=True,
         )
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
@@ -913,8 +931,8 @@ class TestAutoPostVerifyWithTableDimension:
             session=session,
             duckdb_conn=duckdb_conn,
         )
-        # Pre-populate accumulated analyses so detectors are runnable
-        scheduler._accumulated_analyses = {"typing", "slice_variance"}
+        # Set alpha to COMPLETED so _measure_at_gate finds its analyses
+        scheduler._state["alpha"] = PhaseStatus.COMPLETED
 
         # Build a registry with one column-scoped and one table-scoped detector
         class StubCol(EntropyDetector):
@@ -993,7 +1011,7 @@ class TestAutoPostVerifyWithTableDimension:
             ),
             patch.object(session, "execute", side_effect=mock_execute),
         ):
-            scores = scheduler._auto_post_verify("alpha")
+            scores = scheduler._measure_at_gate("alpha")
 
         # Both column and table targets were called
         assert any(t.startswith("column:") for t in snapshot_calls)
@@ -1039,6 +1057,7 @@ class TestFixResolution:
             "alpha",
             produces_analyses_keys={AnalysisKey.TYPING},
             fix_handlers_map={"override_type": handler},
+            is_quality_gate=True,
         )
         beta = MockPhase("beta", dependencies=["alpha"])
 
@@ -1051,27 +1070,24 @@ class TestFixResolution:
             contract_thresholds={"structural.types": 0.3},
         )
 
-        # First pass: alpha runs, post-verify finds violation, EXIT_CHECK fires
-        # We send FIX resolution, which should call handler and reset alpha
         fix_input = FixInput(
             action_name="override_type",
             parameters={"resolved_type": "DECIMAL"},
             affected_columns=["orders.amount"],
         )
 
-        # Mock _post_verify to return high score on first call, low on second
-        post_verify_count = 0
+        # Mock _measure_at_gate to return high score first, low after fix
+        measure_count = 0
 
-        def mock_post_verify(phase_name):
-            nonlocal post_verify_count
-            post_verify_count += 1
-            if post_verify_count == 1:
+        def mock_measure(gate_phase_name):
+            nonlocal measure_count
+            measure_count += 1
+            if measure_count == 1:
                 return {"structural.types.type_fidelity": 0.8}
-            # After fix, score drops below threshold
             return {"structural.types.type_fidelity": 0.1}
 
         with (
-            patch.object(scheduler, "_auto_post_verify", side_effect=mock_post_verify),
+            patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure),
             patch("dataraum.pipeline.scheduler.cleanup_phase"),
             patch("dataraum.pipeline.scheduler.apply_config_patch") as mock_apply,
         ):
@@ -1109,7 +1125,7 @@ class TestFixResolution:
         """Unknown action_name in FIX resolution logs warning, doesn't crash."""
         _ensure_source(session)
         run_id = _make_run(session)
-        alpha = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        alpha = MockPhase("alpha", is_quality_gate=True)
 
         scheduler = PipelineScheduler(
             phases={"alpha": alpha},
@@ -1123,7 +1139,7 @@ class TestFixResolution:
         fix_input = FixInput(action_name="nonexistent_action")
 
         with patch.object(
-            scheduler, "_auto_post_verify", return_value={"structural.types.type_fidelity": 0.8}
+            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
         ):
             events, result = _drive(
                 scheduler.run(),
@@ -1147,6 +1163,7 @@ class TestFixResolution:
             "alpha",
             produces_analyses_keys={AnalysisKey.TYPING},
             fix_handlers_map={"override_type": handler},
+            is_quality_gate=True,
         )
         beta = MockPhase("beta", dependencies=["alpha"])
         gamma = MockPhase("gamma", dependencies=["beta"])
@@ -1160,19 +1177,19 @@ class TestFixResolution:
             contract_thresholds={"structural.types": 0.3},
         )
 
-        post_verify_count = 0
+        measure_count = 0
 
-        def mock_post_verify(phase_name):
-            nonlocal post_verify_count
-            post_verify_count += 1
-            if post_verify_count == 1:
+        def mock_measure(gate_phase_name):
+            nonlocal measure_count
+            measure_count += 1
+            if measure_count == 1:
                 return {"structural.types.type_fidelity": 0.8}
             return {"structural.types.type_fidelity": 0.1}
 
         fix_input = FixInput(action_name="override_type")
 
         with (
-            patch.object(scheduler, "_auto_post_verify", side_effect=mock_post_verify),
+            patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure),
             patch("dataraum.pipeline.scheduler.cleanup_phase"),
             patch("dataraum.pipeline.scheduler.apply_config_patch"),
         ):
@@ -1202,6 +1219,7 @@ class TestFixResolution:
             "alpha",
             produces_analyses_keys={AnalysisKey.TYPING},
             fix_handlers_map={"override_type": handler},
+            is_quality_gate=True,
         )
 
         scheduler = PipelineScheduler(
@@ -1214,13 +1232,13 @@ class TestFixResolution:
         )
 
         # Score stays high — fix doesn't help, second attempt defers
-        def mock_post_verify(phase_name):
+        def mock_measure(gate_phase_name):
             return {"structural.types.type_fidelity": 0.8}
 
         fix_input = FixInput(action_name="override_type")
 
         with (
-            patch.object(scheduler, "_auto_post_verify", side_effect=mock_post_verify),
+            patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure),
             patch("dataraum.pipeline.scheduler.cleanup_phase"),
             patch("dataraum.pipeline.scheduler.apply_config_patch"),
         ):
@@ -1250,13 +1268,11 @@ class TestFixResolution:
         assert result.success is True
 
 
-class TestFixClearsAutoDerive:
-    """Tests that fix re-runs clear auto-derive state."""
+class TestFixClearsScores:
+    """Tests that fix re-runs clear measurement state."""
 
-    def test_fix_clears_measured_sub_dims_and_scores(self, session: Session, duckdb_conn):
-        """_apply_fixes clears _measured_sub_dims and _scores so detectors re-run."""
-        from dataraum.entropy.dimensions import SubDimension
-
+    def test_fix_clears_scores_and_column_details(self, session: Session, duckdb_conn):
+        """_apply_fixes clears _scores and _column_details so gate re-measures."""
         _ensure_source(session)
         run_id = _make_run(session)
 
@@ -1280,8 +1296,7 @@ class TestFixClearsAutoDerive:
             duckdb_conn=duckdb_conn,
         )
 
-        # Simulate state after initial measurement pass
-        scheduler._measured_sub_dims = {SubDimension.TYPE_FIDELITY, SubDimension.NULL_RATIO}
+        # Simulate state after gate measurement
         scheduler._scores = {
             "structural.types.type_fidelity": 0.8,
             "value.nulls.null_ratio": 0.1,
@@ -1296,7 +1311,6 @@ class TestFixClearsAutoDerive:
         ):
             scheduler._apply_fixes([fix_input])
 
-        assert scheduler._measured_sub_dims == set()
         assert scheduler._scores == {}
         assert scheduler._column_details == {}
 
@@ -1406,6 +1420,7 @@ class TestExitCheckFixableActions:
             "typing",
             produces_analyses_keys={AnalysisKey.TYPING},
             fix_handlers_map={"override_type": dummy_handler},
+            is_quality_gate=True,
         )
         scheduler = PipelineScheduler(
             phases={"typing": phase},
@@ -1437,7 +1452,7 @@ class TestExitCheckFixableActions:
 
         with (
             patch.object(
-                scheduler, "_auto_post_verify",
+                scheduler, "_measure_at_gate",
                 return_value={"structural.types.type_fidelity": 0.8},
             ),
             patch(
@@ -1461,7 +1476,7 @@ class TestExitCheckFixableActions:
     def test_exit_check_empty_fixable_actions(self, session: Session, duckdb_conn):
         """EXIT_CHECK with no fixable detectors has empty fixable_actions."""
         run_id = _make_run(session)
-        phase = MockPhase("alpha", produces_analyses_keys={AnalysisKey.TYPING})
+        phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
             phases={"alpha": phase},
             source_id="src-1",
@@ -1472,7 +1487,7 @@ class TestExitCheckFixableActions:
         )
 
         with patch.object(
-            scheduler, "_auto_post_verify",
+            scheduler, "_measure_at_gate",
             return_value={"structural.types.type_fidelity": 0.8},
         ):
             events, result = _drive(

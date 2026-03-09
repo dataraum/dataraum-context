@@ -360,11 +360,14 @@ def _drive_pipeline(
                                     dim, event.scores[dim]
                                 )
                         if not quiet:
-                            parts = []
-                            for dim, score in sorted(event.scores.items()):
-                                color = "red" if score > 0.3 else "yellow" if score > 0.1 else "green"
-                                parts.append(f"[{color}]{dim}={score:.2f}[/{color}]")
-                            console.print(f"    post-verify [{event.phase}]: {', '.join(parts)}")
+                            from dataraum.cli.gate_handler import render_gate_scores
+
+                            render_gate_scores(
+                                console,
+                                event.scores,
+                                contract_thresholds=contract_thresholds,
+                                phase_name=event.phase,
+                            )
 
                 case EventType.EXIT_CHECK:
                     if live:

@@ -70,6 +70,87 @@ def handle_exit_check(
             return Resolution(action=ResolutionAction.DEFER)
 
 
+def render_gate_scores(
+    console: Console,
+    scores: dict[str, float],
+    contract_thresholds: dict[str, float] | None = None,
+    phase_name: str | None = None,
+) -> None:
+    """Render all gate measurement scores as a Rich panel.
+
+    Shows passing and failing dimensions with contract status.
+
+    Args:
+        console: Rich console for output.
+        scores: All measured entropy scores at this gate.
+        contract_thresholds: Contract thresholds keyed by dimension path.
+        phase_name: Name of the gate phase.
+    """
+    if not scores:
+        return
+
+    thresholds = contract_thresholds or {}
+
+    table = Table(show_header=True, box=None, padding=(0, 2))
+    table.add_column("Dimension", style="bold")
+    table.add_column("Score", justify="right")
+    table.add_column("Threshold", justify="right", style="dim")
+    table.add_column("Status")
+    table.add_column("Bar")
+
+    violations = 0
+    passing = 0
+
+    for dim_path, score in sorted(scores.items()):
+        threshold = _match_threshold(dim_path, thresholds)
+        filled = round(score * 10)
+        bar = "\u2593" * filled + "\u2591" * (10 - filled)
+
+        if threshold is not None:
+            if score > threshold:
+                violations += 1
+                gap = score - threshold
+                color = "red"
+                status = f"[red]+{gap:.2f}[/red]"
+            else:
+                passing += 1
+                headroom = threshold - score
+                color = "yellow" if headroom < 0.1 else "green"
+                status = f"[{color}]\u2212{headroom:.2f}[/{color}]"
+            thresh_str = f"{threshold:.2f}"
+        else:
+            color = "dim"
+            status = "[dim]no contract[/dim]"
+            thresh_str = ""
+
+        table.add_row(
+            f"[{color}]{dim_path}[/{color}]",
+            f"[{color}]{score:.2f}[/{color}]",
+            thresh_str,
+            status,
+            bar,
+        )
+
+    title = "Gate Measurement"
+    if phase_name:
+        title += f": {phase_name}"
+    summary = f"{violations} violation{'s' if violations != 1 else ''}, {passing} passing"
+    border = "red" if violations > 0 else "green"
+
+    console.print()
+    console.print(
+        Panel(
+            table,
+            title=title,
+            subtitle=summary,
+            title_align="left",
+            subtitle_align="right",
+            border_style=border,
+            padding=(1, 2),
+        )
+    )
+
+
 def render_violations(
     console: Console,
     violations: dict[str, tuple[float, float]],

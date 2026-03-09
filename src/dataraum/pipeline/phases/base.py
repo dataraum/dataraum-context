@@ -55,10 +55,17 @@ class BasePhase(ABC):
     def produces_analyses(self) -> set[AnalysisKey]:
         """Analysis keys this phase produces. Override in subclasses.
 
-        Used by the scheduler to auto-derive which entropy detectors
-        should run after each phase completes.
+        Used by the scheduler to determine which detectors can run at gates.
         """
         return set()
+
+    @property
+    def is_quality_gate(self) -> bool:
+        """Whether this phase is a quality gate. Default: False.
+
+        Quality gates trigger entropy measurement and contract assessment.
+        """
+        return False
 
     @property
     def db_models(self) -> list[ModuleType]:

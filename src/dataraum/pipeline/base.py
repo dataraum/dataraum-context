@@ -169,6 +169,11 @@ class Phase(Protocol):
         ...
 
     @property
+    def is_quality_gate(self) -> bool:
+        """Whether this phase is a quality gate for entropy assessment."""
+        ...
+
+    @property
     def fix_handlers(self) -> dict[str, Callable[[FixInput, dict[str, Any]], FixResult]]:
         """Map action_name to handler function for config fixes."""
         ...
