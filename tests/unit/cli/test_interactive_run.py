@@ -9,10 +9,10 @@ from io import StringIO
 from rich.console import Console
 
 from dataraum.cli.commands.run import _drive_pipeline, _PhaseTracker, _print_summary
+from dataraum.entropy.gate import ExitCheckIssue
 from dataraum.pipeline.events import EventType, PipelineEvent
 from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import (
-    ExitCheckIssue,
     PipelineResult,
     Resolution,
     ResolutionAction,

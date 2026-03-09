@@ -12,11 +12,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from dataraum.core.logging import get_logger
 from dataraum.entropy.dimensions import AnalysisKey, _StrValueMixin
+from dataraum.entropy.gate import (
+    ExitCheckIssue,
+    assess_contracts,
+    measure_at_gate,
+)
 from dataraum.pipeline.base import Phase, PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.cleanup import cleanup_phase
 from dataraum.pipeline.db_models import PhaseLog
@@ -29,17 +33,6 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class ExitCheckIssue:
-    """A contract violation detected during post-verification."""
-
-    dimension_path: str  # e.g. "structural.types.type_fidelity"
-    score: float
-    threshold: float
-    producing_phase: str  # phase after which this was measured
-    affected_targets: list[str] = field(default_factory=list)
 
 
 class ResolutionAction(_StrValueMixin):
@@ -126,10 +119,6 @@ class PipelineScheduler:
         self._state: dict[str, PhaseStatus] = dict.fromkeys(
             phases, PhaseStatus.PENDING
         )
-        self._scores: dict[str, float] = {}
-        self._column_details: dict[str, dict[str, float]] = {}
-        self._pending_issues: list[ExitCheckIssue] = []
-        self._deferred_issues: list[ExitCheckIssue] = []
         self._step = 0
 
     # ------------------------------------------------------------------
@@ -140,8 +129,8 @@ class PipelineScheduler:
         """Execute the pipeline as a generator.
 
         Phases in the same dependency wave run concurrently when a
-        session_factory is available.  Post-processing (phase log writes,
-        fix replay, post-verification) always runs on the main thread.
+        session_factory is available.  Gate measurement and contract
+        assessment run on the main thread after each wave.
 
         Yields:
             PipelineEvent for each lifecycle event.
@@ -155,6 +144,9 @@ class PipelineScheduler:
         total = len(self.phases)
         yield self._event(EventType.PIPELINE_STARTED, total=total)
 
+        all_scores: dict[str, float] = {}
+        deferred_issues: list[ExitCheckIssue] = []
+
         try:
             while ready := self._ready_phases():
                 # 1. Check should_skip on main thread
@@ -165,7 +157,9 @@ class PipelineScheduler:
                     skip_reason = phase.should_skip(ctx)
                     if skip_reason:
                         self._state[phase_name] = PhaseStatus.SKIPPED
-                        self._write_phase_log(phase_name, "skipped", error=skip_reason)
+                        self._write_phase_log(
+                            phase_name, "skipped", error=skip_reason
+                        )
                         yield self._event(
                             EventType.PHASE_SKIPPED,
                             phase=phase_name,
@@ -185,30 +179,86 @@ class PipelineScheduler:
                     and not self.force_sequential
                 )
                 if use_parallel:
-                    yield from self._run_parallel(to_run, total)
+                    wave_results: list[tuple[str, PhaseResult]] = (
+                        yield from self._run_parallel(to_run, total)
+                    )
                 else:
-                    yield from self._run_sequential(to_run, total)
+                    wave_results = yield from self._run_sequential(to_run, total)
 
-                # Natural pause — all ready phases in this wave done
-                if self._pending_issues:
+                # 3. Merge entropy scores from phase outputs
+                for _phase_name, result in wave_results:
+                    if result.outputs and "entropy_scores" in result.outputs:
+                        all_scores.update(result.outputs["entropy_scores"])
+
+                # 4. Gate-based measurement for quality gate phases.
+                # column_details is per-wave (reset each wave) while
+                # all_scores accumulates across the entire run.
+                pending_issues: list[ExitCheckIssue] = []
+                column_details: dict[str, dict[str, float]] = {}
+                last_gate_phase: str = ""
+
+                for phase_name, _result in wave_results:
+                    phase = self.phases[phase_name]
+                    if (
+                        self._state[phase_name] == PhaseStatus.COMPLETED
+                        and phase.is_quality_gate
+                    ):
+                        available = self._available_analyses()
+                        gate_result = measure_at_gate(
+                            self.session,
+                            self.duckdb_conn,
+                            self.source_id,
+                            available,
+                        )
+                        all_scores.update(gate_result.scores)
+                        column_details.update(gate_result.column_details)
+                        last_gate_phase = phase_name
+
+                # Emit one POST_VERIFICATION per wave (after all gates measured)
+                if last_gate_phase and all_scores:
+                    yield self._event(
+                        EventType.POST_VERIFICATION,
+                        phase=last_gate_phase,
+                        total=total,
+                        scores=dict(all_scores),
+                    )
+                    issues = assess_contracts(
+                        dict(all_scores),
+                        self.contract_thresholds,
+                        column_details,
+                        last_gate_phase,
+                    )
+                    pending_issues.extend(issues)
+
+                # 5. EXIT_CHECK — natural pause after wave
+                if pending_issues:
                     violations = {
                         issue.dimension_path: (issue.score, issue.threshold)
-                        for issue in self._pending_issues
+                        for issue in pending_issues
                     }
-                    fixable = self._gather_fixable_actions(self._pending_issues)
+                    fixable = self._gather_fixable_actions(pending_issues)
                     resolution = yield self._event(
                         EventType.EXIT_CHECK,
                         total=total,
                         violations=violations,
-                        scores=dict(self._scores),
-                        column_details=dict(self._column_details),
+                        scores=dict(all_scores),
+                        column_details=dict(column_details),
                         fixable_actions=fixable,
                     )
                     if resolution is not None:
-                        fix_events = self._apply_resolution(resolution)
-                        yield from fix_events
-                    self._pending_issues.clear()
-                    self._column_details = {}
+                        if resolution.action == ResolutionAction.DEFER:
+                            deferred_issues.extend(pending_issues)
+                        elif resolution.action == ResolutionAction.ABORT:
+                            raise PipelineAborted("Pipeline aborted by user")
+                        elif resolution.action == ResolutionAction.FIX:
+                            if not resolution.fix_inputs:
+                                logger.warning("fix_resolution_empty")
+                                deferred_issues.extend(pending_issues)
+                            else:
+                                self._apply_fixes(resolution.fix_inputs)
+                                # Clear all scores (including any from phase
+                                # outputs) so gates re-measure from scratch.
+                                all_scores.clear()
 
         except PipelineAborted as e:
             return PipelineResult(
@@ -217,8 +267,8 @@ class PipelineScheduler:
                 phases_failed=self._phases_with_status(PhaseStatus.FAILED),
                 phases_skipped=self._phases_with_status(PhaseStatus.SKIPPED),
                 phases_blocked=self._phases_with_status(PhaseStatus.PENDING),
-                final_scores=dict(self._scores),
-                deferred_issues=list(self._deferred_issues),
+                final_scores=dict(all_scores),
+                deferred_issues=deferred_issues,
                 error=str(e) or "Pipeline aborted by user",
             )
 
@@ -230,8 +280,8 @@ class PipelineScheduler:
             phases_failed=self._phases_with_status(PhaseStatus.FAILED),
             phases_skipped=self._phases_with_status(PhaseStatus.SKIPPED),
             phases_blocked=self._phases_with_status(PhaseStatus.PENDING),
-            final_scores=dict(self._scores),
-            deferred_issues=list(self._deferred_issues),
+            final_scores=dict(all_scores),
+            deferred_issues=deferred_issues,
         )
 
     def _run_phase(self, phase_name: str) -> tuple[PhaseResult, datetime]:
@@ -275,13 +325,10 @@ class PipelineScheduler:
 
         return result, started_at
 
-    def _post_process_phase(
+    def _record_phase(
         self, phase_name: str, result: PhaseResult, started_at: datetime, total: int
     ) -> Generator[PipelineEvent]:
-        """Post-process a completed phase on the main thread.
-
-        Writes phase log, yields events, replays fixes, runs post-verification.
-        """
+        """Record phase result: update state, write log, yield events."""
         if result.status == PhaseStatus.FAILED:
             self._state[phase_name] = PhaseStatus.FAILED
             self._write_phase_log(
@@ -320,42 +367,28 @@ class PipelineScheduler:
             summary=result.summary,
         )
 
-        # Merge entropy scores from phase outputs (e.g. entropy phase)
-        if result.outputs and "entropy_scores" in result.outputs:
-            self._scores.update(result.outputs["entropy_scores"])
-
-        # Gate-based measurement: only run detectors at quality gates.
-        phase = self.phases[phase_name]
-        if phase.is_quality_gate:
-            gate_scores = self._measure_at_gate(phase_name)
-            self._scores.update(gate_scores)
-            if self._scores:
-                yield self._event(
-                    EventType.POST_VERIFICATION,
-                    phase=phase_name,
-                    total=total,
-                    scores=dict(self._scores),
-                )
-            issues = self._assess_impact(dict(self._scores), phase_name)
-            self._pending_issues.extend(issues)
-
     def _run_sequential(
         self, phase_names: list[str], total: int
-    ) -> Generator[PipelineEvent]:
-        """Run phases sequentially (single phase or no session_factory)."""
+    ) -> Generator[PipelineEvent, None, list[tuple[str, PhaseResult]]]:
+        """Run phases sequentially, yield events, return results."""
+        results: list[tuple[str, PhaseResult]] = []
         for phase_name in phase_names:
             yield self._event(EventType.PHASE_STARTED, phase=phase_name, total=total)
             result, started_at = self._run_phase(phase_name)
-            yield from self._post_process_phase(phase_name, result, started_at, total)
+            yield from self._record_phase(phase_name, result, started_at, total)
+            results.append((phase_name, result))
+        return results
 
     def _run_parallel(
         self, phase_names: list[str], total: int
-    ) -> Generator[PipelineEvent]:
+    ) -> Generator[PipelineEvent, None, list[tuple[str, PhaseResult]]]:
         """Run phases concurrently via ThreadPoolExecutor.
 
         PHASE_STARTED events are yielded for all phases before execution.
-        Results are post-processed on the main thread as they complete.
+        Results are recorded on the main thread as they complete.
         """
+        results: list[tuple[str, PhaseResult]] = []
+
         # Yield STARTED for all phases in this wave
         for phase_name in phase_names:
             yield self._event(EventType.PHASE_STARTED, phase=phase_name, total=total)
@@ -363,8 +396,7 @@ class PipelineScheduler:
         max_workers = min(len(phase_names), 4)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {
-                pool.submit(self._run_phase, name): name
-                for name in phase_names
+                pool.submit(self._run_phase, name): name for name in phase_names
             }
             for future in as_completed(futures):
                 phase_name = futures[future]
@@ -374,9 +406,12 @@ class PipelineScheduler:
                     # Phase raised an unhandled exception
                     result = PhaseResult.failed(str(exc))
                     started_at = datetime.now(UTC)
-                yield from self._post_process_phase(
+                yield from self._record_phase(
                     phase_name, result, started_at, total
                 )
+                results.append((phase_name, result))
+
+        return results
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -456,199 +491,19 @@ class PipelineScheduler:
         self.session.add(log)
         self.session.commit()
 
-    def _measure_at_gate(self, gate_phase_name: str) -> dict[str, float]:
-        """Run all eligible detectors fresh at a quality gate.
-
-        Builds the available analyses set from all COMPLETED phases,
-        finds detectors whose required_analyses are fully satisfied,
-        and runs them against typed tables/columns/views.
-
-        Also populates self._column_details for affected-target display.
-        """
-        from dataraum.entropy.detectors.base import get_default_registry
-        from dataraum.entropy.snapshot import take_snapshot
-        from dataraum.storage.models import Column as ColumnModel
-        from dataraum.storage.models import Table
-
-        registry = get_default_registry()
-
-        # Build available analyses from all completed phases
+    def _available_analyses(self) -> set[AnalysisKey]:
+        """Build available analyses set from all COMPLETED phases."""
         available: set[AnalysisKey] = set()
         for name, status in self._state.items():
             if status == PhaseStatus.COMPLETED:
                 available.update(self.phases[name].produces_analyses)
-
-        # Find all runnable detectors
-        runnable = [
-            d for d in registry.get_all_detectors()
-            if all(a in available for a in d.required_analyses)
-        ]
-
-        if not runnable:
-            return {}
-
-        # Partition by scope
-        col_detectors = [d for d in runnable if d.scope == "column"]
-        tbl_detectors = [d for d in runnable if d.scope == "table"]
-        view_detectors = [d for d in runnable if d.scope == "view"]
-
-        col_dims = [d.sub_dimension for d in col_detectors]
-        tbl_dims = [d.sub_dimension for d in tbl_detectors]
-        view_dims = [d.sub_dimension for d in view_detectors]
-
-        # Get all typed tables for this source
-        typed_tables = (
-            self.session.execute(
-                select(Table).where(
-                    Table.source_id == self.source_id, Table.layer == "typed"
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        scores_by_dim: dict[str, list[float]] = defaultdict(list)
-        column_scores: dict[str, dict[str, float]] = defaultdict(dict)
-
-        # Column-scoped pass
-        if col_dims:
-            for table in typed_tables:
-                columns = (
-                    self.session.execute(
-                        select(ColumnModel).where(ColumnModel.table_id == table.table_id)
-                    )
-                    .scalars()
-                    .all()
-                )
-                for col in columns:
-                    target = f"column:{table.table_name}.{col.column_name}"
-                    snapshot = take_snapshot(
-                        target=target,
-                        session=self.session,
-                        duckdb_conn=self.duckdb_conn,
-                        dimensions=col_dims,
-                    )
-                    for sub_dim, score in snapshot.scores.items():
-                        scores_by_dim[sub_dim].append(score)
-                        column_scores[sub_dim][target] = score
-
-        # Table-scoped pass
-        if tbl_dims:
-            for table in typed_tables:
-                target = f"table:{table.table_name}"
-                snapshot = take_snapshot(
-                    target=target,
-                    session=self.session,
-                    duckdb_conn=self.duckdb_conn,
-                    dimensions=tbl_dims,
-                )
-                for sub_dim, score in snapshot.scores.items():
-                    scores_by_dim[sub_dim].append(score)
-
-        # View-scoped pass
-        if view_dims:
-            from dataraum.analysis.views.db_models import EnrichedView
-
-            enriched_views = (
-                self.session.execute(
-                    select(EnrichedView).where(
-                        EnrichedView.fact_table_id.in_([t.table_id for t in typed_tables])
-                    )
-                )
-                .scalars()
-                .all()
-            )
-
-            for ev in enriched_views:
-                target = f"view:{ev.view_name}"
-                snapshot = take_snapshot(
-                    target=target,
-                    session=self.session,
-                    duckdb_conn=self.duckdb_conn,
-                    dimensions=view_dims,
-                )
-                for sub_dim, score in snapshot.scores.items():
-                    scores_by_dim[sub_dim].append(score)
-
-        # Build sub_dimension -> dimension_path mapping
-        sub_dim_to_path: dict[str, str] = {
-            str(d.sub_dimension): d.dimension_path
-            for d in runnable
-        }
-
-        # Average per dimension
-        result: dict[str, float] = {}
-        for sub_dim, score_list in scores_by_dim.items():
-            mean_score = sum(score_list) / len(score_list)
-            path = sub_dim_to_path.get(sub_dim, sub_dim)
-            result[path] = mean_score
-
-        # Populate column_details (keyed by dimension_path)
-        self._column_details = {}
-        for sd, targets in column_scores.items():
-            path = sub_dim_to_path.get(sd, sd)
-            self._column_details[path] = targets
-
-        return result
-
-    def _assess_impact(
-        self, scores: dict[str, float], phase_name: str
-    ) -> list[ExitCheckIssue]:
-        """Check scores against contract thresholds."""
-        if not self.contract_thresholds or not scores:
-            return []
-
-        issues: list[ExitCheckIssue] = []
-        for dimension_path, score in scores.items():
-            threshold = self._match_threshold(dimension_path)
-            if threshold is not None and score > threshold:
-                col_scores = self._column_details.get(dimension_path, {})
-                affected = [t for t, s in col_scores.items() if s > threshold]
-                issues.append(
-                    ExitCheckIssue(
-                        dimension_path=dimension_path,
-                        score=score,
-                        threshold=threshold,
-                        producing_phase=phase_name,
-                        affected_targets=affected,
-                    )
-                )
-        return issues
-
-    def _match_threshold(self, dimension_path: str) -> float | None:
-        """Find contract threshold by prefix match.
-
-        Given "structural.types.type_fidelity", checks for thresholds at:
-        - "structural.types.type_fidelity" (exact)
-        - "structural.types" (prefix)
-        - "structural" (prefix)
-        """
-        parts = dimension_path.split(".")
-        for i in range(len(parts), 0, -1):
-            prefix = ".".join(parts[:i])
-            if prefix in self.contract_thresholds:
-                return self.contract_thresholds[prefix]
-        return None
-
-    def _apply_resolution(self, resolution: Resolution) -> list[PipelineEvent]:
-        """Apply a caller-provided resolution to pending issues."""
-        if resolution.action == ResolutionAction.DEFER:
-            self._deferred_issues.extend(self._pending_issues)
-        elif resolution.action == ResolutionAction.ABORT:
-            raise PipelineAborted("Pipeline aborted by user")
-        elif resolution.action == ResolutionAction.FIX:
-            if not resolution.fix_inputs:
-                logger.warning("fix_resolution_empty")
-                self._deferred_issues.extend(self._pending_issues)
-            else:
-                self._apply_fixes(resolution.fix_inputs)
-        return []
+        return available
 
     def _apply_fixes(self, fix_inputs: list[FixInput]) -> None:
         """Apply fix inputs: call handlers, patch config, log to ledger, reset.
 
         After this method returns the scheduler loop naturally re-runs
-        the reset phases, triggering fresh post-verification.
+        the reset phases, triggering fresh gate measurement.
         """
         from dataraum.core.config import _get_config_root
         from dataraum.documentation.ledger import log_fix
@@ -677,7 +532,9 @@ class PipelineScheduler:
             # Log to fix ledger
             for col_ref in fix_input.affected_columns or [fix_input.action_name]:
                 # Strip scope prefix (e.g. "column:orders.amount" → "orders.amount")
-                bare_ref = col_ref.split(":", 1)[-1] if ":" in col_ref else col_ref
+                bare_ref = (
+                    col_ref.split(":", 1)[-1] if ":" in col_ref else col_ref
+                )
                 parts = bare_ref.split(".", 1)
                 table_name = parts[0]
                 column_name = parts[1] if len(parts) > 1 else None
@@ -716,10 +573,6 @@ class PipelineScheduler:
                     )
                     self._state[phase_name] = PhaseStatus.PENDING
                     self._invalidate_downstream(phase_name)
-
-            # Clear scores — the re-running gate will re-measure fresh.
-            self._scores.clear()
-            self._column_details = {}
 
             if phases_to_rerun:
                 self.session.commit()

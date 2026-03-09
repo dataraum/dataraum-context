@@ -356,9 +356,7 @@ def _drive_pipeline(
                     if event.scores:
                         for dim in event.scores:
                             if dim not in stats.first_scores:
-                                stats.first_scores[dim] = event.before_scores.get(
-                                    dim, event.scores[dim]
-                                )
+                                stats.first_scores[dim] = event.scores[dim]
                         if not quiet:
                             from dataraum.cli.gate_handler import render_gate_scores
 
@@ -416,13 +414,10 @@ def _drive_pipeline(
 
 
 def _match_threshold(dim: str, thresholds: dict[str, float]) -> float | None:
-    """Find threshold by prefix match (same logic as scheduler)."""
-    parts = dim.split(".")
-    for i in range(len(parts), 0, -1):
-        prefix = ".".join(parts[:i])
-        if prefix in thresholds:
-            return thresholds[prefix]
-    return None
+    """Find threshold by prefix match."""
+    from dataraum.entropy.gate import match_threshold
+
+    return match_threshold(dim, thresholds)
 
 
 def _print_phase_completed(console: Console, event: PipelineEvent) -> None:

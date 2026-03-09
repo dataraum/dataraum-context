@@ -259,12 +259,9 @@ def _match_threshold(
     dimension_path: str, thresholds: dict[str, float]
 ) -> float | None:
     """Match a dimension path to a threshold using prefix matching."""
-    parts = dimension_path.split(".")
-    for i in range(len(parts), 0, -1):
-        prefix = ".".join(parts[:i])
-        if prefix in thresholds:
-            return thresholds[prefix]
-    return None
+    from dataraum.entropy.gate import match_threshold
+
+    return match_threshold(dimension_path, thresholds)
 
 
 # ---------------------------------------------------------------------------

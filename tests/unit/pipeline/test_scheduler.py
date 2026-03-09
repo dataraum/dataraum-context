@@ -11,6 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from dataraum.entropy.dimensions import AnalysisKey
+from dataraum.entropy.gate import (
+    GateResult,
+    assess_contracts,
+    match_threshold,
+)
 from dataraum.pipeline.base import PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.db_models import PhaseLog, PipelineRun
 from dataraum.pipeline.events import EventType
@@ -325,7 +330,10 @@ class TestContractExitCheck:
             duckdb_conn=duckdb_conn,
             # No contract_thresholds
         )
-        with patch.object(scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}):
+        gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
+        with patch(
+            "dataraum.pipeline.scheduler.measure_at_gate", return_value=gate
+        ):
             events, result = _drive(scheduler.run())
 
         types = [e.event_type for e in events]
@@ -343,8 +351,9 @@ class TestContractExitCheck:
             duckdb_conn=duckdb_conn,
             contract_thresholds={"structural.types": 0.3},
         )
-        with patch.object(
-            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
+        gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
+        with patch(
+            "dataraum.pipeline.scheduler.measure_at_gate", return_value=gate
         ):
             events, result = _drive(scheduler.run())
 
@@ -364,8 +373,9 @@ class TestContractExitCheck:
             duckdb_conn=duckdb_conn,
             contract_thresholds={"structural.types": 0.3},
         )
-        with patch.object(
-            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
+        gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
+        with patch(
+            "dataraum.pipeline.scheduler.measure_at_gate", return_value=gate
         ):
             events, result = _drive(
                 scheduler.run(),
@@ -388,8 +398,9 @@ class TestContractExitCheck:
             duckdb_conn=duckdb_conn,
             contract_thresholds={"structural.types": 0.3},
         )
-        with patch.object(
-            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
+        gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
+        with patch(
+            "dataraum.pipeline.scheduler.measure_at_gate", return_value=gate
         ):
             events, result = _drive(
                 scheduler.run(),
@@ -610,21 +621,9 @@ class TestDiamondDependency:
 
 
 class TestColumnDetails:
-    def test_assess_impact_populates_affected_targets(self, session: Session, duckdb_conn):
-        """_assess_impact uses _column_details to populate affected_targets."""
-        run_id = _make_run(session)
-        phase = MockPhase("alpha")
-        scheduler = PipelineScheduler(
-            phases={"alpha": phase},
-            source_id="src-1",
-            run_id=run_id,
-            session=session,
-            duckdb_conn=duckdb_conn,
-            contract_thresholds={"structural.types": 0.3},
-        )
-
-        # Pre-populate _column_details as _post_verify would
-        scheduler._column_details = {
+    def test_assess_contracts_populates_affected_targets(self):
+        """assess_contracts uses column_details to populate affected_targets."""
+        column_details = {
             "structural.types.type_fidelity": {
                 "column:orders.amount": 0.95,
                 "column:orders.discount": 0.88,
@@ -633,7 +632,8 @@ class TestColumnDetails:
         }
 
         scores = {"structural.types.type_fidelity": 0.65}
-        issues = scheduler._assess_impact(scores, "alpha")
+        thresholds = {"structural.types": 0.3}
+        issues = assess_contracts(scores, thresholds, column_details, "alpha")
 
         assert len(issues) == 1
         issue = issues[0]
@@ -662,11 +662,13 @@ class TestColumnDetails:
             }
         }
 
-        def mock_measure(gate_phase_name):
-            scheduler._column_details = dict(col_data)
-            return {"structural.types.type_fidelity": 0.8}
-
-        with patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure):
+        gate = GateResult(
+            scores={"structural.types.type_fidelity": 0.8},
+            column_details=col_data,
+        )
+        with patch(
+            "dataraum.pipeline.scheduler.measure_at_gate", return_value=gate
+        ):
             events, result = _drive(
                 scheduler.run(),
                 resolutions={0: Resolution(action=ResolutionAction.DEFER)},
@@ -676,86 +678,29 @@ class TestColumnDetails:
         assert len(exit_checks) == 1
         assert exit_checks[0].column_details == col_data
 
-    def test_column_details_cleared_after_exit_check(self, session: Session, duckdb_conn):
-        """_column_details is cleared after EXIT_CHECK emission."""
-        run_id = _make_run(session)
-        phase = MockPhase("alpha", is_quality_gate=True)
-        scheduler = PipelineScheduler(
-            phases={"alpha": phase},
-            source_id="src-1",
-            run_id=run_id,
-            session=session,
-            duckdb_conn=duckdb_conn,
-            contract_thresholds={"structural.types": 0.3},
-        )
-
-        def mock_measure(gate_phase_name):
-            scheduler._column_details = {
-                "structural.types.type_fidelity": {
-                    "column:orders.amount": 0.95,
-                }
-            }
-            return {"structural.types.type_fidelity": 0.8}
-
-        with patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure):
-            events, result = _drive(
-                scheduler.run(),
-                resolutions={0: Resolution(action=ResolutionAction.DEFER)},
-            )
-
-        # After the exit check is processed, _column_details should be empty
-        assert scheduler._column_details == {}
-
 
 class TestThresholdMatching:
-    def test_most_specific_prefix_wins(self, session: Session, duckdb_conn):
+    def test_most_specific_prefix_wins(self):
         """When multiple prefixes match, most specific wins."""
-        run_id = _make_run(session)
-        phase = MockPhase("alpha")
-        scheduler = PipelineScheduler(
-            phases={"alpha": phase},
-            source_id="src-1",
-            run_id=run_id,
-            session=session,
-            duckdb_conn=duckdb_conn,
-            contract_thresholds={
-                "structural": 0.5,
-                "structural.types": 0.3,
-            },
-        )
+        thresholds = {
+            "structural": 0.5,
+            "structural.types": 0.3,
+        }
         # Most specific prefix "structural.types" (0.3) should win
-        assert scheduler._match_threshold("structural.types.type_fidelity") == 0.3
+        assert match_threshold("structural.types.type_fidelity", thresholds) == 0.3
 
-    def test_exact_match_wins_over_prefix(self, session: Session, duckdb_conn):
+    def test_exact_match_wins_over_prefix(self):
         """Exact dimension path match takes priority over prefix."""
-        run_id = _make_run(session)
-        phase = MockPhase("alpha")
-        scheduler = PipelineScheduler(
-            phases={"alpha": phase},
-            source_id="src-1",
-            run_id=run_id,
-            session=session,
-            duckdb_conn=duckdb_conn,
-            contract_thresholds={
-                "structural.types": 0.5,
-                "structural.types.type_fidelity": 0.1,
-            },
-        )
-        assert scheduler._match_threshold("structural.types.type_fidelity") == 0.1
+        thresholds = {
+            "structural.types": 0.5,
+            "structural.types.type_fidelity": 0.1,
+        }
+        assert match_threshold("structural.types.type_fidelity", thresholds) == 0.1
 
-    def test_no_matching_threshold(self, session: Session, duckdb_conn):
+    def test_no_matching_threshold(self):
         """Dimension with no matching prefix returns None."""
-        run_id = _make_run(session)
-        phase = MockPhase("alpha")
-        scheduler = PipelineScheduler(
-            phases={"alpha": phase},
-            source_id="src-1",
-            run_id=run_id,
-            session=session,
-            duckdb_conn=duckdb_conn,
-            contract_thresholds={"semantic.units": 0.3},
-        )
-        assert scheduler._match_threshold("structural.types.type_fidelity") is None
+        thresholds = {"semantic.units": 0.3}
+        assert match_threshold("structural.types.type_fidelity", thresholds) is None
 
 
 class TestParallelExecution:
@@ -911,28 +856,13 @@ class TestParallelExecution:
 
 
 class TestMeasureAtGate:
-    """Tests for _measure_at_gate dispatching scoped dimensions."""
+    """Tests for measure_at_gate dispatching scoped dimensions."""
 
     def test_measure_at_gate_with_table_dimension(self, session: Session, duckdb_conn):
         """Table dims trigger table-scoped snapshots alongside column snapshots."""
         from dataraum.entropy.detectors.base import DetectorRegistry, EntropyDetector
+        from dataraum.entropy.gate import measure_at_gate
         from dataraum.entropy.snapshot import Snapshot
-
-        run_id = _make_run(session)
-        phase = MockPhase(
-            "alpha",
-            produces_analyses_keys={AnalysisKey.TYPING, AnalysisKey.SLICE_VARIANCE},
-            is_quality_gate=True,
-        )
-        scheduler = PipelineScheduler(
-            phases={"alpha": phase},
-            source_id="src-1",
-            run_id=run_id,
-            session=session,
-            duckdb_conn=duckdb_conn,
-        )
-        # Set alpha to COMPLETED so _measure_at_gate finds its analyses
-        scheduler._state["alpha"] = PhaseStatus.COMPLETED
 
         # Build a registry with one column-scoped and one table-scoped detector
         class StubCol(EntropyDetector):
@@ -1000,6 +930,8 @@ class TestMeasureAtGate:
                 result.scalars.return_value.all.return_value = []
             return result
 
+        available = {AnalysisKey.TYPING, AnalysisKey.SLICE_VARIANCE}
+
         with (
             patch(
                 "dataraum.entropy.detectors.base.get_default_registry",
@@ -1011,15 +943,15 @@ class TestMeasureAtGate:
             ),
             patch.object(session, "execute", side_effect=mock_execute),
         ):
-            scores = scheduler._measure_at_gate("alpha")
+            gate_result = measure_at_gate(session, duckdb_conn, "src-1", available)
 
         # Both column and table targets were called
         assert any(t.startswith("column:") for t in snapshot_calls)
         assert any(t.startswith("table:") for t in snapshot_calls)
 
         # Both dimension paths present in result
-        assert "structural.types.type_fidelity" in scores
-        assert "semantic.dimensional.cross_column_patterns" in scores
+        assert "structural.types.type_fidelity" in gate_result.scores
+        assert "semantic.dimensional.cross_column_patterns" in gate_result.scores
 
 
 class TestFixResolution:
@@ -1076,27 +1008,32 @@ class TestFixResolution:
             affected_columns=["orders.amount"],
         )
 
-        # Mock _measure_at_gate to return high score first, low after fix
+        # Mock measure_at_gate to return high score first, low after fix
         measure_count = 0
 
-        def mock_measure(gate_phase_name):
+        def mock_measure(session, duckdb_conn, source_id, available_analyses):
             nonlocal measure_count
             measure_count += 1
             if measure_count == 1:
-                return {"structural.types.type_fidelity": 0.8}
-            return {"structural.types.type_fidelity": 0.1}
+                return GateResult(scores={"structural.types.type_fidelity": 0.8})
+            return GateResult(scores={"structural.types.type_fidelity": 0.1})
 
         with (
-            patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure),
+            patch(
+                "dataraum.pipeline.scheduler.measure_at_gate",
+                side_effect=mock_measure,
+            ),
             patch("dataraum.pipeline.scheduler.cleanup_phase"),
             patch("dataraum.pipeline.scheduler.apply_config_patch") as mock_apply,
         ):
             events, result = _drive(
                 scheduler.run(),
-                resolutions={0: Resolution(
-                    action=ResolutionAction.FIX,
-                    fix_inputs=[fix_input],
-                )},
+                resolutions={
+                    0: Resolution(
+                        action=ResolutionAction.FIX,
+                        fix_inputs=[fix_input],
+                    )
+                },
             )
 
         # Handler was called
@@ -1138,20 +1075,24 @@ class TestFixResolution:
 
         fix_input = FixInput(action_name="nonexistent_action")
 
-        with patch.object(
-            scheduler, "_measure_at_gate", return_value={"structural.types.type_fidelity": 0.8}
+        gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
+        with patch(
+            "dataraum.pipeline.scheduler.measure_at_gate", return_value=gate
         ):
             events, result = _drive(
                 scheduler.run(),
-                resolutions={0: Resolution(
-                    action=ResolutionAction.FIX,
-                    fix_inputs=[fix_input],
-                )},
+                resolutions={
+                    0: Resolution(
+                        action=ResolutionAction.FIX,
+                        fix_inputs=[fix_input],
+                    )
+                },
             )
 
-        # Pipeline completes (no fix happened, no re-run, violation cleared)
+        # Pipeline completes — handler not found, violation silently dropped
         assert result.success is True
         assert alpha.run_count == 1
+        assert result.deferred_issues == []
 
     def test_fix_invalidates_downstream(self, session: Session, duckdb_conn):
         """FIX resets affected phase and all downstream to PENDING."""
@@ -1179,26 +1120,31 @@ class TestFixResolution:
 
         measure_count = 0
 
-        def mock_measure(gate_phase_name):
+        def mock_measure(session, duckdb_conn, source_id, available_analyses):
             nonlocal measure_count
             measure_count += 1
             if measure_count == 1:
-                return {"structural.types.type_fidelity": 0.8}
-            return {"structural.types.type_fidelity": 0.1}
+                return GateResult(scores={"structural.types.type_fidelity": 0.8})
+            return GateResult(scores={"structural.types.type_fidelity": 0.1})
 
         fix_input = FixInput(action_name="override_type")
 
         with (
-            patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure),
+            patch(
+                "dataraum.pipeline.scheduler.measure_at_gate",
+                side_effect=mock_measure,
+            ),
             patch("dataraum.pipeline.scheduler.cleanup_phase"),
             patch("dataraum.pipeline.scheduler.apply_config_patch"),
         ):
             events, result = _drive(
                 scheduler.run(),
-                resolutions={0: Resolution(
-                    action=ResolutionAction.FIX,
-                    fix_inputs=[fix_input],
-                )},
+                resolutions={
+                    0: Resolution(
+                        action=ResolutionAction.FIX,
+                        fix_inputs=[fix_input],
+                    )
+                },
             )
 
         # Alpha ran twice (original + re-run after fix).
@@ -1232,13 +1178,16 @@ class TestFixResolution:
         )
 
         # Score stays high — fix doesn't help, second attempt defers
-        def mock_measure(gate_phase_name):
-            return {"structural.types.type_fidelity": 0.8}
+        def mock_measure(session, duckdb_conn, source_id, available_analyses):
+            return GateResult(scores={"structural.types.type_fidelity": 0.8})
 
         fix_input = FixInput(action_name="override_type")
 
         with (
-            patch.object(scheduler, "_measure_at_gate", side_effect=mock_measure),
+            patch(
+                "dataraum.pipeline.scheduler.measure_at_gate",
+                side_effect=mock_measure,
+            ),
             patch("dataraum.pipeline.scheduler.cleanup_phase"),
             patch("dataraum.pipeline.scheduler.apply_config_patch"),
         ):
@@ -1268,11 +1217,11 @@ class TestFixResolution:
         assert result.success is True
 
 
-class TestFixClearsScores:
+class TestFixScoresCleared:
     """Tests that fix re-runs clear measurement state."""
 
-    def test_fix_clears_scores_and_column_details(self, session: Session, duckdb_conn):
-        """_apply_fixes clears _scores and _column_details so gate re-measures."""
+    def test_fix_clears_scores_on_rerun(self, session: Session, duckdb_conn):
+        """After FIX resolution, scores are cleared so gate re-measures fresh."""
         _ensure_source(session)
         run_id = _make_run(session)
 
@@ -1286,6 +1235,7 @@ class TestFixClearsScores:
             "alpha",
             produces_analyses_keys={AnalysisKey.TYPING},
             fix_handlers_map={"override_type": handler},
+            is_quality_gate=True,
         )
 
         scheduler = PipelineScheduler(
@@ -1294,25 +1244,43 @@ class TestFixClearsScores:
             run_id=run_id,
             session=session,
             duckdb_conn=duckdb_conn,
+            contract_thresholds={"structural.types": 0.3},
         )
 
-        # Simulate state after gate measurement
-        scheduler._scores = {
-            "structural.types.type_fidelity": 0.8,
-            "value.nulls.null_ratio": 0.1,
-        }
-        scheduler._column_details = {"structural.types.type_fidelity": {"col:a": 0.8}}
+        # First measurement: high score. Second: low (after fix cleared scores).
+        measure_count = 0
+
+        def mock_measure(session, duckdb_conn, source_id, available_analyses):
+            nonlocal measure_count
+            measure_count += 1
+            if measure_count == 1:
+                return GateResult(scores={"structural.types.type_fidelity": 0.8})
+            # After fix, return different dimension to prove old scores were cleared
+            return GateResult(scores={"value.nulls.null_ratio": 0.05})
 
         fix_input = FixInput(action_name="override_type")
         with (
+            patch(
+                "dataraum.pipeline.scheduler.measure_at_gate",
+                side_effect=mock_measure,
+            ),
             patch("dataraum.pipeline.scheduler.cleanup_phase"),
             patch("dataraum.pipeline.scheduler.apply_config_patch"),
             patch("dataraum.core.config.load_phase_config", return_value={}),
         ):
-            scheduler._apply_fixes([fix_input])
+            events, result = _drive(
+                scheduler.run(),
+                resolutions={
+                    0: Resolution(
+                        action=ResolutionAction.FIX,
+                        fix_inputs=[fix_input],
+                    ),
+                },
+            )
 
-        assert scheduler._scores == {}
-        assert scheduler._column_details == {}
+        # Old score gone, only new score present (proves scores were cleared)
+        assert "structural.types.type_fidelity" not in result.final_scores
+        assert result.final_scores.get("value.nulls.null_ratio") == pytest.approx(0.05)
 
 
 class TestForceSequential:
@@ -1450,10 +1418,11 @@ class TestExitCheckFixableActions:
         registry = DetectorRegistry()
         registry.register(FixableDetector())
 
+        gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
         with (
-            patch.object(
-                scheduler, "_measure_at_gate",
-                return_value={"structural.types.type_fidelity": 0.8},
+            patch(
+                "dataraum.pipeline.scheduler.measure_at_gate",
+                return_value=gate,
             ),
             patch(
                 "dataraum.entropy.detectors.base.get_default_registry",
@@ -1486,9 +1455,10 @@ class TestExitCheckFixableActions:
             contract_thresholds={"structural.types": 0.3},
         )
 
-        with patch.object(
-            scheduler, "_measure_at_gate",
-            return_value={"structural.types.type_fidelity": 0.8},
+        gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
+        with patch(
+            "dataraum.pipeline.scheduler.measure_at_gate",
+            return_value=gate,
         ):
             events, result = _drive(
                 scheduler.run(),
