@@ -137,9 +137,7 @@ class TestDetectorRegistry:
 
         fixable = empty_registry.get_fixable_actions()
         assert "transform_exclude_outliers" in fixable
-        detector_id, phase_name = fixable["transform_exclude_outliers"]
-        assert detector_id == "outlier_rate"
-        assert phase_name == "statistical_quality"
+        assert fixable["transform_exclude_outliers"] == "outlier_rate"
 
 
 class TestEntropyDetector:

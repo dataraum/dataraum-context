@@ -636,7 +636,11 @@ class PipelineScheduler:
         elif resolution.action == ResolutionAction.ABORT:
             raise PipelineAborted("Pipeline aborted by user")
         elif resolution.action == ResolutionAction.FIX:
-            self._apply_fixes(resolution.fix_inputs)
+            if not resolution.fix_inputs:
+                logger.warning("fix_resolution_empty")
+                self._deferred_issues.extend(self._pending_issues)
+            else:
+                self._apply_fixes(resolution.fix_inputs)
         return []
 
     def _apply_fixes(self, fix_inputs: list[FixInput]) -> None:
@@ -671,7 +675,9 @@ class PipelineScheduler:
 
             # Log to fix ledger
             for col_ref in fix_input.affected_columns or [fix_input.action_name]:
-                parts = col_ref.split(".", 1)
+                # Strip scope prefix (e.g. "column:orders.amount" → "orders.amount")
+                bare_ref = col_ref.split(":", 1)[-1] if ":" in col_ref else col_ref
+                parts = bare_ref.split(".", 1)
                 table_name = parts[0]
                 column_name = parts[1] if len(parts) > 1 else None
                 log_fix(
@@ -735,8 +741,8 @@ class PipelineScheduler:
     ) -> dict[str, list[dict[str, str]]]:
         """Gather fixable actions for EXIT_CHECK event display.
 
-        Consults the detector registry to find which violations have
-        config-level fix handlers available.
+        Consults the detector registry for which actions exist and resolves
+        the owning phase from phase.fix_handlers (single source of truth).
 
         Returns:
             dim_path -> [{"action_name": str, "phase_name": str}]
@@ -744,7 +750,13 @@ class PipelineScheduler:
         from dataraum.entropy.detectors.base import get_default_registry
 
         registry = get_default_registry()
-        all_fixable = registry.get_fixable_actions()
+
+        # Build action_name -> phase_name from phase.fix_handlers
+        handler_phases = {
+            action: pname
+            for pname, phase in self.phases.items()
+            for action in phase.fix_handlers
+        }
 
         # Build dim_path -> detector lookup for matching issues
         detector_by_path = {
@@ -756,9 +768,9 @@ class PipelineScheduler:
             detector = detector_by_path.get(issue.dimension_path)
             if detector:
                 actions = [
-                    {"action_name": action, "phase_name": phase}
-                    for action, (_, phase) in all_fixable.items()
-                    if action in detector.fixable_actions
+                    {"action_name": action, "phase_name": handler_phases[action]}
+                    for action in detector.fixable_actions
+                    if action in handler_phases
                 ]
                 if actions:
                     result[issue.dimension_path] = actions

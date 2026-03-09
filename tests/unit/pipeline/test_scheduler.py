@@ -1340,9 +1340,15 @@ class TestExitCheckFixableActions:
         from dataraum.entropy.detectors.base import DetectorRegistry, EntropyDetector
 
         run_id = _make_run(session)
-        phase = MockPhase("alpha", post_verification_dims=["type_fidelity"])
+        # Phase declares fix_handlers — single source of truth for phase_name
+        dummy_handler = lambda fi, cfg: None  # noqa: E731
+        phase = MockPhase(
+            "typing",
+            post_verification_dims=["type_fidelity"],
+            fix_handlers_map={"override_type": dummy_handler},
+        )
         scheduler = PipelineScheduler(
-            phases={"alpha": phase},
+            phases={"typing": phase},
             source_id="src-1",
             run_id=run_id,
             session=session,
@@ -1350,7 +1356,7 @@ class TestExitCheckFixableActions:
             contract_thresholds={"structural.types": 0.3},
         )
 
-        # Create detector with fixable_actions
+        # Detector declares which actions are fixable (no phase_name)
         class FixableDetector(EntropyDetector):
             detector_id = "test_fixable"
             layer = "structural"
@@ -1361,7 +1367,7 @@ class TestExitCheckFixableActions:
 
             @property
             def fixable_actions(self):
-                return {"override_type": "typing"}
+                return {"override_type"}
 
             def detect(self, ctx):
                 return []

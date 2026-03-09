@@ -29,11 +29,14 @@ import yaml
 _config_root_override: Path | None = None
 
 
+@lru_cache
 def _find_config_dir() -> Path:
     """Find the config directory by walking up from the package location.
 
     This is the ONE place that does path-relative-to-file resolution.
     Everything else goes through get_config_file().
+
+    Cached because it does filesystem traversal with a stable result.
     """
     # src/dataraum/core/config.py -> 4 levels up -> project root
     package_dir = Path(__file__).resolve().parent.parent.parent.parent
@@ -45,7 +48,6 @@ def _find_config_dir() -> Path:
     return Path("config")
 
 
-@lru_cache
 def _get_config_root() -> Path:
     """Get the config root directory.
 
@@ -70,17 +72,15 @@ def set_config_root(path: Path) -> None:
     """
     global _config_root_override  # noqa: PLW0603
     _config_root_override = path
-    _get_config_root.cache_clear()
 
 
 def reset_config_root() -> None:
     """Clear the config root override, reverting to default resolution.
 
-    Primarily for testing. Clears both the override and the lru_cache.
+    Primarily for testing.
     """
     global _config_root_override  # noqa: PLW0603
     _config_root_override = None
-    _get_config_root.cache_clear()
 
 
 def get_config_file(relative_path: str) -> Path:

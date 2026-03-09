@@ -234,20 +234,25 @@ def _handle_pause(
     console.print("  [a] Abort — stop pipeline")
     console.print()
 
-    choice = console.input("[bold]Select: [/bold]").strip().lower()
+    for attempt in range(3):
+        choice = console.input("[bold]Select: [/bold]").strip().lower()
 
-    if choice == "d":
-        return Resolution(action=ResolutionAction.DEFER)
-    if choice == "a":
-        return Resolution(action=ResolutionAction.ABORT)
-
-    try:
-        idx = int(choice) - 1
-        if not 0 <= idx < len(actions):
-            console.print("[yellow]Invalid choice, deferring.[/yellow]")
+        if choice == "d":
             return Resolution(action=ResolutionAction.DEFER)
-    except ValueError:
-        console.print("[yellow]Invalid choice, deferring.[/yellow]")
+        if choice == "a":
+            return Resolution(action=ResolutionAction.ABORT)
+
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(actions):
+                break
+            remaining = 2 - attempt
+            console.print(f"[yellow]Invalid choice ({remaining} attempts left).[/yellow]")
+        except ValueError:
+            remaining = 2 - attempt
+            console.print(f"[yellow]Invalid choice ({remaining} attempts left).[/yellow]")
+    else:
+        console.print("[yellow]No valid input, deferring.[/yellow]")
         return Resolution(action=ResolutionAction.DEFER)
 
     selected = actions[idx]
@@ -433,7 +438,7 @@ def build_gate_context(
     sections.append("\n".join(evidence_lines))
 
     # Section 3: Data profile from DB
-    data_section = _build_data_profile(session, affected_targets)
+    data_section = _build_data_profile(session, source_id, affected_targets)
     if data_section:
         sections.append(data_section)
 
@@ -454,7 +459,7 @@ def _get_affected_targets(
 
 
 def _build_data_profile(
-    session: Session, targets: list[str],
+    session: Session, source_id: str, targets: list[str],
 ) -> str:
     """Build data profile section from DB for affected targets.
 
@@ -485,7 +490,7 @@ def _build_data_profile(
                 select(Column, Table, StatisticalProfile)
                 .join(Table, Column.table_id == Table.table_id)
                 .outerjoin(StatisticalProfile, Column.column_id == StatisticalProfile.column_id)
-                .where(Table.table_name == table_name, Column.column_name == column_name)
+                .where(Table.source_id == source_id, Table.table_name == table_name, Column.column_name == column_name)
                 .limit(1)
             )
             row = session.execute(stmt).first()

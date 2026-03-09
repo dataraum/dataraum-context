@@ -16,7 +16,6 @@ class TestOutlierDetectorFixableActions:
     def test_declares_transform_exclude_outliers(self) -> None:
         detector = OutlierRateDetector()
         assert "transform_exclude_outliers" in detector.fixable_actions
-        assert detector.fixable_actions["transform_exclude_outliers"] == "statistical_quality"
 
 
 class TestStatisticalQualityPhaseFixHandlers:

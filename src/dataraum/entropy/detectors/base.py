@@ -181,17 +181,17 @@ class EntropyDetector(ABC):
         )
 
     @property
-    def fixable_actions(self) -> dict[str, str]:
-        """Map action_name to the phase_name that can fix it.
+    def fixable_actions(self) -> set[str]:
+        """Action names that have config-level fix handlers.
 
-        Returns which resolution actions have config-level fix handlers
-        and which phase owns the handler. Actions not listed here are
-        document-only (domain knowledge capture via the fix ledger).
+        Actions not listed here are document-only (domain knowledge
+        capture via the fix ledger). The phase that owns each handler
+        is resolved from phase.fix_handlers — not duplicated here.
 
         Default: empty (all actions are document-only).
         Override in subclasses to declare fixable actions.
         """
-        return {}
+        return set()
 
     @property
     def dimension_path(self) -> str:
@@ -308,17 +308,17 @@ class DetectorRegistry:
         """
         return list({d.dimension for d in self.detectors.values() if d.layer == layer})
 
-    def get_fixable_actions(self) -> dict[str, tuple[str, str]]:
+    def get_fixable_actions(self) -> dict[str, str]:
         """Get all fixable actions across registered detectors.
 
         Returns:
-            action_name -> (detector_id, phase_name) for actions that have
+            action_name -> detector_id for actions that have
             config-level fix handlers.
         """
-        result: dict[str, tuple[str, str]] = {}
+        result: dict[str, str] = {}
         for detector in self.detectors.values():
-            for action_name, phase_name in detector.fixable_actions.items():
-                result[action_name] = (detector.detector_id, phase_name)
+            for action_name in detector.fixable_actions:
+                result[action_name] = detector.detector_id
         return result
 
 
