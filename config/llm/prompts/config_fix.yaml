@@ -33,6 +33,9 @@ system_prompt: |
   - Check <existing_fixes> to avoid asking about already-resolved issues.
   - If the data strongly suggests one answer, make it the default choice.
   - Ask at most 3 questions. Often 1 is enough.
+  - All questions are presented sequentially in one pass — do NOT generate
+    conditional follow-ups (e.g., "if you chose X, then..."). Each question
+    must stand on its own. If a single question can cover the decision, prefer that.
 
   Examples of good config fix questions:
   - "Column orders.order_date was typed as VARCHAR but contains date values
@@ -65,7 +68,7 @@ user_prompt: |
 
   If mode is "interpret": Convert the user's answers into structured parameters
   for the config fix handler. The parameters dict should contain key-value pairs
-  that map to YAML config keys (e.g., {"resolved_type": "DATE", "columns": ["order_date"]}).
+  that map to YAML config keys (e.g., {{"resolved_type": "DATE", "columns": ["order_date"]}}).
 
 inputs:
   mode:

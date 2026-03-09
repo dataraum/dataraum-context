@@ -27,7 +27,7 @@ class QualityReviewPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["semantic"]
+        return ["semantic", "statistical_quality"]
 
     @property
     def post_verification(self) -> list[str]:

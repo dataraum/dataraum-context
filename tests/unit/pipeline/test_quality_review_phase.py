@@ -12,9 +12,10 @@ class TestQualityReviewPhase:
         phase = QualityReviewPhase()
         assert phase.name == "quality_review"
 
-    def test_depends_on_semantic(self) -> None:
+    def test_depends_on_semantic_and_statistical_quality(self) -> None:
         phase = QualityReviewPhase()
-        assert phase.dependencies == ["semantic"]
+        assert "semantic" in phase.dependencies
+        assert "statistical_quality" in phase.dependencies
 
     def test_post_verification_lists_foundation_detectors(self) -> None:
         phase = QualityReviewPhase()

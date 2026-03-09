@@ -494,8 +494,8 @@ def _build_data_profile(
                 has_data = True
                 lines.append(f"\n  Column: {table_name}.{column_name}")
                 lines.append(f"    Table rows: {tbl.row_count or 'unknown'}")
-                if col.inferred_type:
-                    lines.append(f"    Current type: {col.inferred_type}")
+                if col.resolved_type:
+                    lines.append(f"    Current type: {col.resolved_type}")
                 if profile:
                     lines.append(f"    Distinct values: {profile.distinct_count or 'unknown'}")
                     lines.append(f"    Null ratio: {profile.null_ratio or 0:.1%}")
