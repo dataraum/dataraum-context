@@ -438,9 +438,18 @@ def _run_fix_flow(
     if col_scores:
         evidence["column_scores"] = col_scores
 
+    # Ensure detector_id is in parameters — LLM may omit it but
+    # fix handlers (accept_finding etc.) need it to write patches
+    # to the correct config section.
+    params = dict(interp.parameters)
+    if "detector_id" not in params:
+        detector_id = _resolve_detector_id(dim_path)
+        if detector_id:
+            params["detector_id"] = detector_id
+
     fix_input = FixInput(
         action_name=interp.config_action or action_info["action_name"],
-        parameters=interp.parameters,
+        parameters=params,
         interpretation=interp.interpretation,
         affected_columns=interp.affected_columns,
         entropy_evidence=evidence,
@@ -513,6 +522,17 @@ def build_gate_context(
         sections.append(data_section)
 
     return "\n\n".join(sections)
+
+
+def _resolve_detector_id(dim_path: str) -> str | None:
+    """Look up detector_id from a dimension path like 'value.outliers.outlier_rate'."""
+    from dataraum.entropy.detectors.base import get_default_registry
+
+    registry = get_default_registry()
+    for d in registry.get_all_detectors():
+        if d.dimension_path == dim_path:
+            return d.detector_id
+    return None
 
 
 def _get_affected_targets(

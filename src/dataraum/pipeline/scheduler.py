@@ -595,9 +595,11 @@ class PipelineScheduler:
                 summary=fix_result.summary,
             )
 
-        # Reload phase configs from disk so re-runs pick up the patches
+        # Reload configs from disk so re-runs pick up the patches
         from dataraum.core.config import load_phase_config
+        from dataraum.entropy.config import clear_entropy_config_cache
 
+        clear_entropy_config_cache()
         for phase_name in phases_to_rerun:
             self._phase_configs[phase_name] = load_phase_config(phase_name)
 
