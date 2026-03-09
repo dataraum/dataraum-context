@@ -9,9 +9,9 @@ LLM-powered interpretation of entropy metrics to generate:
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 
 from dataraum.analysis.quality_summary.db_models import ColumnQualityReport
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
@@ -26,9 +26,13 @@ from dataraum.entropy.interpretation import TableInterpretationInput
 from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -85,6 +89,22 @@ class EntropyInterpretationPhase(BasePhase):
     @property
     def dependencies(self) -> list[str]:
         return ["entropy"]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
+
+        return exec_delete(
+            session,
+            delete(EntropyInterpretationRecord).where(
+                EntropyInterpretationRecord.source_id == source_id
+            ),
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:

@@ -9,9 +9,9 @@ LLM-powered analysis to identify optimal data slicing dimensions:
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dataraum.analysis.slicing.agent import SlicingAgent
 from dataraum.analysis.slicing.db_models import SliceDefinition
@@ -23,9 +23,13 @@ from dataraum.analysis.slicing.models import (
 from dataraum.core.logging import get_logger
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -52,6 +56,19 @@ class SlicingPhase(BasePhase):
     @property
     def dependencies(self) -> list[str]:
         return ["enriched_views"]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        if not table_ids:
+            return 0
+        return exec_delete(
+            session, delete(SliceDefinition).where(SliceDefinition.table_id.in_(table_ids))
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:

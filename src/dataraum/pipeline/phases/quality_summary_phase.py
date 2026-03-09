@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.quality_summary.agent import QualitySummaryAgent
 from dataraum.analysis.quality_summary.db_models import ColumnQualityReport
@@ -24,6 +24,7 @@ from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.llm.config import LLMConfig
 from dataraum.llm.providers.base import LLMProvider
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
@@ -31,6 +32,8 @@ from dataraum.storage import Column, Table
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
+
+    from sqlalchemy.orm import Session
 
 
 @dataclass
@@ -138,6 +141,31 @@ class QualitySummaryPhase(BasePhase):
     @property
     def produces_analyses(self) -> set[AnalysisKey]:
         return {AnalysisKey.COLUMN_QUALITY_REPORTS}
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.analysis.quality_summary.db_models import ColumnSliceProfile
+
+        count = 0
+        if column_ids:
+            count += exec_delete(
+                session,
+                delete(ColumnQualityReport).where(
+                    ColumnQualityReport.source_column_id.in_(column_ids)
+                ),
+            )
+            count += exec_delete(
+                session,
+                delete(ColumnSliceProfile).where(
+                    ColumnSliceProfile.source_column_id.in_(column_ids)
+                ),
+            )
+        return count
 
     @property
     def db_models(self) -> list[ModuleType]:

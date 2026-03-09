@@ -7,9 +7,9 @@ Runs detectors to quantify uncertainty in each column and table.
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.core.logging import get_logger
 from dataraum.entropy.db_models import (
@@ -18,9 +18,13 @@ from dataraum.entropy.db_models import (
 )
 from dataraum.entropy.snapshot import take_snapshot
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -55,6 +59,23 @@ class EntropyPhase(BasePhase):
             "quality_summary",
             "temporal_slice_analysis",
         ]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        count = exec_delete(
+            session,
+            delete(EntropyObjectRecord).where(EntropyObjectRecord.source_id == source_id),
+        )
+        count += exec_delete(
+            session,
+            delete(EntropySnapshotRecord).where(EntropySnapshotRecord.source_id == source_id),
+        )
+        return count
 
     @property
     def db_models(self) -> list[ModuleType]:

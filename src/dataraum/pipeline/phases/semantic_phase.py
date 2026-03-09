@@ -13,8 +13,9 @@ unit detection, and reviewing low-confidence annotations.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.relationships.utils import load_relationship_candidates_for_semantic
 from dataraum.analysis.semantic.agent import SemanticAgent
@@ -25,9 +26,13 @@ from dataraum.core.logging import get_logger
 from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -59,6 +64,37 @@ class SemanticPhase(BasePhase):
     @property
     def produces_analyses(self) -> set[AnalysisKey]:
         return {AnalysisKey.SEMANTIC}
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.analysis.relationships.db_models import Relationship
+        from dataraum.analysis.semantic.db_models import TableEntity
+
+        count = 0
+        if column_ids:
+            count += exec_delete(
+                session,
+                delete(SemanticAnnotation).where(SemanticAnnotation.column_id.in_(column_ids)),
+            )
+        if table_ids:
+            count += exec_delete(
+                session, delete(TableEntity).where(TableEntity.table_id.in_(table_ids))
+            )
+            # Delete LLM-confirmed relationships created by the semantic phase
+            count += exec_delete(
+                session,
+                delete(Relationship).where(
+                    Relationship.detection_method == "llm",
+                    Relationship.from_table_id.in_(table_ids)
+                    | Relationship.to_table_id.in_(table_ids),
+                ),
+            )
+        return count
 
     @property
     def db_models(self) -> list[ModuleType]:

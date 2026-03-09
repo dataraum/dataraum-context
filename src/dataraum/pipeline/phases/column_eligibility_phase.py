@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import ModuleType
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dataraum.analysis.eligibility.config import load_eligibility_config
 from dataraum.analysis.eligibility.db_models import ColumnEligibilityRecord
@@ -22,9 +23,13 @@ from dataraum.analysis.eligibility.evaluator import (
 from dataraum.analysis.statistics.db_models import StatisticalProfile
 from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -51,6 +56,18 @@ class ColumnEligibilityPhase(BasePhase):
     @property
     def dependencies(self) -> list[str]:
         return ["statistics"]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        return exec_delete(
+            session,
+            delete(ColumnEligibilityRecord).where(ColumnEligibilityRecord.source_id == source_id),
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:

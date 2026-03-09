@@ -9,7 +9,7 @@ import duckdb
 import pytest
 from sqlalchemy.orm import Session
 
-from dataraum.pipeline.cleanup import _CLEANUP_MAP, cleanup_phase, cleanup_phase_cascade
+from dataraum.pipeline.cleanup import cleanup_phase, cleanup_phase_cascade
 from dataraum.pipeline.db_models import PhaseLog, PipelineRun
 from dataraum.storage.models import Column, Source, Table
 
@@ -81,9 +81,12 @@ class TestCleanupUnknownPhase:
         result = cleanup_phase("nonexistent_phase", "src_001", session, duck)
         assert result == 0
 
-    def test_import_not_in_cleanup_map(self) -> None:
-        """Import phase is not registered in the cleanup map."""
-        assert "import" not in _CLEANUP_MAP
+    def test_import_has_no_cleanup(self) -> None:
+        """Import phase cleanup is a no-op (returns 0)."""
+        from dataraum.pipeline.phases.import_phase import ImportPhase
+
+        phase = ImportPhase()
+        assert phase.cleanup(None, "", [], []) == 0  # type: ignore[arg-type]
 
 
 class TestCleanupStatistics:

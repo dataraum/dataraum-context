@@ -9,10 +9,14 @@ import time
 import traceback
 from abc import ABC, abstractmethod
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 from dataraum.core.logging import get_logger
 from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -61,6 +65,29 @@ class BasePhase(ABC):
         Quality gates trigger entropy measurement and contract assessment.
         """
         return False
+
+    @property
+    def duckdb_layers(self) -> list[str]:
+        """DuckDB layers this phase creates (for cleanup).
+
+        Phases that create DuckDB tables/views should override this
+        to declare the layers they own, so cleanup can drop them.
+        """
+        return []
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        """Delete this phase's output records for the given source.
+
+        Override in subclasses to define phase-specific cleanup logic.
+        Returns the number of records deleted.
+        """
+        return 0
 
     @property
     def db_models(self) -> list[ModuleType]:

@@ -13,8 +13,9 @@ downstream consumer acts on them.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dataraum.analysis.correlation import analyze_correlations
 from dataraum.analysis.correlation.db_models import DerivedColumn
@@ -22,9 +23,13 @@ from dataraum.analysis.correlation.processor import analyze_enriched_correlation
 from dataraum.analysis.views.db_models import EnrichedView
 from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @analysis_phase
@@ -50,6 +55,19 @@ class CorrelationsPhase(BasePhase):
     @property
     def produces_analyses(self) -> set[AnalysisKey]:
         return {AnalysisKey.CORRELATION}
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        if not table_ids:
+            return 0
+        return exec_delete(
+            session, delete(DerivedColumn).where(DerivedColumn.table_id.in_(table_ids))
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:

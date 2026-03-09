@@ -15,19 +15,23 @@ columns without all the noise from non-slice enrichment columns.
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dataraum.analysis.semantic.db_models import TableEntity
 from dataraum.analysis.slicing.db_models import SliceDefinition
 from dataraum.analysis.views.db_models import EnrichedView, SlicingView
 from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -52,6 +56,29 @@ class SlicingViewPhase(BasePhase):
     @property
     def dependencies(self) -> list[str]:
         return ["slicing"]
+
+    @property
+    def duckdb_layers(self) -> list[str]:
+        return ["slicing_view"]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        count = 0
+        if table_ids:
+            count += exec_delete(
+                session, delete(SlicingView).where(SlicingView.fact_table_id.in_(table_ids))
+            )
+        # Delete slicing_view layer Tables (CASCADE deletes their Columns)
+        count += exec_delete(
+            session,
+            delete(Table).where(Table.source_id == source_id, Table.layer == "slicing_view"),
+        )
+        return count
 
     @property
     def db_models(self) -> list[ModuleType]:

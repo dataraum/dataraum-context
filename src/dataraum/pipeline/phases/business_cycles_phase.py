@@ -8,16 +8,21 @@ and identifies cycles based on entity flows, status columns, and relationships.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.cycles import BusinessCycleAgent
 from dataraum.analysis.cycles.db_models import DetectedBusinessCycle
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @analysis_phase
@@ -49,6 +54,18 @@ class BusinessCyclesPhase(BasePhase):
             "slicing",  # categorical dimensions (status columns)
             "quality_summary",  # column quality reports
         ]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        return exec_delete(
+            session,
+            delete(DetectedBusinessCycle).where(DetectedBusinessCycle.source_id == source_id),
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:
