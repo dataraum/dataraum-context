@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 import duckdb
-import pytest
 from sqlalchemy.orm import Session
 
 from dataraum.entropy.detectors.base import DetectorContext
@@ -247,7 +246,7 @@ class TestNamingClarity:
                     assessment = obj.evidence[0]["assessment"]
                     scores_by_assessment.setdefault(assessment, []).append(obj.score)
 
-        print(f"\n  Scores by assessment:")
+        print("\n  Scores by assessment:")
         for assessment, scores in sorted(scores_by_assessment.items()):
             avg = sum(scores) / len(scores)
             print(f"    {assessment}: n={len(scores)}, avg={avg:.3f}")

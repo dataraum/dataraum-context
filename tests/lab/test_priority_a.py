@@ -7,11 +7,9 @@ Tests and fixes for:
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import duckdb
-import pytest
 from sqlalchemy.orm import Session
 
 from dataraum.entropy.detectors.base import DetectorContext
@@ -389,7 +387,7 @@ class TestNullRatio:
                 nonzero.append((f"{col['table_name']}.{col['column_name']}", score))
 
         print(f"\n  Zero-null columns: {zero_count}/{len(typed_columns)}")
-        print(f"  Non-zero null columns:")
+        print("  Non-zero null columns:")
         for name, score in sorted(nonzero, key=lambda x: x[1], reverse=True):
             print(f"    {score:.3f}  {name}")
         assert zero_count > 40, f"Expected most columns to be null-free, got {zero_count}"

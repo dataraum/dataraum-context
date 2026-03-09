@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from dataraum.entropy.detectors.base import DetectorContext
 from dataraum.entropy.detectors.semantic.business_meaning import BusinessMeaningDetector
 from dataraum.entropy.detectors.semantic.unit_entropy import UnitEntropyDetector

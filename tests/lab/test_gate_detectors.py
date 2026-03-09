@@ -18,7 +18,6 @@ from collections import defaultdict
 from typing import Any
 
 import duckdb
-import pytest
 from sqlalchemy.orm import Session
 
 from dataraum.entropy.dimensions import SubDimension

@@ -8,7 +8,7 @@ from typing import Any
 
 import duckdb
 import pytest
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
