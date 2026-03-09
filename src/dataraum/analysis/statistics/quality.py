@@ -159,63 +159,51 @@ def detect_outliers_iqr(
         table_name = table.duckdb_path
         col_name = column.column_name
 
-        # Calculate quartiles using DuckDB
-        query = f"""
-            WITH quartiles AS (
-                SELECT
-                    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY val) as q1,
-                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY val) as q3
-                FROM (
-                    SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
-                    FROM {table_name}
-                ) t
-                WHERE val IS NOT NULL
-            ),
-            bounds AS (
-                SELECT
-                    q1,
-                    q3,
-                    q3 - q1 as iqr,
-                    q1 - 1.5 * (q3 - q1) as lower_fence,
-                    q3 + 1.5 * (q3 - q1) as upper_fence
-                FROM quartiles
-            )
+        # Step 1: Compute quartiles and total count
+        stats_query = f"""
             SELECT
-                lower_fence,
-                upper_fence,
-                (SELECT COUNT(*) FROM (
-                    SELECT TRY_CAST("{col_name}" AS DOUBLE) as val FROM {table_name}
-                ) t WHERE val IS NOT NULL) as total_count,
-                (SELECT COUNT(*) FROM (
-                    SELECT TRY_CAST("{col_name}" AS DOUBLE) as val FROM {table_name}
-                ) t
-                CROSS JOIN bounds
-                WHERE val IS NOT NULL AND (val < lower_fence OR val > upper_fence)) as outlier_count
-            FROM bounds
+                CAST(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY val) AS DOUBLE) as q1,
+                CAST(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY val) AS DOUBLE) as q3,
+                COUNT(*) as total_count
+            FROM (
+                SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
+                FROM {table_name}
+            ) t
+            WHERE val IS NOT NULL
         """
 
-        result_row = duckdb_conn.execute(query).fetchone()
+        stats_row = duckdb_conn.execute(stats_query).fetchone()
 
-        if not result_row or result_row[2] == 0:
+        if not stats_row or stats_row[2] == 0:
             return Result.ok(None)
 
-        lower_fence, upper_fence, total_count, outlier_count = result_row
+        q1, q3, total_count = float(stats_row[0]), float(stats_row[1]), int(stats_row[2])
+        iqr = q3 - q1
+        lower_fence = q1 - 1.5 * iqr
+        upper_fence = q3 + 1.5 * iqr
+
+        # Step 2: Count outliers using literal fence values (avoids DuckDB DECIMAL overflow)
+        outlier_query = f"""
+            SELECT COUNT(*) FROM (
+                SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
+                FROM {table_name}
+            ) t
+            WHERE val IS NOT NULL
+            AND (val < {lower_fence} OR val > {upper_fence})
+        """
+
+        outlier_row = duckdb_conn.execute(outlier_query).fetchone()
+        outlier_count = int(outlier_row[0]) if outlier_row else 0
         outlier_ratio = outlier_count / total_count if total_count > 0 else 0.0
 
-        # Get sample outliers
+        # Step 3: Get sample outliers
         sample_query = f"""
-            WITH bounds AS (
-                SELECT
-                    {lower_fence} as lower_fence,
-                    {upper_fence} as upper_fence
-            )
             SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
             FROM {table_name}
-            CROSS JOIN bounds
             WHERE TRY_CAST("{col_name}" AS DOUBLE) IS NOT NULL
-            AND (TRY_CAST("{col_name}" AS DOUBLE) < lower_fence
-                 OR TRY_CAST("{col_name}" AS DOUBLE) > upper_fence)
-            ORDER BY ABS(TRY_CAST("{col_name}" AS DOUBLE) - (lower_fence + upper_fence) / 2.0) DESC
+            AND (TRY_CAST("{col_name}" AS DOUBLE) < {lower_fence}
+                 OR TRY_CAST("{col_name}" AS DOUBLE) > {upper_fence})
+            ORDER BY ABS(TRY_CAST("{col_name}" AS DOUBLE) - {(lower_fence + upper_fence) / 2.0}) DESC
             LIMIT 10
         """
 
@@ -226,10 +214,10 @@ def detect_outliers_iqr(
 
         result = OutlierDetection(
             # IQR Method
-            iqr_lower_fence=float(lower_fence),
-            iqr_upper_fence=float(upper_fence),
-            iqr_outlier_count=int(outlier_count),
-            iqr_outlier_ratio=float(outlier_ratio),
+            iqr_lower_fence=lower_fence,
+            iqr_upper_fence=upper_fence,
+            iqr_outlier_count=outlier_count,
+            iqr_outlier_ratio=outlier_ratio,
             # Sample outliers
             outlier_samples=outlier_samples if outlier_samples else [],
         )

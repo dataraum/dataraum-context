@@ -65,14 +65,14 @@ def _setup_sliced_table(session: Session) -> SliceDefinition:
     )
     session.add(slice_def)
 
-    # Slice tables (match naming convention: slice_{col}_{value})
+    # Slice tables (match naming convention: slice_{source}_{col}_{value})
     for val in ["us", "eu"]:
         st = Table(
             table_id=str(uuid4()),
             source_id=source_id,
-            table_name=f"slice_region_{val}",
+            table_name=f"slice_typed_orders_region_{val}",
             layer="slice",
-            duckdb_path=f"slice_region_{val}",
+            duckdb_path=f"slice_typed_orders_region_{val}",
             row_count=50,
         )
         session.add(st)
@@ -110,9 +110,9 @@ class TestAggregateSliceResultsTemporalContext:
         """When drift summary records exist for slice tables, they are loaded."""
         slice_def = _setup_sliced_table(session)
 
-        # Add a drift summary for the 'amount' column in slice_region_us
+        # Add a drift summary for the 'amount' column in slice_typed_orders_region_us
         drift = ColumnDriftSummary(
-            slice_table_name="slice_region_us",
+            slice_table_name="slice_typed_orders_region_us",
             column_name="amount",
             time_column="order_date",
             max_js_divergence=0.35,
@@ -157,7 +157,7 @@ class TestAggregateSliceResultsTemporalContext:
 
         # Drift on 'amount' column
         d1 = ColumnDriftSummary(
-            slice_table_name="slice_region_us",
+            slice_table_name="slice_typed_orders_region_us",
             column_name="amount",
             time_column="order_date",
             max_js_divergence=0.25,
@@ -171,7 +171,7 @@ class TestAggregateSliceResultsTemporalContext:
         )
         # Drift on a different column (should NOT count for 'amount')
         d2 = ColumnDriftSummary(
-            slice_table_name="slice_region_us",
+            slice_table_name="slice_typed_orders_region_us",
             column_name="other_col",
             time_column="order_date",
             max_js_divergence=0.40,
