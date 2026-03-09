@@ -94,7 +94,7 @@ Add this to the file (create it if it doesn't exist):
 
 **Important:** Claude Desktop doesn't inherit your shell's working directory, so use absolute paths for both `--project` and `DATARAUM_OUTPUT_DIR`.
 
-Restart Claude Desktop after editing. The hammer icon in the text input should show 10 DataRaum tools.
+Restart Claude Desktop after editing. The hammer icon in the text input should show 6 DataRaum tools.
 
 ---
 

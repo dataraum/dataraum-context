@@ -440,6 +440,7 @@ class EntropyAccessor:
 
             # Build dimension scores from network + direct signals
             dimension_scores: dict[str, float] = {}
+            dim_warning: str | None = None
             try:
                 tables_result = session.execute(
                     select(Table).where(
@@ -460,8 +461,11 @@ class EntropyAccessor:
                     dimension_scores = {
                         dim: sum(scores) / len(scores) for dim, scores in dim_totals.items()
                     }
-            except Exception:
-                pass
+            except Exception as exc:
+                import warnings
+
+                dim_warning = f"Could not compute dimension scores: {exc}"
+                warnings.warn(dim_warning, stacklevel=2)
 
             return EntropyResultWrapper(
                 {

@@ -324,10 +324,16 @@ Source (CSV/Parquet) → [staging] VARCHAR → raw_{table}
 # Run pipeline
 dataraum run /path/to/data --output ./output
 
-# Check status / entropy / contracts
-dataraum status ./output
-dataraum entropy ./output
-dataraum contracts ./output
+# Interactive dashboard
+dataraum tui ./output
+
+# Source management
+dataraum sources discover /path/to/data
+dataraum sources add mydata /path/to/file.csv
+
+# Developer tools
+dataraum dev phases
+dataraum dev inspect ./output
 
 # Start MCP server
 dataraum-mcp
