@@ -16,7 +16,7 @@ import math
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
-from dataraum.entropy.dimensions import AnalysisKey, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, FixAction, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 # Benford's Law uses digits 1-9, so df = k - 1 = 8
@@ -47,6 +47,11 @@ class BenfordDetector(EntropyDetector):
 
     # Only measure columns benefit from Benford analysis
     _APPLICABLE_ROLES = frozenset({"measure"})
+
+    @property
+    def fixable_actions(self) -> set[FixAction]:
+        """Accept-finding lowers the score for reviewed Benford deviations."""
+        return {FixAction.ACCEPT_FINDING}
 
     def load_data(self, context: DetectorContext) -> None:
         """Load statistics and semantic annotation for this column."""
@@ -92,6 +97,10 @@ class BenfordDetector(EntropyDetector):
         chi_sq_escalation_threshold = detector_config.get("chi_sq_escalation_threshold", 0.01)
         v_max = detector_config.get("cramers_v_max", 0.5)
         min_sample_size = detector_config.get("min_sample_size", 100)
+        score_accepted = self.config.get("score_accepted") or detector_config.get("score_accepted", 0.2)
+        accepted_columns: list[str] = (
+            self.config.get("accepted_columns") or detector_config.get("accepted_columns", [])
+        )
 
         stats = context.get_analysis("statistics", {})
         n_values = stats.get("total_count", 0) or 0
@@ -196,6 +205,23 @@ class BenfordDetector(EntropyDetector):
                     description="Investigate Benford's Law deviation — may indicate data quality issues or systematic rounding",
                 )
             )
+            resolution_options.append(
+                ResolutionOption(
+                    action="accept_finding",
+                    parameters={
+                        "column": context.column_name,
+                        "detector_id": self.detector_id,
+                    },
+                    effort="low",
+                    description="Accept Benford deviation as expected for this data",
+                )
+            )
+
+        # Apply acceptance floor if this column was previously accepted
+        target_key = f"{context.table_name}.{context.column_name}"
+        if target_key in accepted_columns:
+            score = score_accepted
+            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

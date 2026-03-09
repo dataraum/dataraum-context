@@ -320,30 +320,33 @@ class TestNullRatio:
         """document_null_semantics at >10%, filter_nulls at >40%."""
         detector = NullRatioDetector()
 
-        # 5% — no options
+        # 5% — accept_finding only (score > 0 but below declare threshold)
         ctx_low = _make_context(
             stats={"null_ratio": 0.05, "null_count": 50, "total_count": 1000}
         )
-        assert len(detector.detect(ctx_low)[0].resolution_options) == 0
+        low_opts = detector.detect(ctx_low)[0].resolution_options
+        assert len(low_opts) == 1
+        assert low_opts[0].action == "accept_finding"
 
-        # 15% — document_null_semantics only
+        # 15% — document_null_semantics + accept_finding
         ctx_mid = _make_context(
             stats={"null_ratio": 0.15, "null_count": 150, "total_count": 1000}
         )
         mid_opts = detector.detect(ctx_mid)[0].resolution_options
-        assert len(mid_opts) == 1
-        assert mid_opts[0].action == "document_null_semantics"
+        mid_actions = {o.action for o in mid_opts}
+        assert "document_null_semantics" in mid_actions
+        assert "accept_finding" in mid_actions
 
-        # 50% — document + filter + impute
+        # 50% — document + filter + impute + accept
         ctx_high = _make_context(
             stats={"null_ratio": 0.50, "null_count": 500, "total_count": 1000}
         )
         high_opts = detector.detect(ctx_high)[0].resolution_options
-        assert len(high_opts) == 3
-        actions = {o.action for o in high_opts}
-        assert "document_null_semantics" in actions
-        assert "transform_filter_nulls" in actions
-        assert "transform_impute_values" in actions
+        high_actions = {o.action for o in high_opts}
+        assert "document_null_semantics" in high_actions
+        assert "transform_filter_nulls" in high_actions
+        assert "transform_impute_values" in high_actions
+        assert "accept_finding" in high_actions
 
     def test_real_data_cost_center_nulls(
         self,

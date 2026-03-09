@@ -187,7 +187,7 @@ class TestOutlierRateDetector:
         # Should have resolution options
         actions = [opt.action for opt in results[0].resolution_options]
         assert "transform_winsorize" in actions
-        assert "transform_exclude_outliers" in actions
+        assert "accept_finding" in actions
 
     def test_high_outliers(self, detector: OutlierRateDetector):
         """Test high entropy for 20%+ outliers (piecewise scoring reaches 1.0)."""

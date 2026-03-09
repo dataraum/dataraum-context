@@ -20,9 +20,9 @@ class TestFixRegistryValidation:
         registry = FixRegistry()
         registry.register(
             FixHandler(
-                action="transform_exclude_outliers",
+                action="accept_finding",
                 handler=_noop_handler,
-                phase_name="statistical_quality",
+                phase_name="quality_review",
             )
         )
 
@@ -39,7 +39,7 @@ class TestFixRegistryValidation:
 
             @property
             def fixable_actions(self):
-                return {"transform_exclude_outliers"}
+                return {"accept_finding"}
 
             def detect(self, ctx):
                 return []
@@ -48,7 +48,7 @@ class TestFixRegistryValidation:
         detector_reg.register(StubDetector())
 
         # Phase registry with the target phase
-        phase_reg = {"statistical_quality": object}
+        phase_reg = {"quality_review": object}
 
         with (
             patch(
