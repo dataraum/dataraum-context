@@ -255,6 +255,24 @@ class TestOutlierRateDetector:
         # 3% is halfway through the 1-5% (moderate) band → score ~0.275
         assert results[0].score == pytest.approx(0.275, abs=0.01)
 
+    def test_excluded_column_returns_empty(self, detector: OutlierRateDetector):
+        """Excluded columns (no outlier_detection key) return [] not a false 0-score."""
+        context = DetectorContext(
+            table_name="fx_rates",
+            column_name="rate",
+            analysis_results={
+                "statistics": {
+                    "quality": {
+                        "benford_compliant": True,
+                        "benford_analysis": {"is_compliant": True},
+                    }
+                },
+                "semantic": {"semantic_role": "measure"},
+            },
+        )
+        results = detector.detect(context)
+        assert results == []
+
     def test_skip_key_column(self, detector: OutlierRateDetector):
         """Test outlier detection is skipped for key columns."""
         context = DetectorContext(

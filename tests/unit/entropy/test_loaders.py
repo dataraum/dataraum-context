@@ -90,6 +90,33 @@ class TestLoadStatistics:
         assert result is not None
         assert result["null_ratio"] == 0.05
         assert result["quality"]["benford_compliant"] is True
+        assert "outlier_detection" in result["quality"]
+
+    def test_excluded_column_omits_outlier_detection(self):
+        """When outlier analysis was skipped (iqr_outlier_ratio is NULL),
+        the quality dict should NOT contain outlier_detection so detectors
+        return [] ('not assessed') instead of a false 0-score."""
+        session = MagicMock()
+        sp = MagicMock()
+        sp.null_count = 0
+        sp.total_count = 100
+        sp.distinct_count = 50
+        sp.cardinality_ratio = 0.5
+        sp.profile_data = {}
+
+        qm = MagicMock()
+        qm.iqr_outlier_ratio = None
+        qm.zscore_outlier_ratio = None
+        qm.has_outliers = None
+        qm.benford_compliant = True
+        qm.quality_data = {"benford_analysis": {"is_compliant": True}}
+
+        session.execute.return_value.scalar_one_or_none.side_effect = [sp, qm]
+
+        result = load_statistics(session, "col1")
+        assert result is not None
+        assert "outlier_detection" not in result["quality"]
+        assert result["quality"]["benford_compliant"] is True
 
 
 class TestLoadSemantic:

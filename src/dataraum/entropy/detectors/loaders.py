@@ -97,22 +97,28 @@ def load_statistics(session: Session, column_id: str) -> dict[str, Any] | None:
     ).scalar_one_or_none()
     if qm:
         qd = qm.quality_data or {}
-        outlier_data = qd.get("outlier_detection", {})
-        stats_dict["quality"] = {
-            "outlier_detection": {
-                "iqr_outlier_ratio": qm.iqr_outlier_ratio or 0.0,
-                "iqr_outlier_count": outlier_data.get("iqr_outlier_count", 0),
-                "iqr_lower_fence": outlier_data.get("iqr_lower_fence"),
-                "iqr_upper_fence": outlier_data.get("iqr_upper_fence"),
-                "zscore_outlier_ratio": qm.zscore_outlier_ratio,
-                "has_outliers": bool(qm.has_outliers),
-            },
+        quality_dict: dict[str, Any] = {
             "benford_compliant": bool(qm.benford_compliant)
             if qm.benford_compliant is not None
             else None,
             "benford_analysis": qd.get("benford_analysis"),
             "quality_data": qm.quality_data,
         }
+        # Only include outlier_detection when outlier analysis was actually
+        # performed.  Excluded columns (skip_outliers=True) store NULL for
+        # iqr_outlier_ratio — omitting the key lets the detector return []
+        # ("not assessed") instead of a false 0-score ("zero outliers").
+        if qm.iqr_outlier_ratio is not None:
+            outlier_data = qd.get("outlier_detection") or {}
+            quality_dict["outlier_detection"] = {
+                "iqr_outlier_ratio": qm.iqr_outlier_ratio,
+                "iqr_outlier_count": outlier_data.get("iqr_outlier_count", 0),
+                "iqr_lower_fence": outlier_data.get("iqr_lower_fence"),
+                "iqr_upper_fence": outlier_data.get("iqr_upper_fence"),
+                "zscore_outlier_ratio": qm.zscore_outlier_ratio or 0.0,
+                "has_outliers": bool(qm.has_outliers) if qm.has_outliers is not None else False,
+            }
+        stats_dict["quality"] = quality_dict
     return stats_dict
 
 

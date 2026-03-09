@@ -693,14 +693,29 @@ class PipelineScheduler:
                 summary=fix_result.summary,
             )
 
-        # Cleanup and reset affected phases + all downstream
+        # Reload phase configs from disk so re-runs pick up the patches
+        from dataraum.core.config import load_phase_config
+
         for phase_name in phases_to_rerun:
-            if phase_name in self.phases:
-                cleanup_phase(
-                    phase_name, self.source_id, self.session, self.duckdb_conn
-                )
-                self._state[phase_name] = PhaseStatus.PENDING
-                self._invalidate_downstream(phase_name)
+            self._phase_configs[phase_name] = load_phase_config(phase_name)
+
+        # Cleanup and reset affected phases + all downstream, then commit
+        # so per-phase sessions (via session_factory) see the cleared state.
+        try:
+            for phase_name in phases_to_rerun:
+                if phase_name in self.phases:
+                    cleanup_phase(
+                        phase_name, self.source_id, self.session, self.duckdb_conn
+                    )
+                    self._state[phase_name] = PhaseStatus.PENDING
+                    self._invalidate_downstream(phase_name)
+
+            if phases_to_rerun:
+                self.session.commit()
+        except Exception:
+            self.session.rollback()
+            logger.error("fix_cleanup_failed", phases=list(phases_to_rerun))
+            raise
 
     def _find_fix_handler(
         self, action_name: str
