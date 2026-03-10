@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataraum.entropy.detectors.base import DetectorContext, get_default_registry
+from dataraum.entropy.detectors.base import DetectorContext
 from dataraum.entropy.detectors.semantic.business_meaning import BusinessMeaningDetector
 from dataraum.entropy.detectors.semantic.unit_entropy import UnitEntropyDetector
 from dataraum.entropy.detectors.structural.relations import JoinPathDeterminismDetector
@@ -601,32 +601,7 @@ class TestResolveJoinAmbiguityDetectorResponse:
 
 
 class TestFixSchemaCoverage:
-    """Every fixable detector has fix_schemas and all FixActions are covered."""
-
-    def test_all_fix_actions_have_schemas(self) -> None:
-        """Every FixAction maps to at least one fix_schema in the registry."""
-        from dataraum.entropy.dimensions import FixAction
-
-        registry = get_default_registry()
-        for action in FixAction:
-            schema = registry.get_fix_schema(str(action))
-            assert schema is not None, f"No fix_schema for FixAction.{action.name}"
-
-    def test_all_detectors_declare_fixable_actions(self) -> None:
-        """Every gate-measurable detector declares at least one fixable action."""
-        gate_detectors = [
-            OutlierRateDetector(),
-            BenfordDetector(),
-            NullRatioDetector(),
-            BusinessMeaningDetector(),
-            UnitEntropyDetector(),
-            RelationshipEntropyDetector(),
-            JoinPathDeterminismDetector(),
-        ]
-        for detector in gate_detectors:
-            assert len(detector.fixable_actions) > 0, (
-                f"{detector.detector_id} has no fixable_actions"
-            )
+    """Every fixable detector has fix_schemas."""
 
     def test_all_detectors_declare_fix_schemas(self) -> None:
         """Every gate-measurable detector declares at least one fix_schema."""

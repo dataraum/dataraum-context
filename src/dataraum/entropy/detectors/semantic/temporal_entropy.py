@@ -10,7 +10,7 @@ Source: semantic.semantic_role, typing.data_type
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
-from dataraum.entropy.dimensions import AnalysisKey, Dimension, FixAction, Layer, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
@@ -37,11 +37,6 @@ class TemporalEntropyDetector(EntropyDetector):
 
     # Date/time type indicators (uppercase for case-insensitive matching)
     DATETIME_TYPES = frozenset({"DATE", "TIME", "TIMESTAMP", "DATETIME", "INTERVAL"})
-
-    @property
-    def fixable_actions(self) -> set[FixAction]:
-        """Set timestamp role or add type pattern."""
-        return {FixAction.SET_TIMESTAMP_ROLE, FixAction.ADD_TYPE_PATTERN}
 
     @property
     def fix_schemas(self) -> list[FixSchema]:

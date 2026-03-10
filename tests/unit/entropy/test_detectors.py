@@ -123,24 +123,6 @@ class TestDetectorRegistry:
         layers = empty_registry.get_layers()
         assert "structural" in layers
 
-    def test_get_fixable_actions_empty(self, empty_registry: DetectorRegistry):
-        """Detector without fixable_actions returns nothing."""
-        detector = MockDetector()
-        empty_registry.register(detector)
-
-        assert empty_registry.get_fixable_actions() == {}
-
-    def test_get_fixable_actions(self, empty_registry: DetectorRegistry):
-        """Detector with fixable_actions is returned."""
-        from dataraum.entropy.detectors.value.outliers import OutlierRateDetector
-
-        empty_registry.register(OutlierRateDetector())
-
-        fixable = empty_registry.get_fixable_actions()
-        assert "accept_finding" in fixable
-        assert fixable["accept_finding"] == "outlier_rate"
-
-
 class TestEntropyDetector:
     """Tests for EntropyDetector base class."""
 

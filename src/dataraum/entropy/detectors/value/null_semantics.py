@@ -6,7 +6,7 @@ High null ratio indicates missing data that affects aggregation reliability.
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
-from dataraum.entropy.dimensions import AnalysisKey, Dimension, FixAction, Layer, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
@@ -27,11 +27,6 @@ class NullRatioDetector(EntropyDetector):
     sub_dimension = SubDimension.NULL_RATIO
     required_analyses = [AnalysisKey.STATISTICS]
     description = "Measures uncertainty from null/missing values"
-
-    @property
-    def fixable_actions(self) -> set[FixAction]:
-        """Accept-finding for structurally expected nulls."""
-        return {FixAction.ACCEPT_FINDING}
 
     @property
     def fix_schemas(self) -> list[FixSchema]:

@@ -16,7 +16,7 @@ import math
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
-from dataraum.entropy.dimensions import AnalysisKey, Dimension, FixAction, Layer, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
@@ -48,11 +48,6 @@ class BenfordDetector(EntropyDetector):
 
     # Only measure columns benefit from Benford analysis
     _APPLICABLE_ROLES = frozenset({"measure"})
-
-    @property
-    def fixable_actions(self) -> set[FixAction]:
-        """Accept-finding lowers the score for reviewed Benford deviations."""
-        return {FixAction.ACCEPT_FINDING}
 
     @property
     def fix_schemas(self) -> list[FixSchema]:

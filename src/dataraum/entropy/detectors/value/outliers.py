@@ -8,7 +8,7 @@ from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
-from dataraum.entropy.dimensions import AnalysisKey, Dimension, FixAction, Layer, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
@@ -36,11 +36,6 @@ class OutlierRateDetector(EntropyDetector):
 
     # Semantic roles where outlier detection is meaningless
     _SKIP_ROLES = frozenset({"key", "foreign_key"})
-
-    @property
-    def fixable_actions(self) -> set[FixAction]:
-        """Accept-finding lowers the score to a floor for reviewed outliers."""
-        return {FixAction.ACCEPT_FINDING}
 
     @property
     def fix_schemas(self) -> list[FixSchema]:

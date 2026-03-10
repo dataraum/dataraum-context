@@ -10,7 +10,7 @@ from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
-from dataraum.entropy.dimensions import AnalysisKey, Dimension, FixAction, Layer, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
@@ -34,11 +34,6 @@ class JoinPathDeterminismDetector(EntropyDetector):
     sub_dimension = SubDimension.JOIN_PATH_DETERMINISM
     required_analyses = [AnalysisKey.RELATIONSHIPS]
     description = "Measures ambiguity in join paths (not just connectivity)"
-
-    @property
-    def fixable_actions(self) -> set[FixAction]:
-        """Resolving join ambiguity specifies the preferred path."""
-        return {FixAction.RESOLVE_JOIN_AMBIGUITY}
 
     @property
     def fix_schemas(self) -> list[FixSchema]:

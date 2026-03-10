@@ -7,11 +7,7 @@ from dataraum.pipeline.fixes import FixInput
 from dataraum.pipeline.fixes.bridge import build_fix_documents
 
 
-class TestOutlierDetectorFixableActions:
-    def test_declares_accept_finding(self) -> None:
-        detector = OutlierRateDetector()
-        assert "accept_finding" in detector.fixable_actions
-
+class TestOutlierDetectorFixSchemas:
     def test_has_fix_schema(self) -> None:
         detector = OutlierRateDetector()
         schemas = detector.fix_schemas

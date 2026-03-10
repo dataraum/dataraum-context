@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from dataraum.entropy.dimensions import AnalysisKey, Dimension, FixAction, Layer, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import (
     EntropyObject,
     ResolutionOption,
@@ -183,15 +183,6 @@ class EntropyDetector(ABC):
         )
 
     @property
-    def fixable_actions(self) -> set[FixAction]:
-        """Action names that have config-level fix handlers.
-
-        Default: empty (all actions are document-only).
-        Override in subclasses to declare fixable actions.
-        """
-        return set()
-
-    @property
     def fix_schemas(self) -> list[FixSchema]:
         """Schemas for fix documents this detector can produce.
 
@@ -337,19 +328,6 @@ class DetectorRegistry:
             List of dimension names
         """
         return list({d.dimension for d in self.detectors.values() if d.layer == layer})
-
-    def get_fixable_actions(self) -> dict[str, str]:
-        """Get all fixable actions across registered detectors.
-
-        Returns:
-            action_name -> detector_id for actions that have
-            config-level fix handlers.
-        """
-        result: dict[str, str] = {}
-        for detector in self.detectors.values():
-            for action in detector.fixable_actions:
-                result[str(action)] = detector.detector_id
-        return result
 
     def get_fix_schema(self, action_name: str) -> FixSchema | None:
         """Find a FixSchema by action name across all detectors.

@@ -80,18 +80,3 @@ class SubDimension(_StrValueMixin):
     DIMENSION_COVERAGE = "dimension_coverage"
 
 
-class FixAction(_StrValueMixin):
-    """Actions that detectors can flag as fixable.
-
-    Each action here has a registered handler in FixRegistry that produces
-    ConfigPatch objects describing what to change.  Document-only resolution
-    options (no handler) stay as plain strings in ResolutionOption.action.
-    """
-
-    ACCEPT_FINDING = "accept_finding"
-    DOCUMENT_BUSINESS_MEANING = "document_business_meaning"
-    DECLARE_UNIT = "declare_unit"
-    SET_TIMESTAMP_ROLE = "set_timestamp_role"
-    ADD_TYPE_PATTERN = "add_type_pattern"
-    CONFIRM_RELATIONSHIP = "confirm_relationship"
-    RESOLVE_JOIN_AMBIGUITY = "resolve_join_ambiguity"

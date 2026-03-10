@@ -3,7 +3,6 @@
 Core types for the inline fix system:
 - ConfigPatch: A concrete change to a YAML config file
 - FixInput: Structured user decision after agent interpretation
-- FixResult: What a fix handler produced
 
 And the utility to apply patches to config files on disk.
 """
@@ -56,22 +55,6 @@ class FixInput:
     affected_columns: list[str] = field(default_factory=list)
     entropy_evidence: dict[str, Any] = field(default_factory=dict)
 
-
-@dataclass
-class FixResult:
-    """Result of applying a fix handler.
-
-    Returned by phase fix handlers after writing config changes.
-
-    Args:
-        config_patches: The YAML changes that were applied.
-        requires_rerun: Name of the phase that needs to be re-run.
-        summary: Human-readable summary of what was done.
-    """
-
-    config_patches: list[ConfigPatch] = field(default_factory=list)
-    requires_rerun: str = ""
-    summary: str = ""
 
 
 def apply_config_patch(config_root: Path, patch: ConfigPatch) -> None:

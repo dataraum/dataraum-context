@@ -12,7 +12,7 @@ from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
-from dataraum.entropy.dimensions import AnalysisKey, Dimension, FixAction, Layer, SubDimension
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
@@ -40,11 +40,6 @@ class RelationshipEntropyDetector(EntropyDetector):
     sub_dimension = SubDimension.RELATIONSHIP_QUALITY
     required_analyses = [AnalysisKey.RELATIONSHIPS]
     description = "Measures relationship quality from evaluation metrics"
-
-    @property
-    def fixable_actions(self) -> set[FixAction]:
-        """Confirming a relationship lowers the semantic entropy component."""
-        return {FixAction.CONFIRM_RELATIONSHIP}
 
     @property
     def fix_schemas(self) -> list[FixSchema]:

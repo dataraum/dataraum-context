@@ -981,10 +981,6 @@ def _make_test_detector_registry(
                 )
             ]
 
-        @property
-        def fixable_actions(self):
-            return {action}
-
         def detect(self, ctx):
             return []
 
