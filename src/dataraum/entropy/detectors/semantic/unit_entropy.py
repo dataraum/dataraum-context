@@ -43,20 +43,26 @@ class UnitEntropyDetector(EntropyDetector):
 
     @property
     def fix_schemas(self) -> list[FixSchema]:
-        """Schema for declaring units."""
+        """Schemas for declaring units.
+
+        Two actions covering the two real-world scenarios:
+        - declare_unit: fixed unit for the whole column (e.g. always USD)
+        - set_unit_source: unit varies per row, comes from another column
+        """
         return [
             FixSchema(
                 action="declare_unit",
                 target="config",
-                description="Declare the unit of measure for numeric columns",
-                config_path="phases/semantic.yaml",
+                description="Declare a fixed unit for this column",
+                config_path="phases/typing.yaml",
                 key_path=["overrides", "units"],
                 operation="merge",
-                requires_rerun="semantic",
+                requires_rerun="typing",
                 guidance=(
-                    "Declares the unit of measure for numeric columns. Ask what unit "
-                    "the column values represent (e.g. USD, EUR, kg, %). Use the data "
-                    "profile and column name to suggest a likely unit."
+                    "The column always uses the same unit. Ask the user what "
+                    "unit the values represent (e.g. USD, EUR, kg, %, "
+                    "dimensionless). Use the data profile and column name to "
+                    "suggest a likely unit."
                 ),
                 fields={
                     "unit": FixSchemaField(
@@ -64,13 +70,34 @@ class UnitEntropyDetector(EntropyDetector):
                         required=True,
                         description="Unit of measure (e.g. USD, EUR, kg, dimensionless)",
                     ),
+                },
+            ),
+            FixSchema(
+                action="set_unit_source",
+                target="config",
+                description="Specify which column provides the unit per row",
+                config_path="phases/semantic.yaml",
+                key_path=["overrides", "units"],
+                operation="merge",
+                requires_rerun="semantic",
+                guidance=(
+                    "The unit varies per row and comes from another column "
+                    "(e.g. a 'currency' column in the same or a related "
+                    "table). Ask the user which column provides the unit. "
+                    "Format: column_name for same table, or "
+                    "table_name.column_name for a related table."
+                ),
+                fields={
                     "unit_source_column": FixSchemaField(
                         type="string",
-                        required=False,
-                        description="Column that defines the unit (for cross-column inference)",
+                        required=True,
+                        description=(
+                            "Column providing the unit per row "
+                            "(e.g. 'currency' or 'chart_of_accounts.currency')"
+                        ),
                     ),
                 },
-            )
+            ),
         ]
 
     def load_data(self, context: DetectorContext) -> None:
@@ -181,7 +208,18 @@ class UnitEntropyDetector(EntropyDetector):
                         "detected_unit": detected_unit,
                     },
                     effort="low",
-                    description=f"Declare the unit for measure column '{context.column_name}'",
+                    description=f"Declare a fixed unit for '{context.column_name}'",
+                )
+            )
+            resolution_options.append(
+                ResolutionOption(
+                    action="set_unit_source",
+                    parameters={
+                        "column": context.column_name,
+                        "table": context.table_name,
+                    },
+                    effort="low",
+                    description=f"Specify which column provides the unit for '{context.column_name}'",
                 )
             )
 

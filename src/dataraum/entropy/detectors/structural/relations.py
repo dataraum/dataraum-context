@@ -43,10 +43,10 @@ class JoinPathDeterminismDetector(EntropyDetector):
                 action="resolve_join_ambiguity",
                 target="config",
                 description="Set preferred join path for ambiguous table connections",
-                config_path="phases/relationships.yaml",
-                key_path=["overrides", "preferred_joins"],
+                config_path="entropy/thresholds.yaml",
+                key_path=["detectors", "join_path", "preferred_joins"],
                 operation="merge",
-                requires_rerun="relationships",
+                requires_rerun="quality_review",
                 key_template="{table}->{target_table}",
                 guidance=(
                     "Resolves ambiguity when multiple join paths exist between tables. "
@@ -133,6 +133,18 @@ class JoinPathDeterminismDetector(EntropyDetector):
         # Analyze ambiguity
         total_connections = len(paths_to_table)  # Number of distinct tables connected
         ambiguous_tables = [t for t, paths in paths_to_table.items() if len(paths) > 1]
+
+        # Filter out tables with a declared preferred join (same pattern as accepted_columns)
+        preferred_joins: dict[str, object] = detector_config.get("preferred_joins", {})
+        if preferred_joins and ambiguous_tables:
+            resolved = set()
+            for target in ambiguous_tables:
+                fwd = f"{context.table_name}->{target}"
+                rev = f"{target}->{context.table_name}"
+                if fwd in preferred_joins or rev in preferred_joins:
+                    resolved.add(target)
+            if resolved:
+                ambiguous_tables = [t for t in ambiguous_tables if t not in resolved]
 
         # Determine score based on ambiguity, not connectivity
         if total_connections == 0:

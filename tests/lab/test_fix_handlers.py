@@ -284,7 +284,7 @@ class TestDocumentBusinessMeaningBridge:
                 parameters={
                     "business_name": "Order Amount",
                     "entity_type": "monetary_value",
-                    "description": "Total order value in local currency",
+                    "business_description": "Total order value in local currency",
                 },
             ),
             "orders",
@@ -316,7 +316,7 @@ class TestDocumentBusinessMeaningBridge:
         value = docs[0].payload["value"]
         assert "business_name" in value
         assert "entity_type" not in value
-        assert "description" not in value
+        assert "business_description" not in value
 
 
 class TestDocumentBusinessMeaningDetectorResponse:
@@ -389,7 +389,7 @@ class TestDocumentBusinessMeaningDetectorResponse:
 
 
 class TestDeclareUnitBridge:
-    """declare_unit writes unit overrides via bridge."""
+    """declare_unit writes unit overrides to typing config via bridge."""
 
     def _get_schema(self):
         return UnitEntropyDetector().fix_schemas[0]
@@ -401,7 +401,34 @@ class TestDeclareUnitBridge:
             FixInput(
                 action_name="declare_unit",
                 affected_columns=["bank_transactions.amount"],
-                parameters={"unit": "EUR", "unit_source_column": "currency"},
+                parameters={"unit": "EUR"},
+            ),
+            "bank_transactions",
+            "amount",
+            "semantic",
+        )
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc.payload["config_path"] == "phases/typing.yaml"
+        assert doc.payload["key_path"] == ["overrides", "units", "bank_transactions.amount"]
+        assert doc.payload["value"]["unit"] == "EUR"
+        assert "unit_source_column" not in doc.payload["value"]
+
+
+class TestSetUnitSourceBridge:
+    """set_unit_source writes unit source to semantic config via bridge."""
+
+    def _get_schema(self):
+        return UnitEntropyDetector().fix_schemas[1]
+
+    def test_produces_correct_document(self) -> None:
+        schema = self._get_schema()
+        docs = build_fix_documents(
+            schema,
+            FixInput(
+                action_name="set_unit_source",
+                affected_columns=["bank_transactions.amount"],
+                parameters={"unit_source_column": "currency"},
             ),
             "bank_transactions",
             "amount",
@@ -411,8 +438,23 @@ class TestDeclareUnitBridge:
         doc = docs[0]
         assert doc.payload["config_path"] == "phases/semantic.yaml"
         assert doc.payload["key_path"] == ["overrides", "units", "bank_transactions.amount"]
-        assert doc.payload["value"]["unit"] == "EUR"
         assert doc.payload["value"]["unit_source_column"] == "currency"
+
+    def test_cross_table_unit_source(self) -> None:
+        schema = self._get_schema()
+        docs = build_fix_documents(
+            schema,
+            FixInput(
+                action_name="set_unit_source",
+                affected_columns=["trial_balance.debit_balance"],
+                parameters={"unit_source_column": "chart_of_accounts.currency"},
+            ),
+            "trial_balance",
+            "debit_balance",
+            "semantic",
+        )
+        value = docs[0].payload["value"]
+        assert value["unit_source_column"] == "chart_of_accounts.currency"
 
 
 class TestDeclareUnitDetectorResponse:
@@ -559,8 +601,8 @@ class TestResolveJoinAmbiguityBridge:
         )
         assert len(docs) == 1
         doc = docs[0]
-        assert doc.payload["config_path"] == "phases/relationships.yaml"
-        assert doc.payload["key_path"] == ["overrides", "preferred_joins", "orders->customers"]
+        assert doc.payload["config_path"] == "entropy/thresholds.yaml"
+        assert doc.payload["key_path"] == ["detectors", "join_path", "preferred_joins", "orders->customers"]
         assert doc.payload["value"]["preferred_column"] == "customer_id"
         # table/target_table are key_template fields — excluded from value
         assert "table" not in doc.payload["value"]

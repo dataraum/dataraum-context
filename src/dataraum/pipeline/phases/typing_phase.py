@@ -291,6 +291,9 @@ class TypingPhase(BasePhase):
                 )
                 continue
 
+            # Apply unit overrides before resolution
+            _apply_unit_overrides(ctx.session, ctx.config, table)
+
             # Flush type candidates so resolve_types can query them via selectinload
             # This is necessary because selectinload queries the DB, not the session cache
             ctx.session.flush()
@@ -345,3 +348,44 @@ class TypingPhase(BasePhase):
             warnings=warnings,
             summary=f"{len(typed_tables)} tables typed, {len(type_decisions)} type decisions",
         )
+
+
+def _apply_unit_overrides(
+    session: Session,
+    config: dict,  # type: ignore[type-arg]
+    table: Table,
+) -> None:
+    """Patch TypeCandidate.detected_unit from config overrides.
+
+    Reads ``overrides.units`` from typing config. Keys are
+    ``"table.column"``; values contain ``{unit: "USD"}``.
+    """
+    from dataraum.analysis.typing.db_models import TypeCandidate
+
+    overrides = config.get("overrides", {})
+    if not isinstance(overrides, dict):
+        return
+    units = overrides.get("units", {})
+    if not isinstance(units, dict) or not units:
+        return
+
+    for col in table.columns:
+        col_ref = f"{table.table_name}.{col.column_name}"
+        entry = units.get(col_ref)
+        if not isinstance(entry, dict):
+            continue
+        unit = entry.get("unit")
+        if not unit:
+            continue
+
+        # Patch the best type candidate for this column
+        tc = session.execute(
+            select(TypeCandidate)
+            .where(TypeCandidate.column_id == col.column_id)
+            .order_by(TypeCandidate.confidence.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if tc is not None:
+            tc.detected_unit = unit
+            tc.unit_confidence = 1.0
+            logger.info("unit_override_applied", column=col_ref, unit=unit)

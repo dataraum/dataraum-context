@@ -67,7 +67,7 @@ class BusinessMeaningDetector(EntropyDetector):
                         required=False,
                         description="Entity classification (e.g. customer, product, transaction)",
                     ),
-                    "description": FixSchemaField(
+                    "business_description": FixSchemaField(
                         type="string",
                         required=False,
                         description="Business description of the column",

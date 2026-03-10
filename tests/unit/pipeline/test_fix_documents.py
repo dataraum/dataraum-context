@@ -31,7 +31,7 @@ def _per_column_schema() -> FixSchema:
         fields={
             "business_name": FixSchemaField(type="string", required=False),
             "entity_type": FixSchemaField(type="string", required=False),
-            "description": FixSchemaField(type="string", required=False),
+            "business_description": FixSchemaField(type="string", required=False),
         },
     )
 
