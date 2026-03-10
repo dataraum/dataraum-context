@@ -6,6 +6,7 @@ examples/
 prototypes/
 
 .claude/agent-memory/
+.claire/agent-memory/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
