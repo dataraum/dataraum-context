@@ -185,12 +185,15 @@ def measure_at_gate(
         str(d.sub_dimension): d.dimension_path for d in runnable
     }
 
-    # Average per dimension
+    # Aggregate per dimension: max(mean, max²)
+    # The squared-max term ensures a single bad column (e.g. VARCHAR date)
+    # is not diluted away when averaged across many healthy columns.
     result_scores: dict[str, float] = {}
     for sub_dim, score_list in scores_by_dim.items():
         mean_score = sum(score_list) / len(score_list)
+        max_score = max(score_list)
         path = sub_dim_to_path.get(sub_dim, sub_dim)
-        result_scores[path] = mean_score
+        result_scores[path] = max(mean_score, max_score**2)
 
     # Build column details keyed by dimension_path
     result_column_details: dict[str, dict[str, float]] = {}

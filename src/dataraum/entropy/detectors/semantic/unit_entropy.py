@@ -78,7 +78,7 @@ class UnitEntropyDetector(EntropyDetector):
         score_no_unit = detector_config.get("score_no_unit", 0.8)
         score_low_confidence = detector_config.get("score_low_confidence", 0.5)
         score_declared = detector_config.get("score_declared", 0.1)
-        score_inferred = detector_config.get("score_inferred", 0.2)
+        score_inferred = detector_config.get("score_inferred", 0.1)
         confidence_threshold = detector_config.get("confidence_threshold", 0.5)
 
         typing = context.get_analysis("typing", {})

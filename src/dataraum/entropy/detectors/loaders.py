@@ -146,6 +146,8 @@ def load_semantic(session: Session, column_id: str) -> dict[str, Any] | None:
     }
     if sa.unit_source_column:
         semantic_dict["unit_source_column"] = sa.unit_source_column
+    if sa.temporal_behavior:
+        semantic_dict["temporal_behavior"] = sa.temporal_behavior
     return semantic_dict
 
 

@@ -129,12 +129,6 @@ user_prompt: |
   {column_annotations}
   </column_annotations>
 
-  <domain_fixes>
-  User-confirmed domain knowledge from previous analysis.
-  These are authoritative — use them to override assumptions.
-  {domain_fixes}
-  </domain_fixes>
-
   Analyze this schema using the analyze_schema tool.
 
 # Input variable definitions
@@ -164,10 +158,6 @@ inputs:
     required: false
     default: ""
 
-  domain_fixes:
-    description: User-confirmed domain knowledge from fix ledger
-    required: false
-    default: ""
 
 # Output is defined by the Pydantic tool schema (SemanticAnalysisOutput)
 # No output_schema needed here since we use tool-based output

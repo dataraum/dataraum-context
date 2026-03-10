@@ -92,8 +92,14 @@ class TemporalEntropyDetector(EntropyDetector):
         # Check if column is date/time type
         is_datetime_type = any(dt in data_type for dt in self.DATETIME_TYPES)
 
-        # Check if column is marked as timestamp
-        is_marked_timestamp = semantic_role == "timestamp"
+        # Check if column has temporal_behavior from semantic analysis
+        if hasattr(semantic, "temporal_behavior"):
+            temporal_behavior = semantic.temporal_behavior
+        else:
+            temporal_behavior = semantic.get("temporal_behavior") if isinstance(semantic, dict) else None
+
+        # Check if column is marked as timestamp (via role or temporal_behavior)
+        is_marked_timestamp = semantic_role == "timestamp" or temporal_behavior is not None
 
         # Get semantic confidence (if available) for score modulation
         semantic_confidence: float | None = None
@@ -127,15 +133,16 @@ class TemporalEntropyDetector(EntropyDetector):
             return []
 
         # Build evidence
-        evidence = [
-            {
-                "data_type": data_type,
-                "semantic_role": semantic_role,
-                "is_datetime_type": is_datetime_type,
-                "is_marked_timestamp": is_marked_timestamp,
-                "temporal_status": temporal_status,
-            }
-        ]
+        evidence_entry: dict[str, object] = {
+            "data_type": data_type,
+            "semantic_role": semantic_role,
+            "is_datetime_type": is_datetime_type,
+            "is_marked_timestamp": is_marked_timestamp,
+            "temporal_status": temporal_status,
+        }
+        if temporal_behavior:
+            evidence_entry["temporal_behavior"] = temporal_behavior
+        evidence = [evidence_entry]
 
         # Resolution options
         resolution_options: list[ResolutionOption] = []

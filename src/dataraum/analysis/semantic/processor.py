@@ -144,7 +144,6 @@ def enrich_semantic(
     duckdb_conn: duckdb.DuckDBPyConnection | None = None,
     column_annotations: ColumnAnnotationOutput | None = None,
     required_standard_fields: list[str] | None = None,
-    domain_fixes: str = "",
 ) -> Result[SemanticEnrichmentResult]:
     """Run semantic enrichment on tables.
 
@@ -169,7 +168,6 @@ def enrich_semantic(
         required_standard_fields: Standard field concepts required by active
             metric graphs. When provided, the semantic agent prioritizes mapping
             these concepts to actual dataset columns.
-        domain_fixes: Formatted domain fixes from the fix ledger, for LLM context.
 
     Returns:
         Result containing semantic enrichment data
@@ -182,7 +180,6 @@ def enrich_semantic(
         relationship_candidates=relationship_candidates,
         column_annotations=column_annotations,
         required_standard_fields=required_standard_fields,
-        domain_fixes=domain_fixes,
     )
 
     if not llm_result.success:
