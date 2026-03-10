@@ -48,9 +48,9 @@ class PipelineEvent:
     warnings: list[str] = field(default_factory=list)
     outputs: dict[str, Any] = field(default_factory=dict)
     summary: str = ""
-    # EXIT_CHECK: available fix actions per violating dimension
-    # dim_path -> [{"action_name": str, "phase_name": str}]
-    fixable_actions: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+    # EXIT_CHECK: available fixes per violating dimension
+    # dim_path -> [{"action_name": str, "phase_name": str, "guidance": str}]
+    available_fixes: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     # POST_VERIFICATION: detectors that could not run
     # [{"detector_id": str, "reason": str}]
     skipped_detectors: list[dict[str, str]] = field(default_factory=list)

@@ -245,14 +245,14 @@ class PipelineScheduler:
                         issue.dimension_path: (issue.score, issue.threshold)
                         for issue in pending_issues
                     }
-                    fixable = self._gather_fixable_actions(pending_issues)
+                    fixes = self._gather_available_fixes(pending_issues)
                     resolution = yield self._event(
                         EventType.EXIT_CHECK,
                         total=total,
                         violations=violations,
                         scores=dict(all_scores),
                         column_details=dict(column_details),
-                        fixable_actions=fixable,
+                        available_fixes=fixes,
                     )
                     if resolution is not None:
                         if resolution.action == ResolutionAction.DEFER:
@@ -636,13 +636,13 @@ class PipelineScheduler:
             raise
 
     @staticmethod
-    def _gather_fixable_actions(
+    def _gather_available_fixes(
         issues: list[ExitCheckIssue],
     ) -> dict[str, list[dict[str, str]]]:
-        """Gather fixable actions for EXIT_CHECK event display.
+        """Gather available fixes for EXIT_CHECK event display.
 
         Consults the detector registry's fix_schemas to find which
-        actions are available for each violating dimension.
+        fixes are available for each violating dimension.
 
         Returns:
             dim_path -> [{"action_name": str, "phase_name": str, ...}]

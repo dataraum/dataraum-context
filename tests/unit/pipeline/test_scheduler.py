@@ -1328,11 +1328,11 @@ class TestDetectorRegistryFixSchema:
         assert registry.get_fix_schema("nonexistent") is None
 
 
-class TestExitCheckFixableActions:
-    """Tests for fixable_actions on EXIT_CHECK events."""
+class TestExitCheckAvailableFixes:
+    """Tests for available_fixes on EXIT_CHECK events."""
 
-    def test_exit_check_includes_fixable_actions(self, session: Session, duckdb_conn):
-        """EXIT_CHECK event carries fixable_actions from detector fix_schemas."""
+    def test_exit_check_includes_available_fixes(self, session: Session, duckdb_conn):
+        """EXIT_CHECK event carries available_fixes from detector fix_schemas."""
         run_id = _make_run(session)
         phase = MockPhase(
             "typing",
@@ -1368,14 +1368,14 @@ class TestExitCheckFixableActions:
 
         exit_checks = [e for e in events if e.event_type == EventType.EXIT_CHECK]
         assert len(exit_checks) == 1
-        fa = exit_checks[0].fixable_actions
+        fa = exit_checks[0].available_fixes
         assert "structural.types.type_fidelity" in fa
         assert fa["structural.types.type_fidelity"] == [
             {"action_name": "override_type", "phase_name": "typing"}
         ]
 
-    def test_exit_check_empty_fixable_actions(self, session: Session, duckdb_conn):
-        """EXIT_CHECK with no fixable detectors has empty fixable_actions."""
+    def test_exit_check_empty_available_fixes(self, session: Session, duckdb_conn):
+        """EXIT_CHECK with no fixable detectors has empty available_fixes."""
         run_id = _make_run(session)
         phase = MockPhase("alpha", is_quality_gate=True)
         scheduler = PipelineScheduler(
@@ -1387,7 +1387,7 @@ class TestExitCheckFixableActions:
             contract_thresholds={"structural.types": 0.3},
         )
 
-        # Use empty detector registry — no detectors = no fixable actions
+        # Use empty detector registry — no detectors = no available fixes
         empty_registry = DetectorRegistry()
 
         gate = GateResult(scores={"structural.types.type_fidelity": 0.8})
@@ -1408,7 +1408,7 @@ class TestExitCheckFixableActions:
 
         exit_checks = [e for e in events if e.event_type == EventType.EXIT_CHECK]
         assert len(exit_checks) == 1
-        assert exit_checks[0].fixable_actions == {}
+        assert exit_checks[0].available_fixes == {}
 
 
 class TestSkippedDetectors:

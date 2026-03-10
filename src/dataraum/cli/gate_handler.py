@@ -283,7 +283,7 @@ def _handle_pause(
         phase_name=event.phase,
     )
 
-    # Collect all fixable actions across violating dimensions
+    # Collect all available fixes across violating dimensions
     actions = _collect_fix_actions(event)
 
     if not actions:
@@ -341,7 +341,7 @@ def _collect_fix_actions(
     actions: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
-    for dim_path, dim_actions in event.fixable_actions.items():
+    for dim_path, dim_actions in event.available_fixes.items():
         for action_info in dim_actions:
             name = action_info["action_name"]
             key = (name, dim_path)

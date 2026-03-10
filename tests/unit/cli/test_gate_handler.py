@@ -25,7 +25,7 @@ def _strip_ansi(text: str) -> str:
 
 def _make_exit_check_event(
     violations: dict[str, tuple[float, float]] | None = None,
-    fixable_actions: dict[str, list[dict[str, str]]] | None = None,
+    available_fixes: dict[str, list[dict[str, str]]] | None = None,
     column_details: dict[str, dict[str, float]] | None = None,
 ) -> PipelineEvent:
     """Create an EXIT_CHECK event with common defaults."""
@@ -35,7 +35,7 @@ def _make_exit_check_event(
         total=5,
         phase="quality_review",
         violations=violations or {"structural.types.type_fidelity": (0.62, 0.50)},
-        fixable_actions=fixable_actions or {},
+        available_fixes=available_fixes or {},
         column_details=column_details or {},
     )
 
@@ -61,7 +61,7 @@ class TestHandleExitCheckModes:
         """PAUSE mode without fixable actions defers."""
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
-        event = _make_exit_check_event(fixable_actions={})
+        event = _make_exit_check_event(available_fixes={})
 
         result = handle_exit_check(console, event, GateMode.PAUSE)
 
@@ -72,7 +72,7 @@ class TestHandleExitCheckModes:
 class TestCollectFixActions:
     def test_collects_actions_from_event(self) -> None:
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
                 ],
@@ -89,7 +89,7 @@ class TestCollectFixActions:
     def test_deduplicates_by_action_and_dimension(self) -> None:
         """Same action for different dimensions produces separate entries."""
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "dim1": [{"action_name": "fix_a", "phase_name": "p1"}],
                 "dim2": [{"action_name": "fix_a", "phase_name": "p1"}],
             }
@@ -103,7 +103,7 @@ class TestCollectFixActions:
 
     def test_multiple_distinct_actions(self) -> None:
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "dim1": [
                     {"action_name": "fix_a", "phase_name": "p1"},
                     {"action_name": "fix_b", "phase_name": "p2"},
@@ -119,10 +119,10 @@ class TestCollectFixActions:
 
 
 class TestHandlePause:
-    def test_no_fixable_actions_defers(self) -> None:
+    def test_no_available_fixes_defers(self) -> None:
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
-        event = _make_exit_check_event(fixable_actions={})
+        event = _make_exit_check_event(available_fixes={})
 
         result = _handle_pause(console, event, None, None, None)
 
@@ -132,7 +132,7 @@ class TestHandlePause:
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
                 ],
@@ -148,7 +148,7 @@ class TestHandlePause:
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
                 ],
@@ -164,7 +164,7 @@ class TestHandlePause:
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
                 ],
@@ -181,7 +181,7 @@ class TestHandlePause:
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
                 ],
@@ -199,7 +199,7 @@ class TestHandlePause:
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(
-            fixable_actions={
+            available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
                 ],
