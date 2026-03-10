@@ -204,6 +204,7 @@ class PipelineScheduler:
                 # all_scores accumulates across the entire run.
                 pending_issues: list[ExitCheckIssue] = []
                 column_details: dict[str, dict[str, float]] = {}
+                resolution_actions: dict[str, set[str]] = {}
                 wave_skipped: list[dict[str, str]] = []
                 last_gate_phase: str = ""
 
@@ -222,6 +223,8 @@ class PipelineScheduler:
                         )
                         all_scores.update(gate_result.scores)
                         column_details.update(gate_result.column_details)
+                        for path, acts in gate_result.resolution_actions.items():
+                            resolution_actions.setdefault(path, set()).update(acts)
                         # Collect skipped detectors (deduplicate by detector_id)
                         seen_ids = {s["detector_id"] for s in wave_skipped}
                         for sd in gate_result.skipped_detectors:
@@ -246,6 +249,7 @@ class PipelineScheduler:
                         self.contract_thresholds,
                         column_details,
                         last_gate_phase,
+                        resolution_actions=resolution_actions,
                     )
                     pending_issues.extend(issues)
 
@@ -645,8 +649,8 @@ class PipelineScheduler:
     ) -> dict[str, list[dict[str, str]]]:
         """Gather available fixes for EXIT_CHECK event display.
 
-        Consults the detector registry's fix_schemas to find which
-        fixes are available for each violating dimension.
+        Consults the detector registry's fix_schemas, filtered to only
+        actions that appear in the entropy objects' resolution options.
 
         Returns:
             dim_path -> [{"action_name": str, "phase_name": str, ...}]
@@ -666,6 +670,9 @@ class PipelineScheduler:
             if detector:
                 actions: list[dict[str, str]] = []
                 for schema in detector.fix_schemas:
+                    # Only include schemas matching actual resolution options
+                    if issue.available_actions and schema.action not in issue.available_actions:
+                        continue
                     action_dict: dict[str, str] = {
                         "action_name": schema.action,
                         "phase_name": schema.requires_rerun or "",

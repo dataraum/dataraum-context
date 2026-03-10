@@ -77,7 +77,7 @@ class TestTypeFidelityDetector:
 
         # Should have override_type and quarantine_values options
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_type_override" in actions
+        assert "add_type_pattern" in actions
         assert "transform_quarantine_values" in actions
 
     def test_evidence_includes_failure_samples(self, detector: TypeFidelityDetector):

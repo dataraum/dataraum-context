@@ -147,7 +147,7 @@ class TypeFidelityDetector(EntropyDetector):
         if score > suggest_override:
             resolution_options.append(
                 ResolutionOption(
-                    action="document_type_override",
+                    action="add_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": "VARCHAR",
@@ -161,7 +161,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Fallback columns always need type review
             resolution_options.append(
                 ResolutionOption(
-                    action="document_type_override",
+                    action="add_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": str(detected_type) if detected_type else "VARCHAR",

@@ -36,6 +36,8 @@ class GateResult:
     scores: dict[str, float] = field(default_factory=dict)
     column_details: dict[str, dict[str, float]] = field(default_factory=dict)
     skipped_detectors: list[SkippedDetector] = field(default_factory=list)
+    # dim_path -> {action_name, ...} — resolution options from all entropy objects
+    resolution_actions: dict[str, set[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -47,6 +49,7 @@ class ExitCheckIssue:
     threshold: float
     producing_phase: str  # phase after which this was measured
     affected_targets: list[str] = field(default_factory=list)
+    available_actions: list[str] = field(default_factory=list)
 
 
 def measure_at_gate(
@@ -117,6 +120,7 @@ def measure_at_gate(
 
     scores_by_dim: dict[str, list[float]] = defaultdict(list)
     column_scores: dict[str, dict[str, float]] = defaultdict(dict)
+    actions_by_dim: dict[str, set[str]] = defaultdict(set)
 
     # Column-scoped pass
     if col_dims:
@@ -139,6 +143,9 @@ def measure_at_gate(
                 for sub_dim, score in snapshot.scores.items():
                     scores_by_dim[sub_dim].append(score)
                     column_scores[sub_dim][target] = score
+                for obj in snapshot.objects:
+                    for opt in obj.resolution_options:
+                        actions_by_dim[str(obj.sub_dimension)].add(opt.action)
 
     # Table-scoped pass
     if tbl_dims:
@@ -152,6 +159,9 @@ def measure_at_gate(
             )
             for sub_dim, score in snapshot.scores.items():
                 scores_by_dim[sub_dim].append(score)
+            for obj in snapshot.objects:
+                for opt in obj.resolution_options:
+                    actions_by_dim[str(obj.sub_dimension)].add(opt.action)
 
     # View-scoped pass
     if view_dims:
@@ -179,6 +189,9 @@ def measure_at_gate(
             )
             for sub_dim, score in snapshot.scores.items():
                 scores_by_dim[sub_dim].append(score)
+            for obj in snapshot.objects:
+                for opt in obj.resolution_options:
+                    actions_by_dim[str(obj.sub_dimension)].add(opt.action)
 
     # Build sub_dimension -> dimension_path mapping
     sub_dim_to_path: dict[str, str] = {
@@ -201,10 +214,17 @@ def measure_at_gate(
         path = sub_dim_to_path.get(sd, sd)
         result_column_details[path] = targets
 
+    # Build resolution actions keyed by dimension_path
+    result_actions: dict[str, set[str]] = {}
+    for sd, acts in actions_by_dim.items():
+        path = sub_dim_to_path.get(sd, sd)
+        result_actions.setdefault(path, set()).update(acts)
+
     return GateResult(
         scores=result_scores,
         column_details=result_column_details,
         skipped_detectors=skipped,
+        resolution_actions=result_actions,
     )
 
 
@@ -243,6 +263,7 @@ def assess_contracts(
     thresholds: dict[str, float],
     column_details: dict[str, dict[str, float]],
     producing_phase: str,
+    resolution_actions: dict[str, set[str]] | None = None,
 ) -> list[ExitCheckIssue]:
     """Check scores against contract thresholds.
 
@@ -251,6 +272,9 @@ def assess_contracts(
         thresholds: Contract thresholds to check against.
         column_details: Per-column scores for affected target identification.
         producing_phase: Phase name where measurement occurred.
+        resolution_actions: Dimension path -> action names from detector
+            resolution options. Used to filter fix schemas to only those
+            the detectors actually recommended.
 
     Returns:
         List of contract violations found.
@@ -264,6 +288,7 @@ def assess_contracts(
         if threshold is not None and score > threshold:
             col_scores = column_details.get(dimension_path, {})
             affected = [t for t, s in col_scores.items() if s > threshold]
+            actions = resolution_actions.get(dimension_path, set()) if resolution_actions else set()
             issues.append(
                 ExitCheckIssue(
                     dimension_path=dimension_path,
@@ -271,6 +296,7 @@ def assess_contracts(
                     threshold=threshold,
                     producing_phase=producing_phase,
                     affected_targets=affected,
+                    available_actions=sorted(actions),
                 )
             )
     return issues

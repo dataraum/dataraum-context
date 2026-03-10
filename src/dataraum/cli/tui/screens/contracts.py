@@ -574,7 +574,7 @@ def _action_matches_dimension(action: dict[str, Any], dimension: str) -> bool:
     # Actions follow taxonomy: document_*, investigate_*, transform_*, create_*
     action_name = str(action.get("action", "")).lower()
     action_to_dim = {
-        "types": ["document_type_override", "transform_quarantine_values"],
+        "types": ["add_type_pattern", "transform_quarantine_values"],
         "units": ["declare_unit"],
         "nulls": ["accept_finding", "transform_filter_nulls", "transform_impute_values"],
         "outliers": ["transform_winsorize", "accept_finding", "investigate_outliers"],
@@ -586,7 +586,7 @@ def _action_matches_dimension(action: dict[str, Any], dimension: str) -> bool:
         "business_meaning": [
             "document_business_meaning",
         ],
-        "temporal": ["document_timestamp_role", "transform_resolve_temporal_mismatch"],
+        "temporal": ["set_timestamp_role", "add_type_pattern"],
         "derived_values": ["document_formula", "investigate_formula_mismatches"],
     }
 

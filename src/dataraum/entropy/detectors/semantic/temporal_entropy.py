@@ -229,7 +229,7 @@ class TemporalEntropyDetector(EntropyDetector):
         elif temporal_status == "mismatch":
             resolution_options.append(
                 ResolutionOption(
-                    action="transform_resolve_temporal_mismatch",
+                    action="add_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,
@@ -237,7 +237,7 @@ class TemporalEntropyDetector(EntropyDetector):
                         "semantic_role": semantic_role,
                     },
                     effort="medium",
-                    description=f"Resolve type/role mismatch for '{context.column_name}'",
+                    description=f"Add type pattern for '{context.column_name}' (date format not recognized)",
                 )
             )
 
