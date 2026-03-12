@@ -126,7 +126,9 @@ detectors:
     score_documented: 0.2 # Has description + business_name or entity_type
     score_fully_documented: 0.0 # Has description + business_name + entity_type
     # Confidence penalty (additive: confidence_weight * (1 - confidence))
-    confidence_weight: 0.3 # How much low LLM confidence adds to entropy
+    # LLM reports low confidence (0.2–0.4) on unreadable column names.
+    # At 0.5, a confidence of 0.25 gives penalty = 0.375, crossing the 0.3 threshold.
+    confidence_weight: 0.5
     ontology_bonus: 0.1 # Reduction if business_concept is present
     # Expected entropy reduction
     reduction_add_description: 0.8

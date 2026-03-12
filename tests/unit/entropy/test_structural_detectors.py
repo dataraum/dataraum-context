@@ -323,9 +323,9 @@ class TestRelationshipEntropyDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # RI entropy from left_referential_integrity: 1.0 - 95/100 = 0.05
+        # RI entropy from left_referential_integrity: sqrt(1.0 - 95/100) = sqrt(0.05) ≈ 0.224
         ri_entropy = results[0].evidence[0]["ri_entropy"]
-        assert ri_entropy == pytest.approx(0.05, abs=0.01)
+        assert ri_entropy == pytest.approx(0.224, abs=0.01)
 
     def test_orphan_with_total_uses_ratio(self, detector: RelationshipEntropyDetector):
         """Test orphan count with total_count uses ratio-based formula."""
@@ -355,9 +355,9 @@ class TestRelationshipEntropyDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # Ratio-based: 50/1000 = 0.05
+        # Ratio-based: sqrt(50/1000) = sqrt(0.05) ≈ 0.224
         ri_entropy = results[0].evidence[0]["ri_entropy"]
-        assert ri_entropy == pytest.approx(0.05, abs=0.01)
+        assert ri_entropy == pytest.approx(0.224, abs=0.01)
 
     def test_orphan_without_total_uses_count_formula(self, detector: RelationshipEntropyDetector):
         """Test orphan count without total falls back to count-based formula."""
@@ -386,9 +386,9 @@ class TestRelationshipEntropyDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # Count-based fallback: 0.3 + 50/1000 = 0.35
+        # Count-based fallback: sqrt(0.3 + 50/1000) = sqrt(0.35) ≈ 0.592
         ri_entropy = results[0].evidence[0]["ri_entropy"]
-        assert ri_entropy == pytest.approx(0.35, abs=0.01)
+        assert ri_entropy == pytest.approx(0.592, abs=0.01)
 
     def test_no_relationships_empty(self, detector: RelationshipEntropyDetector):
         """Test empty result when no relationships exist."""

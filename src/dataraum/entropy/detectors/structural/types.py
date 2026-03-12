@@ -1,14 +1,37 @@
 """Type fidelity entropy detector.
 
-Measures uncertainty in type inference based on parse success rate.
-High parse failure rate indicates the detected type may not be correct.
+Measures uncertainty in type inference based on parse success rate
+and quarantine rate. Uses a non-linear boost to amplify small but
+significant failure rates — 5% of rows failing to cast is a real problem,
+not noise.
 """
+
+import math
 
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
+
+
+def _boost_rate(rate: float) -> float:
+    """Amplify small but significant failure/quarantine rates.
+
+    Linear scoring under-weights real problems: 8% quarantine means 8% of
+    your data is broken, but scores only 0.08. This log-based boost maps
+    rates to scores that match actual severity:
+
+        0.01 → 0.01  (noise — rounding errors, encoding quirks)
+        0.03 → 0.20  (notable — worth investigating)
+        0.05 → 0.35  (fires at 0.3 threshold)
+        0.08 → 0.56  (clearly broken)
+        0.15 → 1.00  (severe)
+    """
+    if rate <= 0:
+        return 0.0
+    boosted = ((1 + rate) ** 2 / -math.log10(rate)) - 0.5
+    return max(0.0, min(1.0, boosted))
 
 
 class TypeFidelityDetector(EntropyDetector):
@@ -136,9 +159,12 @@ class TypeFidelityDetector(EntropyDetector):
             # parse_success_rate=1.0 is meaningless — use configurable score.
             score = score_fallback
         else:
-            # Combine parse failure rate with quarantine rate (take the worse signal)
+            # Combine parse failure rate with boosted quarantine rate.
+            # Quarantine rate gets a non-linear boost because even small rates
+            # (5-8%) mean real data is broken — rows that failed TRY_CAST.
             parse_score = 1.0 - parse_success_rate
-            score = max(parse_score, quarantine_rate or 0.0)
+            boosted_quarantine = _boost_rate(quarantine_rate or 0.0)
+            score = max(parse_score, boosted_quarantine)
 
         # Build evidence
         evidence = [

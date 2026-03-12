@@ -85,7 +85,13 @@ class ColumnSemanticOutput(BaseModel):
     confidence: float = Field(
         ge=0.0,
         le=1.0,
-        description="Confidence in this analysis (0.0-1.0). Use higher values when certain.",
+        description=(
+            "Confidence in this annotation (0.0-1.0). Reflects how clearly the "
+            "COLUMN NAME communicates its meaning. High (0.85-1.0) for self-documenting "
+            "names like 'vendor_id'. Moderate (0.6-0.8) for recognizable abbreviations "
+            "like 'amt'. Low (0.2-0.4) for random or encoded names like 'xq_v7kl' — "
+            "even if you can infer meaning from the data values."
+        ),
     )
 
     unit_source_column: str | None = Field(

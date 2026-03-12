@@ -9,6 +9,11 @@ Scoring formula (additive):
 - base_score: from presence of description/metadata fields (0.0 to 1.0)
 - confidence_weight * (1 - confidence): low LLM confidence adds entropy independently
 - concept_bonus: business_concept presence reduces entropy (ontology alignment)
+
+The confidence penalty is the primary mechanism for catching unclear column
+names. The LLM is instructed to lower confidence when column names are
+meaningless/random, even if it can infer meaning from data values. This lets
+humans decide whether the inferred meaning is trustworthy.
 """
 
 from dataraum.entropy.config import get_entropy_config
@@ -112,8 +117,10 @@ class BusinessMeaningDetector(EntropyDetector):
         score_documented = detector_config.get("score_documented", 0.2)
         score_fully_documented = detector_config.get("score_fully_documented", 0.0)
 
-        # Confidence weighting and ontology bonus
-        confidence_weight = detector_config.get("confidence_weight", 0.3)
+        # Confidence weighting and ontology bonus.
+        # confidence_weight=0.5 so a confidence of 0.4 (garbage name) gives
+        # penalty = 0.5 * 0.6 = 0.30, crossing the 0.3 detection threshold.
+        confidence_weight = detector_config.get("confidence_weight", 0.5)
         ontology_bonus = detector_config.get("ontology_bonus", 0.1)
 
         semantic = context.get_analysis("semantic", {})

@@ -1,13 +1,18 @@
 """Relationship quality entropy detector.
 
 Measures uncertainty in relationships based on actual evaluation metrics:
-- Referential integrity (orphan ratio)
+- Referential integrity (orphan ratio) — primary signal, sqrt-boosted
 - Cardinality verification
 - Semantic clarity (relationship type, confirmation status)
+
+Uses max aggregation (not weighted average) so the worst component drives
+the score. RI is sqrt-boosted because orphan rates >5% are genuinely bad
+for FK relationships, not noise.
 
 Source: relationships.Relationship.evidence (contains JoinCandidate metrics)
 """
 
+import math
 from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
@@ -121,11 +126,8 @@ class RelationshipEntropyDetector(EntropyDetector):
         score_unconfirmed = detector_config.get("score_unconfirmed", 0.3)
         score_unknown_type = detector_config.get("score_unknown_type", 0.6)
 
-        # Component weights for weighted average (replaces MAX aggregation)
-        component_weights = detector_config.get("component_weights", {})
-        ri_weight = component_weights.get("referential_integrity", 0.5)
-        card_weight = component_weights.get("cardinality", 0.3)
-        semantic_weight = component_weights.get("semantic_clarity", 0.2)
+        # RI boost factor: sqrt amplifies small orphan rates
+        ri_boost = detector_config.get("ri_boost", True)
 
         relationships = context.get_analysis("relationships", [])
 
@@ -158,40 +160,38 @@ class RelationshipEntropyDetector(EntropyDetector):
 
             # 1. Compute referential integrity entropy
             if left_ri is not None:
-                # 100% integrity = 0 entropy, 0% integrity = 1.0 entropy
                 ri_entropy = 1.0 - (left_ri / 100.0)
             elif orphan_count is not None and total_count and total_count > 0:
-                # Ratio-based: orphan_count / total = orphan ratio
                 ri_entropy = min(1.0, orphan_count / total_count)
             elif orphan_count is not None and orphan_count > 0:
-                # Last resort: count-based (no total available)
                 ri_entropy = min(1.0, 0.3 + (orphan_count / 1000.0))
             else:
-                # Unknown referential integrity
                 ri_entropy = score_unknown_ri
+
+            # Boost RI: sqrt amplifies small-but-real orphan rates.
+            # 5% orphans → 0.22, 10% → 0.32, 20% → 0.45, 50% → 0.71
+            if ri_boost and ri_entropy > 0:
+                ri_entropy = min(1.0, math.sqrt(ri_entropy))
 
             # 2. Compute cardinality entropy
             if cardinality_verified is True:
-                card_entropy = 0.1  # Verified cardinality = low entropy
+                card_entropy = 0.1
             elif cardinality_verified is False:
-                card_entropy = score_cardinality_mismatch  # Cardinality mismatch
+                card_entropy = score_cardinality_mismatch
             else:
-                card_entropy = score_unverified_cardinality  # Unknown
+                card_entropy = score_unverified_cardinality
 
             # 3. Compute semantic clarity entropy
             if is_confirmed and rel_type not in ("unknown", "candidate"):
-                semantic_entropy = 0.1  # Confirmed with known type
+                semantic_entropy = 0.1
             elif rel_type not in ("unknown", "candidate"):
-                semantic_entropy = score_unconfirmed  # Known type but unconfirmed
+                semantic_entropy = score_unconfirmed
             else:
-                semantic_entropy = score_unknown_type  # Unknown type
+                semantic_entropy = score_unknown_type
 
-            # Weighted average of components (replaces MAX aggregation)
-            score = (
-                ri_entropy * ri_weight
-                + card_entropy * card_weight
-                + semantic_entropy * semantic_weight
-            )
+            # Max aggregation: worst component drives the score.
+            # Weighted average was too forgiving — it diluted real RI problems.
+            score = max(ri_entropy, card_entropy, semantic_entropy)
 
             # Build evidence
             from_table = self._get_value(rel, "from_table", "unknown")
@@ -207,12 +207,8 @@ class RelationshipEntropyDetector(EntropyDetector):
                 "ri_entropy": round(ri_entropy, 3),
                 "card_entropy": round(card_entropy, 3),
                 "semantic_entropy": round(semantic_entropy, 3),
-                "aggregation_method": "weighted_avg",
-                "component_weights": {
-                    "referential_integrity": ri_weight,
-                    "cardinality": card_weight,
-                    "semantic_clarity": semantic_weight,
-                },
+                "aggregation_method": "max",
+                "ri_boosted": ri_boost,
                 "evaluation_metrics": {
                     "left_referential_integrity": left_ri,
                     "orphan_count": orphan_count,

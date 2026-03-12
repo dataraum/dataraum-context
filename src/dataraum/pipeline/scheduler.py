@@ -538,10 +538,13 @@ class PipelineScheduler:
         from dataraum.entropy.detectors.base import get_default_registry
 
         log = self.session.execute(
-            sa_select(PhaseLog).where(
+            sa_select(PhaseLog)
+            .where(
                 PhaseLog.run_id == self.run_id,
                 PhaseLog.phase_name == gate_phase,
             )
+            .order_by(PhaseLog.completed_at.desc())
+            .limit(1)
         ).scalar_one_or_none()
         if log is None:
             return
