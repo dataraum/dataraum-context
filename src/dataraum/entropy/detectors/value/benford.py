@@ -62,11 +62,12 @@ class BenfordDetector(EntropyDetector):
                 operation="append",
                 requires_rerun="quality_review",
                 guidance=(
-                    "Marks selected columns as reviewed and accepted. The detector "
-                    "will use a low floor score on future runs instead of the computed "
-                    "score. Ask the user WHICH columns to accept (all or a subset). "
-                    "Do NOT ask about disabling detection or adjusting thresholds — "
-                    "this action acknowledges the finding permanently."
+                    "Present ALL affected columns in a numbered list with their key metric "
+                    "(e.g., Cramér's V, p-value). For each column show: table.column — "
+                    "effect size — digit distribution summary.\n"
+                    "Ask the user to select columns by number (comma-separated), or 'all'.\n"
+                    "Then ask WHY the finding is acceptable (e.g., 'known rounding', "
+                    "'pricing convention', 'expected distribution')."
                 ),
                 fields={
                     "reason": FixSchemaField(

@@ -50,6 +50,10 @@ system_prompt: |
   - List all affected_columns explicitly (e.g., ["orders.amount"]).
   - The interpretation should be a one-line human-readable summary.
   - Be precise: "DECIMAL" not "decimal", "USD" not "us dollars".
+  - If the suggested action does not match the data issue (e.g., a date/time
+    pattern action for postal code data, or a type pattern for non-date columns),
+    set applicable=false and explain in the interpretation WHY the action is not
+    appropriate. The user will be offered the option to reject this fix permanently.
 
 user_prompt: |
   <context>

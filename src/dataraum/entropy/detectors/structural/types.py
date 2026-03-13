@@ -61,8 +61,59 @@ class TypeFidelityDetector(EntropyDetector):
 
     @property
     def fix_schemas(self) -> list[FixSchema]:
-        """Schema for adding type patterns."""
+        """Schemas for type fidelity fixes."""
         return [
+            FixSchema(
+                action="accept_finding",
+                target="config",
+                description="Mark type fidelity findings as reviewed and accepted",
+                config_path="entropy/thresholds.yaml",
+                key_path=["detectors", "type_fidelity", "accepted_columns"],
+                operation="append",
+                requires_rerun="quality_review",
+                guidance=(
+                    "Present ALL affected columns in a numbered list with their key metric "
+                    "(e.g., quarantine rate). For each column show: table.column — "
+                    "quarantine rate — detected type — sample quarantined values.\n"
+                    "Ask the user to select columns by number (comma-separated), or 'all'.\n"
+                    "Then ask WHY the finding is acceptable (e.g., 'mixed-type column', "
+                    "'known format variation', 'acceptable data loss')."
+                ),
+                fields={
+                    "reason": FixSchemaField(
+                        type="string",
+                        required=False,
+                        description="Why the finding was accepted",
+                    ),
+                },
+            ),
+            FixSchema(
+                action="set_column_type",
+                target="config",
+                description="Force a specific type for this column, overriding type inference",
+                config_path="phases/typing.yaml",
+                key_path=["overrides", "forced_types"],
+                operation="merge",
+                requires_rerun="typing",
+                guidance=(
+                    "The typing phase inferred a type that doesn't fit all values. "
+                    "Some values were quarantined (couldn't be cast). "
+                    "Show the user: current inferred type, quarantine rate, "
+                    "sample quarantined values. Ask whether to:\n"
+                    "  1. Force VARCHAR (keeps all values, no quarantine)\n"
+                    "  2. Force a different type\n"
+                    "PROPOSE VARCHAR as the default when quarantined values look valid."
+                ),
+                fields={
+                    "target_type": FixSchemaField(
+                        type="enum",
+                        required=True,
+                        description="Type to force for this column",
+                        enum_values=["VARCHAR", "BIGINT", "DOUBLE", "DATE", "TIMESTAMP", "BOOLEAN"],
+                        default="VARCHAR",
+                    ),
+                },
+            ),
             FixSchema(
                 action="add_type_pattern",
                 target="config",
@@ -135,6 +186,10 @@ class TypeFidelityDetector(EntropyDetector):
         suggest_override = detector_config.get("suggest_override_threshold", 0.3)
         suggest_quarantine = detector_config.get("suggest_quarantine_threshold", 0.1)
         score_fallback = detector_config.get("score_fallback", 0.5)
+        score_accepted = self.config.get("score_accepted") or detector_config.get("score_accepted", 0.2)
+        accepted_columns: list[str] = (
+            self.config.get("accepted_columns") or detector_config.get("accepted_columns", [])
+        )
 
         typing_result = context.get_analysis("typing", {})
 
@@ -223,6 +278,12 @@ class TypeFidelityDetector(EntropyDetector):
                     description="Move non-parseable values to quarantine table",
                 )
             )
+
+        # Apply acceptance floor if this column was previously accepted
+        target_key = f"{context.table_name}.{context.column_name}"
+        if target_key in accepted_columns:
+            score = score_accepted
+            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

@@ -47,6 +47,7 @@ class DocumentFixInterpretation(BaseModel):
     interpretation: str
     confidence: Literal["high", "medium", "low"]
     summary: str
+    applicable: bool = True
 
 
 # --- Config fix tool schemas ---
@@ -73,6 +74,7 @@ class ConfigFixInterpretation(BaseModel):
     interpretation: str
     confidence: Literal["high", "medium", "low"]
     summary: str
+    applicable: bool = True
 
 
 # --- Agent ---

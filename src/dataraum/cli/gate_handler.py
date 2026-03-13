@@ -448,10 +448,43 @@ def _run_fix_flow(
     console.print(f"[dim]{interp.interpretation}[/dim]")
     console.print(f"[dim]Confidence: {interp.confidence}[/dim]\n")
 
-    confirm = console.input("[bold]Apply fix? (y/n): [/bold]").strip().lower()
-    if confirm != "y":
-        console.print(f"[yellow]Fix cancelled, deferring.[/yellow] [dim](input was {confirm!r})[/dim]")
-        return Resolution(action=ResolutionAction.DEFER)
+    if not interp.applicable:
+        console.print("[yellow]This action doesn't apply to this data.[/yellow]")
+        choice = console.input(
+            "[bold][r]eject permanently / [s]kip / [a]pply anyway: [/bold]"
+        ).strip().lower()
+        if choice == "a":
+            pass  # Continue to apply
+        elif choice == "r":
+            # Log rejection in ledger so this fix won't be offered again
+            from dataraum.documentation.ledger import log_fix
+
+            if session is not None and source_id is not None:
+                for target in _get_affected_targets(dim_path, event):
+                    parts = target.split(":", 1)[-1].split(".", 1)
+                    tbl = parts[0]
+                    col = parts[1] if len(parts) > 1 else None
+                    log_fix(
+                        session=session,
+                        source_id=source_id,
+                        action_name=action_info["action_name"],
+                        table_name=tbl,
+                        column_name=col,
+                        user_input="",
+                        interpretation=interp.interpretation,
+                        status="rejected",
+                    )
+                session.commit()
+                console.print("[green]Fix rejected permanently.[/green]")
+            return Resolution(action=ResolutionAction.DEFER)
+        else:
+            console.print("[yellow]Skipping, deferring.[/yellow]")
+            return Resolution(action=ResolutionAction.DEFER)
+    else:
+        confirm = console.input("[bold]Apply fix? (y/n): [/bold]").strip().lower()
+        if confirm != "y":
+            console.print(f"[yellow]Fix cancelled, deferring.[/yellow] [dim](input was {confirm!r})[/dim]")
+            return Resolution(action=ResolutionAction.DEFER)
 
     # Thread entropy evidence into FixInput for audit trail
     dim_path = action_info["dimension"]

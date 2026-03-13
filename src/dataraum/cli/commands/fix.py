@@ -210,10 +210,24 @@ def fix(
                 console.print(f"[dim]{interp.interpretation}[/dim]")
                 console.print(f"[dim]Confidence: {interp.confidence}[/dim]\n")
 
-                confirm = console.input("[bold]Confirm? (y/n): [/bold]").strip().lower()
-                if confirm != "y":
-                    console.print("[yellow]Skipped.[/yellow]")
-                    continue
+                if interp.applicable:
+                    confirm = console.input("[bold]Confirm? (y/n): [/bold]").strip().lower()
+                    if confirm != "y":
+                        console.print("[yellow]Skipped.[/yellow]")
+                        continue
+                    fix_status = "confirmed"
+                else:
+                    console.print("[yellow]This action doesn't apply to this data.[/yellow]")
+                    choice = console.input(
+                        "[bold][r]eject permanently / [s]kip / [a]pply anyway: [/bold]"
+                    ).strip().lower()
+                    if choice == "r":
+                        fix_status = "rejected"
+                    elif choice == "a":
+                        fix_status = "confirmed"
+                    else:
+                        console.print("[yellow]Skipped.[/yellow]")
+                        continue
 
                 # Log fix for each affected column
                 for col_ref in selected.get("affected_columns", []):
@@ -229,11 +243,13 @@ def fix(
                         column_name=col,
                         user_input=user_answers,
                         interpretation=interp.interpretation,
+                        status=fix_status,
                     )
 
                 session.commit()
                 fixes_logged = True
-                console.print("[green]Fix logged successfully.[/green]")
+                label = "rejected" if fix_status == "rejected" else "logged"
+                console.print(f"[green]Fix {label} successfully.[/green]")
 
             # After fix session, optionally re-run pipeline
             if rerun and fixes_logged:

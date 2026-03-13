@@ -41,6 +41,10 @@ system_prompt: |
   - Reference specific column names (e.g., "journal_lines.credit", not "the credit column").
   - The interpretation must be precise enough to guide automated semantic analysis.
   - Include any business rules, conventions, or constraints the user confirmed.
+  - If the suggested action does not match the data issue (e.g., a date/time
+    pattern action for postal code data, or a type pattern for non-date columns),
+    set applicable=false and explain in the interpretation WHY the action is not
+    appropriate. The user will be offered the option to reject this fix permanently.
 
 user_prompt: |
   <context>

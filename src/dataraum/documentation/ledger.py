@@ -22,8 +22,9 @@ def log_fix(
     column_name: str | None,
     user_input: str,
     interpretation: str,
+    status: str = "confirmed",
 ) -> FixLedgerEntry:
-    """Create a fix entry, superseding any prior confirmed fix for same action+scope.
+    """Create a fix entry, superseding any prior fix with the same status for same action+scope.
 
     Args:
         session: Database session
@@ -33,16 +34,17 @@ def log_fix(
         column_name: Column name, or None for table-level actions
         user_input: Raw user text
         interpretation: Agent's structured interpretation
+        status: Fix status — "confirmed" or "rejected"
 
     Returns:
         The newly created FixLedgerEntry
     """
-    # Find existing confirmed fix for same action+scope
+    # Find existing fix with same status for same action+scope
     stmt = select(FixLedgerEntry).where(
         FixLedgerEntry.source_id == source_id,
         FixLedgerEntry.action_name == action_name,
         FixLedgerEntry.table_name == table_name,
-        FixLedgerEntry.status == "confirmed",
+        FixLedgerEntry.status == status,
     )
     if column_name is not None:
         stmt = stmt.where(FixLedgerEntry.column_name == column_name)
@@ -59,6 +61,7 @@ def log_fix(
         column_name=column_name,
         user_input=user_input,
         interpretation=interpretation,
+        status=status,
     )
     session.add(new_entry)
     session.flush()  # Get fix_id assigned
@@ -74,7 +77,7 @@ def log_fix(
 
 
 def get_active_fixes(session: Session, source_id: str) -> list[FixLedgerEntry]:
-    """Get all confirmed (non-superseded) fixes for a source.
+    """Get all active (confirmed or rejected, non-superseded) fixes for a source.
 
     Args:
         session: Database session
@@ -87,7 +90,7 @@ def get_active_fixes(session: Session, source_id: str) -> list[FixLedgerEntry]:
         select(FixLedgerEntry)
         .where(
             FixLedgerEntry.source_id == source_id,
-            FixLedgerEntry.status == "confirmed",
+            FixLedgerEntry.status.in_(["confirmed", "rejected"]),
         )
         .order_by(FixLedgerEntry.created_at)
     )
