@@ -124,15 +124,19 @@ def _select_best_candidates(
 
     for col in sorted(columns, key=lambda c: c.column_position):
         # Check config-driven forced types (from set_column_type fix)
+        # Value can be a string ("VARCHAR") or a dict ({"target_type": "VARCHAR"})
+        # depending on how the fix bridge wrote it.
         forced_key = f"{table_name}.{col.column_name}"
         if forced_key in forced:
+            raw_val = forced[forced_key]
+            forced_type = raw_val["target_type"] if isinstance(raw_val, dict) else raw_val
             specs.append(
                 ColumnTypeSpec(
                     column_id=col.column_id,
                     column_name=col.column_name,
-                    data_type=DataType[forced[forced_key]],
+                    data_type=DataType[forced_type],
                     decision_source="override",
-                    decision_reason=f"Forced to {forced[forced_key]} via set_column_type fix",
+                    decision_reason=f"Forced to {forced_type} via set_column_type fix",
                 )
             )
             continue

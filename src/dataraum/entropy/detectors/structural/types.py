@@ -279,6 +279,34 @@ class TypeFidelityDetector(EntropyDetector):
                 )
             )
 
+        if score > suggest_quarantine:
+            # Force a different type (e.g. VARCHAR) to avoid quarantine
+            resolution_options.append(
+                ResolutionOption(
+                    action="set_column_type",
+                    parameters={
+                        "column": context.column_name,
+                        "detected_type": str(detected_type) if detected_type else "VARCHAR",
+                    },
+                    effort="low",
+                    description="Force a specific type for this column, overriding type inference",
+                )
+            )
+
+        if score > 0:
+            # Accept finding: user reviewed, type fidelity issue is expected
+            resolution_options.append(
+                ResolutionOption(
+                    action="accept_finding",
+                    parameters={
+                        "column": context.column_name,
+                        "detector_id": self.detector_id,
+                    },
+                    effort="low",
+                    description="Accept type fidelity findings as expected for this column",
+                )
+            )
+
         # Apply acceptance floor if this column was previously accepted
         target_key = f"{context.table_name}.{context.column_name}"
         if target_key in accepted_columns:

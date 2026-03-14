@@ -7,6 +7,7 @@ interactive fix UI with DocumentAgent config mode Q&A.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
@@ -283,22 +284,23 @@ def _handle_pause(
         phase_name=event.phase,
     )
 
-    # Collect all available fixes across violating dimensions
-    actions = _collect_fix_actions(event)
+    # Collect available fixes grouped by dimension
+    groups = _collect_fix_groups(event)
 
-    if not actions:
+    if not groups:
         console.print("  [dim]No fix actions available. Deferring.[/dim]")
         return Resolution(action=ResolutionAction.DEFER)
 
-    # Display action menu
+    # Display dimension menu
     console.print()
     console.print("[bold]Available fixes:[/bold]")
-    for i, action in enumerate(actions, 1):
+    for i, group in enumerate(groups, 1):
+        action_names = ", ".join(a["action_name"] for a in group.actions)
         console.print(
-            f"  \\[{i}] {action['action_name']} "
-            f"[dim]({action['phase_name']} phase)[/dim] "
-            f"— {action['dimension']}"
+            f"  \\[{i}] [bold]{group.label}[/bold] "
+            f"[dim]({group.dimension}, score {group.score:.2f})[/dim]"
         )
+        console.print(f"      {len(group.actions)} action{'s' if len(group.actions) != 1 else ''}: {action_names}")
     console.print()
     console.print("  \\[d] Defer — continue pipeline, address later")
     console.print("  \\[a] Abort — stop pipeline")
@@ -314,7 +316,7 @@ def _handle_pause(
 
         try:
             idx = int(choice) - 1
-            if 0 <= idx < len(actions):
+            if 0 <= idx < len(groups):
                 break
             remaining = 2 - attempt
             console.print(f"[yellow]Invalid choice ({remaining} attempts left).[/yellow]")
@@ -325,56 +327,93 @@ def _handle_pause(
         console.print("[yellow]No valid input, deferring.[/yellow]")
         return Resolution(action=ResolutionAction.DEFER)
 
-    selected = actions[idx]
+    selected_group = groups[idx]
 
     if session is None or source_id is None:
         console.print("[red]Session not available for PAUSE mode. Deferring.[/red]")
         return Resolution(action=ResolutionAction.DEFER)
 
-    return _run_fix_flow(console, session, source_id, selected, event)
+    return _run_fix_flow(console, session, source_id, selected_group, event)
 
 
-def _collect_fix_actions(
+@dataclass
+class _DimensionFixGroup:
+    """All available fix actions for a single violating dimension."""
+
+    dimension: str
+    score: float
+    threshold: float
+    actions: list[dict[str, str]]
+
+    @property
+    def label(self) -> str:
+        """Human-readable label: last segment of dimension path."""
+        return self.dimension.rsplit(".", 1)[-1]
+
+
+def _collect_fix_groups(
     event: PipelineEvent,
-) -> list[dict[str, str]]:
-    """Collect and deduplicate fix actions from the EXIT_CHECK event."""
-    actions: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+) -> list[_DimensionFixGroup]:
+    """Group available fix actions by dimension.
+
+    Instead of flattening all actions into a single list, groups them so the
+    user picks a dimension to fix and the LLM sees all available actions for
+    that dimension and triages to the best one.
+    """
+    groups: list[_DimensionFixGroup] = []
 
     for dim_path, dim_actions in event.available_fixes.items():
+        score, threshold = event.violations.get(dim_path, (0.0, 0.0))
+        actions: list[dict[str, str]] = []
+        seen: set[str] = set()
+
         for action_info in dim_actions:
             name = action_info["action_name"]
-            key = (name, dim_path)
-            if key not in seen:
-                seen.add(key)
-                entry: dict[str, str] = {
-                    "action_name": name,
-                    "phase_name": action_info["phase_name"],
-                    "dimension": dim_path,
-                }
-                if "guidance" in action_info:
-                    entry["guidance"] = action_info["guidance"]
-                if "fields" in action_info:
-                    entry["fields"] = action_info["fields"]
-                actions.append(entry)
+            if name in seen:
+                continue
+            seen.add(name)
+            entry: dict[str, str] = {
+                "action_name": name,
+                "phase_name": action_info["phase_name"],
+                "dimension": dim_path,
+            }
+            if "guidance" in action_info:
+                entry["guidance"] = action_info["guidance"]
+            if "fields" in action_info:
+                entry["fields"] = action_info["fields"]
+            actions.append(entry)
 
-    return actions
+        if actions:
+            groups.append(_DimensionFixGroup(
+                dimension=dim_path,
+                score=score,
+                threshold=threshold,
+                actions=actions,
+            ))
+
+    # Sort by gap descending (worst violation first)
+    groups.sort(key=lambda g: g.score - g.threshold, reverse=True)
+    return groups
 
 
 def _run_fix_flow(
     console: Console,
     session: Session,
     source_id: str,
-    action_info: dict[str, str],
+    group: _DimensionFixGroup,
     event: PipelineEvent,
 ) -> Resolution:
-    """Run the agent-driven Q&A flow for a selected fix action.
+    """Run the agent-driven Q&A flow for a dimension's fix actions.
+
+    The LLM sees ALL available actions for the dimension and triages to the
+    best one based on the data. It returns config_action to tell us which
+    action it chose.
 
     Returns a FIX resolution on success, DEFER on cancellation or error.
     """
     from dataraum.cli.commands.fix import _create_document_agent
 
-    context = build_gate_context(session, source_id, action_info, event)
+    context = build_gate_context(session, source_id, group, event)
 
     try:
         agent = _create_document_agent()
@@ -416,16 +455,14 @@ def _run_fix_flow(
 
     user_answers = "\n\n".join(answers_parts)
 
-    # Interpret answers — enforce parameter structure via tool schema
+    # Interpret answers — LLM picks the best action via config_action
     console.print("[dim]Interpreting answers...[/dim]")
     from dataraum.entropy.detectors.base import get_default_registry
 
-    dim_path = action_info["dimension"]
+    dim_path = group.dimension
     registry = get_default_registry()
-    schema = registry.get_fix_schema(action_info["action_name"], dim_path)
-    param_schema = schema.parameter_json_schema() if schema else None
     interp_result = agent.interpret_config_answers(
-        context, user_answers, parameter_schema=param_schema
+        context, user_answers, parameter_schema=None
     )
     if not interp_result.success:
         console.print(f"[red]Error: {interp_result.error}[/red]")
@@ -433,71 +470,47 @@ def _run_fix_flow(
 
     interp = interp_result.unwrap()
 
-    # Validate parameters against schema (belt-and-suspenders)
-    action_name = interp.config_action or action_info["action_name"]
-    if action_name != action_info["action_name"]:
-        schema = registry.get_fix_schema(action_name, dim_path)
+    # Resolve which action the LLM chose
+    action_name = interp.config_action
+    if not action_name:
+        # Fallback: use the first action in the group
+        action_name = group.actions[0]["action_name"]
+
+    # Validate parameters against the chosen action's schema
+    schema = registry.get_fix_schema(action_name, dim_path)
     if schema:
         errors = schema.validate_payload(interp.parameters)
         if errors:
-            console.print(f"[red]LLM returned invalid parameters: {'; '.join(errors)}[/red]")
+            console.print(f"[red]LLM returned invalid parameters for {action_name}: {'; '.join(errors)}[/red]")
             console.print("[yellow]Deferring — try again or fix manually.[/yellow]")
             return Resolution(action=ResolutionAction.DEFER)
 
-    console.print(f"\n[bold]Interpretation:[/bold] {interp.summary}")
+    console.print(f"\n[bold]Proposed fix:[/bold] {action_name}")
+    console.print(f"[bold]Interpretation:[/bold] {interp.summary}")
     console.print(f"[dim]{interp.interpretation}[/dim]")
     console.print(f"[dim]Confidence: {interp.confidence}[/dim]\n")
 
     if not interp.applicable:
-        console.print("[yellow]This action doesn't apply to this data.[/yellow]")
-        choice = console.input(
-            "[bold][r]eject permanently / [s]kip / [a]pply anyway: [/bold]"
-        ).strip().lower()
-        if choice == "a":
-            pass  # Continue to apply
-        elif choice == "r":
-            # Log rejection in ledger so this fix won't be offered again
-            from dataraum.documentation.ledger import log_fix
+        console.print("[yellow]No available action fits this data issue.[/yellow]")
+        console.print(f"[dim]{interp.interpretation}[/dim]")
+        console.print("[yellow]Deferring.[/yellow]")
+        return Resolution(action=ResolutionAction.DEFER)
 
-            if session is not None and source_id is not None:
-                for target in _get_affected_targets(dim_path, event):
-                    parts = target.split(":", 1)[-1].split(".", 1)
-                    tbl = parts[0]
-                    col = parts[1] if len(parts) > 1 else None
-                    log_fix(
-                        session=session,
-                        source_id=source_id,
-                        action_name=action_info["action_name"],
-                        table_name=tbl,
-                        column_name=col,
-                        user_input="",
-                        interpretation=interp.interpretation,
-                        status="rejected",
-                    )
-                session.commit()
-                console.print("[green]Fix rejected permanently.[/green]")
-            return Resolution(action=ResolutionAction.DEFER)
-        else:
-            console.print("[yellow]Skipping, deferring.[/yellow]")
-            return Resolution(action=ResolutionAction.DEFER)
-    else:
-        confirm = console.input("[bold]Apply fix? (y/n): [/bold]").strip().lower()
-        if confirm != "y":
-            console.print(f"[yellow]Fix cancelled, deferring.[/yellow] [dim](input was {confirm!r})[/dim]")
-            return Resolution(action=ResolutionAction.DEFER)
+    confirm = console.input("[bold]Apply fix? (y/n): [/bold]").strip().lower()
+    if confirm != "y":
+        console.print(f"[yellow]Fix cancelled, deferring.[/yellow] [dim](input was {confirm!r})[/dim]")
+        return Resolution(action=ResolutionAction.DEFER)
 
     # Thread entropy evidence into FixInput for audit trail
-    dim_path = action_info["dimension"]
     evidence: dict[str, Any] = {}
-    score, threshold = event.violations.get(dim_path, (0.0, 0.0))
-    evidence["score"] = score
-    evidence["threshold"] = threshold
+    evidence["score"] = group.score
+    evidence["threshold"] = group.threshold
     col_scores = event.column_details.get(dim_path, {})
     if col_scores:
         evidence["column_scores"] = col_scores
 
     fix_input = FixInput(
-        action_name=interp.config_action or action_info["action_name"],
+        action_name=action_name,
         dimension=dim_path,
         parameters=dict(interp.parameters),
         interpretation=interp.interpretation,
@@ -516,7 +529,7 @@ def _run_fix_flow(
 def build_gate_context(
     session: Session,
     source_id: str,
-    action_info: dict[str, str],
+    group: _DimensionFixGroup,
     event: PipelineEvent,
 ) -> str:
     """Build context for DocumentAgent config mode at a quality gate.
@@ -525,36 +538,47 @@ def build_gate_context(
     where EntropyInterpretationRecord doesn't yet exist. Uses detector
     evidence from the event, data profiles, and semantic annotations.
 
+    Includes ALL available fix actions for the dimension so the LLM can
+    triage to the best one.
+
     Args:
         session: Database session.
         source_id: Source ID for querying metadata.
-        action_info: Selected action with action_name, phase_name, dimension.
+        group: Dimension fix group with all available actions.
         event: The EXIT_CHECK event with scores and column details.
 
     Returns:
         Structured context string for the LLM prompt.
     """
-    dim_path = action_info["dimension"]
-    score, threshold = event.violations.get(dim_path, (0.0, 0.0))
+    dim_path = group.dimension
+    score = group.score
+    threshold = group.threshold
     affected_targets = _get_affected_targets(dim_path, event)
 
     sections: list[str] = []
 
-    # Section 1: Action details
+    # Section 1: Available actions (all of them — LLM picks the best one)
     action_lines = [
-        "<action_details>",
-        f"Action: {action_info['action_name']}",
-        f"Description: Fix for {dim_path} contract violation",
-        f"Priority: high (score: {score:.2f})",
+        "<available_actions>",
+        f"Dimension: {dim_path}",
+        f"Score: {score:.2f} (threshold: {threshold:.2f})",
         f"Affected columns: {', '.join(affected_targets)}",
+        "",
+        "Choose the BEST action for this data issue. Set config_action to the chosen action name.",
+        "Set applicable=false only if NONE of the actions fit.",
+        "",
     ]
-    if "guidance" in action_info:
-        action_lines.append(f"Guidance: {action_info['guidance']}")
-    if "fields" in action_info:
-        action_lines.append("Expected parameters:")
-        for line in action_info["fields"].splitlines():
-            action_lines.append(f"  {line}")
-    action_lines.append("</action_details>")
+    for i, action in enumerate(group.actions, 1):
+        action_lines.append(f"--- Action {i}: {action['action_name']} ---")
+        action_lines.append(f"Phase: {action['phase_name']}")
+        if "guidance" in action:
+            action_lines.append(f"Guidance: {action['guidance']}")
+        if "fields" in action:
+            action_lines.append("Expected parameters:")
+            for line in action["fields"].splitlines():
+                action_lines.append(f"  {line}")
+        action_lines.append("")
+    action_lines.append("</available_actions>")
     sections.append("\n".join(action_lines))
 
     # Section 2: Entropy evidence

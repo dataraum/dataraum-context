@@ -9,7 +9,8 @@ from unittest.mock import MagicMock, patch
 from rich.console import Console
 
 from dataraum.cli.gate_handler import (
-    _collect_fix_actions,
+    _DimensionFixGroup,
+    _collect_fix_groups,
     _handle_pause,
     build_gate_context,
     handle_exit_check,
@@ -37,6 +38,29 @@ def _make_exit_check_event(
         violations=violations or {"structural.types.type_fidelity": (0.62, 0.50)},
         available_fixes=available_fixes or {},
         column_details=column_details or {},
+    )
+
+
+def _make_group(
+    dimension: str = "structural.types.type_fidelity",
+    score: float = 0.62,
+    threshold: float = 0.50,
+    actions: list[dict[str, str]] | None = None,
+) -> _DimensionFixGroup:
+    """Create a dimension fix group for testing."""
+    if actions is None:
+        actions = [
+            {
+                "action_name": "override_type",
+                "phase_name": "typing",
+                "dimension": dimension,
+            }
+        ]
+    return _DimensionFixGroup(
+        dimension=dimension,
+        score=score,
+        threshold=threshold,
+        actions=actions,
     )
 
 
@@ -69,53 +93,74 @@ class TestHandleExitCheckModes:
         assert "no fix actions" in _strip_ansi(output.getvalue()).lower()
 
 
-class TestCollectFixActions:
-    def test_collects_actions_from_event(self) -> None:
+class TestCollectFixGroups:
+    def test_groups_actions_by_dimension(self) -> None:
         event = _make_exit_check_event(
             available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
+                    {"action_name": "accept_finding", "phase_name": "quality_review"},
                 ],
             }
         )
 
-        actions = _collect_fix_actions(event)
+        groups = _collect_fix_groups(event)
 
-        assert len(actions) == 1
-        assert actions[0]["action_name"] == "override_type"
-        assert actions[0]["phase_name"] == "typing"
-        assert actions[0]["dimension"] == "structural.types.type_fidelity"
+        assert len(groups) == 1
+        assert groups[0].dimension == "structural.types.type_fidelity"
+        assert len(groups[0].actions) == 2
+        names = {a["action_name"] for a in groups[0].actions}
+        assert names == {"override_type", "accept_finding"}
 
-    def test_deduplicates_by_action_and_dimension(self) -> None:
-        """Same action for different dimensions produces separate entries."""
+    def test_separate_groups_per_dimension(self) -> None:
         event = _make_exit_check_event(
+            violations={
+                "dim1": (0.7, 0.5),
+                "dim2": (0.6, 0.5),
+            },
             available_fixes={
                 "dim1": [{"action_name": "fix_a", "phase_name": "p1"}],
                 "dim2": [{"action_name": "fix_a", "phase_name": "p1"}],
-            }
+            },
         )
 
-        actions = _collect_fix_actions(event)
+        groups = _collect_fix_groups(event)
 
-        assert len(actions) == 2
-        assert actions[0]["dimension"] == "dim1"
-        assert actions[1]["dimension"] == "dim2"
+        assert len(groups) == 2
+        dims = {g.dimension for g in groups}
+        assert dims == {"dim1", "dim2"}
 
-    def test_multiple_distinct_actions(self) -> None:
+    def test_deduplicates_within_dimension(self) -> None:
         event = _make_exit_check_event(
             available_fixes={
                 "dim1": [
                     {"action_name": "fix_a", "phase_name": "p1"},
-                    {"action_name": "fix_b", "phase_name": "p2"},
+                    {"action_name": "fix_a", "phase_name": "p1"},
                 ],
             }
         )
 
-        actions = _collect_fix_actions(event)
+        groups = _collect_fix_groups(event)
 
-        assert len(actions) == 2
-        names = {a["action_name"] for a in actions}
-        assert names == {"fix_a", "fix_b"}
+        assert len(groups) == 1
+        assert len(groups[0].actions) == 1
+
+    def test_sorted_by_gap_descending(self) -> None:
+        event = _make_exit_check_event(
+            violations={
+                "small_gap": (0.55, 0.50),
+                "big_gap": (0.90, 0.50),
+            },
+            available_fixes={
+                "small_gap": [{"action_name": "fix_a", "phase_name": "p1"}],
+                "big_gap": [{"action_name": "fix_b", "phase_name": "p2"}],
+            },
+        )
+
+        groups = _collect_fix_groups(event)
+
+        assert groups[0].dimension == "big_gap"
+        assert groups[1].dimension == "small_gap"
 
 
 class TestHandlePause:
@@ -177,7 +222,7 @@ class TestHandlePause:
         assert result.action == ResolutionAction.DEFER
 
     def test_no_session_defers(self) -> None:
-        """Selecting a fix action without session falls back to DEFER."""
+        """Selecting a fix group without session falls back to DEFER."""
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(
@@ -195,13 +240,14 @@ class TestHandlePause:
         rendered = _strip_ansi(output.getvalue())
         assert "session not available" in rendered.lower()
 
-    def test_displays_action_menu(self) -> None:
+    def test_displays_dimension_menu(self) -> None:
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(
             available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
+                    {"action_name": "accept_finding", "phase_name": "quality_review"},
                 ],
             }
         )
@@ -210,8 +256,8 @@ class TestHandlePause:
             _handle_pause(console, event, None, None, None)
 
         rendered = _strip_ansi(output.getvalue())
-        assert "override_type" in rendered
-        assert "typing" in rendered
+        assert "type_fidelity" in rendered
+        assert "2 actions" in rendered
         assert "defer" in rendered.lower()
         assert "abort" in rendered.lower()
 
@@ -241,11 +287,20 @@ class TestRunFixFlow:
                 }
             },
         )
-        action_info = {
-            "action_name": "override_type",
-            "phase_name": "typing",
-            "dimension": "structural.types.type_fidelity",
-        }
+        group = _make_group(
+            actions=[
+                {
+                    "action_name": "override_type",
+                    "phase_name": "typing",
+                    "dimension": "structural.types.type_fidelity",
+                },
+                {
+                    "action_name": "accept_finding",
+                    "phase_name": "quality_review",
+                    "dimension": "structural.types.type_fidelity",
+                },
+            ]
+        )
 
         mock_questions = ConfigFixQuestions(
             questions=[
@@ -279,7 +334,7 @@ class TestRunFixFlow:
             patch("dataraum.cli.commands.fix._create_document_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
-            result = _run_fix_flow(console, session, source_id, action_info, event)
+            result = _run_fix_flow(console, session, source_id, group, event)
 
         assert result.action == ResolutionAction.FIX
         assert len(result.fix_inputs) == 1
@@ -302,11 +357,7 @@ class TestRunFixFlow:
         console = Console(file=output, force_terminal=True, width=100)
 
         event = _make_exit_check_event()
-        action_info = {
-            "action_name": "override_type",
-            "phase_name": "typing",
-            "dimension": "structural.types.type_fidelity",
-        }
+        group = _make_group()
 
         mock_questions = ConfigFixQuestions(
             questions=[
@@ -338,7 +389,7 @@ class TestRunFixFlow:
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(
-                console, MagicMock(), "src", action_info, event,
+                console, MagicMock(), "src", group, event,
             )
 
         assert result.action == ResolutionAction.DEFER
@@ -352,11 +403,7 @@ class TestRunFixFlow:
         console = Console(file=output, force_terminal=True, width=100)
 
         event = _make_exit_check_event()
-        action_info = {
-            "action_name": "override_type",
-            "phase_name": "typing",
-            "dimension": "structural.types.type_fidelity",
-        }
+        group = _make_group()
 
         mock_agent = MagicMock()
         mock_agent.generate_config_questions.return_value = Result.fail("API error")
@@ -366,15 +413,63 @@ class TestRunFixFlow:
             return_value=mock_agent,
         ):
             result = _run_fix_flow(
-                console, MagicMock(), "src", action_info, event,
+                console, MagicMock(), "src", group, event,
             )
 
         assert result.action == ResolutionAction.DEFER
         assert "error" in _strip_ansi(output.getvalue()).lower()
 
+    def test_not_applicable_defers(self) -> None:
+        """When LLM says no action fits, defers gracefully."""
+        from dataraum.cli.gate_handler import _run_fix_flow
+        from dataraum.core.models.base import Result
+        from dataraum.documentation.agent import (
+            ClarifyingQuestion,
+            ConfigFixInterpretation,
+            ConfigFixQuestions,
+        )
+
+        output = StringIO()
+        console = Console(file=output, force_terminal=True, width=100)
+
+        event = _make_exit_check_event()
+        group = _make_group()
+
+        mock_questions = ConfigFixQuestions(
+            questions=[
+                ClarifyingQuestion(question="Q?", question_type="free_text")
+            ],
+            context_summary="",
+        )
+        mock_interp = ConfigFixInterpretation(
+            parameters={},
+            config_action="override_type",
+            affected_columns=[],
+            interpretation="None of the actions fit.",
+            confidence="high",
+            summary="Not applicable",
+            applicable=False,
+        )
+
+        mock_agent = MagicMock()
+        mock_agent.generate_config_questions.return_value = Result.ok(mock_questions)
+        mock_agent.interpret_config_answers.return_value = Result.ok(mock_interp)
+
+        input_values = iter(["answer"])
+
+        with (
+            patch("dataraum.cli.commands.fix._create_document_agent", return_value=mock_agent),
+            patch.object(console, "input", side_effect=lambda _: next(input_values)),
+        ):
+            result = _run_fix_flow(console, MagicMock(), "src", group, event)
+
+        assert result.action == ResolutionAction.DEFER
+        rendered = _strip_ansi(output.getvalue())
+        assert "no available action" in rendered.lower()
+
 
 class TestBuildGateContext:
-    def test_includes_action_details(self) -> None:
+    def test_includes_all_actions(self) -> None:
         session = MagicMock()
         session.execute.return_value = MagicMock(first=MagicMock(return_value=None))
 
@@ -386,16 +481,28 @@ class TestBuildGateContext:
                 }
             },
         )
-        action_info = {
-            "action_name": "override_type",
-            "phase_name": "typing",
-            "dimension": "structural.types.type_fidelity",
-        }
+        group = _make_group(
+            actions=[
+                {
+                    "action_name": "override_type",
+                    "phase_name": "typing",
+                    "dimension": "structural.types.type_fidelity",
+                },
+                {
+                    "action_name": "accept_finding",
+                    "phase_name": "quality_review",
+                    "dimension": "structural.types.type_fidelity",
+                },
+            ]
+        )
 
-        context = build_gate_context(session, "src-1", action_info, event)
+        context = build_gate_context(session, "src-1", group, event)
 
-        assert "<action_details>" in context
+        assert "<available_actions>" in context
         assert "override_type" in context
+        assert "accept_finding" in context
+        assert "Action 1:" in context
+        assert "Action 2:" in context
         assert "0.62" in context
 
     def test_includes_entropy_evidence(self) -> None:
@@ -411,13 +518,9 @@ class TestBuildGateContext:
                 }
             },
         )
-        action_info = {
-            "action_name": "override_type",
-            "phase_name": "typing",
-            "dimension": "structural.types.type_fidelity",
-        }
+        group = _make_group()
 
-        context = build_gate_context(session, "src-1", action_info, event)
+        context = build_gate_context(session, "src-1", group, event)
 
         assert "<entropy_evidence>" in context
         assert "type_fidelity" in context
