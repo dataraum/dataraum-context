@@ -300,3 +300,67 @@ def assess_contracts(
                 )
             )
     return issues
+
+
+def persist_gate_result(
+    session: Session,
+    source_id: str,
+    gate_result: GateResult,
+    *,
+    phase_name: str = "quality_review",
+    run_id: str | None = None,
+) -> None:
+    """Persist gate scores to a PhaseLog record.
+
+    Shared by the scheduler (scoped by run_id) and the standalone fix API
+    (scoped by source_id + phase_name).
+
+    Args:
+        session: SQLAlchemy session.
+        source_id: Source identifier.
+        gate_result: Gate measurement result to persist.
+        phase_name: Phase to update (default: quality_review).
+        run_id: If provided, scope lookup to this run (scheduler path).
+            Otherwise scope by source_id + phase_name (API path).
+    """
+    from sqlalchemy import select as sa_select
+
+    from dataraum.entropy.detectors.base import get_default_registry
+    from dataraum.pipeline.db_models import PhaseLog
+
+    if run_id is not None:
+        log = session.execute(
+            sa_select(PhaseLog)
+            .where(
+                PhaseLog.run_id == run_id,
+                PhaseLog.phase_name == phase_name,
+            )
+            .order_by(PhaseLog.completed_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    else:
+        log = session.execute(
+            sa_select(PhaseLog)
+            .where(
+                PhaseLog.source_id == source_id,
+                PhaseLog.phase_name == phase_name,
+            )
+            .order_by(PhaseLog.completed_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    if log is None:
+        return
+
+    registry = get_default_registry()
+    detector_id_map = {
+        d.dimension_path: d.detector_id
+        for d in registry.get_all_detectors()
+    }
+
+    log.entropy_scores = dict(gate_result.scores)
+    existing_outputs = dict(log.outputs) if log.outputs else {}
+    existing_outputs["gate_column_details"] = dict(gate_result.column_details)
+    existing_outputs["detector_id_map"] = detector_id_map
+    log.outputs = existing_outputs
+    session.commit()

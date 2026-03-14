@@ -2,6 +2,7 @@
 
 Core types for the inline fix system:
 - FixInput: Structured user decision after agent interpretation
+- apply_fixes: Public API for applying fixes and re-running the pipeline
 
 And the utility to apply config changes to YAML files on disk.
 """
@@ -151,3 +152,15 @@ def _apply_operation(
 
     else:
         raise ValueError(f"Unknown operation: {operation!r} (expected set/append/remove/merge)")
+
+
+# Re-export public API for convenience
+# Lazy to avoid circular imports (api.py imports from this package's submodules)
+def __getattr__(name: str) -> Any:
+    if name in ("apply_fixes", "ApplyFixResult"):
+        from dataraum.pipeline.fixes.api import ApplyFixResult, apply_fixes
+
+        globals()["apply_fixes"] = apply_fixes
+        globals()["ApplyFixResult"] = ApplyFixResult
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

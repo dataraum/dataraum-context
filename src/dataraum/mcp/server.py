@@ -280,6 +280,66 @@ def create_server(output_dir: Path | None = None) -> Server:
                     },
                 },
             ),
+            # --- Fix tool ---
+            Tool(
+                name="apply_fix",
+                description=(
+                    "Apply data quality fixes and re-run affected pipeline phases. "
+                    "Takes a list of fix documents (from get_quality actions), applies them, "
+                    "cascade-cleans affected phases, re-runs the pipeline, and returns "
+                    "before/after gate score deltas. This may take several minutes."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "required": ["fixes"],
+                    "properties": {
+                        "fixes": {
+                            "type": "array",
+                            "description": "List of fix documents to apply",
+                            "items": {
+                                "type": "object",
+                                "required": ["target", "action", "table_name", "dimension", "payload"],
+                                "properties": {
+                                    "target": {
+                                        "type": "string",
+                                        "enum": ["config", "metadata", "data"],
+                                        "description": "Which interpreter handles this fix",
+                                    },
+                                    "action": {
+                                        "type": "string",
+                                        "description": "Fix action name (e.g. accept_finding, set_column_type)",
+                                    },
+                                    "table_name": {
+                                        "type": "string",
+                                        "description": "Table this fix applies to",
+                                    },
+                                    "column_name": {
+                                        "type": "string",
+                                        "description": "Column this fix applies to (optional for table-scoped)",
+                                    },
+                                    "dimension": {
+                                        "type": "string",
+                                        "description": "Entropy dimension this addresses",
+                                    },
+                                    "payload": {
+                                        "type": "object",
+                                        "description": "Target-specific fix data",
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "Human-readable summary of what this fix does",
+                                    },
+                                },
+                            },
+                        },
+                        "source_path": {
+                            "type": "string",
+                            "description": "Path to original source data (needed for pipeline re-runs)",
+                        },
+                    },
+                },
+                execution=ToolExecution(taskSupport="optional"),
+            ),
         ]
 
     @server.call_tool()  # type: ignore[no-untyped-call, untyped-decorator]
@@ -360,6 +420,29 @@ def create_server(output_dir: Path | None = None) -> Server:
             result = _discover_sources(output_dir, scan_path, recursive)
         elif name == "add_source":
             result = _add_source(output_dir, arguments)
+        elif name == "apply_fix":
+            ctx = server.request_context
+            experimental: Experimental = ctx.experimental
+            source_path = arguments.get("source_path")
+            if experimental and experimental.is_task:
+                loop = asyncio.get_running_loop()
+
+                async def _fix_work(task: ServerTaskContext) -> CallToolResult:
+                    await task.update_status("Applying fixes and re-running pipeline...")
+                    text = await asyncio.to_thread(
+                        _apply_fix, output_dir, arguments["fixes"], source_path
+                    )
+                    return CallToolResult(content=[TextContent(type="text", text=text)])
+
+                return await experimental.run_task(
+                    _fix_work,
+                    model_immediate_response=(
+                        "Applying fixes and re-running affected pipeline phases. "
+                        "This may take several minutes."
+                    ),
+                )
+            else:
+                result = _apply_fix(output_dir, arguments["fixes"], source_path)
         else:
             result = f"Unknown tool: {name}"
 
@@ -1076,6 +1159,78 @@ def _export(
         return f"Error: Export failed: {e}"
     finally:
         manager.close()
+
+
+def _apply_fix(
+    output_dir: Path,
+    fixes: list[dict[str, Any]],
+    source_path: str | None = None,
+) -> str:
+    """Apply fixes and re-run affected pipeline phases.
+
+    Args:
+        output_dir: Pipeline output directory.
+        fixes: List of fix document dicts from the MCP input.
+        source_path: Optional path to original source data.
+
+    Returns:
+        Formatted before/after delta report.
+    """
+    from dataraum.pipeline.fixes.api import apply_fixes
+    from dataraum.pipeline.fixes.models import FixDocument
+
+    fix_documents = [
+        FixDocument(
+            target=f["target"],
+            action=f["action"],
+            table_name=f["table_name"],
+            column_name=f.get("column_name"),
+            dimension=f["dimension"],
+            payload=f["payload"],
+            description=f.get("description", ""),
+        )
+        for f in fixes
+    ]
+
+    result = apply_fixes(
+        output_dir=output_dir,
+        fix_documents=fix_documents,
+        source_path=Path(source_path) if source_path else None,
+    )
+
+    if not result.success:
+        return f"Error: Fix application failed: {result.error}"
+
+    # Format before/after delta
+    lines = [
+        f"## Fix Results",
+        f"",
+        f"Applied {len(result.applied_fixes)} fix(es).",
+    ]
+    if result.phases_rerun:
+        lines.append(f"Phases re-run: {', '.join(result.phases_rerun)}")
+    lines.append("")
+
+    # Show score deltas for dimensions that changed
+    all_dims = set(result.gate_before.keys()) | set(result.gate_after.keys())
+    if all_dims:
+        lines.append("| Dimension | Target | Before | After | Delta |")
+        lines.append("|-----------|--------|--------|-------|-------|")
+        for dim in sorted(all_dims):
+            before_targets = result.gate_before.get(dim, {})
+            after_targets = result.gate_after.get(dim, {})
+            all_targets = set(before_targets.keys()) | set(after_targets.keys())
+            for target in sorted(all_targets):
+                b = before_targets.get(target, 0.0)
+                a = after_targets.get(target, 0.0)
+                delta = a - b
+                if abs(delta) > 0.001:
+                    sign = "+" if delta > 0 else ""
+                    lines.append(
+                        f"| {dim} | {target} | {b:.3f} | {a:.3f} | {sign}{delta:.3f} |"
+                    )
+
+    return "\n".join(lines)
 
 
 async def run_server() -> None:

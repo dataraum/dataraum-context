@@ -20,6 +20,7 @@ from dataraum.entropy.gate import (
     ExitCheckIssue,
     assess_contracts,
     measure_at_gate,
+    persist_gate_result,
 )
 from dataraum.pipeline.base import Phase, PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.cleanup import cleanup_phase
@@ -530,39 +531,21 @@ class PipelineScheduler:
     ) -> None:
         """Update the PhaseLog for a gate phase with entropy scores.
 
-        Merges gate_column_details and detector_id_map into the existing
-        outputs dict and sets entropy_scores on the PhaseLog record.
+        Delegates to the shared ``persist_gate_result`` utility.
         """
-        from sqlalchemy import select as sa_select
+        from dataraum.entropy.gate import GateResult
 
-        from dataraum.entropy.detectors.base import get_default_registry
-
-        log = self.session.execute(
-            sa_select(PhaseLog)
-            .where(
-                PhaseLog.run_id == self.run_id,
-                PhaseLog.phase_name == gate_phase,
-            )
-            .order_by(PhaseLog.completed_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        if log is None:
-            return
-
-        # Build dimension_path → detector_id mapping so consumers can
-        # resolve gate scores back to detector_ids.
-        registry = get_default_registry()
-        detector_id_map = {
-            d.dimension_path: d.detector_id
-            for d in registry.get_all_detectors()
-        }
-
-        log.entropy_scores = dict(scores)
-        existing_outputs = dict(log.outputs) if log.outputs else {}
-        existing_outputs["gate_column_details"] = dict(column_details)
-        existing_outputs["detector_id_map"] = detector_id_map
-        log.outputs = existing_outputs
-        self.session.commit()
+        gate_result = GateResult(
+            scores=dict(scores),
+            column_details=dict(column_details),
+        )
+        persist_gate_result(
+            self.session,
+            self.source_id,
+            gate_result,
+            phase_name=gate_phase,
+            run_id=self.run_id,
+        )
 
     def _validate_analysis_coverage(self) -> None:
         """Warn if detectors require analyses that no phase produces."""
