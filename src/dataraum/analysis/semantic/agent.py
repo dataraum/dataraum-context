@@ -29,7 +29,6 @@ from dataraum.analysis.semantic.models import (
     SemanticEnrichmentResult,
 )
 from dataraum.analysis.semantic.ontology import OntologyLoader
-from dataraum.analysis.semantic.utils import load_derived_columns_for_semantic
 from dataraum.analysis.statistics.db_models import (
     StatisticalProfile as ColumnProfileModel,
 )
@@ -117,7 +116,8 @@ class SemanticAgent(LLMFeature):
                 analysis/relationships module. Each candidate contains:
                 - table1, table2: Table names
                 - join_columns: List of column pairs with confidence scores
-                - topology_similarity: TDA-based structural similarity
+                - join_success_rate: Percentage of rows with successful joins
+                - introduces_duplicates: Whether the join causes row fan-out
             column_annotations: Tier 1 column annotations from ColumnAnnotationAgent.
                 When provided, included as context so the capable model can focus
                 on relationships, table classification, and reviewing/upgrading
@@ -143,16 +143,6 @@ class SemanticAgent(LLMFeature):
         # Prepare sample data with privacy controls
         sampler = DataSampler(self.config.privacy)
         samples = sampler.prepare_samples(profiles)
-
-        # Load derived column data (if available from Phase 4b)
-        derived_columns = load_derived_columns_for_semantic(session, table_ids)
-
-        # Log derived column context usage
-        total_derived = sum(len(cols) for cols in derived_columns.values())
-        if total_derived:
-            logger.debug("derived_columns_context", derived_columns=total_derived)
-        else:
-            logger.debug("no_derived_columns")
 
         # Build context for prompt
         tables_json = self._build_tables_json(profiles, samples)
@@ -192,7 +182,6 @@ class SemanticAgent(LLMFeature):
             "relationship_candidates": self._format_relationship_candidates(
                 relationship_candidates, graph_structure=graph_structure
             ),
-            "within_table_correlations": self._format_derived_columns(derived_columns),
             "column_annotations": self._format_column_annotations(column_annotations),
             "required_standard_fields": self._format_required_fields(required_standard_fields),
         }
@@ -471,36 +460,6 @@ class SemanticAgent(LLMFeature):
                     lines.append(line)
 
         return "\n".join(lines)
-
-    def _format_derived_columns(self, derived_columns: dict[str, list[dict[str, Any]]]) -> str:
-        """Format derived column data for the prompt.
-
-        Args:
-            derived_columns: Dict mapping table_name to list of derived column dicts
-
-        Returns:
-            Formatted string for the prompt
-        """
-        if not derived_columns or not any(derived_columns.values()):
-            return "No derived column candidates detected."
-
-        lines = []
-
-        for table_name, derived in derived_columns.items():
-            if not derived:
-                continue
-
-            lines.append(f"\n### {table_name}")
-            lines.append(
-                "Derived column candidates (statistical matches — "
-                "verify domain plausibility, not all are true derivations):"
-            )
-            for d in derived:
-                lines.append(
-                    f"  - {d['derived_column']} = {d['formula']} (match: {d['match_rate']:.0%})"
-                )
-
-        return "\n".join(lines) if lines else "No derived column candidates detected."
 
     @staticmethod
     def _format_column_annotations(annotations: ColumnAnnotationOutput | None) -> str:

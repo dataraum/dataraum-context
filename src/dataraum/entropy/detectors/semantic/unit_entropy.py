@@ -13,8 +13,10 @@ Source: typing.detected_unit, typing.unit_confidence, semantic.semantic_role,
 """
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class UnitEntropyDetector(EntropyDetector):
@@ -33,12 +35,83 @@ class UnitEntropyDetector(EntropyDetector):
     """
 
     detector_id = "unit_entropy"
-    layer = "semantic"
-    dimension = "units"
-    sub_dimension = "unit_declaration"
-    trust_level = DetectorTrust.SOFT
-    required_analyses = ["typing", "semantic"]
+    layer = Layer.SEMANTIC
+    dimension = Dimension.UNITS
+    sub_dimension = SubDimension.UNIT_DECLARATION
+    required_analyses = [AnalysisKey.TYPING, AnalysisKey.SEMANTIC]
     description = "Measures whether numeric columns have declared units"
+
+    @property
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schemas for declaring units.
+
+        Two actions covering the two real-world scenarios:
+        - declare_unit: fixed unit for the whole column (e.g. always USD)
+        - set_unit_source: unit varies per row, comes from another column
+        """
+        return [
+            FixSchema(
+                action="declare_unit",
+                target="config",
+                description="Declare a fixed unit for this column",
+                config_path="phases/typing.yaml",
+                key_path=["overrides", "units"],
+                operation="merge",
+                requires_rerun="typing",
+                guidance=(
+                    "The column always uses the same unit. Ask the user what "
+                    "unit the values represent (e.g. USD, EUR, kg, %, "
+                    "dimensionless). Use the data profile and column name to "
+                    "suggest a likely unit."
+                ),
+                fields={
+                    "unit": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description="Unit of measure (e.g. USD, EUR, kg, dimensionless)",
+                    ),
+                },
+            ),
+            FixSchema(
+                action="set_unit_source",
+                target="config",
+                description="Specify which column provides the unit per row",
+                config_path="phases/semantic.yaml",
+                key_path=["overrides", "units"],
+                operation="merge",
+                requires_rerun="semantic",
+                guidance=(
+                    "The unit varies per row and comes from another column "
+                    "(e.g. a 'currency' column in the same or a related "
+                    "table). Ask the user which column provides the unit. "
+                    "Format: column_name for same table, or "
+                    "table_name.column_name for a related table."
+                ),
+                fields={
+                    "unit_source_column": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description=(
+                            "Column providing the unit per row "
+                            "(e.g. 'currency' or 'chart_of_accounts.currency')"
+                        ),
+                    ),
+                },
+            ),
+        ]
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load typing and semantic data for this column."""
+        if context.session is None or context.column_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_semantic, load_typing
+
+        typing_result = load_typing(context.session, context.column_id)
+        if typing_result is not None:
+            context.analysis_results["typing"] = typing_result
+        sem = load_semantic(context.session, context.column_id)
+        if sem is not None:
+            context.analysis_results["semantic"] = sem
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect unit declaration entropy.
@@ -60,7 +133,7 @@ class UnitEntropyDetector(EntropyDetector):
         score_no_unit = detector_config.get("score_no_unit", 0.8)
         score_low_confidence = detector_config.get("score_low_confidence", 0.5)
         score_declared = detector_config.get("score_declared", 0.1)
-        score_inferred = detector_config.get("score_inferred", 0.2)
+        score_inferred = detector_config.get("score_inferred", 0.1)
         confidence_threshold = detector_config.get("confidence_threshold", 0.5)
 
         typing = context.get_analysis("typing", {})
@@ -128,14 +201,25 @@ class UnitEntropyDetector(EntropyDetector):
         if score > 0.3:  # Only suggest resolution for high-entropy columns
             resolution_options.append(
                 ResolutionOption(
-                    action="document_unit",
+                    action="declare_unit",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,
                         "detected_unit": detected_unit,
                     },
                     effort="low",
-                    description=f"Declare the unit for measure column '{context.column_name}'",
+                    description=f"Declare a fixed unit for '{context.column_name}'",
+                )
+            )
+            resolution_options.append(
+                ResolutionOption(
+                    action="set_unit_source",
+                    parameters={
+                        "column": context.column_name,
+                        "table": context.table_name,
+                    },
+                    effort="low",
+                    description=f"Specify which column provides the unit for '{context.column_name}'",
                 )
             )
 

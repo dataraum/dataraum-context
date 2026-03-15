@@ -1,7 +1,7 @@
 """SQLAlchemy models for relationship detection.
 
 Contains the Relationship database model for storing detected relationships
-between tables (both raw TDA candidates and LLM-confirmed relationships).
+between tables (both raw statistical candidates and LLM-confirmed relationships).
 """
 
 from __future__ import annotations
@@ -32,11 +32,12 @@ class Relationship(Base):
     """Detected relationships between columns.
 
     Represents foreign key relationships or other associations
-    detected through TDA, cardinality analysis, or semantic similarity.
+    detected through value overlap analysis, cardinality analysis,
+    or semantic similarity.
 
     detection_method values:
-    - 'candidate': Raw candidate from TDA/join detection (Phase 6)
-    - 'llm': Confirmed/refined by LLM semantic analysis (Phase 5)
+    - 'candidate': Raw candidate from statistical join detection (Phase 6)
+    - 'llm': Confirmed/refined by LLM semantic analysis (Phase 8)
     - 'manual': Manually specified by user
 
     Multiple records can exist for the same column pair with different
@@ -77,9 +78,7 @@ class Relationship(Base):
 
     # Confidence and evidence
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    detection_method: Mapped[str | None] = mapped_column(
-        String
-    )  # 'tda', 'join_detection', 'llm', 'manual'
+    detection_method: Mapped[str | None] = mapped_column(String)  # 'candidate', 'llm', 'manual'
     evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Verification (human-in-loop)

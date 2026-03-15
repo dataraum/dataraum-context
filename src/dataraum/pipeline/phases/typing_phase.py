@@ -12,18 +12,24 @@ the source types are trusted directly.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from dataraum.analysis.typing import infer_type_candidates, resolve_types
 from dataraum.analysis.typing.patterns import load_typing_config
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -37,13 +43,6 @@ class TypingPhase(BasePhase):
 
     Configuration (in ctx.config):
         min_confidence: Minimum confidence for automatic type selection (default: 0.85)
-
-    Inputs (from previous phases):
-        import.raw_tables: List of raw table IDs to process
-
-    Outputs:
-        typed_tables: List of typed table IDs
-        type_decisions: Dict mapping column_id to resolved type
     """
 
     @property
@@ -59,12 +58,55 @@ class TypingPhase(BasePhase):
         return ["import"]
 
     @property
-    def outputs(self) -> list[str]:
-        return ["typed_tables", "type_decisions"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.TYPING}
 
     @property
-    def post_verification(self) -> list[str]:
-        return ["type_fidelity"]
+    def duckdb_layers(self) -> list[str]:
+        return ["typed", "quarantine"]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.analysis.typing.db_models import TypeCandidate, TypeDecision
+
+        count = 0
+        # Delete TypeCandidate and TypeDecision for raw-layer columns
+        raw_table_ids = list(
+            session.execute(
+                select(Table.table_id).where(Table.source_id == source_id, Table.layer == "raw")
+            )
+            .scalars()
+            .all()
+        )
+        if raw_table_ids:
+            raw_col_ids = list(
+                session.execute(select(Column.column_id).where(Column.table_id.in_(raw_table_ids)))
+                .scalars()
+                .all()
+            )
+            if raw_col_ids:
+                count += exec_delete(
+                    session,
+                    delete(TypeCandidate).where(TypeCandidate.column_id.in_(raw_col_ids)),
+                )
+                count += exec_delete(
+                    session,
+                    delete(TypeDecision).where(TypeDecision.column_id.in_(raw_col_ids)),
+                )
+        # Delete typed and quarantine layer Tables (CASCADE deletes Columns and children)
+        count += exec_delete(
+            session,
+            delete(Table).where(
+                Table.source_id == source_id,
+                Table.layer.in_(["typed", "quarantine"]),
+            ),
+        )
+        return count
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -74,25 +116,22 @@ class TypingPhase(BasePhase):
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if typed tables already exist for all raw tables."""
-        raw_table_ids = ctx.get_output("import", "raw_tables", [])
-        if not raw_table_ids:
+        stmt = select(Table).where(
+            Table.source_id == ctx.source_id,
+            Table.layer == "raw",
+        )
+        raw_tables = list(ctx.session.execute(stmt).scalars())
+        if not raw_tables:
             return "No raw tables to process"
 
         # Check if all raw tables have corresponding typed tables
-        for table_id in raw_table_ids:
-            raw_table = ctx.session.get(Table, table_id)
-            if not raw_table:
-                continue
-
-            # Check if typed table exists
-            stmt = select(Table).where(
-                Table.source_id == raw_table.source_id,
+        for raw_table in raw_tables:
+            typed_stmt = select(Table).where(
+                Table.source_id == ctx.source_id,
                 Table.table_name == raw_table.table_name,
                 Table.layer == "typed",
             )
-            result = ctx.session.execute(stmt)
-            typed_table = result.scalar_one_or_none()
-
+            typed_table = ctx.session.execute(typed_stmt).scalar_one_or_none()
             if not typed_table:
                 return None  # At least one table needs typing
 
@@ -189,10 +228,14 @@ class TypingPhase(BasePhase):
         Returns:
             PhaseResult with typed_tables and type_decisions
         """
-        # Get raw tables from import phase
-        raw_table_ids = ctx.get_output("import", "raw_tables", [])
+        # Get raw tables from DB
+        stmt = select(Table.table_id).where(
+            Table.source_id == ctx.source_id,
+            Table.layer == "raw",
+        )
+        raw_table_ids = [row[0] for row in ctx.session.execute(stmt)]
         if not raw_table_ids:
-            # Try to get from table_ids in context
+            # Fall back to table_ids in context
             raw_table_ids = ctx.table_ids
 
         if not raw_table_ids:
@@ -200,6 +243,7 @@ class TypingPhase(BasePhase):
 
         typing_config = load_typing_config(ctx.config)
         min_confidence = typing_config["min_confidence"]
+        forced_types = typing_config.get("overrides", {}).get("forced_types", {})
 
         typed_tables: list[str] = []
         type_decisions: dict[str, str] = {}
@@ -209,10 +253,10 @@ class TypingPhase(BasePhase):
 
         for table_id in raw_table_ids:
             # Load table with columns
-            stmt = (
+            table_stmt = (
                 select(Table).where(Table.table_id == table_id).options(selectinload(Table.columns))
             )
-            result = ctx.session.execute(stmt)
+            result = ctx.session.execute(table_stmt)
             table = result.scalar_one_or_none()
 
             if not table:
@@ -246,6 +290,9 @@ class TypingPhase(BasePhase):
                 )
                 continue
 
+            # Apply unit overrides before resolution
+            _apply_unit_overrides(ctx.session, ctx.config, table)
+
             # Flush type candidates so resolve_types can query them via selectinload
             # This is necessary because selectinload queries the DB, not the session cache
             ctx.session.flush()
@@ -256,6 +303,7 @@ class TypingPhase(BasePhase):
                 duckdb_conn=ctx.duckdb_conn,
                 session=ctx.session,
                 min_confidence=min_confidence,
+                forced_types=forced_types or None,
             )
 
             if not resolution_result.success:
@@ -298,4 +346,46 @@ class TypingPhase(BasePhase):
             records_processed=total_rows_processed,
             records_created=total_typed_created,
             warnings=warnings,
+            summary=f"{len(typed_tables)} tables typed, {len(type_decisions)} type decisions",
         )
+
+
+def _apply_unit_overrides(
+    session: Session,
+    config: dict,  # type: ignore[type-arg]
+    table: Table,
+) -> None:
+    """Patch TypeCandidate.detected_unit from config overrides.
+
+    Reads ``overrides.units`` from typing config. Keys are
+    ``"table.column"``; values contain ``{unit: "USD"}``.
+    """
+    from dataraum.analysis.typing.db_models import TypeCandidate
+
+    overrides = config.get("overrides", {})
+    if not isinstance(overrides, dict):
+        return
+    units = overrides.get("units", {})
+    if not isinstance(units, dict) or not units:
+        return
+
+    for col in table.columns:
+        col_ref = f"{table.table_name}.{col.column_name}"
+        entry = units.get(col_ref)
+        if not isinstance(entry, dict):
+            continue
+        unit = entry.get("unit")
+        if not unit:
+            continue
+
+        # Patch the best type candidate for this column
+        tc = session.execute(
+            select(TypeCandidate)
+            .where(TypeCandidate.column_id == col.column_id)
+            .order_by(TypeCandidate.confidence.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if tc is not None:
+            tc.detected_unit = unit
+            tc.unit_confidence = 1.0
+            logger.info("unit_override_applied", column=col_ref, unit=unit)

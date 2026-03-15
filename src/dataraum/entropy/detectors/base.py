@@ -9,29 +9,21 @@ Each detector focuses on a specific sub-dimension of entropy and
 produces EntropyObject instances with scores, evidence, and resolution options.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import (
     EntropyObject,
     ResolutionOption,
 )
+from dataraum.pipeline.fixes.models import FixSchema
 
-
-class DetectorTrust(str, Enum):
-    """Trust level for entropy detectors.
-
-    HARD detectors produce machine-verifiable scores (e.g., type parsing,
-    null ratio, statistical tests). These can gate pipeline progression.
-
-    SOFT detectors rely on LLM judgment or heuristics (e.g., business meaning,
-    unit inference). These inform but don't block.
-    """
-
-    HARD = "hard"
-    SOFT = "soft"
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @dataclass
@@ -48,6 +40,13 @@ class DetectorContext:
     table_name: str = ""
     column_id: str | None = None
     column_name: str = ""
+    view_name: str = ""
+
+    # SQLAlchemy session for detector-driven data loading
+    session: Session | None = None
+
+    # DuckDB connection for data queries
+    duckdb_conn: Any = None
 
     # Analysis results from other modules (keyed by module name)
     # e.g., {"typing": TypeCandidate, "statistics": ColumnProfile, ...}
@@ -59,7 +58,9 @@ class DetectorContext:
     @property
     def target_ref(self) -> str:
         """Get the target reference string."""
-        if self.column_name:
+        if self.view_name:
+            return f"view:{self.view_name}"
+        elif self.column_name:
             return f"column:{self.table_name}.{self.column_name}"
         elif self.table_name:
             return f"table:{self.table_name}"
@@ -88,15 +89,15 @@ class EntropyDetector(ABC):
 
     # Detector identity (override in subclasses)
     detector_id: str = "base"
-    layer: str = ""  # structural, semantic, value, computational
-    dimension: str = ""  # types, relations, units, etc.
-    sub_dimension: str = ""  # type_fidelity, naming_clarity, etc.
+    layer: Layer  # structural, semantic, value, computational
+    dimension: Dimension  # types, relations, units, etc.
+    sub_dimension: SubDimension  # subclasses must set this
 
-    # Trust level: HARD = machine-verifiable, SOFT = LLM/heuristic
-    trust_level: DetectorTrust = DetectorTrust.SOFT
+    # Target scope: "column" (per-column analysis) or "table" (cross-column analysis)
+    scope: str = "column"
 
     # What analysis modules this detector requires
-    required_analyses: list[str] = []
+    required_analyses: list[AnalysisKey] = []
 
     # Human-readable description
     description: str = ""
@@ -108,6 +109,14 @@ class EntropyDetector(ABC):
             config: Detector-specific configuration overrides
         """
         self.config = config or {}
+
+    def load_data(self, context: DetectorContext) -> None:  # noqa: B027
+        """Load analysis data into context.analysis_results.
+
+        Override in subclasses to query DB via context.session and populate
+        context.analysis_results[key]. Default is a no-op so pre-populated
+        contexts (e.g. in tests) still work.
+        """
 
     @abstractmethod
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
@@ -174,9 +183,15 @@ class EntropyDetector(ABC):
         )
 
     @property
-    def is_verifier(self) -> bool:
-        """Whether this detector can be used for hard verification at gates."""
-        return self.trust_level == DetectorTrust.HARD
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schemas for fix documents this detector can produce.
+
+        Each schema tells the bridge function how to build FixDocuments
+        for a given action. Override in subclasses.
+
+        Default: empty (no fix schemas).
+        """
+        return []
 
     @property
     def dimension_path(self) -> str:
@@ -200,9 +215,30 @@ class DetectorRegistry:
     def register(self, detector: EntropyDetector) -> None:
         """Register a detector.
 
+        Validates that layer, dimension, and sub_dimension use the
+        correct enum types to catch typos at startup.
+
         Args:
             detector: Detector instance to register
+
+        Raises:
+            TypeError: If layer, dimension, or sub_dimension are not enum instances.
         """
+        if not isinstance(detector.layer, Layer):
+            raise TypeError(
+                f"Detector {detector.detector_id!r}: layer must be a Layer enum, "
+                f"got {type(detector.layer).__name__} ({detector.layer!r})"
+            )
+        if not isinstance(detector.dimension, Dimension):
+            raise TypeError(
+                f"Detector {detector.detector_id!r}: dimension must be a Dimension enum, "
+                f"got {type(detector.dimension).__name__} ({detector.dimension!r})"
+            )
+        if not isinstance(detector.sub_dimension, SubDimension):
+            raise TypeError(
+                f"Detector {detector.detector_id!r}: sub_dimension must be a SubDimension enum, "
+                f"got {type(detector.sub_dimension).__name__} ({detector.sub_dimension!r})"
+            )
         self.detectors[detector.detector_id] = detector
 
     def unregister(self, detector_id: str) -> None:
@@ -255,14 +291,6 @@ class DetectorRegistry:
         """
         return [d for d in self.detectors.values() if d.layer == layer and d.dimension == dimension]
 
-    def get_hard_detectors(self) -> list[EntropyDetector]:
-        """Get all detectors with HARD trust level (machine-verifiable)."""
-        return [d for d in self.detectors.values() if d.trust_level == DetectorTrust.HARD]
-
-    def get_soft_detectors(self) -> list[EntropyDetector]:
-        """Get all detectors with SOFT trust level (LLM/heuristic)."""
-        return [d for d in self.detectors.values() if d.trust_level == DetectorTrust.SOFT]
-
     def get_runnable_detectors(self, context: DetectorContext) -> list[EntropyDetector]:
         """Get all detectors that can run with the given context.
 
@@ -300,6 +328,31 @@ class DetectorRegistry:
             List of dimension names
         """
         return list({d.dimension for d in self.detectors.values() if d.layer == layer})
+
+    def get_fix_schema(
+        self, action_name: str, dimension_path: str | None = None
+    ) -> FixSchema | None:
+        """Find a FixSchema by action name, optionally scoped by dimension.
+
+        When multiple detectors share the same action name (e.g.
+        ``accept_finding``), *dimension_path* disambiguates by matching
+        the detector's ``dimension_path`` property.
+
+        Args:
+            action_name: The action to look up.
+            dimension_path: If provided, only consider detectors whose
+                dimension_path matches.
+
+        Returns:
+            The matching FixSchema, or None if not found.
+        """
+        for detector in self.detectors.values():
+            if dimension_path and detector.dimension_path != dimension_path:
+                continue
+            for schema in detector.fix_schemas:
+                if schema.action == action_name:
+                    return schema
+        return None
 
 
 # Global registry instance
@@ -359,6 +412,12 @@ def _register_builtin_detectors(registry: DetectorRegistry) -> None:
     registry.register(UnitEntropyDetector())
     registry.register(TemporalEntropyDetector())
     registry.register(DimensionalEntropyDetector())
+
+    from dataraum.entropy.detectors.semantic.column_quality import ColumnQualityDetector
+    from dataraum.entropy.detectors.semantic.dimension_coverage import DimensionCoverageDetector
+
+    registry.register(ColumnQualityDetector())
+    registry.register(DimensionCoverageDetector())
 
     # Computational layer detectors
     from dataraum.entropy.detectors.computational.derived_values import (

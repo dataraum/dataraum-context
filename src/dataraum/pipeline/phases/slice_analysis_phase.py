@@ -9,17 +9,24 @@ Executes slice SQL templates and runs analysis on the resulting slice tables:
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from typing import TYPE_CHECKING
+
+from sqlalchemy import delete, select
 
 from dataraum.analysis.slicing.db_models import SliceDefinition
 from dataraum.analysis.slicing.slice_runner import (
     register_slice_tables,
     run_analysis_on_slices,
 )
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @analysis_phase
@@ -42,12 +49,28 @@ class SliceAnalysisPhase(BasePhase):
         return "Execute slice SQL and analyze slice tables"
 
     @property
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.SLICE_VARIANCE}
+
+    @property
     def dependencies(self) -> list[str]:
         return ["slicing_view"]
 
     @property
-    def outputs(self) -> list[str]:
-        return ["slice_profiles"]
+    def duckdb_layers(self) -> list[str]:
+        return ["slice"]
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        # Delete slice-layer tables (CASCADE deletes their Columns and child records)
+        return exec_delete(
+            session, delete(Table).where(Table.source_id == source_id, Table.layer == "slice")
+        )
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if no slice definitions exist or all slices already analyzed."""
@@ -178,4 +201,5 @@ class SliceAnalysisPhase(BasePhase):
             },
             records_processed=len(slice_defs),
             records_created=analysis_result.slices_registered,
+            summary=f"{analysis_result.slices_registered} slices registered, {analysis_result.statistics_computed} profiled",
         )

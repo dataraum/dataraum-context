@@ -5,8 +5,10 @@ High null ratio indicates missing data that affects aggregation reliability.
 """
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class NullRatioDetector(EntropyDetector):
@@ -20,12 +22,51 @@ class NullRatioDetector(EntropyDetector):
     """
 
     detector_id = "null_ratio"
-    layer = "value"
-    dimension = "nulls"
-    sub_dimension = "null_ratio"
-    trust_level = DetectorTrust.HARD
-    required_analyses = ["statistics"]
+    layer = Layer.VALUE
+    dimension = Dimension.NULLS
+    sub_dimension = SubDimension.NULL_RATIO
+    required_analyses = [AnalysisKey.STATISTICS]
     description = "Measures uncertainty from null/missing values"
+
+    @property
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schema for accepting null ratio findings."""
+        return [
+            FixSchema(
+                action="accept_finding",
+                target="config",
+                description="Mark null ratio findings as reviewed and accepted",
+                config_path="entropy/thresholds.yaml",
+                key_path=["detectors", "null_ratio", "accepted_columns"],
+                operation="append",
+                requires_rerun="quality_review",
+                guidance=(
+                    "Present ALL affected columns in a numbered list with their key metric "
+                    "(e.g., null rate). For each column show: table.column — null rate — "
+                    "sample values if relevant.\n"
+                    "Ask the user to select columns by number (comma-separated), or 'all'.\n"
+                    "Then ask WHY the finding is acceptable (e.g., 'optional field', "
+                    "'expected variation', 'known data quality')."
+                ),
+                fields={
+                    "reason": FixSchemaField(
+                        type="string",
+                        required=False,
+                        description="Why the finding was accepted",
+                    ),
+                },
+            )
+        ]
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load statistical profile for this column."""
+        if context.session is None or context.column_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_statistics
+
+        result = load_statistics(context.session, context.column_id)
+        if result is not None:
+            context.analysis_results["statistics"] = result
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect null ratio entropy.
@@ -46,6 +87,12 @@ class NullRatioDetector(EntropyDetector):
         impact_significant = detector_config.get("impact_significant", 0.50)
         suggest_declare = detector_config.get("suggest_declare_threshold", 0.1)
         suggest_filter = detector_config.get("suggest_filter_threshold", 0.4)
+        score_accepted = self.config.get("score_accepted") or detector_config.get(
+            "score_accepted", 0.1
+        )
+        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
+            "accepted_columns", []
+        )
         stats = context.get_analysis("statistics", {})
 
         # Extract null ratio
@@ -125,6 +172,26 @@ class NullRatioDetector(EntropyDetector):
                     description="Impute missing values using statistical methods",
                 )
             )
+
+        if score > 0:
+            # Accept: nulls are structurally expected (tree FK, optional dim)
+            resolution_options.append(
+                ResolutionOption(
+                    action="accept_finding",
+                    parameters={
+                        "column": context.column_name,
+                        "detector_id": self.detector_id,
+                    },
+                    effort="low",
+                    description="Accept nulls as structurally expected for this column",
+                )
+            )
+
+        # Apply acceptance floor if this column was previously accepted
+        target_key = f"{context.table_name}.{context.column_name}"
+        if target_key in accepted_columns:
+            score = score_accepted
+            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

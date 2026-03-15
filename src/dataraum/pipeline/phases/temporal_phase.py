@@ -12,15 +12,20 @@ Analyzes temporal columns for:
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.temporal import TemporalColumnProfile, profile_temporal
 from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -49,9 +54,18 @@ class TemporalPhase(BasePhase):
         # were deleted by column_eligibility, causing FK constraint failures.
         return ["column_eligibility"]
 
-    @property
-    def outputs(self) -> list[str]:
-        return ["temporal_profiles"]
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.analysis.temporal.db_models import TemporalColumnProfile as TCP
+
+        if not column_ids:
+            return 0
+        return exec_delete(session, delete(TCP).where(TCP.column_id.in_(column_ids)))
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -181,4 +195,5 @@ class TemporalPhase(BasePhase):
             records_processed=len(temporal_columns),
             records_created=total_profiles,
             warnings=warnings if warnings else None,
+            summary=f"{total_profiles} profiles ({seasonality_count} seasonal, {trend_count} trending)",
         )

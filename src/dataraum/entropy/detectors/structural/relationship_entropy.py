@@ -1,18 +1,25 @@
 """Relationship quality entropy detector.
 
 Measures uncertainty in relationships based on actual evaluation metrics:
-- Referential integrity (orphan ratio)
+- Referential integrity (orphan ratio) — primary signal, sqrt-boosted
 - Cardinality verification
 - Semantic clarity (relationship type, confirmation status)
+
+Uses max aggregation (not weighted average) so the worst component drives
+the score. RI is sqrt-boosted because orphan rates >5% are genuinely bad
+for FK relationships, not noise.
 
 Source: relationships.Relationship.evidence (contains JoinCandidate metrics)
 """
 
+import math
 from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class RelationshipEntropyDetector(EntropyDetector):
@@ -33,12 +40,92 @@ class RelationshipEntropyDetector(EntropyDetector):
     """
 
     detector_id = "relationship_entropy"
-    layer = "structural"
-    dimension = "relations"
-    sub_dimension = "relationship_quality"
-    trust_level = DetectorTrust.HARD
-    required_analyses = ["relationships"]
+    layer = Layer.STRUCTURAL
+    dimension = Dimension.RELATIONS
+    sub_dimension = SubDimension.RELATIONSHIP_QUALITY
+    required_analyses = [AnalysisKey.RELATIONSHIPS]
     description = "Measures relationship quality from evaluation metrics"
+
+    @property
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schemas for relationship quality fixes."""
+        return [
+            FixSchema(
+                action="accept_finding",
+                target="config",
+                description="Mark relationship quality findings as reviewed and accepted",
+                config_path="entropy/thresholds.yaml",
+                key_path=["detectors", "relationship_entropy", "accepted_columns"],
+                operation="append",
+                requires_rerun="quality_review",
+                guidance=(
+                    "This is a RELATIONSHIP finding between two tables, not a per-column issue. "
+                    "Present the relationship: from_table.column → to_table.column, with its "
+                    "key metrics (referential integrity %, orphan count, cardinality). "
+                    "Explain what the score means in plain language.\n"
+                    "Do NOT ask the user to pick columns — accept the finding for the column "
+                    "this entropy object belongs to.\n"
+                    "Ask WHY the relationship quality is acceptable (e.g., 'known partial overlap', "
+                    "'soft reference', 'legacy data', 'different ID namespaces')."
+                ),
+                fields={
+                    "reason": FixSchemaField(
+                        type="string",
+                        required=False,
+                        description="Why the finding was accepted",
+                    ),
+                },
+            ),
+            FixSchema(
+                action="confirm_relationship",
+                target="config",
+                description="Confirm a detected relationship between tables",
+                config_path="phases/relationships.yaml",
+                key_path=["overrides", "confirmed_relationships"],
+                operation="merge",
+                requires_rerun="relationships",
+                key_template="{from_table}->{to_table}",
+                guidance=(
+                    "Confirms or rejects a detected relationship between tables. "
+                    "Ask whether the relationship is a real foreign key, shared "
+                    "reference data, or coincidental overlap."
+                ),
+                fields={
+                    "from_table": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description="Source table name",
+                    ),
+                    "to_table": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description="Target table name",
+                    ),
+                    "relationship_type": FixSchemaField(
+                        type="enum",
+                        required=False,
+                        description="Confirmed relationship type",
+                        enum_values=["foreign_key", "shared_reference", "coincidental"],
+                    ),
+                    "cardinality": FixSchemaField(
+                        type="enum",
+                        required=False,
+                        description="Confirmed cardinality",
+                        enum_values=["one_to_one", "one_to_many", "many_to_one", "many_to_many"],
+                    ),
+                },
+            ),
+        ]
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load relationships for this column."""
+        if context.session is None or context.column_id is None or context.table_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_relationships
+
+        result = load_relationships(context.session, context.column_id, context.table_id)
+        if result is not None:
+            context.analysis_results["relationships"] = result
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect relationship quality entropy.
@@ -58,6 +145,14 @@ class RelationshipEntropyDetector(EntropyDetector):
         config = get_entropy_config()
         detector_config = config.detector("relationship_entropy")
 
+        # Accepted columns
+        score_accepted = self.config.get("score_accepted") or detector_config.get(
+            "score_accepted", 0.2
+        )
+        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
+            "accepted_columns", []
+        )
+
         # Configurable scores for unknown values
         score_unknown_ri = detector_config.get("score_unknown_ri", 0.5)
         score_unverified_cardinality = detector_config.get("score_unverified_cardinality", 0.4)
@@ -65,11 +160,8 @@ class RelationshipEntropyDetector(EntropyDetector):
         score_unconfirmed = detector_config.get("score_unconfirmed", 0.3)
         score_unknown_type = detector_config.get("score_unknown_type", 0.6)
 
-        # Component weights for weighted average (replaces MAX aggregation)
-        component_weights = detector_config.get("component_weights", {})
-        ri_weight = component_weights.get("referential_integrity", 0.5)
-        card_weight = component_weights.get("cardinality", 0.3)
-        semantic_weight = component_weights.get("semantic_clarity", 0.2)
+        # RI boost factor: sqrt amplifies small orphan rates
+        ri_boost = detector_config.get("ri_boost", True)
 
         relationships = context.get_analysis("relationships", [])
 
@@ -102,40 +194,38 @@ class RelationshipEntropyDetector(EntropyDetector):
 
             # 1. Compute referential integrity entropy
             if left_ri is not None:
-                # 100% integrity = 0 entropy, 0% integrity = 1.0 entropy
                 ri_entropy = 1.0 - (left_ri / 100.0)
             elif orphan_count is not None and total_count and total_count > 0:
-                # Ratio-based: orphan_count / total = orphan ratio
                 ri_entropy = min(1.0, orphan_count / total_count)
             elif orphan_count is not None and orphan_count > 0:
-                # Last resort: count-based (no total available)
                 ri_entropy = min(1.0, 0.3 + (orphan_count / 1000.0))
             else:
-                # Unknown referential integrity
                 ri_entropy = score_unknown_ri
+
+            # Boost RI: sqrt amplifies small-but-real orphan rates.
+            # 5% orphans → 0.22, 10% → 0.32, 20% → 0.45, 50% → 0.71
+            if ri_boost and ri_entropy > 0:
+                ri_entropy = min(1.0, math.sqrt(ri_entropy))
 
             # 2. Compute cardinality entropy
             if cardinality_verified is True:
-                card_entropy = 0.1  # Verified cardinality = low entropy
+                card_entropy = 0.1
             elif cardinality_verified is False:
-                card_entropy = score_cardinality_mismatch  # Cardinality mismatch
+                card_entropy = score_cardinality_mismatch
             else:
-                card_entropy = score_unverified_cardinality  # Unknown
+                card_entropy = score_unverified_cardinality
 
             # 3. Compute semantic clarity entropy
             if is_confirmed and rel_type not in ("unknown", "candidate"):
-                semantic_entropy = 0.1  # Confirmed with known type
+                semantic_entropy = 0.1
             elif rel_type not in ("unknown", "candidate"):
-                semantic_entropy = score_unconfirmed  # Known type but unconfirmed
+                semantic_entropy = score_unconfirmed
             else:
-                semantic_entropy = score_unknown_type  # Unknown type
+                semantic_entropy = score_unknown_type
 
-            # Weighted average of components (replaces MAX aggregation)
-            score = (
-                ri_entropy * ri_weight
-                + card_entropy * card_weight
-                + semantic_entropy * semantic_weight
-            )
+            # Max aggregation: worst component drives the score.
+            # Weighted average was too forgiving — it diluted real RI problems.
+            score = max(ri_entropy, card_entropy, semantic_entropy)
 
             # Build evidence
             from_table = self._get_value(rel, "from_table", "unknown")
@@ -151,12 +241,8 @@ class RelationshipEntropyDetector(EntropyDetector):
                 "ri_entropy": round(ri_entropy, 3),
                 "card_entropy": round(card_entropy, 3),
                 "semantic_entropy": round(semantic_entropy, 3),
-                "aggregation_method": "weighted_avg",
-                "component_weights": {
-                    "referential_integrity": ri_weight,
-                    "cardinality": card_weight,
-                    "semantic_clarity": semantic_weight,
-                },
+                "aggregation_method": "max",
+                "ri_boosted": ri_boost,
                 "evaluation_metrics": {
                     "left_referential_integrity": left_ri,
                     "orphan_count": orphan_count,
@@ -171,7 +257,7 @@ class RelationshipEntropyDetector(EntropyDetector):
                 if not is_confirmed:
                     resolution_options.append(
                         ResolutionOption(
-                            action="document_relationship",
+                            action="confirm_relationship",
                             parameters={
                                 "from_table": from_table,
                                 "to_table": to_table,
@@ -195,6 +281,25 @@ class RelationshipEntropyDetector(EntropyDetector):
                             description="Fix referential integrity issues (orphan records)",
                         )
                     )
+
+            if score > 0:
+                resolution_options.append(
+                    ResolutionOption(
+                        action="accept_finding",
+                        parameters={
+                            "column": context.column_name,
+                            "detector_id": self.detector_id,
+                        },
+                        effort="low",
+                        description="Accept relationship quality findings as expected",
+                    )
+                )
+
+            # Apply acceptance floor if this column was previously accepted
+            target_key = f"{context.table_name}.{context.column_name}"
+            if target_key in accepted_columns:
+                score = score_accepted
+                rel_evidence["accepted"] = True
 
             objects.append(
                 self.create_entropy_object(

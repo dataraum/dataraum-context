@@ -8,9 +8,9 @@ inferring column mappings from semantic annotations.
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dataraum.core.logging import get_logger
 from dataraum.graphs.agent import ExecutionContext, GraphAgent
@@ -20,9 +20,13 @@ from dataraum.graphs.persistence import GraphExecutionRepository
 from dataraum.llm import create_provider, load_llm_config
 from dataraum.llm.prompts import PromptRenderer
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -62,13 +66,16 @@ class GraphExecutionPhase(BasePhase):
             "business_cycles",  # business cycle detection
         ]
 
-    @property
-    def outputs(self) -> list[str]:
-        return ["metrics_calculated", "metrics_skipped", "execution_context"]
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.graphs.db_models import GraphExecutionRecord
 
-    @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        return {"type_fidelity": 0.3, "naming_clarity": 0.4}
+        return exec_delete(session, delete(GraphExecutionRecord))
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -245,4 +252,5 @@ class GraphExecutionPhase(BasePhase):
             },
             records_processed=len(metric_graphs),
             records_created=len(calculated_metrics),
+            summary=f"{len(calculated_metrics)} metrics calculated, {len(skipped_metrics)} skipped",
         )

@@ -31,12 +31,31 @@ date_patterns:
     ambiguous: true  # Could be MM/DD or DD/MM
     standardization_expr: "STRPTIME(\"{col}\", '%m/%d/%Y')"
 
+  - name: eu_slash_date
+    pattern: '^\d{1,2}/\d{1,2}/\d{2,4}$'
+    inferred_type: DATE
+    examples: ["15/01/2024", "25/12/24"]
+    ambiguous: true  # Same regex as us_date — COALESCE picks the right one
+    standardization_expr: "STRPTIME(\"{col}\", '%d/%m/%Y')"
+
   - name: eu_date
     pattern: '^\d{1,2}\.\d{1,2}\.\d{2,4}$'
     inferred_type: DATE
     examples: ["15.01.2024", "15.1.24"]
     standardization_expr: "STRPTIME(\"{col}\", '%d.%m.%Y')"
-    
+
+  - name: dd_mon_yy
+    pattern: '^\d{1,2}-[A-Za-z]{3}-\d{2}$'
+    inferred_type: DATE
+    examples: ["01-Apr-25", "28-Feb-25", "1-Mar-25"]
+    standardization_expr: "STRPTIME(\"{col}\", '%d-%b-%y')"
+
+  - name: dd_mon_yyyy
+    pattern: '^\d{1,2}-[A-Za-z]{3}-\d{4}$'
+    inferred_type: DATE
+    examples: ["01-Apr-2025", "15-Jan-2024"]
+    standardization_expr: "STRPTIME(\"{col}\", '%d-%b-%Y')"
+
   - name: time_only
     pattern: '^\d{1,2}:\d{2}(:\d{2})?$'
     inferred_type: TIME

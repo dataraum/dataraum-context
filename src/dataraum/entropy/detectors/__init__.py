@@ -28,7 +28,6 @@ Usage:
 from dataraum.entropy.detectors.base import (
     DetectorContext,
     DetectorRegistry,
-    DetectorTrust,
     EntropyDetector,
     get_default_registry,
 )
@@ -41,6 +40,7 @@ from dataraum.entropy.detectors.computational import (
 # Semantic layer detectors
 from dataraum.entropy.detectors.semantic import (
     BusinessMeaningDetector,
+    ColumnQualityDetector,
     DimensionalEntropyDetector,
     TemporalEntropyDetector,
     UnitEntropyDetector,
@@ -102,7 +102,6 @@ __all__ = [
     "EntropyDetector",
     "DetectorContext",
     "DetectorRegistry",
-    "DetectorTrust",
     "get_default_registry",
     # Registration
     "BUILTIN_DETECTORS",
@@ -120,6 +119,7 @@ __all__ = [
     "BusinessMeaningDetector",
     "UnitEntropyDetector",
     "TemporalEntropyDetector",
+    "ColumnQualityDetector",
     "DimensionalEntropyDetector",
     # Computational detectors
     "DerivedValueDetector",

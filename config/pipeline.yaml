@@ -16,6 +16,7 @@ phases:
   - correlations
   - temporal
   - semantic
+  - quality_review
   - enriched_views
   - slicing
   - slicing_view
@@ -27,8 +28,6 @@ phases:
   - business_cycles
   - validation
   - graph_execution
-  # De-configured phases (uncomment to enable):
-  # - cross_table_quality
 
 # Limits
 limits:

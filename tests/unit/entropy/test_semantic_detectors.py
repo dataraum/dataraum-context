@@ -7,12 +7,15 @@ The detector now uses:
 - Ontology bonus: business_concept presence reduces entropy
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from dataraum.entropy.detectors import (
     BusinessMeaningDetector,
     DetectorContext,
 )
+from dataraum.entropy.detectors.semantic.dimensional_entropy import DimensionalEntropyDetector
 
 
 class TestBusinessMeaningDetector:
@@ -195,9 +198,10 @@ class TestBusinessMeaningDetector:
         results = detector.detect(context)
 
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_description" in actions
-        assert "document_business_name" in actions
-        assert "document_entity_type" in actions
+        assert "document_business_meaning" in actions
+        # All three fields should be listed as missing
+        opt = results[0].resolution_options[0]
+        assert set(opt.parameters["missing_fields"]) == {"description", "business_name", "entity_type"}
 
     def test_resolution_options_with_description(self, detector: BusinessMeaningDetector):
         """Test resolution options when description exists but not others."""
@@ -216,11 +220,12 @@ class TestBusinessMeaningDetector:
         results = detector.detect(context)
 
         actions = [opt.action for opt in results[0].resolution_options]
-        # Has description, so document_description not suggested
-        assert "document_description" not in actions
-        # Missing business_name and entity_type
-        assert "document_business_name" in actions
-        assert "document_entity_type" in actions
+        assert "document_business_meaning" in actions
+        # Has description, so only business_name and entity_type are missing
+        opt = results[0].resolution_options[0]
+        assert "description" not in opt.parameters["missing_fields"]
+        assert "business_name" in opt.parameters["missing_fields"]
+        assert "entity_type" in opt.parameters["missing_fields"]
 
     def test_fully_documented_low_confidence_nonzero(self, detector: BusinessMeaningDetector):
         """Test that fully documented column with low confidence has nonzero score.
@@ -245,9 +250,9 @@ class TestBusinessMeaningDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # Additive: 0.0 + 0.3 * 0.5 - 0.0 = 0.15
+        # Additive: 0.0 + 0.5 * (1 - 0.5) - 0.0 = 0.25
         assert results[0].score > 0.0, "Low confidence should produce nonzero score"
-        assert results[0].score == pytest.approx(0.15, abs=0.01)
+        assert results[0].score == pytest.approx(0.25, abs=0.01)
 
     def test_fully_documented_high_confidence_near_zero(self, detector: BusinessMeaningDetector):
         """Test that fully documented column with high confidence has near-zero score."""
@@ -267,8 +272,8 @@ class TestBusinessMeaningDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # Additive: 0.0 + 0.3 * 0.05 = 0.015
-        assert results[0].score == pytest.approx(0.015, abs=0.01)
+        # Additive: 0.0 + 0.5 * (1 - 0.95) - 0.0 = 0.025
+        assert results[0].score == pytest.approx(0.025, abs=0.01)
 
     def test_low_confidence_increases_partial_score(self, detector: BusinessMeaningDetector):
         """Test that low confidence increases score for partially documented columns."""
@@ -346,3 +351,66 @@ class TestBusinessMeaningDetector:
         assert detector.layer == "semantic"
         assert detector.dimension == "business_meaning"
         assert detector.required_analyses == ["semantic"]
+
+
+class TestDimensionalEntropyDetectorLoadSliceVariance:
+    """Tests for DimensionalEntropyDetector._load_slice_variance."""
+
+    def test_returns_none_when_no_profiles(self):
+        session = MagicMock()
+
+        cols_result = MagicMock()
+        cols_result.scalars.return_value.all.return_value = []
+
+        sv_result = MagicMock()
+        sv_result.scalar_one_or_none.return_value = None
+
+        profiles_result = MagicMock()
+        profiles_result.scalars.return_value.all.return_value = []
+
+        session.execute.side_effect = [cols_result, sv_result, profiles_result]
+
+        result = DimensionalEntropyDetector._load_slice_variance(session, "tbl1", "orders")
+        assert result is None
+
+    def test_returns_slice_variance_data(self):
+        session = MagicMock()
+
+        col = MagicMock()
+        col.column_id = "col1"
+        col.column_name = "amount"
+
+        cols_result = MagicMock()
+        cols_result.scalars.return_value.all.return_value = [col]
+
+        sv_result = MagicMock()
+        sv_result.scalar_one_or_none.return_value = None
+
+        profile = MagicMock()
+        profile.slice_value = "2024-Q1"
+        profile.column_name = "amount"
+        profile.null_ratio = 0.05
+        profile.distinct_count = 50
+        profile.row_count = 1000
+        profile.quality_score = 0.9
+        profile.has_issues = False
+        profile.variance_classification = "stable"
+        profile.source_column_id = "col1"
+
+        profiles_result = MagicMock()
+        profiles_result.scalars.return_value.all.return_value = [profile]
+
+        slice_defs_result = MagicMock()
+        slice_defs_result.scalars.return_value.all.return_value = []
+
+        session.execute.side_effect = [
+            cols_result,
+            sv_result,
+            profiles_result,
+            slice_defs_result,
+        ]
+
+        result = DimensionalEntropyDetector._load_slice_variance(session, "tbl1", "orders")
+        assert result is not None
+        assert "slice_variance" in result
+        assert "amount" in result["slice_variance"]["columns"]

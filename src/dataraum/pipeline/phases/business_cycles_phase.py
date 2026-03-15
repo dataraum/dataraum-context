@@ -8,16 +8,21 @@ and identifies cycles based on entity flows, status columns, and relationships.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.cycles import BusinessCycleAgent
+from dataraum.analysis.cycles.db_models import DetectedBusinessCycle
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
-from dataraum.pipeline.db_models import PhaseCheckpoint
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @analysis_phase
@@ -50,9 +55,17 @@ class BusinessCyclesPhase(BasePhase):
             "quality_summary",  # column quality reports
         ]
 
-    @property
-    def outputs(self) -> list[str]:
-        return ["detected_cycles", "business_processes"]
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        return exec_delete(
+            session,
+            delete(DetectedBusinessCycle).where(DetectedBusinessCycle.source_id == source_id),
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -64,21 +77,22 @@ class BusinessCyclesPhase(BasePhase):
         """Skip if business cycles have already been detected."""
         # Get typed tables for this source
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)
-        result = ctx.session.execute(stmt)
-        typed_tables = result.scalars().all()
+        typed_tables = ctx.session.execute(stmt).scalars().all()
 
         if not typed_tables:
             return "No typed tables found"
 
-        # Check for existing completed phase checkpoint
-        cp_stmt = select(func.count(PhaseCheckpoint.checkpoint_id)).where(
-            PhaseCheckpoint.source_id == ctx.source_id,
-            PhaseCheckpoint.phase_name == self.name,
-            PhaseCheckpoint.status == "completed",
+        # Check for existing detected cycles
+        cycle_count = (
+            ctx.session.execute(
+                select(func.count(DetectedBusinessCycle.cycle_id)).where(
+                    DetectedBusinessCycle.source_id == ctx.source_id,
+                )
+            ).scalar()
+            or 0
         )
-        cp_count = (ctx.session.execute(cp_stmt)).scalar() or 0
 
-        if cp_count > 0:
+        if cycle_count > 0:
             return "Business cycle analysis already run for these tables"
 
         return None
@@ -141,6 +155,14 @@ class BusinessCyclesPhase(BasePhase):
 
         analysis = analysis_result.unwrap()
 
+        # Surface detected cycles and processes as preview lines
+        previews: list[str] = []
+        for c in analysis.cycles:
+            rate = f", {c.completion_rate:.0%} complete" if c.completion_rate is not None else ""
+            previews.append(f"{c.cycle_name} ({c.cycle_type}{rate})")
+        for obs in analysis.data_quality_observations:
+            previews.append(obs)
+
         return PhaseResult.success(
             outputs={
                 "detected_cycles": len(analysis.cycles),
@@ -152,4 +174,6 @@ class BusinessCyclesPhase(BasePhase):
             },
             records_processed=len(table_ids),
             records_created=len(analysis.cycles),
+            warnings=previews,
+            summary=f"{len(analysis.cycles)} cycles, {len(analysis.detected_processes)} processes",
         )

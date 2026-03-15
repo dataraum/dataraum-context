@@ -63,12 +63,38 @@ system_prompt: |
   the relationship is semantically real.
   </relationship_evaluation>
 
+  <confidence_guidance>
+  The confidence field (0.0–1.0) must reflect how READABLE the column name
+  is — not just whether you can infer the content from data values.
+
+  A column named "vendor_id" is self-documenting: anyone reading the schema
+  knows what it contains. Confidence should be high (0.85–1.0).
+
+  A column named "amt" is an abbreviation — recognizable in context but not
+  self-documenting. Confidence should be moderate (0.6–0.8).
+
+  A column named "xq_v7kl" or "rrflp_11_zp00" is gibberish. Even if you
+  can tell from the data that it contains payment terms or vendor codes,
+  the NAME communicates nothing. A human reading the schema cannot understand
+  this column without inspecting the data. Confidence MUST be low (0.2–0.4).
+
+  This matters because downstream systems use confidence to decide whether
+  column annotations need human review. Over-confident annotations on
+  gibberish names cause real problems — they hide naming issues that should
+  be flagged for cleanup.
+  </confidence_guidance>
+
   <column_annotations_review>
   When prior column annotations are provided, they come from a fast model.
   Your role is to:
   - ACCEPT annotations you agree with (include them unchanged in your output)
-  - UPGRADE low-confidence annotations with better analysis
+  - UPGRADE annotations where you have better semantic analysis (role, entity_type,
+    business_concept) based on relationship context or cross-table reasoning
   - OVERRIDE incorrect annotations based on relationship context
+  - PRESERVE confidence values that reflect column name readability — do NOT
+    increase confidence on columns with unreadable names (gibberish, random
+    strings, encoded identifiers) even if you can infer the meaning from data.
+    Low confidence on unreadable names is intentional, not a mistake to fix.
   - FOCUS your effort on table classification, relationships, and unit detection
   You must still include ALL columns in your output, even those you accept from tier 1.
   </column_annotations_review>
@@ -129,14 +155,6 @@ user_prompt: |
   {column_annotations}
   </column_annotations>
 
-  <within_table_patterns>
-  Derived column candidates detected via statistical arithmetic matching.
-  Near-zero or low-variance columns can produce spurious matches (e.g. x * 1 ≈ x, x + 0 ≈ x).
-  Evaluate each candidate for domain plausibility before treating it as a true derivation.
-
-  {within_table_correlations}
-  </within_table_patterns>
-
   Analyze this schema using the analyze_schema tool.
 
 # Input variable definitions
@@ -154,21 +172,18 @@ inputs:
     required: true
 
   relationship_candidates:
-    description: Pre-computed relationship candidates from TDA and join detection
+    description: Pre-computed relationship candidates from statistical join detection
     required: true
 
   column_annotations:
     description: Prior column annotations from tier 1 fast model
     required: true
 
-  within_table_correlations:
-    description: Within-table derived column candidates
-    required: true
-
   required_standard_fields:
     description: Standard field concepts required by active metrics
     required: false
     default: ""
+
 
 # Output is defined by the Pydantic tool schema (SemanticAnalysisOutput)
 # No output_schema needed here since we use tool-based output

@@ -13,23 +13,27 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.quality_summary.agent import QualitySummaryAgent
+from dataraum.analysis.quality_summary.db_models import ColumnQualityReport
 from dataraum.analysis.quality_summary.processor import summarize_quality
 from dataraum.analysis.slicing.db_models import SliceDefinition
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.llm.config import LLMConfig
 from dataraum.llm.providers.base import LLMProvider
 from dataraum.pipeline.base import PhaseContext, PhaseResult
-from dataraum.pipeline.db_models import PhaseCheckpoint
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
-from dataraum.storage import Table
+from dataraum.storage import Column, Table
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
+
+    from sqlalchemy.orm import Session
 
 
 @dataclass
@@ -49,6 +53,7 @@ def _process_slice_definition(
     config: LLMConfig,
     provider: LLMProvider,
     skip_existing: bool,
+    min_slice_rows: int = 20,
 ) -> SliceProcessingResult:
     """Process a single slice definition in a worker thread.
 
@@ -60,6 +65,7 @@ def _process_slice_definition(
         config: LLM configuration
         provider: LLM provider instance
         skip_existing: Whether to skip existing reports
+        min_slice_rows: Minimum rows for a slice to be included in quality analysis
 
     Returns:
         SliceProcessingResult with counts or error
@@ -81,6 +87,7 @@ def _process_slice_definition(
                 slice_definition=slice_def,
                 skip_existing=skip_existing,
                 session_factory=session_factory,
+                min_slice_rows=min_slice_rows,
             )
 
             if not summary_result.success:
@@ -132,8 +139,33 @@ class QualitySummaryPhase(BasePhase):
         return ["slice_analysis", "temporal_slice_analysis"]
 
     @property
-    def outputs(self) -> list[str]:
-        return ["quality_reports", "quality_grades"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.COLUMN_QUALITY_REPORTS}
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.analysis.quality_summary.db_models import ColumnSliceProfile
+
+        count = 0
+        if column_ids:
+            count += exec_delete(
+                session,
+                delete(ColumnQualityReport).where(
+                    ColumnQualityReport.source_column_id.in_(column_ids)
+                ),
+            )
+            count += exec_delete(
+                session,
+                delete(ColumnSliceProfile).where(
+                    ColumnSliceProfile.source_column_id.in_(column_ids)
+                ),
+            )
+        return count
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -145,8 +177,7 @@ class QualitySummaryPhase(BasePhase):
         """Skip if no slice definitions exist or summaries already generated."""
         # Get typed tables for this source
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)
-        result = ctx.session.execute(stmt)
-        typed_tables = result.scalars().all()
+        typed_tables = ctx.session.execute(stmt).scalars().all()
 
         if not typed_tables:
             return "No typed tables found"
@@ -155,20 +186,23 @@ class QualitySummaryPhase(BasePhase):
 
         # Check for slice definitions
         slice_stmt = select(SliceDefinition).where(SliceDefinition.table_id.in_(table_ids))
-        slice_defs = (ctx.session.execute(slice_stmt)).scalars().all()
+        slice_defs = ctx.session.execute(slice_stmt).scalars().all()
 
         if not slice_defs:
             return "No slice definitions found"
 
-        # Check for existing completed phase checkpoint
-        cp_stmt = select(func.count(PhaseCheckpoint.checkpoint_id)).where(
-            PhaseCheckpoint.source_id == ctx.source_id,
-            PhaseCheckpoint.phase_name == self.name,
-            PhaseCheckpoint.status == "completed",
+        # Check for existing quality reports for this source's columns
+        column_subq = select(Column.column_id).where(Column.table_id.in_(table_ids))
+        report_count = (
+            ctx.session.execute(
+                select(func.count(ColumnQualityReport.report_id)).where(
+                    ColumnQualityReport.source_column_id.in_(column_subq)
+                )
+            ).scalar()
+            or 0
         )
-        cp_count = (ctx.session.execute(cp_stmt)).scalar() or 0
 
-        if cp_count > 0:
+        if report_count > 0:
             return "Quality summaries already generated"
 
         return None
@@ -223,6 +257,7 @@ class QualitySummaryPhase(BasePhase):
         # Get settings from phase config
         skip_existing = ctx.config.get("skip_existing", True)
         max_workers = ctx.config.get("workers", 4)
+        min_slice_rows = ctx.config.get("min_slice_rows", 20)
 
         # Process slice definitions
         total_reports = 0
@@ -241,6 +276,7 @@ class QualitySummaryPhase(BasePhase):
                         config,
                         provider,
                         skip_existing,
+                        min_slice_rows,
                     ): slice_def
                     for slice_def in slice_definitions
                 }
@@ -268,6 +304,7 @@ class QualitySummaryPhase(BasePhase):
                     slice_definition=slice_def,
                     skip_existing=skip_existing,
                     session_factory=ctx.session_factory,
+                    min_slice_rows=min_slice_rows,
                 )
 
                 if not summary_result.success:
@@ -291,4 +328,5 @@ class QualitySummaryPhase(BasePhase):
             outputs=outputs,
             records_processed=len(slice_definitions),
             records_created=total_reports,
+            summary=f"{total_reports} quality reports across {total_columns} columns",
         )

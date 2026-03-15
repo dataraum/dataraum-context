@@ -77,8 +77,8 @@ class SQLSnippetRecord(Base):
     llm_model: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # --- Quality tracking ---
-    is_validated: Mapped[bool] = mapped_column(Integer, nullable=False, default=False)
     execution_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     column_hash: Mapped[str | None] = mapped_column(
         String, nullable=True

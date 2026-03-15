@@ -6,6 +6,8 @@ Detects columns that are arithmetic derivations of other columns:
 Uses parallel processing for large tables to speed up detection.
 """
 
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -268,3 +270,189 @@ def detect_derived_columns(
 
     except Exception as e:
         return Result.fail(f"Derived column detection failed: {e}")
+
+
+def detect_enriched_derived_columns(
+    enriched_view: object,
+    fact_table: Table,
+    duckdb_conn: duckdb.DuckDBPyConnection,
+    session: Session,
+    min_match_rate: float = 0.80,
+    max_workers: int = 4,
+) -> Result[list[DerivedColumn]]:
+    """Detect derived columns on an enriched view (fact + dimension columns).
+
+    The enriched view is a superset of the typed table — it contains all
+    fact columns plus dimension columns from joined tables. Running detection
+    on the view finds both same-table and cross-table derivations.
+
+    Only fact columns can be targets (FK constraint: derived_column_id → columns.column_id).
+    Dimension columns are loaded from Column records registered during the enriched_views phase.
+
+    Args:
+        enriched_view: EnrichedView DB model with view_name and dimension_columns.
+        fact_table: The fact Table this view is based on.
+        duckdb_conn: DuckDB connection.
+        session: SQLAlchemy session.
+        min_match_rate: Minimum match rate to consider derived.
+        max_workers: Maximum parallel workers.
+
+    Returns:
+        Result containing list of DerivedColumn objects.
+    """
+    from dataraum.analysis.views.db_models import EnrichedView
+
+    if not isinstance(enriched_view, EnrichedView):
+        return Result.fail("enriched_view must be an EnrichedView instance")
+
+    try:
+        view_name = enriched_view.view_name
+
+        # 1. Get fact table columns (have Column records)
+        stmt = select(Column).where(Column.table_id == fact_table.table_id)
+        fact_columns = list(session.execute(stmt).scalars().all())
+
+        if not fact_columns:
+            return Result.ok([])
+
+        # 2. Get dimension columns from Column records (registered during enriched_views phase)
+        dim_columns: list[Column] = []
+
+        if enriched_view.view_table_id:
+            dim_stmt = select(Column).where(Column.table_id == enriched_view.view_table_id)
+            dim_columns = list(session.execute(dim_stmt).scalars().all())
+
+        # 3. Load statistical profiles for fact + dimension columns (degenerate filtering)
+        all_col_ids = [c.column_id for c in fact_columns] + [c.column_id for c in dim_columns]
+        profile_stmt = select(StatisticalProfile).where(
+            StatisticalProfile.column_id.in_(all_col_ids)
+        )
+        profiles_by_col: dict[str, StatisticalProfile] = {
+            p.column_id: p for p in session.execute(profile_stmt).scalars().all()
+        }
+
+        trivial_target_ids: set[str] = set()
+        zero_constant_source_ids: set[str] = set()
+        for col_id, profile in profiles_by_col.items():
+            if profile.distinct_count is not None and profile.distinct_count <= 1:
+                trivial_target_ids.add(col_id)
+                numeric_stats = (profile.profile_data or {}).get("numeric_stats")
+                if numeric_stats and numeric_stats.get("min_value") == 0:
+                    zero_constant_source_ids.add(col_id)
+
+        # 4. Build combined numeric column list
+        numeric_types = {"INTEGER", "BIGINT", "DOUBLE", "DECIMAL"}
+        numeric_fact = [c for c in fact_columns if c.resolved_type in numeric_types]
+
+        numeric_dim = [c for c in dim_columns if c.resolved_type in numeric_types]
+        all_numeric: list[Column] = list(numeric_fact) + numeric_dim
+
+        if len(all_numeric) < 2:
+            return Result.ok([])
+
+        # 5. Generate triples — only fact columns as targets
+        fact_col_id_set = {c.column_id for c in numeric_fact}
+        operations = [
+            ("+", "sum", True),
+            ("-", "difference", False),
+            ("*", "product", True),
+            ("/", "ratio", False),
+        ]
+
+        checks: list[tuple[Column, Column, Column, str, str]] = []
+        for target in all_numeric:
+            # Only fact columns can be targets (FK constraint)
+            if target.column_id not in fact_col_id_set:
+                continue
+            if target.column_id in trivial_target_ids:
+                continue
+            for col1 in all_numeric:
+                for col2 in all_numeric:
+                    if target.column_id in (col1.column_id, col2.column_id):
+                        continue
+                    if col1.column_id == col2.column_id:
+                        continue
+                    for op, op_name, is_commutative in operations:
+                        if is_commutative and col1.column_id > col2.column_id:
+                            continue
+                        if (
+                            col1.column_id in zero_constant_source_ids
+                            or col2.column_id in zero_constant_source_ids
+                        ):
+                            continue
+                        checks.append((target, col1, col2, op, op_name))
+
+        derived_columns: list[DerivedColumn] = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _check_derived_triple,
+                    duckdb_conn,
+                    view_name,
+                    fact_table.table_id,
+                    target.column_id,
+                    target.column_name,
+                    col1.column_id,
+                    col1.column_name,
+                    col2.column_id,
+                    col2.column_name,
+                    op,
+                    op_name,
+                    min_match_rate,
+                )
+                for target, col1, col2, op, op_name in checks
+            ]
+
+            for future in futures:
+                derived = future.result()
+                if derived:
+                    derived_columns.append(derived)
+
+        # 6. Deduplicate algebraic equivalences
+        _op_preference = {"sum": 0, "product": 1, "difference": 2, "ratio": 3}
+        seen_triples: dict[frozenset[str], DerivedColumn] = {}
+        for dc in derived_columns:
+            col_set = frozenset([dc.derived_column_id] + dc.source_column_ids)
+            existing = seen_triples.get(col_set)
+            if existing is None:
+                seen_triples[col_set] = dc
+            else:
+                dc_pref = _op_preference.get(dc.derivation_type, 4)
+                ex_pref = _op_preference.get(existing.derivation_type, 4)
+                if dc.match_rate > existing.match_rate or (
+                    dc.match_rate == existing.match_rate and dc_pref < ex_pref
+                ):
+                    seen_triples[col_set] = dc
+
+        derived_columns = list(seen_triples.values())
+
+        # 7. Persist
+        for derived in derived_columns:
+            db_derived = DBDerivedColumn(
+                derived_id=derived.derived_id,
+                table_id=derived.table_id,
+                derived_column_id=derived.derived_column_id,
+                source_column_ids=derived.source_column_ids,
+                derivation_type=derived.derivation_type,
+                formula=derived.formula,
+                match_rate=derived.match_rate,
+                total_rows=derived.total_rows,
+                matching_rows=derived.matching_rows,
+                mismatch_examples=derived.mismatch_examples,
+                computed_at=derived.computed_at,
+            )
+            session.add(db_derived)
+
+        logger.info(
+            "enriched_derived_columns_detected",
+            view=view_name,
+            fact_table=fact_table.table_name,
+            derived_count=len(derived_columns),
+            dim_numeric_cols=len(numeric_dim),
+        )
+
+        return Result.ok(derived_columns)
+
+    except Exception as e:
+        return Result.fail(f"Enriched derived column detection failed: {e}")

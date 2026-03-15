@@ -28,7 +28,6 @@ class TestSQLSnippetRecord:
         assert record.snippet_type == "extract"
         assert record.standard_field == "revenue"
         assert record.execution_count == 0
-        assert record.is_validated is False
 
     def test_create_constant_snippet(self, session):
         """Create a constant-type snippet."""

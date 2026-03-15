@@ -35,11 +35,14 @@ system_prompt: |
   <selection_criteria>
   A good slicing dimension should have:
 
-  1. Appropriate Cardinality: At most {max_cardinality} distinct values
+  1. Moderate Cardinality: Prefer dimensions with 3-20 distinct values. Higher cardinality is
+     acceptable if the dimension has strong business meaning — post-processing will trim values
+     that cover too few rows to be statistically meaningful.
   2. Business Meaning: Represent a meaningful business dimension (e.g. region, product line, customer segment — not internal IDs or codes)
   3. Balanced Distribution: Values should have reasonable row counts (avoid 99% in one value)
-  4. Independence: Not redundant with other recommendations — across tables too.
-     If table_a.country and table_b.region encode the same geographical split, pick one.
+  4. Independence: Not redundant with other recommendations within the same table.
+     If two columns in the same table encode the same split (e.g. country_code + country_name), pick one.
+     Shared FK dimensions across tables are fine — each table's slices contain different data.
   5. Analytical Leverage: Prioritize dimensions that partition the MOST rows or the MOST tables
      (e.g. a shared foreign-key dimension that appears in 3 tables beats a column unique to 1 table)
   6. Insight Potential: May help explain data quality issues in related columns or give additional context about the data and business processes
@@ -120,11 +123,6 @@ inputs:
     description: JSON array of dimension columns from enriched views
     required: false
     default: "[]"
-
-  max_cardinality:
-    description: Maximum distinct values for a column to be considered for slicing
-    required: false
-    default: "10"
 
   max_recommendations:
     description: Maximum number of slice dimension recommendations across all tables

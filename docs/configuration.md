@@ -23,7 +23,6 @@ config/
 │   ├── business_cycles.yaml
 │   ├── entropy_interpretation.yaml
 │   ├── graph_execution.yaml
-│   ├── cross_table_quality.yaml
 │   └── validation.yaml
 │
 ├── entropy/

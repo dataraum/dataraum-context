@@ -412,7 +412,7 @@ def build_execution_context(
         if slice_col and slice_tbl:
             slice_contexts.append(
                 SliceContext(
-                    column_name=slice_col.column_name,
+                    column_name=slice_def.column_name or slice_col.column_name,
                     table_name=slice_tbl.table_name,
                     priority=slice_def.slice_priority,
                     value_count=slice_def.value_count or 0,
@@ -852,7 +852,7 @@ def _column_network_to_dict(result: Any) -> dict[str, Any]:
             {"name": i.intent_name, "p_high": i.p_high, "readiness": i.readiness}
             for i in result.intents
         ],
-        "resolution_hints": resolution_hints[:3],
+        "resolution_hints": resolution_hints,
     }
 
 
@@ -1182,7 +1182,7 @@ def format_context_for_prompt(context: GraphExecutionContext) -> str:
         lines.append(
             "Recommended dimensions for filtering/grouping (use these EXACT values in SQL):"
         )
-        for slice_ctx in context.available_slices[:5]:  # Show top 5
+        for slice_ctx in context.available_slices:
             context_str = f" - {slice_ctx.business_context}" if slice_ctx.business_context else ""
             lines.append(
                 f"  - {slice_ctx.table_name}.{slice_ctx.column_name} "
@@ -1194,18 +1194,38 @@ def format_context_for_prompt(context: GraphExecutionContext) -> str:
                     vals += f" +{len(slice_ctx.distinct_values) - 20} more"
                 lines.append(f"    Values: [{vals}]")
 
-    # Enriched views
+    # Enriched views — enhanced with slice context
     if context.enriched_views:
         lines.append("")
         lines.append("## ENRICHED VIEWS")
-        lines.append("Pre-joined fact + dimension views (prefer over manual JOINs):")
+        lines.append("Pre-joined fact + dimension views. Use these for all SQL queries.")
+
+        # Index slices by base table name for lookup
+        slices_by_table: dict[str, list[SliceContext]] = {}
+        for s in context.available_slices:
+            slices_by_table.setdefault(s.table_name, []).append(s)
+
         for ev in context.enriched_views:
             verified = " (grain verified)" if ev.is_grain_verified else ""
-            dims = ", ".join(ev.dimension_columns[:10]) if ev.dimension_columns else "none"
-            if len(ev.dimension_columns) > 10:
-                dims += f" +{len(ev.dimension_columns) - 10} more"
-            lines.append(f"  - {ev.view_name} (fact: {ev.fact_table}){verified}")
-            lines.append(f"    Added columns: {dims}")
+            lines.append(f"\n### {ev.view_name}{verified}")
+            lines.append(f"Fact table: {ev.fact_table}")
+            dims = ", ".join(ev.dimension_columns) if ev.dimension_columns else "none"
+            lines.append(f"Joined columns: {dims}")
+
+            # Add slice dimensions for this enriched view
+            view_slices = slices_by_table.get(ev.fact_table, [])
+            if view_slices:
+                lines.append("")
+                lines.append("Categorical dimensions (use for filtering):")
+                for s in view_slices:
+                    lines.append(f"  - **{s.column_name}** ({s.value_count} values)")
+                    if s.business_context:
+                        lines.append(f"    {s.business_context}")
+                    if s.distinct_values:
+                        vals = ", ".join(f'"{v}"' for v in s.distinct_values[:20])
+                        if len(s.distinct_values) > 20:
+                            vals += f" +{len(s.distinct_values) - 20} more"
+                        lines.append(f"    Values: [{vals}]")
 
     # Business cycles
     if context.business_cycles:
@@ -1257,9 +1277,7 @@ def format_context_for_prompt(context: GraphExecutionContext) -> str:
                     lines.append(f"\nCompletion: {', '.join(parts)}")
 
             # Tables involved
-            tables_str = ", ".join(cycle.tables_involved[:5])
-            if len(cycle.tables_involved) > 5:
-                tables_str += f" +{len(cycle.tables_involved) - 5} more"
+            tables_str = ", ".join(cycle.tables_involved)
             lines.append(f"Tables: {tables_str}")
 
     return "\n".join(lines)

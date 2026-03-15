@@ -9,8 +9,10 @@ Source: semantic.semantic_role, typing.data_type
 """
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class TemporalEntropyDetector(EntropyDetector):
@@ -27,15 +29,97 @@ class TemporalEntropyDetector(EntropyDetector):
     """
 
     detector_id = "temporal_entropy"
-    layer = "semantic"
-    dimension = "temporal"
-    sub_dimension = "time_role"
-    trust_level = DetectorTrust.SOFT
-    required_analyses = ["typing", "semantic"]
+    layer = Layer.SEMANTIC
+    dimension = Dimension.TEMPORAL
+    sub_dimension = SubDimension.TIME_ROLE
+    required_analyses = [AnalysisKey.TYPING, AnalysisKey.SEMANTIC]
     description = "Measures whether temporal columns are properly identified"
 
     # Date/time type indicators (uppercase for case-insensitive matching)
     DATETIME_TYPES = frozenset({"DATE", "TIME", "TIMESTAMP", "DATETIME", "INTERVAL"})
+
+    @property
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schemas for temporal fixes."""
+        return [
+            FixSchema(
+                action="set_timestamp_role",
+                target="config",
+                description="Mark a date column as a timestamp",
+                config_path="phases/semantic.yaml",
+                key_path=["overrides", "semantic_roles"],
+                operation="merge",
+                requires_rerun="semantic",
+                guidance=(
+                    "Confirms that a date/time column should have "
+                    "semantic_role='timestamp'. The column has a date type from "
+                    "type inference but was not identified as a timestamp by the "
+                    "semantic agent. Ask the user to confirm."
+                ),
+                fields={
+                    "semantic_role": FixSchemaField(
+                        type="enum",
+                        required=True,
+                        description="Semantic role to assign",
+                        enum_values=["timestamp"],
+                        default="timestamp",
+                    ),
+                },
+            ),
+            FixSchema(
+                action="add_type_pattern",
+                target="config",
+                description="Add a custom date/time parsing pattern",
+                config_path="phases/typing.yaml",
+                key_path=["overrides", "patterns"],
+                operation="merge",
+                requires_rerun="typing",
+                key_template="{pattern_name}",
+                guidance=(
+                    "Adds a date/time pattern so the typing phase can parse "
+                    "this column. Show sample values and ask what date format "
+                    "they represent. Then produce a DuckDB STRPTIME format "
+                    "string (e.g. '%Y-%m' for '2025-01', '%d/%m/%Y' for "
+                    "'15/01/2024'). The regex pattern must match the raw "
+                    "string values."
+                ),
+                fields={
+                    "pattern_name": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description="Short name for this pattern (e.g. fiscal_period, european_date)",
+                    ),
+                    "pattern": FixSchemaField(
+                        type="regex",
+                        required=True,
+                        description="Regex matching the raw values (e.g. ^\\d{4}-\\d{2}$)",
+                    ),
+                    "standardization_expr": FixSchemaField(
+                        type="duckdb_sql",
+                        required=True,
+                        description=(
+                            "DuckDB expression to parse the value into a date/timestamp. "
+                            "Use STRPTIME with {col} placeholder. "
+                            "Examples: STRPTIME(\"{col}\", '%Y-%m'), "
+                            "STRPTIME(\"{col}\", '%d/%m/%Y')"
+                        ),
+                    ),
+                },
+            ),
+        ]
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load typing and semantic data for this column."""
+        if context.session is None or context.column_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_semantic, load_typing
+
+        typing_result = load_typing(context.session, context.column_id)
+        if typing_result is not None:
+            context.analysis_results["typing"] = typing_result
+        sem = load_semantic(context.session, context.column_id)
+        if sem is not None:
+            context.analysis_results["semantic"] = sem
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect temporal identification entropy.
@@ -79,7 +163,18 @@ class TemporalEntropyDetector(EntropyDetector):
         # Check if column is date/time type
         is_datetime_type = any(dt in data_type for dt in self.DATETIME_TYPES)
 
-        # Check if column is marked as timestamp
+        # Check if column has temporal_behavior from semantic analysis
+        if hasattr(semantic, "temporal_behavior"):
+            temporal_behavior = semantic.temporal_behavior
+        else:
+            temporal_behavior = (
+                semantic.get("temporal_behavior") if isinstance(semantic, dict) else None
+            )
+
+        # Check if column is marked as timestamp via semantic_role only.
+        # temporal_behavior is NOT used here — it contains aggregation semantics
+        # ("additive", "point_in_time") backfilled from the ontology for measures,
+        # not temporal role indicators.
         is_marked_timestamp = semantic_role == "timestamp"
 
         # Get semantic confidence (if available) for score modulation
@@ -114,15 +209,16 @@ class TemporalEntropyDetector(EntropyDetector):
             return []
 
         # Build evidence
-        evidence = [
-            {
-                "data_type": data_type,
-                "semantic_role": semantic_role,
-                "is_datetime_type": is_datetime_type,
-                "is_marked_timestamp": is_marked_timestamp,
-                "temporal_status": temporal_status,
-            }
-        ]
+        evidence_entry: dict[str, object] = {
+            "data_type": data_type,
+            "semantic_role": semantic_role,
+            "is_datetime_type": is_datetime_type,
+            "is_marked_timestamp": is_marked_timestamp,
+            "temporal_status": temporal_status,
+        }
+        if temporal_behavior:
+            evidence_entry["temporal_behavior"] = temporal_behavior
+        evidence = [evidence_entry]
 
         # Resolution options
         resolution_options: list[ResolutionOption] = []
@@ -130,7 +226,7 @@ class TemporalEntropyDetector(EntropyDetector):
         if temporal_status == "unmarked":
             resolution_options.append(
                 ResolutionOption(
-                    action="document_timestamp_role",
+                    action="set_timestamp_role",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,
@@ -143,7 +239,7 @@ class TemporalEntropyDetector(EntropyDetector):
         elif temporal_status == "mismatch":
             resolution_options.append(
                 ResolutionOption(
-                    action="transform_resolve_temporal_mismatch",
+                    action="add_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,
@@ -151,7 +247,7 @@ class TemporalEntropyDetector(EntropyDetector):
                         "semantic_role": semantic_role,
                     },
                     effort="medium",
-                    description=f"Resolve type/role mismatch for '{context.column_name}'",
+                    description=f"Add type pattern for '{context.column_name}' (date format not recognized)",
                 )
             )
 

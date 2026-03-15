@@ -7,8 +7,10 @@ High outlier rate indicates data quality issues that affect aggregations.
 from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class OutlierRateDetector(EntropyDetector):
@@ -26,15 +28,57 @@ class OutlierRateDetector(EntropyDetector):
     """
 
     detector_id = "outlier_rate"
-    layer = "value"
-    dimension = "outliers"
-    trust_level = DetectorTrust.HARD
-    sub_dimension = "outlier_rate"
-    required_analyses = ["statistics", "semantic"]
+    layer = Layer.VALUE
+    dimension = Dimension.OUTLIERS
+    sub_dimension = SubDimension.OUTLIER_RATE
+    required_analyses = [AnalysisKey.STATISTICS, AnalysisKey.SEMANTIC]
     description = "Measures uncertainty from outlier values"
 
     # Semantic roles where outlier detection is meaningless
     _SKIP_ROLES = frozenset({"key", "foreign_key"})
+
+    @property
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schema for accepting outlier findings."""
+        return [
+            FixSchema(
+                action="accept_finding",
+                target="config",
+                description="Mark outlier findings as reviewed and accepted",
+                config_path="entropy/thresholds.yaml",
+                key_path=["detectors", "outlier_rate", "accepted_columns"],
+                operation="append",
+                requires_rerun="quality_review",
+                guidance=(
+                    "Present ALL affected columns in a numbered list with their key metric "
+                    "(e.g., outlier rate). For each column show: table.column — outlier "
+                    "rate — IQR fences if relevant.\n"
+                    "Ask the user to select columns by number (comma-separated), or 'all'.\n"
+                    "Then ask WHY the finding is acceptable (e.g., 'expected variation', "
+                    "'known data range', 'legitimate extreme values')."
+                ),
+                fields={
+                    "reason": FixSchemaField(
+                        type="string",
+                        required=False,
+                        description="Why the finding was accepted",
+                    ),
+                },
+            )
+        ]
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load statistics and semantic annotation for this column."""
+        if context.session is None or context.column_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_semantic, load_statistics
+
+        stats = load_statistics(context.session, context.column_id)
+        if stats is not None:
+            context.analysis_results["statistics"] = stats
+        sem = load_semantic(context.session, context.column_id)
+        if sem is not None:
+            context.analysis_results["semantic"] = sem
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect outlier rate entropy.
@@ -72,6 +116,12 @@ class OutlierRateDetector(EntropyDetector):
         suggest_winsorize = detector_config.get("suggest_winsorize_threshold", 0.2)
         suggest_exclude = detector_config.get("suggest_exclude_threshold", 0.5)
         cv_attenuation_threshold = detector_config.get("cv_attenuation_threshold", 2.0)
+        score_accepted = self.config.get("score_accepted") or detector_config.get(
+            "score_accepted", 0.2
+        )
+        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
+            "accepted_columns", []
+        )
         stats = context.get_analysis("statistics", {})
 
         # Extract outlier information
@@ -100,11 +150,20 @@ class OutlierRateDetector(EntropyDetector):
                 upper_fence = outlier_detection.get("iqr_upper_fence")
                 zscore_ratio = outlier_detection.get("zscore_outlier_ratio", 0.0)
         else:
-            # No outlier detection available - check for direct ratio
+            # No nested outlier_detection — check for direct ratio fields
             outlier_ratio = stats.get("iqr_outlier_ratio", 0.0)
+            if not outlier_ratio:
+                # Column was not assessed (e.g. non-numeric). Return empty
+                # to avoid diluting the dimension average with false zeros.
+                return []
             outlier_count = stats.get("iqr_outlier_count", 0)
             lower_fence = stats.get("iqr_lower_fence")
             upper_fence = stats.get("iqr_upper_fence")
+
+        # Use the worse of IQR and modified Z-score (MAD-based) outlier ratios.
+        # Both are percentages on the same scale; the modified Z-score is more
+        # robust for non-normal data (Iglewicz & Hoaglin 1993, Leys et al. 2013).
+        outlier_ratio = max(outlier_ratio, zscore_ratio or 0.0)
 
         # Calculate entropy using piecewise-linear mapping aligned with impact thresholds
         # 0% → 0.0, impact_minimal → score_at_minimal, impact_moderate → score_at_moderate,
@@ -202,18 +261,6 @@ class OutlierRateDetector(EntropyDetector):
             # High outliers - suggest review or removal
             resolution_options.append(
                 ResolutionOption(
-                    action="transform_exclude_outliers",
-                    parameters={
-                        "column": context.column_name,
-                        "method": "iqr",
-                        "multiplier": 1.5,
-                    },
-                    effort="low",
-                    description="Exclude IQR-based outliers from aggregations",
-                )
-            )
-            resolution_options.append(
-                ResolutionOption(
                     action="investigate_outliers",
                     parameters={
                         "column": context.column_name,
@@ -222,6 +269,26 @@ class OutlierRateDetector(EntropyDetector):
                     description="Manual review of outlier values for data quality issues",
                 )
             )
+
+        if score > 0:
+            # Accept finding: user reviewed, outliers are expected for this column
+            resolution_options.append(
+                ResolutionOption(
+                    action="accept_finding",
+                    parameters={
+                        "column": context.column_name,
+                        "detector_id": self.detector_id,
+                    },
+                    effort="low",
+                    description="Accept outlier findings as expected for this column",
+                )
+            )
+
+        # Apply acceptance floor if this column was previously accepted
+        target_key = f"{context.table_name}.{context.column_name}"
+        if target_key in accepted_columns:
+            score = score_accepted
+            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

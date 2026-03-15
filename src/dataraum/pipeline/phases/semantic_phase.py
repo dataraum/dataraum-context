@@ -13,8 +13,9 @@ unit detection, and reviewing low-confidence annotations.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.relationships.utils import load_relationship_candidates_for_semantic
 from dataraum.analysis.semantic.agent import SemanticAgent
@@ -22,11 +23,16 @@ from dataraum.analysis.semantic.column_agent import ColumnAnnotationAgent
 from dataraum.analysis.semantic.db_models import SemanticAnnotation
 from dataraum.analysis.semantic.processor import enrich_semantic
 from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -40,7 +46,7 @@ class SemanticPhase(BasePhase):
     Tier 2 (capable model): Table classification, relationship evaluation,
         cross-column unit detection, and annotation review/upgrade.
 
-    Requires: statistics, relationships, correlations phases.
+    Requires: statistics, relationships phases.
     """
 
     @property
@@ -53,19 +59,42 @@ class SemanticPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["relationships", "correlations"]
+        return ["relationships"]
 
     @property
-    def outputs(self) -> list[str]:
-        return ["annotations", "entities", "confirmed_relationships"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.SEMANTIC}
 
-    @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        return {"type_fidelity": 0.3, "join_path_determinism": 0.5}
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        from dataraum.analysis.relationships.db_models import Relationship
+        from dataraum.analysis.semantic.db_models import TableEntity
 
-    @property
-    def post_verification(self) -> list[str]:
-        return ["naming_clarity", "unit_declaration"]
+        count = 0
+        if column_ids:
+            count += exec_delete(
+                session,
+                delete(SemanticAnnotation).where(SemanticAnnotation.column_id.in_(column_ids)),
+            )
+        if table_ids:
+            count += exec_delete(
+                session, delete(TableEntity).where(TableEntity.table_id.in_(table_ids))
+            )
+            # Delete LLM-confirmed relationships created by the semantic phase
+            count += exec_delete(
+                session,
+                delete(Relationship).where(
+                    Relationship.detection_method == "llm",
+                    Relationship.from_table_id.in_(table_ids)
+                    | Relationship.to_table_id.in_(table_ids),
+                ),
+            )
+        return count
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -257,16 +286,102 @@ class SemanticPhase(BasePhase):
 
         enrichment = enrich_result.unwrap()
 
+        # Apply config overrides (e.g. set_timestamp_role fix)
+        _apply_semantic_overrides(ctx.session, ctx.config, table_ids)
+
+        annotations_count = len(enrichment.annotations)
+        entities_count = len(enrichment.entity_detections)
+        relationships_count = len(enrichment.relationships)
+
+        # Surface entity discoveries as preview lines
+        previews: list[str] = []
+        for ent in enrichment.entity_detections:
+            kind = "FACT" if ent.is_fact_table else "DIMENSION" if ent.is_dimension_table else ""
+            label = f"{ent.table_name}: {ent.entity_type}"
+            if kind:
+                label += f" ({kind})"
+            previews.append(label)
+        for r in enrichment.relationships:
+            previews.append(f"{r.from_table}.{r.from_column} \u2192 {r.to_table}.{r.to_column}")
+
         return PhaseResult.success(
             outputs={
-                "annotations": len(enrichment.annotations),
-                "entities": len(enrichment.entity_detections),
-                "confirmed_relationships": len(enrichment.relationships),
+                "annotations": annotations_count,
+                "entities": entities_count,
+                "confirmed_relationships": relationships_count,
                 "tables_analyzed": [t.table_name for t in typed_tables],
                 "tier1_annotations": column_annotations is not None,
             },
             records_processed=len(unannotated_columns),
-            records_created=len(enrichment.annotations)
-            + len(enrichment.entity_detections)
-            + len(enrichment.relationships),
+            records_created=annotations_count + entities_count + relationships_count,
+            warnings=previews,
+            summary=f"{annotations_count} annotations, {entities_count} entities, {relationships_count} relationships",
         )
+
+
+def _apply_semantic_overrides(
+    session: Session,
+    config: dict,  # type: ignore[type-arg]
+    table_ids: list[str],
+) -> None:
+    """Apply semantic overrides from config.
+
+    Reads all override sections under ``overrides`` in the semantic
+    phase config (``semantic_roles``, ``units``, ``business_meaning``).
+    Each section maps ``"table.column"`` to a dict of field values
+    that are patched onto the existing SemanticAnnotation.
+
+    The fix schemas upstream constrain which fields get written to the
+    config YAML, so we trust the field names here.
+    """
+    overrides = config.get("overrides", {})
+    if not isinstance(overrides, dict):
+        return
+
+    # Merge all override sections into a single col_ref -> fields dict.
+    merged: dict[str, dict[str, object]] = {}
+    for section in overrides.values():
+        if not isinstance(section, dict):
+            continue
+        for col_ref, values in section.items():
+            if not isinstance(values, dict):
+                continue
+            merged.setdefault(col_ref, {}).update(values)
+
+    if not merged:
+        return
+
+    # Build column lookup: "table.column" -> column_id
+    cols = session.execute(
+        select(Column, Table.table_name)
+        .join(Table, Column.table_id == Table.table_id)
+        .where(Column.table_id.in_(table_ids))
+    ).all()
+    col_lookup: dict[str, str] = {}
+    for col, tbl_name in cols:
+        col_lookup[f"{tbl_name}.{col.column_name}"] = col.column_id
+
+    for col_ref, field_values in merged.items():
+        col_id = col_lookup.get(col_ref)
+        if col_id is None:
+            logger.debug("semantic_override_skip", column=col_ref, reason="not found")
+            continue
+
+        annotation = session.execute(
+            select(SemanticAnnotation).where(SemanticAnnotation.column_id == col_id)
+        ).scalar_one_or_none()
+        if annotation is None:
+            logger.debug("semantic_override_skip", column=col_ref, reason="no annotation")
+            continue
+
+        changed = False
+        for field_name, value in field_values.items():
+            if hasattr(annotation, field_name) and getattr(annotation, field_name) != value:
+                setattr(annotation, field_name, value)
+                changed = True
+
+        if changed:
+            annotation.annotation_source = "config_override"
+            logger.info("semantic_override_applied", column=col_ref)
+
+    session.flush()

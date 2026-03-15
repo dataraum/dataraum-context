@@ -20,8 +20,8 @@ class TestCorrelationsPhase:
         phase = CorrelationsPhase()
         assert phase.name == "correlations"
         assert phase.description == "Within-table correlation analysis"
-        assert phase.dependencies == ["column_eligibility"]
-        assert phase.outputs == ["correlations", "derived_columns"]
+        assert phase.dependencies == ["enriched_views"]
+
 
     def test_skip_when_no_typed_tables(
         self, session: Session, duckdb_conn: duckdb.DuckDBPyConnection

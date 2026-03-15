@@ -29,6 +29,65 @@ from dataraum.storage import Column, Table
 logger = get_logger(__name__)
 
 
+def _resolve_pattern(
+    detected_pattern: str,
+    patterns_by_name: dict[str, Pattern],
+) -> Pattern | None:
+    """Resolve a detected pattern name to a Pattern object.
+
+    Handles combined pattern names (e.g. "us_date+eu_slash_date+dd_mon_yy")
+    produced by inference Strategy 1b. For combined names, builds a synthetic
+    Pattern with a COALESCE standardization_expr that tries each format.
+
+    Args:
+        detected_pattern: Pattern name, possibly containing '+' for combined.
+        patterns_by_name: Lookup of individual pattern objects.
+
+    Returns:
+        Pattern object, or None if not found.
+    """
+    # Simple case: single pattern name
+    if "+" not in detected_pattern:
+        return patterns_by_name.get(detected_pattern)
+
+    # Combined pattern: split and look up each constituent
+    names = detected_pattern.split("+")
+    parts: list[Pattern] = []
+    for name in names:
+        p = patterns_by_name.get(name)
+        if p is not None:
+            parts.append(p)
+
+    if not parts:
+        return None
+
+    # If only one resolved, just return it directly
+    if len(parts) == 1:
+        return parts[0]
+
+    # Build COALESCE(TRY_STRPTIME("{col}", fmt1), TRY_STRPTIME("{col}", fmt2), ...)
+    # Each part's standardization_expr is e.g. STRPTIME("{col}", '%m/%d/%Y')
+    # We replace STRPTIME → TRY_STRPTIME so mismatches return NULL not error
+    coalesce_parts = []
+    for p in parts:
+        if p.standardization_expr:
+            expr = p.standardization_expr.replace("STRPTIME(", "TRY_STRPTIME(")
+            coalesce_parts.append(expr)
+
+    if not coalesce_parts:
+        return parts[0]  # No standardization exprs, fallback to first
+
+    coalesce_expr = f"COALESCE({', '.join(coalesce_parts)})"
+
+    # Build synthetic Pattern combining all constituents
+    return Pattern(
+        name=detected_pattern,
+        pattern="",  # Not used for matching, only for SQL generation
+        inferred_type=parts[0].inferred_type,
+        standardization_expr=coalesce_expr,
+    )
+
+
 @dataclass
 class ColumnTypeSpec:
     """Type specification for a column during resolution."""
@@ -45,10 +104,13 @@ class ColumnTypeSpec:
 def _select_best_candidates(
     columns: list[Column],
     min_confidence: float,
+    table_name: str = "",
+    forced_types: dict[str, str] | None = None,
 ) -> list[ColumnTypeSpec]:
     """Select best type candidate per column.
 
     Priority:
+    0. Config-driven forced types (from set_column_type fix)
     1. TypeDecision (human override) if exists
     2. Highest confidence TypeCandidate >= threshold
     3. Fallback to VARCHAR
@@ -57,9 +119,28 @@ def _select_best_candidates(
     """
     pattern_config = load_pattern_config()
     patterns_by_name = {p.name: p for p in pattern_config.get_patterns()}
+    forced = forced_types or {}
     specs = []
 
     for col in sorted(columns, key=lambda c: c.column_position):
+        # Check config-driven forced types (from set_column_type fix)
+        # Value can be a string ("VARCHAR") or a dict ({"target_type": "VARCHAR"})
+        # depending on how the fix bridge wrote it.
+        forced_key = f"{table_name}.{col.column_name}"
+        if forced_key in forced:
+            raw_val = forced[forced_key]
+            forced_type = raw_val["target_type"] if isinstance(raw_val, dict) else raw_val
+            specs.append(
+                ColumnTypeSpec(
+                    column_id=col.column_id,
+                    column_name=col.column_name,
+                    data_type=DataType[forced_type],
+                    decision_source="override",
+                    decision_reason=f"Forced to {forced_type} via set_column_type fix",
+                )
+            )
+            continue
+
         # Check for human override (pre-existing TypeDecision)
         if col.type_decision:
             specs.append(
@@ -77,7 +158,11 @@ def _select_best_candidates(
         candidates = sorted(col.type_candidates, key=lambda c: c.confidence, reverse=True)
         if candidates and candidates[0].confidence >= min_confidence:
             best = candidates[0]
-            pattern = patterns_by_name.get(best.detected_pattern) if best.detected_pattern else None
+            pattern = (
+                _resolve_pattern(best.detected_pattern, patterns_by_name)
+                if best.detected_pattern
+                else None
+            )
             specs.append(
                 ColumnTypeSpec(
                     column_id=col.column_id,
@@ -155,6 +240,7 @@ def resolve_types(
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: Session,
     min_confidence: float,
+    forced_types: dict[str, str] | None = None,
 ) -> Result[TypeResolutionResult]:
     """Resolve types for a raw table using DuckDB SQL.
 
@@ -169,6 +255,8 @@ def resolve_types(
         duckdb_conn: DuckDB connection
         session: SQLAlchemy session
         min_confidence: Minimum confidence threshold for automatic type selection
+        forced_types: Optional dict of "table.column" -> type name overrides
+            from set_column_type fixes
 
     Returns:
         Result containing TypeResolutionResult with table names and row counts
@@ -198,7 +286,12 @@ def resolve_types(
     quarantine_table = f"quarantine_{base_name}"
 
     # Select best candidates
-    specs = _select_best_candidates(table.columns, min_confidence)
+    specs = _select_best_candidates(
+        table.columns,
+        min_confidence,
+        table_name=table.table_name,
+        forced_types=forced_types,
+    )
 
     # Persist TypeDecision records for columns that don't already have one
     # (columns with pre-existing TypeDecision are human overrides, don't overwrite).
@@ -302,9 +395,48 @@ def resolve_types(
     )
     session.add(quarantine_meta_col)
 
+    # Compute per-column quarantine metrics and update raw TypeCandidates
+    # BEFORE copying to typed columns, so copies include the fields.
+    column_results = []
+    for spec in specs:
+        col = f'"{spec.column_name}"'
+        target = spec.data_type.value
+
+        if spec.pattern and spec.pattern.standardization_expr:
+            expr = spec.pattern.standardization_expr.format(col=spec.column_name)
+            cast_expr = f"TRY_CAST({expr} AS {target})"
+        else:
+            cast_expr = f"TRY_CAST({col} AS {target})"
+
+        success_result = duckdb_conn.execute(
+            f'SELECT COUNT(*) FROM "{raw_table}" WHERE {cast_expr} IS NOT NULL OR {col} IS NULL'
+        ).fetchone()
+        success = success_result[0] if success_result else 0
+        failures = total_rows - success
+        q_rate = failures / total_rows if total_rows > 0 else 0.0
+
+        column_results.append(
+            ColumnCastResult(
+                column_id=spec.column_id,
+                column_ref=ColumnRef(table_name=table.table_name, column_name=spec.column_name),
+                source_type="VARCHAR",
+                target_type=spec.data_type,
+                success_count=success,
+                failure_count=failures,
+                success_rate=success / total_rows if total_rows > 0 else 1.0,
+            )
+        )
+
+        # Set quarantine metrics on raw TypeCandidate records
+        raw_col = raw_col_by_id[spec.column_id]
+        for tc in raw_col.type_candidates:
+            tc.quarantine_count = failures
+            tc.quarantine_rate = q_rate
+
     # Copy TypeDecision and TypeCandidate from raw columns to typed columns.
     # Raw columns keep originals (audit trail); typed columns get copies so
     # downstream consumers can query by typed column_id directly.
+    # Note: quarantine_count/rate are already set on raw TypeCandidates above.
     for raw_col in table.columns:
         target_col_id = typed_column_map.get(raw_col.column_name)
         if target_col_id is None:
@@ -339,38 +471,10 @@ def resolve_types(
                     pattern_match_rate=tc.pattern_match_rate,
                     detected_unit=tc.detected_unit,
                     unit_confidence=tc.unit_confidence,
+                    quarantine_count=tc.quarantine_count,
+                    quarantine_rate=tc.quarantine_rate,
                 )
             )
-
-    # Build column results
-    column_results = []
-    for spec in specs:
-        col = f'"{spec.column_name}"'
-        target = spec.data_type.value
-
-        if spec.pattern and spec.pattern.standardization_expr:
-            expr = spec.pattern.standardization_expr.format(col=spec.column_name)
-            cast_expr = f"TRY_CAST({expr} AS {target})"
-        else:
-            cast_expr = f"TRY_CAST({col} AS {target})"
-
-        success_result = duckdb_conn.execute(
-            f'SELECT COUNT(*) FROM "{raw_table}" WHERE {cast_expr} IS NOT NULL OR {col} IS NULL'
-        ).fetchone()
-        success = success_result[0] if success_result else 0
-        failures = total_rows - success
-
-        column_results.append(
-            ColumnCastResult(
-                column_id=spec.column_id,
-                column_ref=ColumnRef(table_name=table.table_name, column_name=spec.column_name),
-                source_type="VARCHAR",
-                target_type=spec.data_type,
-                success_count=success,
-                failure_count=failures,
-                success_rate=success / total_rows if total_rows > 0 else 1.0,
-            )
-        )
 
     logger.debug(
         "type_resolution_completed",

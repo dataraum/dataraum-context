@@ -115,7 +115,7 @@ Via MCP:
 
 Via CLI (contract can be evaluated during a pipeline run):
 ```bash
-dataraum run /path/to/data --gate-mode pause --contract aggregation_safe
+dataraum run /path/to/data --gate-mode fail --contract aggregation_safe
 ```
 
 ## Actions
@@ -139,43 +139,23 @@ Via MCP:
 > Show high priority actions for the orders table
 ```
 
+Via CLI — the `fix` command walks you through `document_*` actions interactively:
+```bash
+# Document domain knowledge (units, naming, business rules)
+dataraum fix ./pipeline_output
+
+# Document fixes and re-run the pipeline in one step
+dataraum fix --rerun ./pipeline_output
+```
+
+The `--rerun` flag re-runs semantic analysis + all downstream phases after you document fixes, and prints an entropy impact report showing score changes.
+
 ### Action Priority
 
 Actions are scored based on:
 - **Impact**: How many columns benefit, plus causal network impact
 - **Effort**: Low, medium, or high (estimated remediation work)
 - **Priority score**: `impact / effort_factor` — higher means better ROI
-
-### Fix Execution
-
-When an action is applied (at a gate or via MCP), the `FixExecutor` runs it through a verified flow:
-
-1. Take a **before snapshot** — run hard detectors on the target to measure current scores
-2. Execute the action (e.g., override a column type, declare a unit)
-3. Take an **after snapshot** — re-run hard detectors to measure improvement
-4. Create an immutable `Decision` record with before/after scores and evidence
-5. Persist a `DecisionRecord` to the database for audit
-6. Return a `FixResult` with `success`, `improved`, and score deltas
-
-The before/after `HardSnapshot` mechanism ensures every fix is measurably verified — not just "did it run" but "did it actually reduce entropy."
-
-Available seed actions:
-
-| Action | Category | What It Does | Hard-Verifiable? |
-|--------|----------|-------------|-----------------|
-| `override_type` | Transform | Change column type in TypeDecision | Yes |
-| `declare_unit` | Annotate | Write unit to TypeCandidate | No |
-| `add_business_name` | Annotate | Update SemanticAnnotation | No |
-| `declare_null_meaning` | Annotate | Document null semantics in business_description | No |
-| `confirm_relationship` | Annotate | Confirm FK relationship | Partial |
-| `create_filtered_view` | Transform | Create DuckDB view excluding problematic rows | Yes |
-
-Via MCP:
-```
-> Apply the override_type fix to orders.amount with target_type DECIMAL(10,2)
-```
-
-Every fix is recorded in the **decision ledger** — an append-only audit trail of who (user, auto_fix, mcp_agent) did what, when, and with what evidence.
 
 ## Viewing Entropy
 

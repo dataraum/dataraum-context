@@ -1,6 +1,6 @@
 # CLI Reference
 
-The `dataraum` command provides 3 commands for running and inspecting the metadata extraction pipeline.
+The `dataraum` command provides commands for running the metadata extraction pipeline, documenting domain knowledge, and querying your data.
 
 ## Installation
 
@@ -28,7 +28,7 @@ dataraum run SOURCE [OPTIONS]
 - `-n, --name TEXT` - Name for the data source (default: derived from path)
 - `-p, --phase TEXT` - Run only this phase and its dependencies
 - `-f, --force` - Force re-run of target phase, deleting previous results (requires `--phase`)
-- `-g, --gate-mode {skip|pause|fail|auto_fix}` - How to handle entropy gates (default: `skip` for non-TTY, `pause` for interactive)
+- `-g, --gate-mode {skip|fail}` - How to handle entropy gates (default: `skip`)
 - `--contract TEXT` - Target contract name for gate evaluation
 - `-q, --quiet` - Suppress progress output
 
@@ -44,14 +44,8 @@ dataraum run /path/to/file.csv --output ./my_output
 # Run only up to the statistics phase
 dataraum run /path/to/data --phase statistics
 
-# Interactive gate handling — pause at entropy violations
-dataraum run /path/to/data --gate-mode pause
-
-# Gate with contract evaluation
-dataraum run /path/to/data --gate-mode pause --contract aggregation_safe
-
-# Auto-fix mode for MCP-driven pipelines
-dataraum run /path/to/data --gate-mode auto_fix
+# Gate with contract evaluation (fail on violations)
+dataraum run /path/to/data --gate-mode fail --contract aggregation_safe
 ```
 
 ### Re-running a Single Phase
@@ -70,28 +64,94 @@ dataraum run /path/to/data --phase semantic -f
 - `--force` requires `--phase` — it only applies to the target phase, not its dependencies.
 - Only the target phase's output is deleted; dependency phases keep their results.
 
-### `status` - Show Pipeline Status
+### `fix` - Document Domain Knowledge
 
-Display information about a completed or in-progress pipeline run.
+Review data quality actions and document domain knowledge through an interactive agent. Fixes are stored in a durable ledger and used as context when re-running semantic analysis.
 
 ```bash
-dataraum status [OUTPUT_DIR]
+dataraum fix [OUTPUT_DIR] [OPTIONS]
 ```
 
 **Arguments:**
 - `OUTPUT_DIR` - Output directory containing pipeline databases (default: `./pipeline_output`)
 
-**Output includes:**
-- Source information (name, ID)
-- Table counts by layer (raw, typed, quarantine)
-- Total row and column counts
-- Phase execution history with status, duration, and timestamps
+**Options:**
+- `--rerun` - After documenting fixes, automatically re-run semantic + all downstream phases and show an entropy impact report
 
-**Example:**
+**Workflow:**
+
+1. Run the pipeline: `dataraum run /path/to/data`
+2. Document domain knowledge: `dataraum fix ./pipeline_output`
+3. The agent shows `document_*` actions (e.g. undeclared units, unclear naming) and asks targeted questions
+4. Your answers are interpreted and stored in the fix ledger
+5. With `--rerun`, semantic analysis and all downstream phases re-run automatically, incorporating your fixes
+
+**Examples:**
 
 ```bash
-dataraum status ./pipeline_output
+# Interactive fix session
+dataraum fix ./pipeline_output
+
+# Fix and immediately re-run the pipeline
+dataraum fix --rerun ./pipeline_output
 ```
+
+The `--rerun` flag handles the full re-run cycle: it snapshots entropy scores before cleaning, re-runs semantic + all downstream phases (enriched views, slicing, correlations, validation, graphs, entropy, etc.), and prints an entropy impact report showing which dimensions improved.
+
+**Stale detection:** Even without `--rerun`, the semantic phase automatically detects when fixes are newer than its last run and re-executes instead of skipping.
+
+### `tui` - Interactive Dashboard
+
+Open the Textual TUI for interactive exploration of pipeline results. Provides five screens: Home (overview), Entropy (dimension drill-down), Contracts (compliance), Actions (resolution actions), and Query (natural language).
+
+```bash
+dataraum tui [OUTPUT_DIR]
+```
+
+**Arguments:**
+- `OUTPUT_DIR` - Output directory containing pipeline databases (default: `./pipeline_output`)
+
+### `sources` - Manage Data Sources
+
+Subcommand group for discovering and registering data sources.
+
+```bash
+dataraum sources list [-o OUTPUT_DIR]
+dataraum sources add NAME PATH [-o OUTPUT_DIR]
+dataraum sources discover [PATH] [--no-recursive] [-o OUTPUT_DIR]
+dataraum sources remove NAME [--purge] [-o OUTPUT_DIR]
+```
+
+**Examples:**
+
+```bash
+# Scan for data files
+dataraum sources discover /path/to/data
+
+# Register a CSV file
+dataraum sources add sales /path/to/sales.csv
+
+# List registered sources
+dataraum sources list
+
+# Remove a source (keep analysis results)
+dataraum sources remove old_data
+```
+
+### `dev` - Developer Utilities
+
+Subcommand group for pipeline debugging and maintenance.
+
+```bash
+dataraum dev phases [--reset PHASE] [-o OUTPUT_DIR]
+dataraum dev inspect [OUTPUT_DIR] [--vertical VERTICAL]
+dataraum dev reset [OUTPUT_DIR] [--force]
+```
+
+- `dev phases` — List all pipeline phases and their dependencies
+- `dev phases --reset PHASE` — Reset a specific phase (delete its data and checkpoint)
+- `dev inspect` — Inspect graph definitions, filter coverage, and execution context
+- `dev reset` — Delete all database files from an output directory
 
 ### `query` - Natural Language Data Query
 

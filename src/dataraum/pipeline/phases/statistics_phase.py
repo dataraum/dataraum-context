@@ -12,15 +12,21 @@ Computes statistical profiles for typed tables:
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dataraum.analysis.statistics import profile_statistics
 from dataraum.analysis.statistics.db_models import StatisticalProfile
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @analysis_phase
@@ -44,16 +50,21 @@ class StatisticsPhase(BasePhase):
         return ["typing"]
 
     @property
-    def outputs(self) -> list[str]:
-        return ["statistical_profiles"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.STATISTICS}
 
-    @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        return {"type_fidelity": 0.5}
-
-    @property
-    def post_verification(self) -> list[str]:
-        return ["null_ratio", "outlier_rate"]
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        if not column_ids:
+            return 0
+        return exec_delete(
+            session, delete(StatisticalProfile).where(StatisticalProfile.column_id.in_(column_ids))
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -162,4 +173,5 @@ class StatisticsPhase(BasePhase):
             records_processed=total_columns_processed,
             records_created=total_profiles_created,
             warnings=warnings if warnings else None,
+            summary=f"{total_profiles_created} profiles across {len(profiled_tables)} tables",
         )

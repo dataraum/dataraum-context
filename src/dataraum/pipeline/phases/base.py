@@ -5,10 +5,20 @@ Provides common functionality for all pipeline phases.
 
 from __future__ import annotations
 
+import time
+import traceback
 from abc import ABC, abstractmethod
 from types import ModuleType
+from typing import TYPE_CHECKING
 
+from dataraum.core.logging import get_logger
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+logger = get_logger(__name__)
 
 
 class BasePhase(ABC):
@@ -19,7 +29,6 @@ class BasePhase(ABC):
     - name property
     - description property
     - dependencies property
-    - outputs property
     - _run method
     """
 
@@ -42,10 +51,43 @@ class BasePhase(ABC):
         ...
 
     @property
-    @abstractmethod
-    def outputs(self) -> list[str]:
-        """List of output keys this phase produces."""
-        ...
+    def produces_analyses(self) -> set[AnalysisKey]:
+        """Analysis keys this phase produces. Override in subclasses.
+
+        Used by the scheduler to determine which detectors can run at gates.
+        """
+        return set()
+
+    @property
+    def is_quality_gate(self) -> bool:
+        """Whether this phase is a quality gate. Default: False.
+
+        Quality gates trigger entropy measurement and contract assessment.
+        """
+        return False
+
+    @property
+    def duckdb_layers(self) -> list[str]:
+        """DuckDB layers this phase creates (for cleanup).
+
+        Phases that create DuckDB tables/views should override this
+        to declare the layers they own, so cleanup can drop them.
+        """
+        return []
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        """Delete this phase's output records for the given source.
+
+        Override in subclasses to define phase-specific cleanup logic.
+        Returns the number of records deleted.
+        """
+        return 0
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -56,35 +98,27 @@ class BasePhase(ABC):
         """
         return []
 
-    @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        """Hard entropy dimensions that must be below thresholds before this phase runs.
-
-        Returns a dict mapping sub_dimension names to maximum allowed scores.
-        E.g., {"type_fidelity": 0.5} means type_fidelity entropy must be <= 0.5.
-        Default: empty (no preconditions).
-        """
-        return {}
-
-    @property
-    def post_verification(self) -> list[str]:
-        """Hard detector sub_dimensions to re-measure after this phase completes.
-
-        Used to verify that this phase improved (or at least didn't worsen)
-        the specified entropy dimensions.
-        Default: empty (no post-verification).
-        """
-        return []
-
     def run(self, ctx: PhaseContext) -> PhaseResult:
         """Execute the phase.
 
-        Wraps _run with common error handling.
+        Wraps _run with wall-clock timing and error handling.
         """
+        start = time.monotonic()
         try:
-            return self._run(ctx)
+            result = self._run(ctx)
         except Exception as e:
-            return PhaseResult.failed(str(e))
+            elapsed = time.monotonic() - start
+            tb = traceback.format_exc()
+            logger.error(
+                "phase_failed",
+                phase=self.name,
+                error=str(e),
+                traceback=tb,
+            )
+            error_msg = f"{type(e).__name__}: {e}"
+            return PhaseResult.failed(error_msg, duration=elapsed)
+        result.duration_seconds = time.monotonic() - start
+        return result
 
     @abstractmethod
     def _run(self, ctx: PhaseContext) -> PhaseResult:

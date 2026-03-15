@@ -116,6 +116,7 @@ def _process_batch(
 def aggregate_slice_results(
     session: Session,
     slice_definition: SliceDefinition,
+    min_slice_rows: int = 20,
 ) -> Result[list[AggregatedColumnData]]:
     """Aggregate analysis results across slices for each column.
 
@@ -203,8 +204,9 @@ def aggregate_slice_results(
         # Find slice tables in database
         slice_tables = []
         for value in slice_values:
-            # Generate expected slice table name
-            # Note: naming convention matches SlicingAgent (without source table name)
+            # Generate expected slice table name (namespaced by source table)
+            safe_source = re.sub(r"[^a-zA-Z0-9]", "_", source_table.table_name)
+            safe_source = re.sub(r"_+", "_", safe_source).strip("_").lower()
             safe_column = re.sub(r"[^a-zA-Z0-9]", "_", effective_slice_col_name)
             safe_column = re.sub(r"_+", "_", safe_column).strip("_").lower()
             safe_value = re.sub(r"[^a-zA-Z0-9]", "_", str(value))
@@ -213,7 +215,7 @@ def aggregate_slice_results(
             if not safe_value:
                 safe_value = "unknown"
 
-            slice_table_name = f"slice_{safe_column}_{safe_value}"
+            slice_table_name = f"slice_{safe_source}_{safe_column}_{safe_value}"
 
             # Find in database
             slice_table_stmt = select(Table).where(
@@ -228,6 +230,27 @@ def aggregate_slice_results(
 
         if not slice_tables:
             return Result.fail("No slice tables found in database")
+
+        # Filter out slices with too few rows for reliable statistics.
+        # Small slices remain in SliceDefinition for BI context but are
+        # excluded from quality analysis where statistics would be unreliable.
+        if min_slice_rows > 0:
+            before = len(slice_tables)
+            slice_tables = [
+                (st, v) for st, v in slice_tables if (st.row_count or 0) >= min_slice_rows
+            ]
+            dropped = before - len(slice_tables)
+            if dropped > 0:
+                logger.info(
+                    "slice_rows_filter",
+                    table=source_table.table_name,
+                    slice_column=effective_slice_col_name,
+                    dropped=dropped,
+                    kept=len(slice_tables),
+                    threshold=min_slice_rows,
+                )
+            if not slice_tables:
+                return Result.fail(f"All slice tables below {min_slice_rows} row minimum")
 
         # Build aggregated data for each source column
         aggregated: list[AggregatedColumnData] = []
@@ -396,6 +419,7 @@ def summarize_quality(
     slice_definition: SliceDefinition,
     skip_existing: bool = True,
     session_factory: Callable[[], Any] | None = None,
+    min_slice_rows: int = 20,
 ) -> Result[QualitySummaryResult]:
     """Generate quality summaries for all columns across slices.
 
@@ -411,6 +435,7 @@ def summarize_quality(
         slice_definition: The slice definition to summarize
         skip_existing: Whether to skip columns with existing reports
         session_factory: Optional factory for creating sessions (enables parallel batches)
+        min_slice_rows: Minimum rows for a slice to be included in quality analysis
 
     Returns:
         Result containing QualitySummaryResult
@@ -439,7 +464,7 @@ def summarize_quality(
 
     try:
         # Aggregate results across slices
-        agg_result = aggregate_slice_results(session, slice_definition)
+        agg_result = aggregate_slice_results(session, slice_definition, min_slice_rows)
         if not agg_result.success:
             return Result.fail(agg_result.error or "Aggregation failed")
 

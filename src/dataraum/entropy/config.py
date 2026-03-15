@@ -116,6 +116,13 @@ def _parse_config(raw: dict[str, Any]) -> EntropyConfig:
     return config
 
 
+def clear_entropy_config_cache() -> None:
+    """Invalidate the cached entropy config so the next call reloads from disk."""
+    global _config_cache, _config_path_cache
+    _config_cache = None
+    _config_path_cache = None
+
+
 def get_entropy_config(
     config_path: Path | None = None,
     config_dict: dict[str, Any] | None = None,

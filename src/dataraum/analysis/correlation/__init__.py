@@ -2,27 +2,15 @@
 
 Analyzes relationships between columns:
 
-Within-table (pre-semantic):
-- Derived columns
-
-Cross-table (post-semantic):
-- Cross-table correlations between columns in different tables
-- Requires confirmed relationships from semantic agent
+Within-table:
+- Derived columns (same-table and cross-table via enriched views)
 
 Main entry points:
-- analyze_correlations: Within-table correlation analysis
-- analyze_cross_table_quality: Cross-table quality analysis on confirmed relationships
+- analyze_correlations: Within-table correlation analysis (typed table)
+- analyze_enriched_correlations: Enriched view analysis (same + cross-table)
 """
 
-# Cross-table functions (for direct access)
-from dataraum.analysis.correlation.cross_table import (
-    analyze_relationship_quality,
-)
-
 # DB Models
-from dataraum.analysis.correlation.db_models import (
-    CrossTableCorrelationRecord,
-)
 from dataraum.analysis.correlation.db_models import (
     DerivedColumn as DBDerivedColumn,
 )
@@ -30,45 +18,33 @@ from dataraum.analysis.correlation.db_models import (
 # Pydantic Models
 from dataraum.analysis.correlation.models import (
     CorrelationAnalysisResult,
-    CrossTableCorrelation,
-    CrossTableQualityResult,
-    DependencyGroup,
     DerivedColumn,
-    EnrichedRelationship,
     NumericCorrelation,
-    QualityIssue,
 )
 from dataraum.analysis.correlation.processor import (
     analyze_correlations,
-    analyze_cross_table_quality,
+    analyze_enriched_correlations,
 )
 
 # Within-table functions (for direct access)
 from dataraum.analysis.correlation.within_table import (
     compute_numeric_correlations,
     detect_derived_columns,
+    detect_enriched_derived_columns,
 )
 
 __all__ = [
     # Processors (main entry points)
     "analyze_correlations",
-    "analyze_cross_table_quality",
+    "analyze_enriched_correlations",
     # Within-table functions
     "compute_numeric_correlations",
     "detect_derived_columns",
-    # Cross-table functions
-    "analyze_relationship_quality",
+    "detect_enriched_derived_columns",
     # DB Models
-    "CrossTableCorrelationRecord",
     "DBDerivedColumn",
-    # Pydantic Models - Within-table
+    # Pydantic Models
     "NumericCorrelation",
     "DerivedColumn",
     "CorrelationAnalysisResult",
-    # Pydantic Models - Cross-table quality
-    "CrossTableQualityResult",
-    "CrossTableCorrelation",
-    "DependencyGroup",
-    "QualityIssue",
-    "EnrichedRelationship",
 ]

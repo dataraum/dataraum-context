@@ -8,7 +8,6 @@ This is the first phase in the pipeline. It:
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -55,10 +54,6 @@ class ImportPhase(BasePhase):
     @property
     def dependencies(self) -> list[str]:
         return []
-
-    @property
-    def outputs(self) -> list[str]:
-        return ["raw_tables"]
 
     def should_skip(self, ctx: PhaseContext) -> str | None:
         """Skip if raw tables already exist for this source."""
@@ -208,7 +203,6 @@ class ImportPhase(BasePhase):
         junk_columns: list[str],
     ) -> PhaseResult:
         """Load all CSV files from a directory."""
-        start_time = time.time()
         null_config = load_null_value_config()
         warnings: list[str] = []
 
@@ -244,15 +238,13 @@ class ImportPhase(BasePhase):
         if not table_ids:
             return PhaseResult.failed("No CSV files were successfully loaded")
 
-        # Note: commit handled by session_scope() in orchestrator
-        duration = time.time() - start_time
-
+        # Note: commit handled by session_scope() in scheduler
         return PhaseResult.success(
             outputs={"raw_tables": table_ids},
             records_processed=total_rows,
             records_created=len(table_ids),
-            duration=duration,
             warnings=warnings,
+            summary=f"{len(table_ids)} tables, {total_rows:,} rows",
         )
 
     def _load_single_file(
@@ -264,7 +256,6 @@ class ImportPhase(BasePhase):
         junk_columns: list[str],
     ) -> PhaseResult:
         """Load a single CSV file."""
-        start_time = time.time()
         null_config = load_null_value_config()
 
         # Use the loader's internal method with our source_id
@@ -281,16 +272,14 @@ class ImportPhase(BasePhase):
             return PhaseResult.failed(result.error or "Failed to load file")
 
         staged_table = result.unwrap()
-        duration = time.time() - start_time
 
-        # Note: commit handled by session_scope() in orchestrator
-
+        # Note: commit handled by session_scope() in scheduler
         return PhaseResult.success(
             outputs={"raw_tables": [str(staged_table.table_id)]},
             records_processed=staged_table.row_count,
             records_created=1,
-            duration=duration,
             warnings=result.warnings,
+            summary=f"1 table, {staged_table.row_count:,} rows",
         )
 
     def _load_parquet(
@@ -300,7 +289,6 @@ class ImportPhase(BasePhase):
         path: Path,
     ) -> PhaseResult:
         """Load Parquet file(s) using ParquetLoader."""
-        start_time = time.time()
         loader = ParquetLoader()
 
         if path.is_dir():
@@ -337,13 +325,12 @@ class ImportPhase(BasePhase):
             if not table_ids:
                 return PhaseResult.failed("No Parquet files were successfully loaded")
 
-            duration = time.time() - start_time
             return PhaseResult.success(
                 outputs={"raw_tables": table_ids},
                 records_processed=total_rows,
                 records_created=len(table_ids),
-                duration=duration,
                 warnings=warnings,
+                summary=f"{len(table_ids)} tables, {total_rows:,} rows",
             )
         else:
             result = loader._load_single_file(
@@ -357,14 +344,13 @@ class ImportPhase(BasePhase):
                 return PhaseResult.failed(result.error or "Failed to load Parquet file")
 
             staged_table = result.unwrap()
-            duration = time.time() - start_time
 
             return PhaseResult.success(
                 outputs={"raw_tables": [str(staged_table.table_id)]},
                 records_processed=staged_table.row_count,
                 records_created=1,
-                duration=duration,
                 warnings=result.warnings,
+                summary=f"1 table, {staged_table.row_count:,} rows",
             )
 
     def _check_column_limit(self, ctx: PhaseContext) -> str | None:
@@ -406,7 +392,6 @@ class ImportPhase(BasePhase):
         Returns:
             PhaseResult with all loaded table IDs
         """
-        start_time = time.time()
         warnings: list[str] = []
         table_ids: list[str] = []
         total_rows = 0
@@ -446,13 +431,12 @@ class ImportPhase(BasePhase):
         if not table_ids:
             return PhaseResult.failed("No tables were loaded from any registered source")
 
-        duration = time.time() - start_time
         return PhaseResult.success(
             outputs={"raw_tables": table_ids},
             records_processed=total_rows,
             records_created=len(table_ids),
-            duration=duration,
             warnings=warnings,
+            summary=f"{len(table_ids)} tables, {total_rows:,} rows",
         )
 
     def _load_file_source(
@@ -514,6 +498,7 @@ class ImportPhase(BasePhase):
             records_processed=total_rows,
             records_created=len(table_ids),
             warnings=warnings,
+            summary=f"{len(table_ids)} tables, {total_rows:,} rows",
         )
 
     def _load_single_file_with_prefix(
@@ -597,6 +582,7 @@ class ImportPhase(BasePhase):
             records_processed=staged_table.row_count,
             records_created=1,
             warnings=result.warnings,
+            summary=f"1 table, {staged_table.row_count:,} rows",
         )
 
     def _load_database_source(
@@ -702,4 +688,5 @@ class ImportPhase(BasePhase):
             records_processed=total_rows,
             records_created=len(table_ids),
             warnings=warnings,
+            summary=f"{len(table_ids)} tables, {total_rows:,} rows",
         )

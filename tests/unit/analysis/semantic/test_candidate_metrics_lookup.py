@@ -18,7 +18,6 @@ def _make_candidate(
     join_success_rate: float | None = None,
     orphan_count: int | None = None,
     cardinality_verified: bool | None = None,
-    topology_similarity: float | None = None,
 ) -> dict:
     jc: dict = {"column1": col1, "column2": col2}
     if cardinality is not None:
@@ -37,8 +36,6 @@ def _make_candidate(
         candidate["introduces_duplicates"] = introduces_duplicates
     if join_success_rate is not None:
         candidate["join_success_rate"] = join_success_rate
-    if topology_similarity is not None:
-        candidate["topology_similarity"] = topology_similarity
     return candidate
 
 

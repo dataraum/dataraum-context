@@ -24,12 +24,19 @@ from typing import Any
 
 import yaml
 
+# Module-level override set by set_config_root(). Takes priority over
+# env var and auto-detection when not None.
+_config_root_override: Path | None = None
 
+
+@lru_cache
 def _find_config_dir() -> Path:
     """Find the config directory by walking up from the package location.
 
     This is the ONE place that does path-relative-to-file resolution.
     Everything else goes through get_config_file().
+
+    Cached because it does filesystem traversal with a stable result.
     """
     # src/dataraum/core/config.py -> 4 levels up -> project root
     package_dir = Path(__file__).resolve().parent.parent.parent.parent
@@ -41,16 +48,39 @@ def _find_config_dir() -> Path:
     return Path("config")
 
 
-@lru_cache
 def _get_config_root() -> Path:
     """Get the config root directory.
 
-    Checks DATARAUM_CONFIG_PATH env var first, falls back to auto-detection.
+    Priority: set_config_root() override > DATARAUM_CONFIG_PATH env var > auto-detection.
     """
+    if _config_root_override is not None:
+        return _config_root_override
     env_path = os.environ.get("DATARAUM_CONFIG_PATH")
     if env_path:
         return Path(env_path)
     return _find_config_dir()
+
+
+def set_config_root(path: Path) -> None:
+    """Override the config root for the current process.
+
+    Used by setup_pipeline() to switch to per-source config after copying
+    the global config to {output_dir}/config/.
+
+    Args:
+        path: Absolute path to the config root directory.
+    """
+    global _config_root_override  # noqa: PLW0603
+    _config_root_override = path
+
+
+def reset_config_root() -> None:
+    """Clear the config root override, reverting to default resolution.
+
+    Primarily for testing.
+    """
+    global _config_root_override  # noqa: PLW0603
+    _config_root_override = None
 
 
 def get_config_file(relative_path: str) -> Path:
@@ -151,9 +181,9 @@ def load_phase_config(phase_name: str) -> dict[str, Any]:
 
 
 def load_pipeline_config() -> dict[str, Any]:
-    """Load pipeline orchestrator configuration.
+    """Load pipeline configuration.
 
-    Loads config/pipeline.yaml which contains only orchestrator settings
+    Loads config/pipeline.yaml which contains pipeline settings
     (active phases, max_parallel, retry config). Per-phase config lives in
     config/phases/<name>.yaml and is loaded via load_phase_config().
 

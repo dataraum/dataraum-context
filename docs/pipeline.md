@@ -14,11 +14,8 @@ dataraum run /path/to/file.csv --output ./my_output
 # Run up to a specific phase (includes dependencies)
 dataraum run /path/to/data --phase statistics
 
-# Run with interactive gate handling (pause at entropy violations)
-dataraum run /path/to/data --gate-mode pause
-
-# Run with a target contract
-dataraum run /path/to/data --gate-mode pause --contract aggregation_safe
+# Run with a target contract (fail on violations)
+dataraum run /path/to/data --gate-mode fail --contract aggregation_safe
 ```
 
 Via MCP (Claude Code, Claude Desktop):
@@ -43,11 +40,10 @@ ctx = Context("./pipeline_output")
 | 3 | **temporal** | Temporal pattern and trend analysis | — | — |
 | 4 | **statistics** | Statistical profiling of typed columns | — | type_fidelity ≤ 0.5 |
 | 5 | **column_eligibility** | Determine which columns qualify for analysis | — | — |
-| 6 | **correlations** | Within-table correlation analysis | — | — |
+| 6 | **correlations** | Derived column detection (same + cross-table via enriched views) | — | — |
 | 7 | **relationships** | Cross-table join detection (FK candidates) | — | — |
 | 8 | **statistical_quality** | Benford's Law compliance, outlier detection | — | — |
 | 9 | **semantic** | Business meaning, roles, entity types (dual-tier) | Yes | type_fidelity ≤ 0.3, join_path_determinism ≤ 0.5 |
-| — | ~~cross_table_quality~~ | Cross-table correlation analysis (de-configured) | — | — |
 | 10 | **enriched_views** | Fact + dimension joined views | — | — |
 | 11 | **slicing** | Identify slice dimensions for analysis | Yes | — |
 | 12 | **slicing_view** | Create enriched views projected to slice-relevant columns | — | — |
@@ -85,24 +81,16 @@ Gates are checkpoints between pipeline phases where **entropy preconditions** ar
 
 | Mode | Behavior |
 |------|----------|
-| `skip` (default for non-TTY) | Log warning, continue anyway |
-| `pause` (default for interactive TTY) | Block the phase, present violations and fix options interactively |
+| `skip` (default) | Log warning, continue anyway |
 | `fail` | Treat as pipeline failure |
-| `auto_fix` | Attempt automatic fix via FixExecutor, skip if fix fails |
 
-Gates use only **hard detectors** — machine-verifiable scores that can objectively gate the pipeline. Soft detectors (LLM-derived, like business meaning) inform actions but don't block phases. See [Entropy: Detector Trust](entropy.md#detector-trust) for the classification.
+Gates use **detector scores** — machine-verifiable metrics that can objectively gate the pipeline. All detectors calculate metrics from pre-computed metadata and can be used at gates.
 
-When a gate fires in `pause` mode, the user sees:
-- Which dimensions are blocking (e.g., `type_fidelity: 0.62 > threshold 0.5`)
-- Suggested fix actions with confidence levels
-- A skip option to continue anyway
-- A free-text escape hatch for LLM-powered questions about the gate
-
-Fix actions execute through the `FixExecutor`, which takes before/after hard snapshots to verify improvement. Every decision is recorded in an immutable **decision ledger** for audit and reproducibility.
+Interactive resolution of entropy issues happens **after** the pipeline completes, via `dataraum fix`, not during the pipeline run. This ensures full context (including LLM interpretation) is available for meaningful user interaction.
 
 ### Post-Verification
 
-After each phase completes, the orchestrator runs **post-verification** — re-measuring the hard detector scores for dimensions that the phase's output affects. For example:
+After each phase completes, the orchestrator runs **post-verification** — re-measuring detector scores for dimensions that the phase's output affects. For example:
 
 - After `typing`: measures `type_fidelity`
 - After `statistics`: measures `null_ratio`, `outlier_rate`
@@ -161,8 +149,8 @@ The pipeline writes to the output directory (default: `./pipeline_output`):
 ## Checking Pipeline Status
 
 ```bash
-# Show phase execution history, table counts, timing
-dataraum status ./pipeline_output
+# Interactive dashboard with phase history, tables, entropy
+dataraum tui ./pipeline_output
 ```
 
 ## Rerunning Phases

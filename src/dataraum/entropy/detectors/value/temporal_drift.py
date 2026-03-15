@@ -4,7 +4,8 @@ Measures uncertainty from distribution drift over time.
 Uses max Jensen-Shannon divergence from ColumnDriftSummary records.
 """
 
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -22,16 +23,30 @@ class TemporalDriftDetector(EntropyDetector):
     """
 
     detector_id = "temporal_drift"
-    layer = "value"
-    dimension = "temporal"
-    sub_dimension = "temporal_drift"
-    trust_level = DetectorTrust.HARD
-    required_analyses = ["drift_summaries", "semantic"]
+    layer = Layer.VALUE
+    dimension = Dimension.TEMPORAL
+    sub_dimension = SubDimension.TEMPORAL_DRIFT
+    required_analyses = [AnalysisKey.DRIFT_SUMMARIES, AnalysisKey.SEMANTIC]
     description = "Measures uncertainty from distribution drift over time"
 
     # Semantic roles where drift detection is meaningless —
     # IDs naturally differ across periods (JS divergence = ln(2) guaranteed).
     _SKIP_ROLES = frozenset({"key", "foreign_key", "identifier"})
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load drift summaries and semantic annotation for this column."""
+        if context.session is None or context.column_id is None or context.table_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_drift_summaries, load_semantic
+
+        drift = load_drift_summaries(
+            context.session, context.column_id, context.table_id, context.table_name
+        )
+        if drift is not None:
+            context.analysis_results["drift_summaries"] = drift
+        sem = load_semantic(context.session, context.column_id)
+        if sem is not None:
+            context.analysis_results["semantic"] = sem
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect temporal drift entropy for a column.
@@ -95,7 +110,7 @@ class TemporalDriftDetector(EntropyDetector):
             evidence_data["worst_period"] = de.get("worst_period")
             top_shifts = de.get("top_shifts", [])
             if top_shifts:
-                evidence_data["top_shifts"] = top_shifts[:3]
+                evidence_data["top_shifts"] = top_shifts
 
         evidence = [evidence_data]
 

@@ -1,23 +1,25 @@
 """Pipeline base types and protocols.
 
-Defines the Phase protocol and related data structures used by the orchestrator.
+Defines the Phase protocol and related data structures used by the pipeline scheduler.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
+
+from dataraum.entropy.dimensions import _StrValueMixin
 
 if TYPE_CHECKING:
     import duckdb
     from sqlalchemy.orm import Session
 
     from dataraum.core.connections import ConnectionManager
+    from dataraum.entropy.dimensions import AnalysisKey
 
 
-class PhaseStatus(str, Enum):
+class PhaseStatus(_StrValueMixin):
     """Status of a pipeline phase."""
 
     PENDING = "pending"
@@ -25,24 +27,19 @@ class PhaseStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
-    GATE_BLOCKED = "gate_blocked"
 
 
 @dataclass
 class PhaseContext:
     """Context passed to each phase.
 
-    Contains database connections, source information, and any
-    outputs from previous phases.
+    Contains database connections and source information.
     """
 
     session: Session
     duckdb_conn: duckdb.DuckDBPyConnection
     source_id: str
     table_ids: list[str] = field(default_factory=list)
-
-    # Outputs from previous phases (keyed by phase name)
-    previous_outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Configuration overrides
     config: dict[str, Any] = field(default_factory=dict)
@@ -54,10 +51,6 @@ class PhaseContext:
     # Connection manager for vector DB access (optional)
     manager: ConnectionManager | None = None
 
-    def get_output(self, phase_name: str, key: str, default: Any = None) -> Any:
-        """Get an output from a previous phase."""
-        return self.previous_outputs.get(phase_name, {}).get(key, default)
-
 
 @dataclass
 class PhaseResult:
@@ -68,6 +61,7 @@ class PhaseResult:
     duration_seconds: float = 0.0
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
+    summary: str = ""
 
     # Metrics for observability
     records_processed: int = 0
@@ -77,24 +71,49 @@ class PhaseResult:
     def success(
         cls,
         outputs: dict[str, Any] | None = None,
-        duration: float = 0.0,
         records_processed: int = 0,
         records_created: int = 0,
         warnings: list[str] | None = None,
+        summary: str = "",
     ) -> PhaseResult:
-        """Create a successful result."""
+        """Create a successful result.
+
+        Duration is set by BasePhase.run() — phases should not set it.
+        """
         return cls(
             status=PhaseStatus.COMPLETED,
             outputs=outputs or {},
-            duration_seconds=duration,
             records_processed=records_processed,
             records_created=records_created,
             warnings=warnings or [],
+            summary=summary,
         )
+
+    def detail(self) -> str:
+        """Render outputs as a human-readable multi-line string for verbose display."""
+        if not self.outputs:
+            return ""
+        lines: list[str] = []
+        for key, value in self.outputs.items():
+            if isinstance(value, list):
+                n = len(value)
+                preview = ", ".join(str(v) for v in value[:5])
+                if n > 5:
+                    preview += ", ..."
+                lines.append(f"  {key}: {n} items — {preview}")
+            elif isinstance(value, dict):
+                lines.append(f"  {key}: {value}")
+            else:
+                lines.append(f"  {key}: {value}")
+        return "\n".join(lines)
 
     @classmethod
     def failed(cls, error: str, duration: float = 0.0) -> PhaseResult:
-        """Create a failed result."""
+        """Create a failed result.
+
+        Duration is normally set by BasePhase.run(). The parameter exists
+        only for BasePhase.run() itself to pass elapsed time on exceptions.
+        """
         return cls(
             status=PhaseStatus.FAILED,
             error=error,
@@ -114,7 +133,7 @@ class Phase(Protocol):
     """Protocol for pipeline phases.
 
     Each phase is a callable that takes a PhaseContext and returns a PhaseResult.
-    Phases declare their dependencies and what they produce.
+    Phases declare their dependencies and can be skipped based on DB state.
     """
 
     @property
@@ -132,16 +151,11 @@ class Phase(Protocol):
         """List of phase names that must complete before this phase."""
         ...
 
-    @property
-    def outputs(self) -> list[str]:
-        """List of output keys this phase produces."""
-        ...
-
     def run(self, ctx: PhaseContext) -> PhaseResult:
         """Execute the phase.
 
         Args:
-            ctx: Phase context with connections and previous outputs
+            ctx: Phase context with connections and source information
 
         Returns:
             PhaseResult with status and outputs
@@ -149,13 +163,28 @@ class Phase(Protocol):
         ...
 
     @property
-    def entropy_preconditions(self) -> dict[str, float]:
-        """Hard entropy dimensions that must be below thresholds before this phase runs."""
+    def produces_analyses(self) -> set[AnalysisKey]:
+        """Analysis keys this phase produces (used for auto-derive)."""
         ...
 
     @property
-    def post_verification(self) -> list[str]:
-        """Hard detector sub_dimensions to re-measure after this phase completes."""
+    def is_quality_gate(self) -> bool:
+        """Whether this phase is a quality gate for entropy assessment."""
+        ...
+
+    @property
+    def duckdb_layers(self) -> list[str]:
+        """DuckDB layers this phase creates (for cleanup)."""
+        ...
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        """Delete this phase's output records for the given source."""
         ...
 
     def should_skip(self, ctx: PhaseContext) -> str | None:

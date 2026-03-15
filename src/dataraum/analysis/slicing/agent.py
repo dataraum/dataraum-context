@@ -94,8 +94,7 @@ class SlicingAgent(LLMFeature):
             "num_tables": len(tables),
             "table_names": ", ".join(t["table_name"] for t in tables),
             "enriched_columns_json": json.dumps(context_data.get("enriched_columns", []), indent=2),
-            "max_cardinality": constraints.get("max_cardinality", 15),
-            "max_recommendations": constraints.get("max_recommendations", 4),
+            "max_recommendations": constraints.get("max_recommendations", 6),
         }
 
         # Render prompt with system/user split
@@ -197,7 +196,9 @@ class SlicingAgent(LLMFeature):
             # Enriched views include dimension columns from joined tables
             enriched_view = table_info.get("enriched_duckdb_path")
             duckdb_table = enriched_view or table_info.get("duckdb_path", f"typed_{table_name}")
-            sql_template = self._build_sql_template(duckdb_table, column_name, distinct_values)
+            sql_template = self._build_sql_template(
+                duckdb_table, column_name, distinct_values, source_table_name=table_name
+            )
 
             recommendation = SliceRecommendation(
                 table_id=table_info.get("table_id", ""),
@@ -215,10 +216,11 @@ class SlicingAgent(LLMFeature):
             recommendations.append(recommendation)
 
             # Generate individual slice SQL queries
+            safe_source = self._sanitize_for_table_name(table_name)
             for value in distinct_values:
                 safe_value = self._sanitize_for_table_name(str(value))
                 safe_column = self._sanitize_for_table_name(column_name)
-                slice_table_name = f"slice_{safe_column}_{safe_value}"
+                slice_table_name = f"slice_{safe_source}_{safe_column}_{safe_value}"
 
                 sql_query = self._build_slice_sql(
                     duckdb_table, column_name, value, slice_table_name
@@ -248,13 +250,16 @@ class SlicingAgent(LLMFeature):
         table_name: str,
         column_name: str,
         distinct_values: list[str],
+        *,
+        source_table_name: str,
     ) -> str:
         """Build SQL template for creating all slices.
 
         Args:
-            table_name: Source table name
-            column_name: Column to slice on
-            distinct_values: List of values to create slices for
+            table_name: Source table/view name (e.g. enriched view).
+            column_name: Column to slice on.
+            distinct_values: List of values to create slices for.
+            source_table_name: Fact table name used for namespacing.
 
         Returns:
             SQL template string
@@ -263,10 +268,11 @@ class SlicingAgent(LLMFeature):
         lines.append(f"-- Source table: {table_name}")
         lines.append("")
 
+        safe_source = self._sanitize_for_table_name(source_table_name)
         for value in distinct_values:
             safe_value = self._sanitize_for_table_name(str(value))
             safe_column = self._sanitize_for_table_name(column_name)
-            slice_table = f"slice_{safe_column}_{safe_value}"
+            slice_table = f"slice_{safe_source}_{safe_column}_{safe_value}"
 
             # Use proper quoting for column names with spaces
             quoted_column = f'"{column_name}"'

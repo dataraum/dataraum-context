@@ -159,62 +159,51 @@ def detect_outliers_iqr(
         table_name = table.duckdb_path
         col_name = column.column_name
 
-        # Calculate quartiles using DuckDB
-        query = f"""
-            WITH quartiles AS (
-                SELECT
-                    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY val) as q1,
-                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY val) as q3
-                FROM (
-                    SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
-                    FROM {table_name}
-                ) t
-                WHERE val IS NOT NULL
-            ),
-            bounds AS (
-                SELECT
-                    q1,
-                    q3,
-                    q3 - q1 as iqr,
-                    q1 - 1.5 * (q3 - q1) as lower_fence,
-                    q3 + 1.5 * (q3 - q1) as upper_fence
-                FROM quartiles
-            )
+        # Step 1: Compute quartiles and total count
+        stats_query = f"""
             SELECT
-                lower_fence,
-                upper_fence,
-                (SELECT COUNT(*) FROM (
-                    SELECT TRY_CAST("{col_name}" AS DOUBLE) as val FROM {table_name}
-                ) t WHERE val IS NOT NULL) as total_count,
-                (SELECT COUNT(*) FROM (
-                    SELECT TRY_CAST("{col_name}" AS DOUBLE) as val FROM {table_name}
-                ) t
-                CROSS JOIN bounds
-                WHERE val IS NOT NULL AND (val < lower_fence OR val > upper_fence)) as outlier_count
-            FROM bounds
+                CAST(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY val) AS DOUBLE) as q1,
+                CAST(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY val) AS DOUBLE) as q3,
+                COUNT(*) as total_count
+            FROM (
+                SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
+                FROM {table_name}
+            ) t
+            WHERE val IS NOT NULL
         """
 
-        result_row = duckdb_conn.execute(query).fetchone()
+        stats_row = duckdb_conn.execute(stats_query).fetchone()
 
-        if not result_row or result_row[2] == 0:
+        if not stats_row or stats_row[2] == 0:
             return Result.ok(None)
 
-        lower_fence, upper_fence, total_count, outlier_count = result_row
+        q1, q3, total_count = float(stats_row[0]), float(stats_row[1]), int(stats_row[2])
+        iqr = q3 - q1
+        lower_fence = q1 - 1.5 * iqr
+        upper_fence = q3 + 1.5 * iqr
+
+        # Step 2: Count outliers using literal fence values (avoids DuckDB DECIMAL overflow)
+        outlier_query = f"""
+            SELECT COUNT(*) FROM (
+                SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
+                FROM {table_name}
+            ) t
+            WHERE val IS NOT NULL
+            AND (val < {lower_fence} OR val > {upper_fence})
+        """
+
+        outlier_row = duckdb_conn.execute(outlier_query).fetchone()
+        outlier_count = int(outlier_row[0]) if outlier_row else 0
         outlier_ratio = outlier_count / total_count if total_count > 0 else 0.0
 
-        # Get sample outliers
+        # Step 3: Get sample outliers
         sample_query = f"""
-            WITH bounds AS (
-                SELECT
-                    {lower_fence} as lower_fence,
-                    {upper_fence} as upper_fence
-            )
             SELECT TRY_CAST("{col_name}" AS DOUBLE) as val
             FROM {table_name}
-            CROSS JOIN bounds
             WHERE TRY_CAST("{col_name}" AS DOUBLE) IS NOT NULL
-            AND (TRY_CAST("{col_name}" AS DOUBLE) < lower_fence
-                 OR TRY_CAST("{col_name}" AS DOUBLE) > upper_fence)
+            AND (TRY_CAST("{col_name}" AS DOUBLE) < {lower_fence}
+                 OR TRY_CAST("{col_name}" AS DOUBLE) > {upper_fence})
+            ORDER BY ABS(TRY_CAST("{col_name}" AS DOUBLE) - {(lower_fence + upper_fence) / 2.0}) DESC
             LIMIT 10
         """
 
@@ -225,10 +214,10 @@ def detect_outliers_iqr(
 
         result = OutlierDetection(
             # IQR Method
-            iqr_lower_fence=float(lower_fence),
-            iqr_upper_fence=float(upper_fence),
-            iqr_outlier_count=int(outlier_count),
-            iqr_outlier_ratio=float(outlier_ratio),
+            iqr_lower_fence=lower_fence,
+            iqr_upper_fence=upper_fence,
+            iqr_outlier_count=outlier_count,
+            iqr_outlier_ratio=outlier_ratio,
             # Sample outliers
             outlier_samples=outlier_samples if outlier_samples else [],
         )
@@ -342,6 +331,7 @@ def _assess_column_quality_parallel(
     column_id: str,
     column_name: str,
     column_resolved_type: str,
+    skip_outliers: bool = False,
 ) -> tuple[str, str, BenfordAnalysis | None, OutlierDetection | None] | None:
     """Assess statistical quality for a single column in a worker thread.
 
@@ -367,22 +357,24 @@ def _assess_column_quality_parallel(
 
     cursor = duckdb_conn.cursor()
     try:
-        # Run Benford's Law test
+        # Run Benford's Law test (always — independent of outlier exclusion)
         benford_result = check_benford_law(table, column, cursor)  # type: ignore[arg-type]
         benford_analysis = benford_result.value if benford_result.success else None
 
-        # Run IQR outlier detection
-        iqr_result = detect_outliers_iqr(table, column, cursor)  # type: ignore[arg-type]
-        outlier_detection = iqr_result.value if iqr_result.success else None
+        outlier_detection: OutlierDetection | None = None
+        if not skip_outliers:
+            # Run IQR outlier detection
+            iqr_result = detect_outliers_iqr(table, column, cursor)  # type: ignore[arg-type]
+            outlier_detection = iqr_result.value if iqr_result.success else None
 
-        # Run Modified Z-Score outlier detection and merge into OutlierDetection
-        zscore_data = detect_outliers_zscore(table, column, cursor)  # type: ignore[arg-type]
-        if zscore_data and outlier_detection:
-            zscore_count, zscore_ratio, zscore_samples = zscore_data
-            outlier_detection.zscore_outlier_count = zscore_count
-            outlier_detection.zscore_outlier_ratio = zscore_ratio
-            if zscore_samples:
-                outlier_detection.outlier_samples.extend(zscore_samples)
+            # Run Modified Z-Score outlier detection and merge into OutlierDetection
+            zscore_data = detect_outliers_zscore(table, column, cursor)  # type: ignore[arg-type]
+            if zscore_data and outlier_detection:
+                zscore_count, zscore_ratio, zscore_samples = zscore_data
+                outlier_detection.zscore_outlier_count = zscore_count
+                outlier_detection.zscore_outlier_ratio = zscore_ratio
+                if zscore_samples:
+                    outlier_detection.outlier_samples.extend(zscore_samples)
 
         return (column_id, column_name, benford_analysis, outlier_detection)
     except Exception as e:
@@ -397,6 +389,7 @@ def assess_statistical_quality(
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: Session,
     max_workers: int = 4,
+    exclude_outlier_columns: set[str] | None = None,
 ) -> Result[list[StatisticalQualityResult]]:
     """Assess statistical quality for all numeric columns in a table.
 
@@ -414,6 +407,8 @@ def assess_statistical_quality(
         duckdb_conn: DuckDB connection
         session: SQLAlchemy session
         max_workers: Maximum parallel workers
+        exclude_outlier_columns: Columns to skip for outlier detection
+            (format: "table.column"). Benford analysis still runs.
 
     Returns:
         Result containing list of StatisticalQualityResult objects
@@ -471,6 +466,8 @@ def assess_statistical_quality(
         results: list[StatisticalQualityResult] = []
         computed_at = datetime.now(UTC)
 
+        _exclude = exclude_outlier_columns or set()
+
         # Use parallel processing with cursors from shared connection
         # DuckDB cursors are thread-safe for read operations
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -483,6 +480,7 @@ def assess_statistical_quality(
                     column.column_id,
                     column.column_name,
                     column.resolved_type,  # type: ignore[arg-type]  # filtered to numeric above
+                    f"{table.table_name}.{column.column_name}" in _exclude,
                 )
                 for column in numeric_columns
             ]

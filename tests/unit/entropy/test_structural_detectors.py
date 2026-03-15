@@ -77,7 +77,7 @@ class TestTypeFidelityDetector:
 
         # Should have override_type and quarantine_values options
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_type_override" in actions
+        assert "add_type_pattern" in actions
         assert "transform_quarantine_values" in actions
 
     def test_evidence_includes_failure_samples(self, detector: TypeFidelityDetector):
@@ -148,7 +148,7 @@ class TestJoinPathDeterminismDetector:
         assert results[0].evidence[0]["path_status"] == "orphan"
         # Should suggest declaring relationship
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_relationship" in actions
+        assert "confirm_relationship" in actions
 
     def test_star_schema_deterministic(self, detector: JoinPathDeterminismDetector):
         """Test LOW entropy for star schema (multiple paths to DIFFERENT tables)."""
@@ -196,7 +196,7 @@ class TestJoinPathDeterminismDetector:
         assert "customers" in results[0].evidence[0]["ambiguous_tables"]
         # Should suggest preferred path
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_join_path" in actions
+        assert "resolve_join_ambiguity" in actions
 
     def test_mixed_deterministic_and_ambiguous(self, detector: JoinPathDeterminismDetector):
         """Test proportional entropy when some tables have multiple paths."""
@@ -323,9 +323,9 @@ class TestRelationshipEntropyDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # RI entropy from left_referential_integrity: 1.0 - 95/100 = 0.05
+        # RI entropy from left_referential_integrity: sqrt(1.0 - 95/100) = sqrt(0.05) ≈ 0.224
         ri_entropy = results[0].evidence[0]["ri_entropy"]
-        assert ri_entropy == pytest.approx(0.05, abs=0.01)
+        assert ri_entropy == pytest.approx(0.224, abs=0.01)
 
     def test_orphan_with_total_uses_ratio(self, detector: RelationshipEntropyDetector):
         """Test orphan count with total_count uses ratio-based formula."""
@@ -355,9 +355,9 @@ class TestRelationshipEntropyDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # Ratio-based: 50/1000 = 0.05
+        # Ratio-based: sqrt(50/1000) = sqrt(0.05) ≈ 0.224
         ri_entropy = results[0].evidence[0]["ri_entropy"]
-        assert ri_entropy == pytest.approx(0.05, abs=0.01)
+        assert ri_entropy == pytest.approx(0.224, abs=0.01)
 
     def test_orphan_without_total_uses_count_formula(self, detector: RelationshipEntropyDetector):
         """Test orphan count without total falls back to count-based formula."""
@@ -386,9 +386,9 @@ class TestRelationshipEntropyDetector:
         results = detector.detect(context)
 
         assert len(results) == 1
-        # Count-based fallback: 0.3 + 50/1000 = 0.35
+        # Count-based fallback: sqrt(0.3 + 50/1000) = sqrt(0.35) ≈ 0.592
         ri_entropy = results[0].evidence[0]["ri_entropy"]
-        assert ri_entropy == pytest.approx(0.35, abs=0.01)
+        assert ri_entropy == pytest.approx(0.592, abs=0.01)
 
     def test_no_relationships_empty(self, detector: RelationshipEntropyDetector):
         """Test empty result when no relationships exist."""

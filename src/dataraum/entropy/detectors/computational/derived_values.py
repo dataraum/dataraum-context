@@ -7,7 +7,8 @@ Low match rate indicates the detected formula may not be correct.
 from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
@@ -24,12 +25,21 @@ class DerivedValueDetector(EntropyDetector):
     """
 
     detector_id = "derived_value"
-    layer = "computational"
-    dimension = "derived_values"
-    sub_dimension = "formula_match"
-    trust_level = DetectorTrust.HARD
-    required_analyses = ["correlation"]
+    layer = Layer.COMPUTATIONAL
+    dimension = Dimension.DERIVED_VALUES
+    sub_dimension = SubDimension.FORMULA_MATCH
+    required_analyses = [AnalysisKey.CORRELATION]
     description = "Measures reliability of detected derived column formulas"
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load correlation (derived column) data for this column."""
+        if context.session is None or context.column_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_correlation
+
+        result = load_correlation(context.session, context.column_id, context.column_name)
+        if result is not None:
+            context.analysis_results["correlation"] = result
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect derived value entropy.

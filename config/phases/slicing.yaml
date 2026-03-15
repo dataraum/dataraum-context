@@ -1,6 +1,4 @@
 # Slicing settings
-# Maximum distinct values for a column to be considered for slicing
-max_cardinality: 10
 
-# Maximum number of slice dimension recommendations per table
+# Maximum number of slice dimension recommendations across all tables
 max_recommendations: 6

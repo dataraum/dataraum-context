@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -64,10 +64,6 @@ class GeneratedCode:
     llm_model: str
     prompt_hash: str
     generated_at: datetime
-
-    # Validation
-    is_validated: bool = False
-    validation_errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -255,6 +251,14 @@ class GraphAgent(LLMFeature):
         # Execute the generated SQL
         exec_result = self._execute_sql(generated_code, context, graph, resolved_params)
         if not exec_result.success or not exec_result.value:
+            # Mark cached snippets as failed so they get skipped next time
+            if cached_snippets:
+                from dataraum.query.snippet_library import SnippetLibrary
+
+                failed_ids = [
+                    s["snippet_id"] for s in cached_snippets.values() if s.get("snippet_id")
+                ]
+                SnippetLibrary(session).record_failure(failed_ids)
             return Result.fail(exec_result.error or "SQL execution failed")
 
         execution = exec_result.value
@@ -320,7 +324,6 @@ class GraphAgent(LLMFeature):
             llm_model="cached",
             prompt_hash="snippets",
             generated_at=datetime.now(UTC),
-            is_validated=True,  # Snippets are pre-validated
         )
 
     def _generate_sql(
@@ -443,7 +446,7 @@ class GraphAgent(LLMFeature):
                     response_data = json.loads(response.content)
                     output = GraphSQLGenerationOutput.model_validate(response_data)
                 except Exception:
-                    return Result.fail(f"LLM did not use tool. Response: {response.content[:200]}")
+                    return Result.fail(f"LLM did not use tool. Response: {response.content[:500]}")
             else:
                 return Result.fail("LLM did not use the generate_sql tool")
         else:
@@ -478,17 +481,6 @@ class GraphAgent(LLMFeature):
             prompt_hash=prompt_hash,
             generated_at=datetime.now(UTC),
         )
-
-        # Validate generated SQL
-        validation_result = self._validate_sql(generated_code, context)
-        generated_code.is_validated = validation_result.success
-        if not validation_result.success:
-            generated_code.validation_errors = [validation_result.error or "Unknown"]
-            logger.warning(
-                "sql_validation_failed",
-                graph_id=graph.graph_id,
-                error=validation_result.error,
-            )
 
         return Result.ok(generated_code)
 
@@ -741,8 +733,8 @@ class GraphAgent(LLMFeature):
     ) -> dict[str, Any]:
         """Build multi-table schema information from rich context and DuckDB.
 
-        Iterates over all tables in the execution context and enriched views,
-        querying DuckDB for column types and sample values.
+        When enriched views exist, only includes those (they are pre-joined
+        supersets of typed tables). Falls back to typed tables otherwise.
 
         Returns:
             Dict with 'tables' list, each containing name, columns (with
@@ -751,18 +743,19 @@ class GraphAgent(LLMFeature):
         tables: list[dict[str, Any]] = []
 
         if context.rich_context is not None:
-            # Typed tables from rich context
-            for table_ctx in context.rich_context.tables:
-                duckdb_name = table_ctx.duckdb_name or table_ctx.table_name
-                table_info = self._describe_table(context.duckdb_conn, duckdb_name)
-                if table_info:
-                    tables.append(table_info)
-
-            # Enriched views (pre-joined fact + dimension)
-            for ev in context.rich_context.enriched_views:
-                table_info = self._describe_table(context.duckdb_conn, ev.view_name)
-                if table_info:
-                    tables.append(table_info)
+            if context.rich_context.enriched_views:
+                # Prefer enriched views — pre-joined with dimension columns
+                for ev in context.rich_context.enriched_views:
+                    table_info = self._describe_table(context.duckdb_conn, ev.view_name)
+                    if table_info:
+                        tables.append(table_info)
+            else:
+                # Fallback: typed tables when no enriched views exist
+                for table_ctx in context.rich_context.tables:
+                    duckdb_name = table_ctx.duckdb_name or table_ctx.table_name
+                    table_info = self._describe_table(context.duckdb_conn, duckdb_name)
+                    if table_info:
+                        tables.append(table_info)
 
         return {"tables": tables}
 
@@ -865,17 +858,6 @@ class GraphAgent(LLMFeature):
             }
 
         return yaml.dump(graph_dict, default_flow_style=False, allow_unicode=True)
-
-    def _validate_sql(
-        self, generated_code: GeneratedCode, context: ExecutionContext
-    ) -> Result[bool]:
-        """Validate generated SQL syntax and column references."""
-        # Try to explain the SQL (validates syntax without executing)
-        try:
-            context.duckdb_conn.execute(f"EXPLAIN {generated_code.final_sql}")
-            return Result.ok(True)
-        except Exception as e:
-            return Result.fail(f"SQL validation failed: {e}")
 
     def _repair_sql(
         self,

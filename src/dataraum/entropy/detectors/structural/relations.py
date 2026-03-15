@@ -9,8 +9,10 @@ from collections import defaultdict
 from typing import Any
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class JoinPathDeterminismDetector(EntropyDetector):
@@ -27,12 +29,58 @@ class JoinPathDeterminismDetector(EntropyDetector):
     """
 
     detector_id = "join_path_determinism"
-    layer = "structural"
-    trust_level = DetectorTrust.HARD
-    dimension = "relations"
-    sub_dimension = "join_path_determinism"
-    required_analyses = ["relationships"]
+    layer = Layer.STRUCTURAL
+    dimension = Dimension.RELATIONS
+    sub_dimension = SubDimension.JOIN_PATH_DETERMINISM
+    required_analyses = [AnalysisKey.RELATIONSHIPS]
     description = "Measures ambiguity in join paths (not just connectivity)"
+
+    @property
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schema for resolving join ambiguity."""
+        return [
+            FixSchema(
+                action="resolve_join_ambiguity",
+                target="config",
+                description="Set preferred join path for ambiguous table connections",
+                config_path="entropy/thresholds.yaml",
+                key_path=["detectors", "join_path", "preferred_joins"],
+                operation="merge",
+                requires_rerun="quality_review",
+                key_template="{table}->{target_table}",
+                guidance=(
+                    "Resolves ambiguity when multiple join paths exist between tables. "
+                    "Ask which join path is the correct one for analytics queries."
+                ),
+                fields={
+                    "table": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description="Source table with ambiguous paths",
+                    ),
+                    "target_table": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description="Target table",
+                    ),
+                    "preferred_column": FixSchemaField(
+                        type="string",
+                        required=True,
+                        description="Column to use for the join",
+                    ),
+                },
+            )
+        ]
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load relationships for this column."""
+        if context.session is None or context.column_id is None or context.table_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_relationships
+
+        result = load_relationships(context.session, context.column_id, context.table_id)
+        if result is not None:
+            context.analysis_results["relationships"] = result
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect join path determinism entropy.
@@ -86,6 +134,18 @@ class JoinPathDeterminismDetector(EntropyDetector):
         total_connections = len(paths_to_table)  # Number of distinct tables connected
         ambiguous_tables = [t for t, paths in paths_to_table.items() if len(paths) > 1]
 
+        # Filter out tables with a declared preferred join (same pattern as accepted_columns)
+        preferred_joins: dict[str, object] = detector_config.get("preferred_joins", {})
+        if preferred_joins and ambiguous_tables:
+            resolved = set()
+            for target in ambiguous_tables:
+                fwd = f"{context.table_name}->{target}"
+                rev = f"{target}->{context.table_name}"
+                if fwd in preferred_joins or rev in preferred_joins:
+                    resolved.add(target)
+            if resolved:
+                ambiguous_tables = [t for t in ambiguous_tables if t not in resolved]
+
         # Determine score based on ambiguity, not connectivity
         if total_connections == 0:
             # No relationships - orphan
@@ -118,7 +178,7 @@ class JoinPathDeterminismDetector(EntropyDetector):
         if path_status == "orphan":
             resolution_options.append(
                 ResolutionOption(
-                    action="document_relationship",
+                    action="confirm_relationship",
                     parameters={"table": context.table_name, "type": "foreign_key"},
                     effort="medium",
                     description="Declare a relationship to connect this table to the schema",
@@ -127,7 +187,7 @@ class JoinPathDeterminismDetector(EntropyDetector):
         elif path_status == "ambiguous":
             resolution_options.append(
                 ResolutionOption(
-                    action="document_join_path",
+                    action="resolve_join_ambiguity",
                     parameters={
                         "table": context.table_name,
                         "ambiguous_targets": ambiguous_tables,

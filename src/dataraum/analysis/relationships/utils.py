@@ -33,7 +33,6 @@ def load_relationship_candidates_for_semantic(
             {
                 "table1": "...",
                 "table2": "...",
-                "topology_similarity": 0.8,
                 "join_success_rate": 95.0,
                 "introduces_duplicates": False,
                 "join_columns": [
@@ -104,7 +103,6 @@ def load_relationship_candidates_for_semantic(
         # Get relationship-level metrics from first relationship's evidence
         # (these are the same for all relationships in the group)
         first_evidence = rels[0].evidence or {}
-        topology_similarity = first_evidence.get("topology_similarity", 0.0)
         join_success_rate = first_evidence.get("join_success_rate")
         introduces_duplicates = first_evidence.get("introduces_duplicates")
 
@@ -137,7 +135,6 @@ def load_relationship_candidates_for_semantic(
         candidate = {
             "table1": table1,
             "table2": table2,
-            "topology_similarity": topology_similarity,
             "join_columns": join_columns,
         }
 

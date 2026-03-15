@@ -4,12 +4,25 @@ from __future__ import annotations
 
 import sys
 import warnings
+from collections.abc import Generator
+from dataclasses import dataclass, field
 from pathlib import Path
+from time import monotonic
 from typing import Annotated, Any
 
 import typer
+from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 from dataraum.cli.common import console, setup_logging
+from dataraum.cli.gate_handler import handle_exit_check
+from dataraum.core.logging import LogBuffer, activate_console, deactivate_console
+from dataraum.entropy.gate import match_threshold
+from dataraum.pipeline.events import EventType, PipelineEvent
+from dataraum.pipeline.runner import GateMode
+from dataraum.pipeline.scheduler import PipelineResult, Resolution
+from dataraum.pipeline.setup import setup_pipeline
 
 
 def run(
@@ -48,7 +61,7 @@ def run(
         typer.Option(
             "--gate-mode",
             "-g",
-            help="How to handle entropy gates: skip (default), pause (interactive), fail, auto_fix",
+            help="How to handle entropy gates: skip (default), pause (interactive), fail",
         ),
     ] = "skip",
     contract: Annotated[
@@ -111,16 +124,11 @@ def run(
     """
     setup_logging(verbosity=verbose, log_format=log_format)
 
-    from dataraum.pipeline.runner import GateMode, RunConfig
-    from dataraum.pipeline.runner import run as run_pipeline
-
     # Validate --gate-mode
     try:
         resolved_gate_mode = GateMode(gate_mode)
     except ValueError:
-        console.print(
-            f"[red]Error: Invalid gate mode: {gate_mode}. Use: skip, pause, fail, auto_fix[/red]"
-        )
+        console.print(f"[red]Error: Invalid gate mode: {gate_mode}. Use: skip, pause, fail[/red]")
         raise typer.Exit(1) from None
 
     # Validate --force flag
@@ -142,19 +150,6 @@ def run(
 
     # TTY detection for interactive features
     is_interactive = sys.stdin.isatty() and not quiet
-
-    # Default gate_mode: TTY → pause, non-TTY → skip
-    if gate_mode == "skip" and is_interactive:
-        # User didn't explicitly set gate_mode; use pause for interactive sessions
-        pass  # Keep as skip unless user wants interactive — opt-in for now
-
-    # Warn if pause requested in non-interactive mode
-    if resolved_gate_mode == GateMode.PAUSE and not is_interactive:
-        console.print(
-            "[yellow]Warning: --gate-mode pause requires an interactive terminal. "
-            "Falling back to skip.[/yellow]"
-        )
-        resolved_gate_mode = GateMode.SKIP
 
     # Interactive contract selection (if TTY and no --contract specified)
     if is_interactive and contract is None:
@@ -186,285 +181,408 @@ def run(
             except (KeyboardInterrupt, EOFError):
                 pass
 
-    # Wire gate handler for interactive mode
-    gate_handler = None
-    if resolved_gate_mode == GateMode.PAUSE and is_interactive:
-        from dataraum.cli.gate_handler import InteractiveCLIHandler
+    # Default to aggregation_safe if no contract selected
+    if contract is None:
+        contract = "aggregation_safe"
+        if not quiet:
+            console.print(
+                f"[dim]No contract specified, using {contract} (override with --contract)[/dim]"
+            )
 
-        gate_handler = InteractiveCLIHandler(console=console)
-
-    # Event-driven live display for interactive mode
-    event_callback = None
-    _live_ctx = None
-    if is_interactive:
-        from rich.live import Live
-        from rich.text import Text
-
-        from dataraum.pipeline.events import EventType, PipelineEvent
-
-        # Mutable live state
-        _live_state: dict[str, Any] = {
-            "step": 0,
-            "total": 0,
-            "running": [],
-            "latest_scores": {},
-            "latest_gate": "",
-        }
-
-        def _render_live() -> Text:
-            s = _live_state
-            step = s["step"]
-            total = s["total"]
-            running = s["running"]
-            lines = []
-
-            # Main status line
-            running_str = ", ".join(running) if running else "waiting..."
-            lines.append(f"Pipeline [{step}/{total}]  Running: {running_str}")
-
-            # Latest entropy scores
-            if s["latest_scores"]:
-                scores_str = ", ".join(f"{d}={v:.3f}" for d, v in s["latest_scores"].items())
-                lines.append(f"  entropy: {scores_str}")
-
-            # Latest gate info
-            if s["latest_gate"]:
-                lines.append(f"  gate: {s['latest_gate']}")
-
-            return Text("\n".join(lines))
-
-        def _event_handler(event: PipelineEvent) -> None:
-            s = _live_state
-            s["step"] = event.step
-            s["total"] = event.total
-
-            if event.event_type == EventType.PHASE_STARTED:
-                s["running"] = event.parallel_phases
-            elif event.event_type == EventType.PHASE_COMPLETED:
-                # Remove completed phase from running list
-                if event.phase in s["running"]:
-                    s["running"] = [p for p in s["running"] if p != event.phase]
-            elif event.event_type == EventType.POST_VERIFICATION:
-                s["latest_scores"] = event.scores
-            elif event.event_type == EventType.GATE_EVALUATED:
-                if event.gate_status == "passed":
-                    s["latest_gate"] = f"{event.phase} — passed"
-                elif event.gate_status == "skipped":
-                    s["latest_gate"] = f"{event.phase} — skipped (violations)"
-            elif event.event_type == EventType.GATE_BLOCKED:
-                s["latest_gate"] = f"{event.phase} — BLOCKED"
-            elif event.event_type == EventType.PIPELINE_COMPLETED:
-                s["running"] = []
-
-            if _live_ctx is not None:
-                try:
-                    _live_ctx.update(_render_live())
-                except Exception:
-                    pass
-
-        event_callback = _event_handler
-
-    config = RunConfig(
+    # Setup pipeline using shared logic
+    setup = setup_pipeline(
         source_path=source_path,
         output_dir=output,
         source_name=name,
         target_phase=phase,
         force_phase=force,
-        gate_mode=resolved_gate_mode,
         contract=contract,
-        gate_handler=gate_handler,
-        event_callback=event_callback,
     )
 
-    # Run pipeline — with live display if interactive
+    gen = setup.scheduler.run()
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
         warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
 
-        if is_interactive and event_callback is not None:
-            from rich.live import Live
+        result, stats = _drive_pipeline(
+            gen=gen,
+            console=console,
+            gate_mode=resolved_gate_mode,
+            quiet=quiet,
+            contract_name=setup.contract_name,
+            contract_thresholds=setup.contract_thresholds,
+            session=setup.session,
+            source_id=setup.source_id,
+        )
 
-            with Live(console=console, refresh_per_second=4, transient=True) as live:
-                _live_ctx = live
-                if gate_handler is not None:
-                    gate_handler.set_live(live)
-                result = run_pipeline(config)
-                _live_ctx = None
-        else:
-            result = run_pipeline(config)
-    run_result = result.unwrap()
+    # Update PipelineRun status (all phase data already committed incrementally)
+    from dataraum.pipeline.db_models import PipelineRun
 
-    # Print user-facing output
+    run_record = setup.session.get(PipelineRun, setup.run_id)
+    if run_record:
+        run_record.status = "completed" if result.success else "failed"
+        setup.session.commit()
+
     if not quiet:
-        console.print("\n[bold]Pipeline Run[/bold]")
-        console.print("=" * 60)
-        console.print(f"Source: {config.source_path or '(registered sources)'}")
-        console.print(f"Output: {config.output_dir}")
-        console.print(f"Source ID: {run_result.source_id}")
+        _print_summary(
+            console,
+            result,
+            stats,
+            contract,
+            setup.contract_thresholds,
+            output_dir=output,
+        )
 
-        if config.target_phase:
-            console.print(f"Target Phase: {config.target_phase}")
+    raise typer.Exit(0 if result.success else 1)
 
-        # Build gate info lookup from gate_events
-        gate_info: dict[str, dict[str, Any]] = {}
-        for ge in run_result.gate_events:
-            phase_name_ge = ge.get("phase", "")
-            if phase_name_ge:
-                gate_info[phase_name_ge] = ge
 
-        # Show per-phase results
-        if run_result.phases:
-            console.print()
-            console.print("[bold]Phase Results[/bold]")
-            console.print("-" * 60)
-            for phase_result in run_result.phases:
-                status_icon = {
-                    "completed": "[green]✓[/green]",
-                    "failed": "[red]✗[/red]",
-                    "skipped": "[yellow]○[/yellow]",
-                    "gate_blocked": "[yellow]⊘[/yellow]",
-                }.get(phase_result.status, "?")
-                duration_str = (
-                    f" ({phase_result.duration_seconds:.1f}s)"
-                    if phase_result.duration_seconds > 0
-                    else ""
-                )
-                console.print(
-                    f"  {status_icon} {phase_result.phase_name}: "
-                    f"{phase_result.status}{duration_str}"
-                )
-                if phase_result.error and phase_result.status != "gate_blocked":
-                    console.print(f"      [red]Error: {phase_result.error}[/red]")
+@dataclass
+class _RunStats:
+    """Accumulated stats from phase events during a pipeline run."""
 
-                # Show gate info for this phase
-                gi = gate_info.get(phase_result.phase_name)
-                if gi:
-                    gs = gi.get("gate_status", "")
-                    violations = gi.get("violations", {})
-                    if gs == "passed":
-                        console.print("      [dim]gate: passed[/dim]")
-                    elif gs in ("blocked", "skipped"):
-                        parts = []
-                        for dim, v in violations.items():
-                            cur = v.get("current", 0)
-                            thr = v.get("threshold", 0)
-                            if cur < 0:
-                                parts.append(
-                                    f"{dim} [red]✗[/red] (not yet measured, needs {thr:.2f})"
-                                )
-                            else:
-                                parts.append(f"{dim} [red]✗[/red] ({cur:.2f} > {thr:.2f})")
-                        if parts:
-                            console.print(f"      [yellow]gate: {', '.join(parts)}[/yellow]")
+    total_duration: float = 0.0
+    all_warnings: list[tuple[str, str]] = field(default_factory=list)  # (phase, warning)
+    phase_errors: list[tuple[str, str]] = field(default_factory=list)  # (phase, error)
+    # First-seen score per dimension (before any phase changed it)
+    first_scores: dict[str, float] = field(default_factory=dict)
 
-                # Show entropy scores produced by this phase
-                if phase_result.post_verification_scores:
-                    scores_str = ", ".join(
-                        f"{d}={s:.3f}" for d, s in phase_result.post_verification_scores.items()
+
+_BRAILLE_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+@dataclass
+class _PhaseTracker:
+    """Live-renderable tracker for running pipeline phases.
+
+    Implements ``__rich__()`` so Rich ``Live`` can render it directly.
+    Each call updates the spinner frame and elapsed times.
+    """
+
+    _running: dict[str, float] = field(default_factory=dict)
+    _frame: int = 0
+
+    def start(self, phase: str) -> None:
+        """Mark *phase* as running."""
+        self._running[phase] = monotonic()
+
+    def stop(self, phase: str) -> None:
+        """Remove *phase* from the running set."""
+        self._running.pop(phase, None)
+
+    def __rich__(self) -> Text:
+        if not self._running:
+            return Text("")
+        self._frame += 1
+        char = _BRAILLE_FRAMES[self._frame % len(_BRAILLE_FRAMES)]
+        now = monotonic()
+        lines: list[str] = []
+        for phase in sorted(self._running):
+            elapsed = now - self._running[phase]
+            lines.append(f"  {char} {phase} ({elapsed:.0f}s)")
+        return Text("\n".join(lines))
+
+
+def _drive_pipeline(
+    gen: Generator[PipelineEvent, Resolution | None, PipelineResult],
+    console: Console,
+    gate_mode: GateMode,
+    quiet: bool = False,
+    contract_name: str | None = None,
+    contract_thresholds: dict[str, float] | None = None,
+    session: Any = None,
+    source_id: str | None = None,
+) -> tuple[PipelineResult, _RunStats]:
+    """Drive the scheduler generator, rendering events to the terminal.
+
+    Args:
+        gen: The scheduler generator.
+        console: Rich console for output.
+        gate_mode: How to handle EXIT_CHECK events.
+        quiet: Suppress progress output.
+        contract_name: Name of the target contract (for summary display).
+        contract_thresholds: Dimension thresholds from the contract.
+        session: DB session (required for PAUSE gate mode).
+        source_id: Source ID (required for PAUSE gate mode).
+
+    Returns:
+        Tuple of (PipelineResult, _RunStats) from the generator.
+    """
+    result: PipelineResult | None = None
+    stats = _RunStats()
+    tracker = _PhaseTracker()
+    log_buffer = LogBuffer(console=console)
+    live: Live | None = None
+
+    if not quiet:
+        live = Live(tracker, console=console, transient=True)
+        live.start()
+        activate_console(console, log_buffer=log_buffer)
+
+    try:
+        event = next(gen)
+        while True:
+            match event.event_type:
+                case EventType.PIPELINE_STARTED:
+                    if not quiet:
+                        contract_info = f", contract: {contract_name}" if contract_name else ""
+                        console.print(f"Pipeline started ({event.total} phases{contract_info})")
+
+                case EventType.PHASE_STARTED:
+                    tracker.start(event.phase)
+
+                case EventType.PHASE_COMPLETED:
+                    tracker.stop(event.phase)
+                    if not quiet:
+                        _print_phase_completed(console, event)
+                    stats.total_duration += event.duration_seconds
+                    for w in event.warnings:
+                        stats.all_warnings.append((event.phase, w))
+
+                case EventType.PHASE_FAILED:
+                    tracker.stop(event.phase)
+                    if not quiet:
+                        console.print(f"  [red]\u2717[/red] {event.phase}: {event.error}")
+                    stats.phase_errors.append((event.phase, event.error or "unknown error"))
+
+                case EventType.PHASE_SKIPPED:
+                    if not quiet:
+                        console.print(f"  [yellow]\u25cb[/yellow] {event.phase}: {event.message}")
+
+                case EventType.POST_VERIFICATION:
+                    if event.scores:
+                        for dim in event.scores:
+                            if dim not in stats.first_scores:
+                                stats.first_scores[dim] = event.scores[dim]
+                        if not quiet:
+                            from dataraum.cli.gate_handler import render_gate_scores
+
+                            render_gate_scores(
+                                console,
+                                event.scores,
+                                contract_thresholds=contract_thresholds,
+                                phase_name=event.phase,
+                            )
+                    if event.skipped_detectors and not quiet:
+                        for sd in event.skipped_detectors:
+                            console.print(f"  [dim]~ {sd['detector_id']}: {sd['reason']}[/dim]")
+
+                case EventType.EXIT_CHECK:
+                    if live:
+                        deactivate_console()
+                        live.stop()
+                    resolution = handle_exit_check(
+                        console,
+                        event,
+                        gate_mode,
+                        contract_thresholds=contract_thresholds,
+                        session=session,
+                        source_id=source_id,
                     )
-                    console.print(f"      [dim]entropy: {scores_str}[/dim]")
+                    event = gen.send(resolution)
+                    if live:
+                        live.start()
+                        activate_console(console, log_buffer=log_buffer)
+                    continue
 
-        # Entropy State
-        if run_result.final_entropy_scores:
-            console.print()
-            console.print("[bold]Entropy State[/bold]")
-            console.print("-" * 60)
-            for dim, score in sorted(run_result.final_entropy_scores.items()):
-                # Truncate/pad dimension name for alignment
-                label = dim[:22].ljust(22)
-                # Build bar: 10 chars, filled proportionally
-                filled = round(score * 10)
-                bar = "\u2588" * filled + "\u2591" * (10 - filled)
-                # Color based on severity
-                if score < 0.2:
-                    color = "green"
-                elif score < 0.5:
-                    color = "yellow"
-                else:
-                    color = "red"
-                console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}")
+                case EventType.PIPELINE_COMPLETED:
+                    pass  # Handled after loop
 
-        # Gate Summary
-        if run_result.gate_events:
-            total_gates = sum(
-                1 for g in run_result.gate_events if g.get("event_type") == "gate_evaluated"
-            )
-            passed_gates = sum(
-                1
-                for g in run_result.gate_events
-                if g.get("event_type") == "gate_evaluated" and g.get("gate_status") == "passed"
-            )
-            blocked_gates = sum(
-                1
-                for g in run_result.gate_events
-                if g.get("event_type") in ("gate_evaluated", "gate_blocked")
-                and g.get("gate_status") in ("blocked", "skipped")
-            )
-            console.print()
-            console.print(
-                f"[bold]Gate Summary:[/bold] {total_gates + blocked_gates} evaluated, "
-                f"{passed_gates} passed, {blocked_gates} blocked/skipped"
-            )
+            event = next(gen)
 
-        # Summary
+    except StopIteration as e:
+        result = e.value
+    finally:
+        deactivate_console()
+        if live:
+            live.stop()
+
+    if result is None:
+        # Should not happen, but be defensive
+        result = PipelineResult(
+            success=False,
+            phases_completed=[],
+            phases_failed=[],
+            phases_skipped=[],
+            phases_blocked=[],
+            final_scores={},
+            deferred_issues=[],
+            error="Generator ended without returning a result",
+        )
+
+    return result, stats
+
+
+def _print_phase_completed(console: Console, event: PipelineEvent) -> None:
+    """Print phase completion with summary."""
+    line = f"  [green]\u2713[/green] {event.phase} ({event.duration_seconds:.1f}s)"
+    if event.summary:
+        line += f" [dim]\u2014 {event.summary}[/dim]"
+    console.print(line)
+
+    # Show warnings inline
+    for warning in event.warnings:
+        console.print(f"    [yellow]! {warning}[/yellow]")
+
+
+def _print_summary(
+    console: Console,
+    result: PipelineResult,
+    stats: _RunStats,
+    contract_name: str | None = None,
+    contract_thresholds: dict[str, float] | None = None,
+    output_dir: Path | None = None,
+) -> None:
+    """Print post-run summary with phase breakdown and data overview.
+
+    Args:
+        console: Rich console for output.
+        result: The pipeline result.
+        stats: Accumulated stats from phase events.
+        contract_name: Name of the evaluated contract.
+        contract_thresholds: Dimension thresholds from the contract.
+        output_dir: Pipeline output directory (for fix command hint).
+    """
+    thresholds = contract_thresholds or {}
+
+    console.print()
+    console.print("[bold]Pipeline Results[/bold]")
+    console.print("=" * 60)
+
+    # Overview line
+    completed = len(result.phases_completed)
+    failed = len(result.phases_failed)
+    skipped = len(result.phases_skipped)
+    blocked = len(result.phases_blocked)
+    console.print(
+        f"  Phases: [green]{completed} completed[/green]"
+        f"{f', [red]{failed} failed[/red]' if failed else ''}"
+        f"{f', [yellow]{skipped} skipped[/yellow]' if skipped else ''}"
+        f"{f', [yellow]{blocked} blocked[/yellow]' if blocked else ''}"
+        f"  [dim]({stats.total_duration:.1f}s total)[/dim]"
+    )
+
+    # Errors
+    if stats.phase_errors:
         console.print()
-        console.print("[bold]Summary[/bold]")
+        console.print(f"[red]Errors ({len(stats.phase_errors)}):[/red]")
+        for phase, error in stats.phase_errors:
+            console.print(f"  [red]\u2717[/red] {phase}: {error}")
+
+    # Blocked phases
+    if result.phases_blocked:
+        console.print()
+        console.print(
+            f"[yellow]Blocked ({len(result.phases_blocked)}):[/yellow] "
+            f"[dim]{', '.join(result.phases_blocked)}[/dim]"
+        )
+
+    # Warnings
+    if stats.all_warnings:
+        console.print()
+        console.print(f"[yellow]Warnings ({len(stats.all_warnings)}):[/yellow]")
+        for phase, warning in stats.all_warnings:
+            console.print(f"  [yellow]![/yellow] {phase}: {warning}")
+
+    # Final entropy scores with contract evaluation
+    if result.final_scores or thresholds:
+        console.print()
+        header = "[bold]Entropy State[/bold]"
+        if contract_name:
+            header += f" [dim]\\[{contract_name}][/dim]"
+        console.print(header)
         console.print("-" * 60)
-        console.print(f"  [green]Completed:[/green] {run_result.phases_completed}")
-        console.print(f"  [red]Failed:[/red] {run_result.phases_failed}")
-        console.print(f"  [yellow]Skipped:[/yellow] {run_result.phases_skipped}")
-        console.print(f"  Duration: {run_result.duration_seconds:.2f}s")
 
-        # Data metrics
-        if run_result.total_tables_processed > 0 or run_result.total_rows_processed > 0:
+        passing = 0
+        evaluated = 0
+        not_measured = 0
+
+        for dim, score in sorted(result.final_scores.items()):
+            label = dim[:34].ljust(34)
+            filled = round(score * 10)
+            bar = "\u2588" * filled + "\u2591" * (10 - filled)
+            if score < 0.2:
+                color = "green"
+            elif score < 0.5:
+                color = "yellow"
+            else:
+                color = "red"
+
+            # Delta from first measurement
+            prev = stats.first_scores.get(dim)
+            delta_str = ""
+            if prev is not None:
+                delta = score - prev
+                if delta < -0.005:
+                    delta_str = f" [green]\u2193{abs(delta):.2f}[/green]"
+                elif delta > 0.005:
+                    delta_str = f" [red]\u2191{delta:.2f}[/red]"
+
+            threshold = match_threshold(dim, thresholds)
+            if threshold is not None:
+                evaluated += 1
+                if score <= threshold:
+                    passing += 1
+                    mark = f"[green]\u2713[/green] [dim](<= {threshold:.2f})[/dim]"
+                else:
+                    gap = score - threshold
+                    mark = f"[red]\u2717[/red] [dim](<= {threshold:.2f}, gap: {gap:.2f})[/dim]"
+                console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}  {mark}{delta_str}")
+            else:
+                console.print(f"  {label} [{color}]{score:.3f}[/{color}]  {bar}{delta_str}")
+
+        # Show contracted dimensions that were never measured.
+        # A threshold like "structural.types" is considered measured if any
+        # score key starts with it (e.g. "structural.types.type_fidelity").
+        measured_dims = set(result.final_scores.keys())
+        for dim in sorted(thresholds):
+            has_measurement = dim in measured_dims or any(
+                k.startswith(dim + ".") for k in measured_dims
+            )
+            if not has_measurement:
+                not_measured += 1
+                label = dim[:34].ljust(34)
+                console.print(f"  {label} [dim]  ---   not measured[/dim]")
+
+        total_contracted = evaluated + not_measured
+        if total_contracted > 0:
+            compliance_color = "green" if passing == total_contracted else "yellow"
+            parts = f"{passing}/{total_contracted} dimensions passing"
+            if not_measured:
+                parts += f", {not_measured} not measured"
+                compliance_color = "yellow"
+            pct = round(100 * passing / total_contracted)
             console.print()
-            console.print("[bold]Data Metrics[/bold]")
-            console.print("-" * 60)
-            console.print(f"  Tables: {run_result.total_tables_processed}")
-            console.print(f"  Rows: {run_result.total_rows_processed:,}")
+            console.print(f"  [{compliance_color}]Contract: {parts} ({pct}%)[/{compliance_color}]")
 
-        # Slowest phases (show top 5 if more than 3 phases ran)
-        slowest = run_result.get_slowest_phases(5)
-        if len(slowest) > 3:
-            console.print()
-            console.print("[bold]Slowest Phases[/bold]")
-            console.print("-" * 60)
-            for phase_name, duration in slowest:
-                pct = (
-                    (duration / run_result.duration_seconds * 100)
-                    if run_result.duration_seconds > 0
-                    else 0
-                )
-                console.print(f"  {phase_name}: {duration:.1f}s ({pct:.0f}%)")
-
-        # Bottleneck operations (if any timings recorded)
-        bottlenecks = run_result.get_bottleneck_operations(5)
-        if bottlenecks:
-            console.print()
-            console.print("[bold]Bottleneck Operations[/bold]")
-            console.print("-" * 60)
-            for phase_name, op_name, duration in bottlenecks:
-                console.print(f"  {phase_name}/{op_name}: {duration:.1f}s")
-
-        # Output files
-        if run_result.output_dir:
-            console.print()
-            console.print("[bold]Output files:[/bold]")
-            console.print(f"  Metadata: {run_result.output_dir / 'metadata.db'}")
-            console.print(f"  Data: {run_result.output_dir / 'data.duckdb'}")
-
-        # Overall error (exception during setup)
-        if run_result.error:
-            console.print()
-            console.print(f"[red]Error: {run_result.error}[/red]")
-
-        # Warnings from phase failures
-        if result.warnings:
-            console.print()
-            console.print("[yellow]Warnings:[/yellow]")
-            for warning in result.warnings:
-                console.print(f"  - {warning}")
-
+    # Deferred issues
+    if result.deferred_issues:
         console.print()
+        console.print(f"[yellow]Deferred issues: {len(result.deferred_issues)}[/yellow]")
+        for issue in result.deferred_issues:
+            console.print(
+                f"  - {issue.dimension_path}: "
+                f"{issue.score:.2f} > {issue.threshold:.2f} "
+                f"(from {issue.producing_phase})"
+            )
 
-    raise typer.Exit(0 if run_result.success else 1)
+    # Error
+    if result.error:
+        console.print()
+        console.print(f"[red]Error: {result.error}[/red]")
+
+    # Overall status
+    console.print()
+    if result.success:
+        console.print("[green]Pipeline completed successfully[/green]")
+    else:
+        console.print("[red]Pipeline completed with failures[/red]")
+
+    # Fix command hint (when there are deferred issues or high-entropy dimensions)
+    has_high_entropy = any(s >= 0.5 for s in result.final_scores.values())
+    if result.deferred_issues or has_high_entropy:
+        out = output_dir
+        console.print()
+        console.print("[dim]To improve data quality, document domain knowledge:[/dim]")
+        console.print(f"[dim]  dataraum fix {out}[/dim]")
+    console.print()

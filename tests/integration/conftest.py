@@ -18,8 +18,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from dataraum.pipeline.base import PhaseContext, PhaseResult, PhaseStatus
-from dataraum.pipeline.orchestrator import Pipeline, PipelineConfig
+from dataraum.pipeline.base import Phase, PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.phases.correlations_phase import CorrelationsPhase
 from dataraum.pipeline.phases.entropy_phase import EntropyPhase
 from dataraum.pipeline.phases.import_phase import ImportPhase
@@ -57,7 +56,7 @@ class PipelineTestHarness:
     engine: Engine
     session_factory: sessionmaker[Session]
     duckdb_conn: duckdb.DuckDBPyConnection
-    pipeline: Pipeline
+    phases: dict[str, Phase]
     source_id: str = field(default_factory=lambda: str(uuid4()))
 
     # Track phase results
@@ -79,24 +78,16 @@ class PipelineTestHarness:
         Returns:
             PhaseResult from the phase execution
         """
-        phase = self.pipeline.phases.get(phase_name)
+        phase = self.phases.get(phase_name)
         if not phase:
             raise ValueError(f"Phase '{phase_name}' not registered")
 
         with self.session_factory() as session:
-            # Build previous outputs from stored results
-            previous_outputs = {
-                name: result.outputs
-                for name, result in self.results.items()
-                if result.status == PhaseStatus.COMPLETED
-            }
-
             ctx = PhaseContext(
                 session=session,
                 duckdb_conn=self.duckdb_conn,
                 source_id=self.source_id,
                 table_ids=table_ids or [],
-                previous_outputs=previous_outputs,
                 config=config or {},
             )
 
@@ -169,6 +160,11 @@ class PipelineTestHarness:
             return result.scalar() or 0
 
 
+def _build_phase_dict(*phase_instances: Phase) -> dict[str, Phase]:
+    """Build a name -> Phase dict from phase instances."""
+    return {p.name: p for p in phase_instances}
+
+
 @pytest.fixture
 def integration_engine() -> Engine:
     """Create an in-memory SQLite engine for integration tests."""
@@ -198,30 +194,30 @@ def integration_duckdb() -> duckdb.DuckDBPyConnection:
 
 
 @pytest.fixture
-def integration_pipeline() -> Pipeline:
-    """Create a pipeline with registered phases for testing."""
-    pipeline = Pipeline(config=PipelineConfig())
-    pipeline.register(ImportPhase())
-    pipeline.register(TypingPhase())
-    pipeline.register(StatisticsPhase())
-    pipeline.register(StatisticalQualityPhase())
-    pipeline.register(RelationshipsPhase())
-    pipeline.register(CorrelationsPhase())
-    pipeline.register(TemporalPhase())
-    return pipeline
+def integration_phases() -> dict[str, Phase]:
+    """Create a dict of phase instances for testing."""
+    return _build_phase_dict(
+        ImportPhase(),
+        TypingPhase(),
+        StatisticsPhase(),
+        StatisticalQualityPhase(),
+        RelationshipsPhase(),
+        CorrelationsPhase(),
+        TemporalPhase(),
+    )
 
 
 @pytest.fixture
 def harness(
     integration_engine: Engine,
     integration_duckdb: duckdb.DuckDBPyConnection,
-    integration_pipeline: Pipeline,
+    integration_phases: dict[str, Phase],
 ) -> PipelineTestHarness:
     """Create a pipeline test harness.
 
     This is the main fixture for integration tests. It provides:
     - Isolated database connections
-    - Pre-configured pipeline
+    - Pre-configured pipeline phases
     - Convenience methods for running phases
     """
     session_factory = sessionmaker(
@@ -233,7 +229,7 @@ def harness(
         engine=integration_engine,
         session_factory=session_factory,
         duckdb_conn=integration_duckdb,
-        pipeline=integration_pipeline,
+        phases=integration_phases,
     )
 
 
@@ -255,25 +251,25 @@ def finance_junk_columns() -> list[str]:
 
 
 @pytest.fixture
-def agent_pipeline() -> Pipeline:
-    """Pipeline with phases needed for agent testing (through entropy)."""
-    pipeline = Pipeline(config=PipelineConfig())
-    pipeline.register(ImportPhase())
-    pipeline.register(TypingPhase())
-    pipeline.register(StatisticsPhase())
-    pipeline.register(StatisticalQualityPhase())
-    pipeline.register(RelationshipsPhase())
-    pipeline.register(CorrelationsPhase())
-    pipeline.register(TemporalPhase())
-    pipeline.register(EntropyPhase())
-    return pipeline
+def agent_phases() -> dict[str, Phase]:
+    """Phase dict with phases needed for agent testing (through entropy)."""
+    return _build_phase_dict(
+        ImportPhase(),
+        TypingPhase(),
+        StatisticsPhase(),
+        StatisticalQualityPhase(),
+        RelationshipsPhase(),
+        CorrelationsPhase(),
+        TemporalPhase(),
+        EntropyPhase(),
+    )
 
 
 @pytest.fixture
 def agent_harness(
     integration_engine: Engine,
     integration_duckdb: duckdb.DuckDBPyConnection,
-    agent_pipeline: Pipeline,
+    agent_phases: dict[str, Phase],
 ) -> PipelineTestHarness:
     """Harness with entropy phase for agent validation tests."""
     session_factory = sessionmaker(
@@ -285,7 +281,7 @@ def agent_harness(
         engine=integration_engine,
         session_factory=session_factory,
         duckdb_conn=integration_duckdb,
-        pipeline=agent_pipeline,
+        phases=agent_phases,
     )
 
 

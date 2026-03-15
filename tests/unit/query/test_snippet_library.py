@@ -200,8 +200,8 @@ class TestSnippetLibrarySave:
         assert record.snippet_id is not None
         assert record.sql == "SELECT SUM(x) AS value FROM t"
 
-    def test_save_updates_existing(self, session):
-        """Save with same key updates instead of duplicating."""
+    def test_save_keeps_first_writer(self, session):
+        """Save with same key keeps original (first writer wins)."""
         library = SnippetLibrary(session)
 
         # First save
@@ -217,7 +217,7 @@ class TestSnippetLibrarySave:
         session.flush()
         snippet_id_1 = record1.snippet_id
 
-        # Second save with same key
+        # Second save with same key — should return original, not overwrite
         record2 = library.save_snippet(
             snippet_type="extract",
             sql="SELECT SUM(y) AS value FROM t2",
@@ -229,11 +229,11 @@ class TestSnippetLibrarySave:
         )
         session.flush()
 
-        # Should be same record, updated
+        # Should be same record, unchanged
         assert record2.snippet_id == snippet_id_1
-        assert record2.sql == "SELECT SUM(y) AS value FROM t2"
-        assert record2.description == "Updated"
-        assert record2.source == "graph:v2"
+        assert record2.sql == "SELECT SUM(x) AS value FROM t"
+        assert record2.description == "Original"
+        assert record2.source == "graph:v1"
 
     def test_save_formula_snippet(self, session):
         """Save a formula snippet with normalized expression."""
@@ -515,7 +515,7 @@ class TestSnippetLibraryInvalidation:
         """Invalidating a schema marks all its snippets as unvalidated."""
         library = SnippetLibrary(session)
 
-        s1 = library.save_snippet(
+        library.save_snippet(
             snippet_type="extract",
             sql="SELECT 1",
             description="test",
@@ -523,7 +523,7 @@ class TestSnippetLibraryInvalidation:
             source="graph:test",
             standard_field="revenue",
         )
-        s2 = library.save_snippet(
+        library.save_snippet(
             snippet_type="extract",
             sql="SELECT 2",
             description="test",
@@ -532,7 +532,7 @@ class TestSnippetLibraryInvalidation:
             standard_field="cost",
         )
         # Different schema - should not be affected
-        s3 = library.save_snippet(
+        library.save_snippet(
             snippet_type="extract",
             sql="SELECT 3",
             description="test",
@@ -542,22 +542,9 @@ class TestSnippetLibraryInvalidation:
         )
         session.flush()
 
-        # Mark as validated
-        s1.is_validated = True
-        s2.is_validated = True
-        s3.is_validated = True
-        session.flush()
-
         count = library.invalidate_for_schema("schema_abc")
-        session.flush()
 
         assert count == 2
-        session.refresh(s1)
-        session.refresh(s2)
-        session.refresh(s3)
-        assert not s1.is_validated
-        assert not s2.is_validated
-        assert s3.is_validated  # Not affected
 
 
 class TestSnippetLibraryFindAllForSchema:

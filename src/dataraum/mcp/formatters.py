@@ -173,14 +173,14 @@ def format_query_result(result: QueryResult) -> str:
             lines.append("| " + " | ".join(["---"] * len(result.columns)) + " |")
             # Rows
             for row in result.data[:20]:
-                values = [str(row.get(c, ""))[:30] for c in result.columns]
+                values = [str(row.get(c, ""))[:100] for c in result.columns]
                 lines.append("| " + " | ".join(values) + " |")
         else:
-            lines.append(f"(Showing first 5 of {len(result.data)} rows)")
+            lines.append(f"(Showing first 20 of {len(result.data)} rows)")
             lines.append("| " + " | ".join(result.columns) + " |")
             lines.append("| " + " | ".join(["---"] * len(result.columns)) + " |")
-            for row in result.data[:5]:
-                values = [str(row.get(c, ""))[:30] for c in result.columns]
+            for row in result.data[:20]:
+                values = [str(row.get(c, ""))[:100] for c in result.columns]
                 lines.append("| " + " | ".join(values) + " |")
         lines.append("")
 
@@ -344,10 +344,47 @@ def format_actions_report(
         for a in quick_wins[:3]:
             lines.append(
                 f"- **{a['action']}** (score={a.get('priority_score', 0):.3f}): "
-                f"{a.get('description', '')[:100]}"
+                f"{a.get('description', '')[:200]}"
             )
         lines.append("")
 
+    return "\n".join(lines)
+
+
+def format_quality_report(sections: dict[str, str]) -> str:
+    """Combine quality sections into a unified report.
+
+    Args:
+        sections: Dict mapping section name ('entropy', 'contract', 'actions')
+            to their pre-formatted markdown content.
+    """
+    lines = ["# Data Quality Report", ""]
+
+    for name in ("entropy", "contract", "actions"):
+        content = sections.get(name)
+        if content:
+            lines.append(content)
+            lines.append("")
+
+    if len(sections) == 0:
+        lines.append("No quality data available. Run the pipeline first.")
+
+    return "\n".join(lines)
+
+
+def format_export_result(output_path: str, fmt: str, row_count: int, sidecar_path: str) -> str:
+    """Format export result for LLM consumption."""
+    lines = ["# Export Complete"]
+    lines.append("")
+    lines.append(f"**File:** `{output_path}`")
+    lines.append(f"**Format:** {fmt}")
+    lines.append(f"**Rows:** {row_count}")
+    lines.append(f"**Metadata:** `{sidecar_path}`")
+    lines.append("")
+    lines.append(
+        "The metadata sidecar contains provenance information: "
+        "source SQL, entropy score, assumptions, and confidence level."
+    )
     return "\n".join(lines)
 
 
@@ -376,12 +413,6 @@ def format_pipeline_result(result: RunResult) -> str:
         lines.append(f"**Duration:** {seconds:.1f}s")
     lines.append("")
 
-    # Tables
-    if result.total_tables_processed > 0:
-        lines.append(f"**Tables:** {result.total_tables_processed}")
-        lines.append(f"**Rows:** {result.total_rows_processed:,}")
-        lines.append("")
-
     # Phase summary
     lines.append("## Phases")
     lines.append(
@@ -403,7 +434,7 @@ def format_pipeline_result(result: RunResult) -> str:
     lines.append("## Next Steps")
     if result.success:
         lines.append("- Use `get_context` for full schema and relationships")
-        lines.append("- Use `get_entropy` for data quality overview")
+        lines.append("- Use `get_quality` for entropy, contracts, and resolution actions")
         lines.append("- Use `query` to ask questions about the data")
     else:
         lines.append("- Check the failures above and fix the data issues")

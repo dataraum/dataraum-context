@@ -6,28 +6,16 @@ Within-Table Analysis:
 - NumericCorrelation: Pearson and Spearman correlations
 - DerivedColumn: Detected derived columns
 
-Cross-Table Quality (post-confirmation):
-- CrossTableCorrelation: Correlation between columns in different tables
-- RedundantColumnPair: Perfectly correlated columns within same table
-- DependencyGroup: VDP multicollinearity group
-- QualityIssue: Generic quality issue
-
 Result Containers:
 - CorrelationAnalysisResult: Complete per-table analysis result
-- CrossTableQualityResult: Cross-table quality analysis result
-
-Utilities:
-- EnrichedRelationship: Relationship with metadata for building joins
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-from dataraum.core.models.base import Cardinality, RelationshipType
 
 # =============================================================================
 # Within-Table Analysis Models
@@ -92,45 +80,6 @@ class DerivedColumn(BaseModel):
 
 
 # =============================================================================
-# Cross-Table Quality Models (post-confirmation)
-# =============================================================================
-
-
-class CrossTableCorrelation(BaseModel):
-    """A correlation between columns in different tables."""
-
-    from_table: str
-    from_column: str
-    to_table: str
-    to_column: str
-    pearson_r: float
-    spearman_rho: float
-    strength: str  # 'weak', 'moderate', 'strong', 'very_strong'
-    is_join_column: bool  # True if this is the join column pair
-
-
-class DependencyGroup(BaseModel):
-    """A group of columns involved in multicollinearity."""
-
-    model_config = {"frozen": False}
-
-    columns: list[tuple[str, str]]  # [(table, column), ...]
-    condition_index: float
-    severity: Literal["moderate", "severe"]
-    variance_proportions: dict[tuple[str, str], float]  # {(table, col): vdp}
-    is_cross_table: bool  # True if columns span multiple tables
-
-
-class QualityIssue(BaseModel):
-    """A detected quality issue."""
-
-    issue_type: str  # 'redundant_column', 'unexpected_correlation', 'multicollinearity'
-    severity: Literal["info", "warning", "error"]
-    message: str
-    affected_columns: list[tuple[str, str]]  # [(table, column), ...]
-
-
-# =============================================================================
 # Result Container Models
 # =============================================================================
 
@@ -155,59 +104,3 @@ class CorrelationAnalysisResult(BaseModel):
     # Performance
     duration_seconds: float
     computed_at: datetime
-
-
-class CrossTableQualityResult(BaseModel):
-    """Quality analysis result for a confirmed relationship (cross-table)."""
-
-    relationship_id: str
-    from_table: str
-    to_table: str
-    join_column_from: str
-    join_column_to: str
-
-    # Metrics
-    joined_row_count: int
-    numeric_columns_analyzed: int
-
-    # Cross-table correlations
-    cross_table_correlations: list[CrossTableCorrelation] = Field(default_factory=list)
-
-    # Multicollinearity
-    overall_condition_index: float
-    overall_severity: Literal["none", "moderate", "severe"]
-    dependency_groups: list[DependencyGroup] = Field(default_factory=list)
-    cross_table_dependency_groups: list[DependencyGroup] = Field(default_factory=list)
-
-    # Summary
-    issues: list[QualityIssue] = Field(default_factory=list)
-    analyzed_at: datetime
-
-
-# =============================================================================
-# Utility Models
-# =============================================================================
-
-
-class EnrichedRelationship(BaseModel):
-    """Relationship enriched with column and table metadata for join construction.
-
-    This model extends the basic relationship with human-readable names
-    and additional metadata needed for building SQL joins and analysis.
-    Used by quality analysis and other modules that need to build joins.
-    """
-
-    relationship_id: str
-    from_table: str
-    from_column: str
-    from_column_id: str
-    from_table_id: str
-    to_table: str
-    to_column: str
-    to_column_id: str
-    to_table_id: str
-    relationship_type: RelationshipType
-    cardinality: Cardinality | None = None
-    confidence: float
-    detection_method: str
-    evidence: dict[str, Any] = Field(default_factory=dict)

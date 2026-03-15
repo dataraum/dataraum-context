@@ -253,6 +253,18 @@ class EnrichmentAgent(LLMFeature):
                 )
                 continue
 
+            # When the same dimension table is joined multiple times (e.g. via
+            # kontonummer_des_kontos and kontonummer_des_gegenkontos), the LLM
+            # may rate columns inconsistently across joins. Unify: take the
+            # union of all high/medium columns per dimension table, so every
+            # join of that table gets the same column set.
+            unified_dim_columns: dict[str, set[str]] = {}
+            for enrichment in dataset.recommended_enrichments:
+                dim_name = enrichment.dimension_table
+                for col in enrichment.enrichment_columns:
+                    if col.enrichment_value in ("high", "medium"):
+                        unified_dim_columns.setdefault(dim_name, set()).add(col.column_name)
+
             for enrichment in dataset.recommended_enrichments:
                 dim_table_name = enrichment.dimension_table
                 dim_table_info = table_map.get(dim_table_name, {})
@@ -266,12 +278,8 @@ class EnrichmentAgent(LLMFeature):
                     )
                     continue
 
-                # Get columns to include (only those with high/medium value)
-                include_columns = [
-                    col.column_name
-                    for col in enrichment.enrichment_columns
-                    if col.enrichment_value in ("high", "medium")
-                ]
+                # Use unified column set for this dimension table
+                include_columns = sorted(unified_dim_columns.get(dim_table_name, set()))
 
                 if not include_columns:
                     logger.info(

@@ -14,7 +14,7 @@ class TestUnitEntropyInference:
         return UnitEntropyDetector()
 
     def test_inferred_unit_from_dimension(self, detector: UnitEntropyDetector):
-        """When unit_source_column is set, score should be 0.2 (inferred) not 0.8 (missing)."""
+        """When unit_source_column is set, score should be 0.1 (same as declared) not 0.8 (missing)."""
         context = DetectorContext(
             table_name="journal_entries",
             column_name="amount",
@@ -33,7 +33,7 @@ class TestUnitEntropyInference:
         results = detector.detect(context)
 
         assert len(results) == 1
-        assert results[0].score == pytest.approx(0.2, abs=0.01)
+        assert results[0].score == pytest.approx(0.1, abs=0.01)
         assert results[0].evidence[0]["unit_status"] == "inferred_from_dimension"
         assert results[0].evidence[0]["unit_source_column"] == "currency_code"
 

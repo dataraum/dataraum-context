@@ -94,7 +94,7 @@ Add this to the file (create it if it doesn't exist):
 
 **Important:** Claude Desktop doesn't inherit your shell's working directory, so use absolute paths for both `--project` and `DATARAUM_OUTPUT_DIR`.
 
-Restart Claude Desktop after editing. The hammer icon in the text input should show 10 DataRaum tools.
+Restart Claude Desktop after editing. The hammer icon in the text input should show 6 DataRaum tools.
 
 ---
 
@@ -114,11 +114,10 @@ See the plugin repo's README for installation and configuration instructions. Th
 |------|-----------|-------------|
 | `analyze` | `path`, `name?`, `gate_mode?` | Run pipeline on CSV/Parquet data |
 | `get_context` | — | Schema, relationships, semantic annotations, quality |
-| `get_entropy` | `table_name?` | Uncertainty by dimension (structural, semantic, value, computational) |
-| `evaluate_contract` | `contract_name` | Quality evaluation against a contract |
+| `get_quality` | `contract_name?`, `table_name?`, `priority?`, `include?` | Unified quality report (entropy + contracts + actions) |
 | `query` | `question`, `contract_name?` | Natural language query with confidence level |
-| `get_actions` | `priority?`, `table_name?` | Prioritized resolution actions |
-| `apply_fix` | `action_type`, `target`, `parameters?` | Execute a fix action with verification and decision recording |
+
+The `include` parameter on `get_quality` accepts a list of sections: `entropy`, `contract`, `actions`. Defaults to all three.
 
 ### Source management tools
 
@@ -126,17 +125,6 @@ See the plugin repo's README for installation and configuration instructions. Th
 |------|-----------|-------------|
 | `discover_sources` | `path?`, `recursive?` | Scan workspace for data files (CSV, Parquet, JSON, XLSX) |
 | `add_source` | `name`, `path?`, `backend?`, `tables?`, `credential_ref?` | Register a file or database source |
-| `remove_source` | `name`, `purge_results?` | Archive a data source |
-
-### apply_fix
-
-Executes a fix action to improve data quality. Returns JSON with success status, before/after verification, and a decision record for audit.
-
-```
-> Apply the override_type fix to column:orders.amount with target_type DECIMAL(10,2)
-```
-
-Built-in action types: `override_type`, `declare_unit`, `add_business_name`, `declare_null_meaning`, `confirm_relationship`, `create_filtered_view`. See [Entropy: Fix Execution](entropy.md#fix-execution) for details.
 
 ### Contract names
 

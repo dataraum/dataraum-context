@@ -1,7 +1,9 @@
 """Correlations phase implementation.
 
-Analyzes within-table patterns:
-- Derived columns detection (sum, product, ratio, etc.)
+Detects derived columns (sum, product, ratio, etc.) on enriched views
+when available, falling back to typed tables otherwise. Running on
+enriched views enables cross-table formula discovery (e.g., total =
+quantity * dim__unit_price) with zero changes to the detection algorithm.
 
 Numeric correlations (Pearson, Spearman) are available on-demand via
 the correlation processor but are not computed in the pipeline — no
@@ -11,15 +13,23 @@ downstream consumer acts on them.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dataraum.analysis.correlation import analyze_correlations
 from dataraum.analysis.correlation.db_models import DerivedColumn
+from dataraum.analysis.correlation.processor import analyze_enriched_correlations
+from dataraum.analysis.views.db_models import EnrichedView
+from dataraum.entropy.dimensions import AnalysisKey
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @analysis_phase
@@ -40,11 +50,24 @@ class CorrelationsPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["column_eligibility"]
+        return ["enriched_views"]
 
     @property
-    def outputs(self) -> list[str]:
-        return ["correlations", "derived_columns"]
+    def produces_analyses(self) -> set[AnalysisKey]:
+        return {AnalysisKey.CORRELATION}
+
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        if not table_ids:
+            return 0
+        return exec_delete(
+            session, delete(DerivedColumn).where(DerivedColumn.table_id.in_(table_ids))
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -77,7 +100,7 @@ class CorrelationsPhase(BasePhase):
         return None
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
-        """Run derived column detection on typed tables."""
+        """Run derived column detection, dispatching to enriched view or typed table."""
         # Get typed tables for this source
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)
         result = ctx.session.execute(stmt)
@@ -103,17 +126,34 @@ class CorrelationsPhase(BasePhase):
                 records_created=0,
             )
 
+        # Build enriched view lookup: fact_table_id → EnrichedView
+        enriched_views_by_fact: dict[str, EnrichedView] = {}
+        ev_stmt = select(EnrichedView).where(EnrichedView.fact_table_id.in_(table_ids))
+        for ev in ctx.session.execute(ev_stmt).scalars().all():
+            enriched_views_by_fact[ev.fact_table_id] = ev
+
         # Analyze each table
-        analyzed_tables = []
+        analyzed_tables: list[str] = []
         total_derived = 0
-        warnings = []
+        warnings: list[str] = []
 
         for typed_table in unanalyzed_tables:
-            corr_result = analyze_correlations(
-                table_id=typed_table.table_id,
-                duckdb_conn=ctx.duckdb_conn,
-                session=ctx.session,
-            )
+            enriched_view = enriched_views_by_fact.get(typed_table.table_id)
+            if enriched_view:
+                # Enriched view exists — superset finds same-table + cross-table
+                corr_result = analyze_enriched_correlations(
+                    enriched_view=enriched_view,
+                    fact_table=typed_table,
+                    duckdb_conn=ctx.duckdb_conn,
+                    session=ctx.session,
+                )
+            else:
+                # No enriched view — fallback to typed table only
+                corr_result = analyze_correlations(
+                    table_id=typed_table.table_id,
+                    duckdb_conn=ctx.duckdb_conn,
+                    session=ctx.session,
+                )
 
             if not corr_result.success:
                 warnings.append(f"Failed to analyze {typed_table.table_name}: {corr_result.error}")
@@ -123,7 +163,7 @@ class CorrelationsPhase(BasePhase):
             analyzed_tables.append(typed_table.table_name)
             total_derived += len(result_data.derived_columns)
 
-        # Note: commit handled by session_scope() in orchestrator
+        # Note: commit handled by session_scope() in scheduler
 
         if not analyzed_tables and warnings:
             return PhaseResult.failed(f"All tables failed analysis: {'; '.join(warnings)}")
@@ -136,4 +176,5 @@ class CorrelationsPhase(BasePhase):
             records_processed=len(analyzed_tables),
             records_created=total_derived,
             warnings=warnings if warnings else None,
+            summary=f"{total_derived} derived columns across {len(analyzed_tables)} tables",
         )

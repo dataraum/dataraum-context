@@ -9,11 +9,18 @@ Scoring formula (additive):
 - base_score: from presence of description/metadata fields (0.0 to 1.0)
 - confidence_weight * (1 - confidence): low LLM confidence adds entropy independently
 - concept_bonus: business_concept presence reduces entropy (ontology alignment)
+
+The confidence penalty is the primary mechanism for catching unclear column
+names. The LLM is instructed to lower confidence when column names are
+meaningless/random, even if it can infer meaning from data values. This lets
+humans decide whether the inferred meaning is trustworthy.
 """
 
 from dataraum.entropy.config import get_entropy_config
-from dataraum.entropy.detectors.base import DetectorContext, DetectorTrust, EntropyDetector
+from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
+from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class BusinessMeaningDetector(EntropyDetector):
@@ -31,12 +38,58 @@ class BusinessMeaningDetector(EntropyDetector):
     """
 
     detector_id = "business_meaning"
-    layer = "semantic"
-    dimension = "business_meaning"
-    sub_dimension = "naming_clarity"
-    trust_level = DetectorTrust.SOFT
-    required_analyses = ["semantic"]
+    layer = Layer.SEMANTIC
+    dimension = Dimension.BUSINESS_MEANING
+    sub_dimension = SubDimension.NAMING_CLARITY
+    required_analyses = [AnalysisKey.SEMANTIC]
     description = "Measures clarity of business meaning and description"
+
+    @property
+    def fix_schemas(self) -> list[FixSchema]:
+        """Schema for documenting business meaning."""
+        return [
+            FixSchema(
+                action="document_business_meaning",
+                target="config",
+                description="Record business meaning overrides for columns",
+                config_path="phases/semantic.yaml",
+                key_path=["overrides", "business_meaning"],
+                operation="merge",
+                requires_rerun="semantic",
+                guidance=(
+                    "Records business meaning for columns that lack clear semantic "
+                    "annotations. Ask what the column represents in business terms, "
+                    "what entity type it belongs to, and its human-readable name."
+                ),
+                fields={
+                    "business_name": FixSchemaField(
+                        type="string",
+                        required=False,
+                        description="Human-readable business name for the column",
+                    ),
+                    "entity_type": FixSchemaField(
+                        type="string",
+                        required=False,
+                        description="Entity classification (e.g. customer, product, transaction)",
+                    ),
+                    "business_description": FixSchemaField(
+                        type="string",
+                        required=False,
+                        description="Business description of the column",
+                    ),
+                },
+            )
+        ]
+
+    def load_data(self, context: DetectorContext) -> None:
+        """Load semantic annotation for this column."""
+        if context.session is None or context.column_id is None:
+            return
+        from dataraum.entropy.detectors.loaders import load_semantic
+
+        result = load_semantic(context.session, context.column_id)
+        if result is not None:
+            context.analysis_results["semantic"] = result
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect business meaning entropy.
@@ -64,8 +117,10 @@ class BusinessMeaningDetector(EntropyDetector):
         score_documented = detector_config.get("score_documented", 0.2)
         score_fully_documented = detector_config.get("score_fully_documented", 0.0)
 
-        # Confidence weighting and ontology bonus
-        confidence_weight = detector_config.get("confidence_weight", 0.3)
+        # Confidence weighting and ontology bonus.
+        # confidence_weight=0.5 so a confidence of 0.4 (garbage name) gives
+        # penalty = 0.5 * 0.6 = 0.30, crossing the 0.3 detection threshold.
+        confidence_weight = detector_config.get("confidence_weight", 0.5)
         ontology_bonus = detector_config.get("ontology_bonus", 0.1)
 
         semantic = context.get_analysis("semantic", {})
@@ -148,42 +203,25 @@ class BusinessMeaningDetector(EntropyDetector):
         # Resolution options based on missing data (not semantic judgment)
         resolution_options: list[ResolutionOption] = []
 
+        missing_fields = []
         if not raw_metrics["has_description"]:
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_description",
-                    parameters={
-                        "column": context.column_name,
-                        "table": context.table_name,
-                    },
-                    effort="low",
-                    description="Add a business description for this column",
-                )
-            )
-
+            missing_fields.append("description")
         if not raw_metrics["has_business_name"]:
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_business_name",
-                    parameters={
-                        "column": context.column_name,
-                        "table": context.table_name,
-                    },
-                    effort="low",
-                    description="Add a human-readable business name",
-                )
-            )
-
+            missing_fields.append("business_name")
         if not raw_metrics["has_entity_type"]:
+            missing_fields.append("entity_type")
+
+        if missing_fields:
             resolution_options.append(
                 ResolutionOption(
-                    action="document_entity_type",
+                    action="document_business_meaning",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,
+                        "missing_fields": missing_fields,
                     },
                     effort="low",
-                    description="Classify the entity type for this column",
+                    description=f"Document missing: {', '.join(missing_fields)}",
                 )
             )
 

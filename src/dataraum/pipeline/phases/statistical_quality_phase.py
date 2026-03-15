@@ -8,16 +8,21 @@ Runs advanced statistical quality checks on typed data:
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from dataraum.analysis.statistics import assess_statistical_quality
 from dataraum.analysis.statistics.quality_db_models import StatisticalQualityMetrics
 from dataraum.core.logging import get_logger
 from dataraum.pipeline.base import PhaseContext, PhaseResult
+from dataraum.pipeline.cleanup import exec_delete
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.storage import Column, Table
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 
@@ -42,9 +47,21 @@ class StatisticalQualityPhase(BasePhase):
     def dependencies(self) -> list[str]:
         return ["column_eligibility"]
 
-    @property
-    def outputs(self) -> list[str]:
-        return ["quality_metrics"]
+    def cleanup(
+        self,
+        session: Session,
+        source_id: str,
+        table_ids: list[str],
+        column_ids: list[str],
+    ) -> int:
+        if not column_ids:
+            return 0
+        return exec_delete(
+            session,
+            delete(StatisticalQualityMetrics).where(
+                StatisticalQualityMetrics.column_id.in_(column_ids)
+            ),
+        )
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -143,11 +160,14 @@ class StatisticalQualityPhase(BasePhase):
         outlier_columns = 0
         warnings = []
 
+        exclude_outlier_columns: set[str] = set(ctx.config.get("exclude_outlier_columns", []))
+
         for typed_table in unassessed_tables:
             quality_result = assess_statistical_quality(
                 table_id=typed_table.table_id,
                 duckdb_conn=ctx.duckdb_conn,
                 session=ctx.session,
+                exclude_outlier_columns=exclude_outlier_columns,
             )
 
             if not quality_result.success:
@@ -185,4 +205,5 @@ class StatisticalQualityPhase(BasePhase):
             records_processed=total_columns_assessed,
             records_created=total_columns_assessed,
             warnings=warnings if warnings else None,
+            summary=f"{total_columns_assessed} columns assessed, {benford_violations} Benford violations, {outlier_columns} outlier columns",
         )
