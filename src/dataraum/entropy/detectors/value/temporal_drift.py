@@ -33,11 +33,19 @@ class TemporalDriftDetector(EntropyDetector):
     # IDs naturally differ across periods (JS divergence = ln(2) guaranteed).
     _SKIP_ROLES = frozenset({"key", "foreign_key", "identifier"})
 
+    # Columns with cardinality ratio above this are near-unique (IDs, references)
+    # and naturally produce max JS divergence — skip to avoid false positives.
+    _CARDINALITY_SKIP_THRESHOLD = 0.90
+
     def load_data(self, context: DetectorContext) -> None:
-        """Load drift summaries and semantic annotation for this column."""
+        """Load drift summaries, semantic annotation, and statistics for this column."""
         if context.session is None or context.column_id is None or context.table_id is None:
             return
-        from dataraum.entropy.detectors.loaders import load_drift_summaries, load_semantic
+        from dataraum.entropy.detectors.loaders import (
+            load_drift_summaries,
+            load_semantic,
+            load_statistics,
+        )
 
         drift = load_drift_summaries(
             context.session, context.column_id, context.table_id, context.table_name
@@ -47,6 +55,9 @@ class TemporalDriftDetector(EntropyDetector):
         sem = load_semantic(context.session, context.column_id)
         if sem is not None:
             context.analysis_results["semantic"] = sem
+        stats = load_statistics(context.session, context.column_id)
+        if stats is not None:
+            context.analysis_results["statistics"] = stats
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect temporal drift entropy for a column.
@@ -64,6 +75,15 @@ class TemporalDriftDetector(EntropyDetector):
         else:
             role = semantic.get("semantic_role")
         if role in self._SKIP_ROLES:
+            return []
+
+        # Skip high-cardinality columns — near-unique values (references, codes)
+        # produce max JS divergence by construction, not from real drift
+        stats = context.get_analysis("statistics", {})
+        cardinality = getattr(stats, "cardinality_ratio", None)
+        if cardinality is None and isinstance(stats, dict):
+            cardinality = stats.get("cardinality_ratio")
+        if cardinality is not None and cardinality > self._CARDINALITY_SKIP_THRESHOLD:
             return []
 
         drift_summaries = context.get_analysis("drift_summaries", [])
