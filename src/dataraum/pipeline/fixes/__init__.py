@@ -136,8 +136,7 @@ def _apply_operation(
     elif operation == "merge":
         if not isinstance(value, dict):
             raise ValueError(
-                f"Cannot merge non-dict value at '{'.'.join(key_path)}': "
-                f"got {type(value).__name__}"
+                f"Cannot merge non-dict value at '{'.'.join(key_path)}': got {type(value).__name__}"
             )
         existing = current.get(target_key)
         if existing is None:

@@ -44,5 +44,3 @@ def load_column_mappings(
     )
     result = session.execute(stmt)
     return {(table_name, col_name): col_id for table_name, col_name, col_id in result.all()}
-
-

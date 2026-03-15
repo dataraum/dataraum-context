@@ -85,9 +85,7 @@ class TypingPhase(BasePhase):
         )
         if raw_table_ids:
             raw_col_ids = list(
-                session.execute(
-                    select(Column.column_id).where(Column.table_id.in_(raw_table_ids))
-                )
+                session.execute(select(Column.column_id).where(Column.table_id.in_(raw_table_ids)))
                 .scalars()
                 .all()
             )
@@ -255,8 +253,8 @@ class TypingPhase(BasePhase):
 
         for table_id in raw_table_ids:
             # Load table with columns
-            table_stmt = select(Table).where(Table.table_id == table_id).options(
-                selectinload(Table.columns)
+            table_stmt = (
+                select(Table).where(Table.table_id == table_id).options(selectinload(Table.columns))
             )
             result = ctx.session.execute(table_stmt)
             table = result.scalar_one_or_none()

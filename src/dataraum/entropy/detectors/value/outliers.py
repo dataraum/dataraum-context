@@ -116,9 +116,11 @@ class OutlierRateDetector(EntropyDetector):
         suggest_winsorize = detector_config.get("suggest_winsorize_threshold", 0.2)
         suggest_exclude = detector_config.get("suggest_exclude_threshold", 0.5)
         cv_attenuation_threshold = detector_config.get("cv_attenuation_threshold", 2.0)
-        score_accepted = self.config.get("score_accepted") or detector_config.get("score_accepted", 0.2)
-        accepted_columns: list[str] = (
-            self.config.get("accepted_columns") or detector_config.get("accepted_columns", [])
+        score_accepted = self.config.get("score_accepted") or detector_config.get(
+            "score_accepted", 0.2
+        )
+        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
+            "accepted_columns", []
         )
         stats = context.get_analysis("statistics", {})
 

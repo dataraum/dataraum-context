@@ -149,14 +149,14 @@ class TypeFidelityDetector(EntropyDetector):
                         type="duckdb_sql",
                         required=True,
                         description=(
-                            'DuckDB expression to parse the value into a date/timestamp. '
-                            'Use STRPTIME with {col} placeholder. '
-                            'Examples: STRPTIME("{col}", \'%Y-%m\'), '
-                            'STRPTIME("{col}", \'%d/%m/%Y\')'
+                            "DuckDB expression to parse the value into a date/timestamp. "
+                            "Use STRPTIME with {col} placeholder. "
+                            "Examples: STRPTIME(\"{col}\", '%Y-%m'), "
+                            "STRPTIME(\"{col}\", '%d/%m/%Y')"
                         ),
                     ),
                 },
-            )
+            ),
         ]
 
     def load_data(self, context: DetectorContext) -> None:
@@ -186,9 +186,11 @@ class TypeFidelityDetector(EntropyDetector):
         suggest_override = detector_config.get("suggest_override_threshold", 0.3)
         suggest_quarantine = detector_config.get("suggest_quarantine_threshold", 0.1)
         score_fallback = detector_config.get("score_fallback", 0.5)
-        score_accepted = self.config.get("score_accepted") or detector_config.get("score_accepted", 0.2)
-        accepted_columns: list[str] = (
-            self.config.get("accepted_columns") or detector_config.get("accepted_columns", [])
+        score_accepted = self.config.get("score_accepted") or detector_config.get(
+            "score_accepted", 0.2
+        )
+        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
+            "accepted_columns", []
         )
 
         typing_result = context.get_analysis("typing", {})

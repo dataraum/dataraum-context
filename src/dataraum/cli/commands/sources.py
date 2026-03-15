@@ -203,7 +203,9 @@ def discover(
         console.print(f"[yellow]No data files found in {path}[/yellow]")
         return
 
-    table = RichTable(title=f"Data Files in {result.scan_root}", show_header=True, header_style="bold")
+    table = RichTable(
+        title=f"Data Files in {result.scan_root}", show_header=True, header_style="bold"
+    )
     table.add_column("Path")
     table.add_column("Format")
     table.add_column("Size")

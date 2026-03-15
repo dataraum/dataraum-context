@@ -365,10 +365,7 @@ def _drive_pipeline(
                             )
                     if event.skipped_detectors and not quiet:
                         for sd in event.skipped_detectors:
-                            console.print(
-                                f"  [dim]~ {sd['detector_id']}: "
-                                f"{sd['reason']}[/dim]"
-                            )
+                            console.print(f"  [dim]~ {sd['detector_id']}: {sd['reason']}[/dim]")
 
                 case EventType.EXIT_CHECK:
                     if live:

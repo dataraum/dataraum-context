@@ -98,10 +98,10 @@ class TemporalEntropyDetector(EntropyDetector):
                         type="duckdb_sql",
                         required=True,
                         description=(
-                            'DuckDB expression to parse the value into a date/timestamp. '
-                            'Use STRPTIME with {col} placeholder. '
-                            'Examples: STRPTIME("{col}", \'%Y-%m\'), '
-                            'STRPTIME("{col}", \'%d/%m/%Y\')'
+                            "DuckDB expression to parse the value into a date/timestamp. "
+                            "Use STRPTIME with {col} placeholder. "
+                            "Examples: STRPTIME(\"{col}\", '%Y-%m'), "
+                            "STRPTIME(\"{col}\", '%d/%m/%Y')"
                         ),
                     ),
                 },
@@ -167,7 +167,9 @@ class TemporalEntropyDetector(EntropyDetector):
         if hasattr(semantic, "temporal_behavior"):
             temporal_behavior = semantic.temporal_behavior
         else:
-            temporal_behavior = semantic.get("temporal_behavior") if isinstance(semantic, dict) else None
+            temporal_behavior = (
+                semantic.get("temporal_behavior") if isinstance(semantic, dict) else None
+            )
 
         # Check if column is marked as timestamp via semantic_role only.
         # temporal_behavior is NOT used here — it contains aggregation semantics

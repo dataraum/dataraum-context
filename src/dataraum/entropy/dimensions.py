@@ -78,5 +78,3 @@ class SubDimension(_StrValueMixin):
     CROSS_COLUMN_PATTERNS = "cross_column_patterns"
     COLUMN_QUALITY = "column_quality"
     DIMENSION_COVERAGE = "dimension_coverage"
-
-

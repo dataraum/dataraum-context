@@ -109,9 +109,7 @@ class PipelineScheduler:
         for name, phase in phases.items():
             unknown = [d for d in phase.dependencies if d not in phases]
             if unknown:
-                raise ValueError(
-                    f"Phase {name!r} declares unknown dependencies: {unknown}"
-                )
+                raise ValueError(f"Phase {name!r} declares unknown dependencies: {unknown}")
 
         self.phases = phases
         self.source_id = source_id
@@ -124,9 +122,7 @@ class PipelineScheduler:
         self.session_factory = session_factory
         self.manager = manager
         # Internal state
-        self._state: dict[str, PhaseStatus] = dict.fromkeys(
-            phases, PhaseStatus.PENDING
-        )
+        self._state: dict[str, PhaseStatus] = dict.fromkeys(phases, PhaseStatus.PENDING)
         self._step = 0
 
         # Validate analysis coverage: warn if detectors require analyses
@@ -169,9 +165,7 @@ class PipelineScheduler:
                     skip_reason = phase.should_skip(ctx)
                     if skip_reason:
                         self._state[phase_name] = PhaseStatus.SKIPPED
-                        self._write_phase_log(
-                            phase_name, "skipped", error=skip_reason
-                        )
+                        self._write_phase_log(phase_name, "skipped", error=skip_reason)
                         yield self._event(
                             EventType.PHASE_SKIPPED,
                             phase=phase_name,
@@ -185,12 +179,10 @@ class PipelineScheduler:
                     continue
 
                 # 2. Execute phases
-                use_parallel = (
-                    len(to_run) > 1 and self.session_factory is not None
-                )
+                use_parallel = len(to_run) > 1 and self.session_factory is not None
                 if use_parallel:
-                    wave_results: list[tuple[str, PhaseResult]] = (
-                        yield from self._run_parallel(to_run, total)
+                    wave_results: list[tuple[str, PhaseResult]] = yield from self._run_parallel(
+                        to_run, total
                     )
                 else:
                     wave_results = yield from self._run_sequential(to_run, total)
@@ -211,10 +203,7 @@ class PipelineScheduler:
 
                 for phase_name, _result in wave_results:
                     phase = self.phases[phase_name]
-                    if (
-                        self._state[phase_name] == PhaseStatus.COMPLETED
-                        and phase.is_quality_gate
-                    ):
+                    if self._state[phase_name] == PhaseStatus.COMPLETED and phase.is_quality_gate:
                         available = self._available_analyses()
                         gate_result = measure_at_gate(
                             self.session,
@@ -427,9 +416,7 @@ class PipelineScheduler:
 
         max_workers = min(len(phase_names), 4)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {
-                pool.submit(self._run_phase, name): name for name in phase_names
-            }
+            futures = {pool.submit(self._run_phase, name): name for name in phase_names}
             for future in as_completed(futures):
                 phase_name = futures[future]
                 try:
@@ -438,9 +425,7 @@ class PipelineScheduler:
                     # Phase raised an unhandled exception
                     result = PhaseResult.failed(str(exc))
                     started_at = datetime.now(UTC)
-                yield from self._record_phase(
-                    phase_name, result, started_at, total
-                )
+                yield from self._record_phase(phase_name, result, started_at, total)
                 results.append((phase_name, result))
 
         return results
@@ -557,11 +542,7 @@ class PipelineScheduler:
 
         detector_registry = get_default_registry()
         for detector in detector_registry.get_all_detectors():
-            missing = [
-                str(a)
-                for a in detector.required_analyses
-                if a not in all_produced
-            ]
+            missing = [str(a) for a in detector.required_analyses if a not in all_produced]
             if missing:
                 logger.warning(
                     "detector_analysis_gap",
@@ -617,9 +598,7 @@ class PipelineScheduler:
             table_name, column_name = parsed[0]
             dimension = schema.requires_rerun or ""
 
-            documents = build_fix_documents(
-                schema, fix_input, table_name, column_name, dimension
-            )
+            documents = build_fix_documents(schema, fix_input, table_name, column_name, dimension)
 
             if documents:
                 apply_and_persist(
@@ -668,9 +647,7 @@ class PipelineScheduler:
             for phase_name in phases_to_rerun:
                 if phase_name in self.phases:
                     self._invalidate_downstream(phase_name)
-                    cleanup_phase(
-                        phase_name, self.source_id, self.session, self.duckdb_conn
-                    )
+                    cleanup_phase(phase_name, self.source_id, self.session, self.duckdb_conn)
                     self._state[phase_name] = PhaseStatus.PENDING
 
             if phases_to_rerun:
@@ -697,9 +674,7 @@ class PipelineScheduler:
         detector_registry = get_default_registry()
 
         # Build dim_path -> detector lookup for matching issues
-        detector_by_path = {
-            d.dimension_path: d for d in detector_registry.get_all_detectors()
-        }
+        detector_by_path = {d.dimension_path: d for d in detector_registry.get_all_detectors()}
 
         result: dict[str, list[dict[str, str]]] = {}
         for issue in issues:
@@ -750,9 +725,7 @@ class PipelineScheduler:
         for dep_name in dependents:
             dep_status = self._state[dep_name]
             if dep_status == PhaseStatus.COMPLETED:
-                cleanup_phase(
-                    dep_name, self.source_id, self.session, self.duckdb_conn
-                )
+                cleanup_phase(dep_name, self.source_id, self.session, self.duckdb_conn)
                 self._state[dep_name] = PhaseStatus.PENDING
             elif dep_status in (PhaseStatus.SKIPPED, PhaseStatus.FAILED):
                 self._state[dep_name] = PhaseStatus.PENDING

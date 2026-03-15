@@ -26,12 +26,8 @@ class FixLedgerEntry(Base):
 
     __tablename__ = "fix_ledger"
 
-    fix_id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4())
-    )
-    source_id: Mapped[str] = mapped_column(
-        ForeignKey("sources.source_id"), nullable=False
-    )
+    fix_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.source_id"), nullable=False)
 
     # What action this resolves
     action_name: Mapped[str] = mapped_column(String, nullable=False)

@@ -160,9 +160,7 @@ class StatisticalQualityPhase(BasePhase):
         outlier_columns = 0
         warnings = []
 
-        exclude_outlier_columns: set[str] = set(
-            ctx.config.get("exclude_outlier_columns", [])
-        )
+        exclude_outlier_columns: set[str] = set(ctx.config.get("exclude_outlier_columns", []))
 
         for typed_table in unassessed_tables:
             quality_result = assess_statistical_quality(

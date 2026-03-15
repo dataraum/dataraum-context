@@ -123,9 +123,11 @@ class BenfordDetector(EntropyDetector):
         chi_sq_escalation_threshold = detector_config.get("chi_sq_escalation_threshold", 0.01)
         v_max = detector_config.get("cramers_v_max", 0.5)
         min_sample_size = detector_config.get("min_sample_size", 100)
-        score_accepted = self.config.get("score_accepted") or detector_config.get("score_accepted", 0.2)
-        accepted_columns: list[str] = (
-            self.config.get("accepted_columns") or detector_config.get("accepted_columns", [])
+        score_accepted = self.config.get("score_accepted") or detector_config.get(
+            "score_accepted", 0.2
+        )
+        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
+            "accepted_columns", []
         )
 
         stats = context.get_analysis("statistics", {})

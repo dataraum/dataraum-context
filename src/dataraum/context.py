@@ -678,9 +678,7 @@ class SourcesAccessor:
                 "columns": len(info.columns) if info.columns else 0,
             }
 
-    def discover(
-        self, path: str | Path, recursive: bool = True
-    ) -> builtins.list[dict[str, Any]]:
+    def discover(self, path: str | Path, recursive: bool = True) -> builtins.list[dict[str, Any]]:
         """Scan a directory for data files.
 
         Args:
@@ -730,6 +728,7 @@ class SourcesAccessor:
 # ---------------------------------------------------------------------------
 # Result wrappers with Jupyter HTML rendering
 # ---------------------------------------------------------------------------
+
 
 def _score_color(score: float) -> str:
     """Return CSS color for an entropy score."""
@@ -894,8 +893,7 @@ class ActionsResultWrapper:
 
         parts = [f"<h3>Resolution Actions ({len(self._actions)})</h3>"]
         parts.append(
-            "<table><tr><th>#</th><th>Action</th>"
-            "<th>Score</th><th>Effort</th><th>Columns</th></tr>"
+            "<table><tr><th>#</th><th>Action</th><th>Score</th><th>Effort</th><th>Columns</th></tr>"
         )
 
         for i, action in enumerate(self._actions, 1):
@@ -958,9 +956,7 @@ class RunResultWrapper:
 
         if failed:
             escaped_failed = ", ".join(html_mod.escape(p) for p in failed)
-            parts.append(
-                f"<b style='color:#e74c3c'>Failed:</b> {escaped_failed}<br>"
-            )
+            parts.append(f"<b style='color:#e74c3c'>Failed:</b> {escaped_failed}<br>")
 
         error = self._data.get("error")
         if error:

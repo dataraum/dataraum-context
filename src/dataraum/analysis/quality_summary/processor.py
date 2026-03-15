@@ -250,9 +250,7 @@ def aggregate_slice_results(
                     threshold=min_slice_rows,
                 )
             if not slice_tables:
-                return Result.fail(
-                    f"All slice tables below {min_slice_rows} row minimum"
-                )
+                return Result.fail(f"All slice tables below {min_slice_rows} row minimum")
 
         # Build aggregated data for each source column
         aggregated: list[AggregatedColumnData] = []

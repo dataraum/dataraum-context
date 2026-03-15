@@ -103,7 +103,10 @@ class PatternConfig:
                         # Default inferred_type to DATE for override patterns
                         # with standardization_expr (date/time parsing patterns).
                         defaults: dict[str, Any] = {"name": name}
-                        if "standardization_expr" in pattern_dict and "inferred_type" not in pattern_dict:
+                        if (
+                            "standardization_expr" in pattern_dict
+                            and "inferred_type" not in pattern_dict
+                        ):
                             defaults["inferred_type"] = "DATE"
                         pattern_dict_with_name = {**defaults, **pattern_dict}
                         self._patterns.append(

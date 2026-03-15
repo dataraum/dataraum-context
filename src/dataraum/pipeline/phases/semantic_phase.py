@@ -302,9 +302,7 @@ class SemanticPhase(BasePhase):
                 label += f" ({kind})"
             previews.append(label)
         for r in enrichment.relationships:
-            previews.append(
-                f"{r.from_table}.{r.from_column} \u2192 {r.to_table}.{r.to_column}"
-            )
+            previews.append(f"{r.from_table}.{r.from_column} \u2192 {r.to_table}.{r.to_column}")
 
         return PhaseResult.success(
             outputs={
@@ -354,14 +352,11 @@ def _apply_semantic_overrides(
         return
 
     # Build column lookup: "table.column" -> column_id
-    cols = (
-        session.execute(
-            select(Column, Table.table_name)
-            .join(Table, Column.table_id == Table.table_id)
-            .where(Column.table_id.in_(table_ids))
-        )
-        .all()
-    )
+    cols = session.execute(
+        select(Column, Table.table_name)
+        .join(Table, Column.table_id == Table.table_id)
+        .where(Column.table_id.in_(table_ids))
+    ).all()
     col_lookup: dict[str, str] = {}
     for col, tbl_name in cols:
         col_lookup[f"{tbl_name}.{col.column_name}"] = col.column_id

@@ -138,9 +138,7 @@ class ColumnQualityDetector(EntropyDetector):
         result: dict[str, Any] = {}
         for col_name, data in grouped.items():
             col_reports = data["reports"]
-            avg_quality_score = sum(r.overall_quality_score for r in col_reports) / len(
-                col_reports
-            )
+            avg_quality_score = sum(r.overall_quality_score for r in col_reports) / len(col_reports)
             grades = [r.quality_grade for r in col_reports]
 
             all_key_findings: list[str] = []

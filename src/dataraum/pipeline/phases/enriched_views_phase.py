@@ -278,7 +278,10 @@ class EnrichedViewsPhase(BasePhase):
 
             # Register and profile dimension columns
             view_table = self._register_and_profile_dim_columns(
-                ctx, fact_table, view_name, dim_columns,
+                ctx,
+                fact_table,
+                view_name,
+                dim_columns,
             )
 
             if existing_view:

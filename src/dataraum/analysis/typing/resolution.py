@@ -158,7 +158,11 @@ def _select_best_candidates(
         candidates = sorted(col.type_candidates, key=lambda c: c.confidence, reverse=True)
         if candidates and candidates[0].confidence >= min_confidence:
             best = candidates[0]
-            pattern = _resolve_pattern(best.detected_pattern, patterns_by_name) if best.detected_pattern else None
+            pattern = (
+                _resolve_pattern(best.detected_pattern, patterns_by_name)
+                if best.detected_pattern
+                else None
+            )
             specs.append(
                 ColumnTypeSpec(
                     column_id=col.column_id,
@@ -283,8 +287,10 @@ def resolve_types(
 
     # Select best candidates
     specs = _select_best_candidates(
-        table.columns, min_confidence,
-        table_name=table.table_name, forced_types=forced_types,
+        table.columns,
+        min_confidence,
+        table_name=table.table_name,
+        forced_types=forced_types,
     )
 
     # Persist TypeDecision records for columns that don't already have one

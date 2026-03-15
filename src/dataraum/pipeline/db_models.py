@@ -50,9 +50,7 @@ class PhaseLog(Base):
 
     __tablename__ = "phase_logs"
 
-    log_id: Mapped[str] = mapped_column(
-        String, primary_key=True, default=lambda: str(uuid4())
-    )
+    log_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     run_id: Mapped[str] = mapped_column(
         ForeignKey("pipeline_runs.run_id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -65,5 +63,3 @@ class PhaseLog(Base):
     error: Mapped[str | None] = mapped_column(String)
     entropy_scores: Mapped[dict[str, float] | None] = mapped_column(JSON)
     outputs: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
-
-

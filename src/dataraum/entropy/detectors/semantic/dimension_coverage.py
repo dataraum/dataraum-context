@@ -152,9 +152,7 @@ class DimensionCoverageDetector(EntropyDetector):
         col_name_by_id = {c.column_id: c.column_name for c in columns}
 
         # Get profiles
-        prof_stmt = select(StatisticalProfile).where(
-            StatisticalProfile.column_id.in_(col_ids)
-        )
+        prof_stmt = select(StatisticalProfile).where(StatisticalProfile.column_id.in_(col_ids))
         profiles = context.session.execute(prof_stmt).scalars().all()
 
         return {

@@ -161,9 +161,7 @@ def _build_keyed_documents(
     # Exclude key_template fields from the value dict
     key_fields = _extract_template_fields(schema.key_template)
     value = {
-        k: v
-        for k, v in fix_input.parameters.items()
-        if k in schema.fields and k not in key_fields
+        k: v for k, v in fix_input.parameters.items() if k in schema.fields and k not in key_fields
     }
 
     reason = fix_input.interpretation or f"{schema.action}: {key_suffix}"
@@ -202,7 +200,5 @@ def _extract_template_fields(template: str) -> set[str]:
 
     formatter = string.Formatter()
     return {
-        field_name
-        for _, field_name, _, _ in formatter.parse(template)
-        if field_name is not None
+        field_name for _, field_name, _, _ in formatter.parse(template) if field_name is not None
     }

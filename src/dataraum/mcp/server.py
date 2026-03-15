@@ -298,7 +298,13 @@ def create_server(output_dir: Path | None = None) -> Server:
                             "description": "List of fix documents to apply",
                             "items": {
                                 "type": "object",
-                                "required": ["target", "action", "table_name", "dimension", "payload"],
+                                "required": [
+                                    "target",
+                                    "action",
+                                    "table_name",
+                                    "dimension",
+                                    "payload",
+                                ],
                                 "properties": {
                                     "target": {
                                         "type": "string",
@@ -763,15 +769,11 @@ def _get_quality(
 
             # --- Contract section ---
             if "contract" in sections_to_include:
-                sections["contract"] = _build_contract_section(
-                    column_summaries, contract_name
-                )
+                sections["contract"] = _build_contract_section(column_summaries, contract_name)
 
             # --- Actions section ---
             if "actions" in sections_to_include:
-                sections["actions"] = _build_actions_section(
-                    session, source, priority, table_name
-                )
+                sections["actions"] = _build_actions_section(session, source, priority, table_name)
 
             return format_quality_report(sections)
     finally:
@@ -807,9 +809,7 @@ def _build_entropy_section(
         EntropyInterpretationRecord.column_id.isnot(None),
     )
     if table_name:
-        interp_query = interp_query.where(
-            EntropyInterpretationRecord.table_name == table_name
-        )
+        interp_query = interp_query.where(EntropyInterpretationRecord.table_name == table_name)
     interp_query = interp_query.order_by(
         EntropyInterpretationRecord.table_name,
         EntropyInterpretationRecord.column_name,
@@ -823,9 +823,7 @@ def _build_entropy_section(
         for summary in column_summaries.values():
             for dim_path, score in summary.dimension_scores.items():
                 dim_totals.setdefault(dim_path, []).append(score)
-        dimension_scores = {
-            dim: sum(scores) / len(scores) for dim, scores in dim_totals.items()
-        }
+        dimension_scores = {dim: sum(scores) / len(scores) for dim, scores in dim_totals.items()}
 
     result = format_entropy_summary(
         source.name, snapshot, interpretations, table_name, dimension_scores
@@ -1138,9 +1136,7 @@ def _export(
 
                 exported = export_query_result(qr, dest, fmt=export_fmt)
                 sidecar = exported.with_suffix(exported.suffix + ".meta.json")
-                return format_export_result(
-                    str(exported), fmt, len(qr.data), str(sidecar)
-                )
+                return format_export_result(str(exported), fmt, len(qr.data), str(sidecar))
         else:
             # Export raw SQL
             assert sql is not None
@@ -1226,9 +1222,7 @@ def _apply_fix(
                 delta = a - b
                 if abs(delta) > 0.001:
                     sign = "+" if delta > 0 else ""
-                    lines.append(
-                        f"| {dim} | {target} | {b:.3f} | {a:.3f} | {sign}{delta:.3f} |"
-                    )
+                    lines.append(f"| {dim} | {target} | {b:.3f} | {a:.3f} | {sign}{delta:.3f} |")
 
     return "\n".join(lines)
 

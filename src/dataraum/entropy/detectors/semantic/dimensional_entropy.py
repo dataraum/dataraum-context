@@ -204,9 +204,7 @@ class DimensionalEntropyDetector(EntropyDetector):
         if context.session is None or context.table_id is None:
             return
 
-        result = self._load_slice_variance(
-            context.session, context.table_id, context.table_name
-        )
+        result = self._load_slice_variance(context.session, context.table_id, context.table_name)
         if result is not None:
             context.analysis_results["slice_variance"] = result["slice_variance"]
             context.analysis_results["drift_summaries"] = result["drift_summaries"]
@@ -322,9 +320,7 @@ class DimensionalEntropyDetector(EntropyDetector):
         # Load drift summaries for slice tables
         col_name_by_id = {c.column_id: c.column_name for c in table_columns}
         slice_defs = list(
-            session.execute(
-                select(SliceDefinition).where(SliceDefinition.table_id == table_id)
-            )
+            session.execute(select(SliceDefinition).where(SliceDefinition.table_id == table_id))
             .scalars()
             .all()
         )
@@ -334,9 +330,7 @@ class DimensionalEntropyDetector(EntropyDetector):
             sd_col_name = sd.column_name or col_name_by_id.get(sd.column_id)
             if sd_col_name and sd.distinct_values:
                 for value in sd.distinct_values:
-                    slice_table_names.append(
-                        _get_slice_table_name(table_name, sd_col_name, value)
-                    )
+                    slice_table_names.append(_get_slice_table_name(table_name, sd_col_name, value))
 
         drift_summaries: list[Any] = []
         if slice_table_names:

@@ -69,15 +69,12 @@ def fix(
             while True:
                 # Filter out actions already fully covered by fixes
                 active_fixes = get_active_fixes(session, source.source_id)
-                fixed_keys = {
-                    (f.action_name, f.table_name, f.column_name) for f in active_fixes
-                }
+                fixed_keys = {(f.action_name, f.table_name, f.column_name) for f in active_fixes}
                 pending_actions = []
                 for action in doc_actions:
                     cols = action.get("affected_columns", [])
                     unfixed = [
-                        c for c in cols
-                        if _col_ref_to_key(action["action"], c) not in fixed_keys
+                        c for c in cols if _col_ref_to_key(action["action"], c) not in fixed_keys
                     ]
                     if unfixed:
                         pending_actions.append(action)
@@ -180,7 +177,9 @@ def fix(
                                         console.print(f"  {j}. {choice_text}")
                                 console.print("[dim]  (type 'c' to clarify again)[/dim]")
                         else:
-                            console.print("[yellow]Could not clarify. Please answer as best you can.[/yellow]")
+                            console.print(
+                                "[yellow]Could not clarify. Please answer as best you can.[/yellow]"
+                            )
                         answer = console.input("[green]> [/green]").strip()
 
                     # Resolve multiple choice number to text
@@ -218,9 +217,13 @@ def fix(
                     fix_status = "confirmed"
                 else:
                     console.print("[yellow]This action doesn't apply to this data.[/yellow]")
-                    choice = console.input(
-                        "[bold][r]eject permanently / [s]kip / [a]pply anyway: [/bold]"
-                    ).strip().lower()
+                    choice = (
+                        console.input(
+                            "[bold][r]eject permanently / [s]kip / [a]pply anyway: [/bold]"
+                        )
+                        .strip()
+                        .lower()
+                    )
                     if choice == "r":
                         fix_status = "rejected"
                     elif choice == "a":
@@ -351,13 +354,9 @@ def _build_agent_context(session: Any, action: dict[str, Any], source_id: str) -
             EntropyInterpretationRecord.table_name == table_name,
         )
         if column_name:
-            interp_stmt = interp_stmt.where(
-                EntropyInterpretationRecord.column_name == column_name
-            )
+            interp_stmt = interp_stmt.where(EntropyInterpretationRecord.column_name == column_name)
         else:
-            interp_stmt = interp_stmt.where(
-                EntropyInterpretationRecord.column_name.is_(None)
-            )
+            interp_stmt = interp_stmt.where(EntropyInterpretationRecord.column_name.is_(None))
 
         interp_rec = session.execute(interp_stmt).scalars().first()
         if interp_rec:
@@ -515,7 +514,10 @@ def _build_agent_context(session: Any, action: dict[str, Any], source_id: str) -
 
 
 def _rerun_pipeline(
-    session: Any, source: Any, output_dir: Path, manager: Any,
+    session: Any,
+    source: Any,
+    output_dir: Path,
+    manager: Any,
 ) -> None:
     """Re-run semantic + downstream phases and show entropy impact."""
     from dataraum.entropy.actions import load_actions
@@ -606,10 +608,7 @@ def _snapshot_entropy(session: Any, source_id: str) -> dict[str, float]:
         )
     )
     rows = session.execute(stmt).all()
-    return {
-        f"{layer}.{dim}.{sub}": float(avg)
-        for layer, dim, sub, avg in rows
-    }
+    return {f"{layer}.{dim}.{sub}": float(avg) for layer, dim, sub, avg in rows}
 
 
 def _drive_pipeline_quiet(
@@ -629,13 +628,9 @@ def _drive_pipeline_quiet(
                         f"  [green]\u2713[/green] {event.phase} ({event.duration_seconds:.1f}s)"
                     )
                 case EventType.PHASE_FAILED:
-                    console.print(
-                        f"  [red]\u2717[/red] {event.phase}: {event.error}"
-                    )
+                    console.print(f"  [red]\u2717[/red] {event.phase}: {event.error}")
                 case EventType.PHASE_SKIPPED:
-                    console.print(
-                        f"  [yellow]\u25cb[/yellow] {event.phase}: {event.message}"
-                    )
+                    console.print(f"  [yellow]\u25cb[/yellow] {event.phase}: {event.message}")
                 case EventType.EXIT_CHECK:
                     # Auto-defer in re-run mode
                     event = gen.send(Resolution(action=ResolutionAction.DEFER))

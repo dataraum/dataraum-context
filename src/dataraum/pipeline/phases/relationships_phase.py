@@ -190,11 +190,7 @@ def _apply_relationship_overrides(
         return
 
     # Build table name lookup
-    tables = (
-        session.execute(select(Table).where(Table.table_id.in_(table_ids)))
-        .scalars()
-        .all()
-    )
+    tables = session.execute(select(Table).where(Table.table_id.in_(table_ids))).scalars().all()
     name_to_id = {t.table_name: t.table_id for t in tables}
 
     from datetime import UTC, datetime

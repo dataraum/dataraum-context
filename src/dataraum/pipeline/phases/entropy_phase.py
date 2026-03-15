@@ -186,9 +186,7 @@ class EntropyPhase(BasePhase):
                     total_entropy_objects += 1
 
             # --- Table-scoped detectors (dimensional_entropy, column_quality, etc.) ---
-            table_snapshot = take_snapshot(
-                target=f"table:{table.table_name}", session=ctx.session
-            )
+            table_snapshot = take_snapshot(target=f"table:{table.table_name}", session=ctx.session)
             all_domain_objects.extend(table_snapshot.objects)
 
             logger.debug(

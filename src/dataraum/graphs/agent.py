@@ -66,7 +66,6 @@ class GeneratedCode:
     generated_at: datetime
 
 
-
 @dataclass
 class ExecutionContext:
     """Context for graph execution."""
@@ -257,9 +256,7 @@ class GraphAgent(LLMFeature):
                 from dataraum.query.snippet_library import SnippetLibrary
 
                 failed_ids = [
-                    s["snippet_id"]
-                    for s in cached_snippets.values()
-                    if s.get("snippet_id")
+                    s["snippet_id"] for s in cached_snippets.values() if s.get("snippet_id")
                 ]
                 SnippetLibrary(session).record_failure(failed_ids)
             return Result.fail(exec_result.error or "SQL execution failed")

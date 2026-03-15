@@ -167,9 +167,7 @@ def _write_parquet_via_duckdb(
     import duckdb
 
     # Write to temp CSV, then convert via DuckDB COPY
-    with tempfile.NamedTemporaryFile(
-        suffix=".csv", delete=False, mode="w", newline=""
-    ) as f:
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w", newline="") as f:
         writer = csv_mod.DictWriter(f, fieldnames=columns)
         writer.writeheader()
         writer.writerows(data)
@@ -178,8 +176,7 @@ def _write_parquet_via_duckdb(
     conn = duckdb.connect()
     try:
         conn.execute(
-            f"COPY (SELECT * FROM read_csv('{tmp_csv}', header=true)) "
-            f"TO '{path}' (FORMAT PARQUET)"
+            f"COPY (SELECT * FROM read_csv('{tmp_csv}', header=true)) TO '{path}' (FORMAT PARQUET)"
         )
     finally:
         conn.close()

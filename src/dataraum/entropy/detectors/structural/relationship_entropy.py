@@ -114,7 +114,7 @@ class RelationshipEntropyDetector(EntropyDetector):
                         enum_values=["one_to_one", "one_to_many", "many_to_one", "many_to_many"],
                     ),
                 },
-            )
+            ),
         ]
 
     def load_data(self, context: DetectorContext) -> None:
@@ -146,9 +146,11 @@ class RelationshipEntropyDetector(EntropyDetector):
         detector_config = config.detector("relationship_entropy")
 
         # Accepted columns
-        score_accepted = self.config.get("score_accepted") or detector_config.get("score_accepted", 0.2)
-        accepted_columns: list[str] = (
-            self.config.get("accepted_columns") or detector_config.get("accepted_columns", [])
+        score_accepted = self.config.get("score_accepted") or detector_config.get(
+            "score_accepted", 0.2
+        )
+        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
+            "accepted_columns", []
         )
 
         # Configurable scores for unknown values

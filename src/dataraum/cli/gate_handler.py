@@ -65,7 +65,11 @@ def handle_exit_check(
 
         case GateMode.PAUSE:
             return _handle_pause(
-                console, event, contract_thresholds, session, source_id,
+                console,
+                event,
+                contract_thresholds,
+                session,
+                source_id,
             )
 
         case _:
@@ -300,7 +304,9 @@ def _handle_pause(
             f"  \\[{i}] [bold]{group.label}[/bold] "
             f"[dim]({group.dimension}, score {group.score:.2f})[/dim]"
         )
-        console.print(f"      {len(group.actions)} action{'s' if len(group.actions) != 1 else ''}: {action_names}")
+        console.print(
+            f"      {len(group.actions)} action{'s' if len(group.actions) != 1 else ''}: {action_names}"
+        )
     console.print()
     console.print("  \\[d] Defer — continue pipeline, address later")
     console.print("  \\[a] Abort — stop pipeline")
@@ -384,12 +390,14 @@ def _collect_fix_groups(
             actions.append(entry)
 
         if actions:
-            groups.append(_DimensionFixGroup(
-                dimension=dim_path,
-                score=score,
-                threshold=threshold,
-                actions=actions,
-            ))
+            groups.append(
+                _DimensionFixGroup(
+                    dimension=dim_path,
+                    score=score,
+                    threshold=threshold,
+                    actions=actions,
+                )
+            )
 
     # Sort by gap descending (worst violation first)
     groups.sort(key=lambda g: g.score - g.threshold, reverse=True)
@@ -461,9 +469,7 @@ def _run_fix_flow(
 
     dim_path = group.dimension
     registry = get_default_registry()
-    interp_result = agent.interpret_config_answers(
-        context, user_answers, parameter_schema=None
-    )
+    interp_result = agent.interpret_config_answers(context, user_answers, parameter_schema=None)
     if not interp_result.success:
         console.print(f"[red]Error: {interp_result.error}[/red]")
         return Resolution(action=ResolutionAction.DEFER)
@@ -481,7 +487,9 @@ def _run_fix_flow(
     if schema:
         errors = schema.validate_payload(interp.parameters)
         if errors:
-            console.print(f"[red]LLM returned invalid parameters for {action_name}: {'; '.join(errors)}[/red]")
+            console.print(
+                f"[red]LLM returned invalid parameters for {action_name}: {'; '.join(errors)}[/red]"
+            )
             console.print("[yellow]Deferring — try again or fix manually.[/yellow]")
             return Resolution(action=ResolutionAction.DEFER)
 
@@ -498,7 +506,9 @@ def _run_fix_flow(
 
     confirm = console.input("[bold]Apply fix? (y/n): [/bold]").strip().lower()
     if confirm != "y":
-        console.print(f"[yellow]Fix cancelled, deferring.[/yellow] [dim](input was {confirm!r})[/dim]")
+        console.print(
+            f"[yellow]Fix cancelled, deferring.[/yellow] [dim](input was {confirm!r})[/dim]"
+        )
         return Resolution(action=ResolutionAction.DEFER)
 
     # Thread entropy evidence into FixInput for audit trail
@@ -606,7 +616,8 @@ def build_gate_context(
 
 
 def _get_affected_targets(
-    dim_path: str, event: PipelineEvent,
+    dim_path: str,
+    event: PipelineEvent,
 ) -> list[str]:
     """Extract column/table targets that actually violate the contract.
 
@@ -621,14 +632,14 @@ def _get_affected_targets(
     _, threshold = event.violations.get(dim_path, (0.0, 0.0))
 
     return [
-        t
-        for t, s in sorted(col_scores.items(), key=lambda x: x[1], reverse=True)
-        if s > threshold
+        t for t, s in sorted(col_scores.items(), key=lambda x: x[1], reverse=True) if s > threshold
     ]
 
 
 def _build_data_profile(
-    session: Session, source_id: str, targets: list[str],
+    session: Session,
+    source_id: str,
+    targets: list[str],
 ) -> str:
     """Build data profile section from DB for affected targets.
 
@@ -659,7 +670,12 @@ def _build_data_profile(
                 select(Column, Table, StatisticalProfile)
                 .join(Table, Column.table_id == Table.table_id)
                 .outerjoin(StatisticalProfile, Column.column_id == StatisticalProfile.column_id)
-                .where(Table.source_id == source_id, Table.layer == "typed", Table.table_name == table_name, Column.column_name == column_name)
+                .where(
+                    Table.source_id == source_id,
+                    Table.layer == "typed",
+                    Table.table_name == table_name,
+                    Column.column_name == column_name,
+                )
                 .limit(1)
             )
             row = session.execute(stmt).first()

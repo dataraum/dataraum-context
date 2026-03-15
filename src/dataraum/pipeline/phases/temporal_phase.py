@@ -65,9 +65,7 @@ class TemporalPhase(BasePhase):
 
         if not column_ids:
             return 0
-        return exec_delete(
-            session, delete(TCP).where(TCP.column_id.in_(column_ids))
-        )
+        return exec_delete(session, delete(TCP).where(TCP.column_id.in_(column_ids)))
 
     @property
     def db_models(self) -> list[ModuleType]:

@@ -218,9 +218,7 @@ def run(config: RunConfig) -> Result[RunResult]:
 
         # Read phase logs for detailed results
         logs_stmt = select(PhaseLog).where(PhaseLog.run_id == setup.run_id)
-        phase_logs = {
-            log.phase_name: log for log in session.execute(logs_stmt).scalars().all()
-        }
+        phase_logs = {log.phase_name: log for log in session.execute(logs_stmt).scalars().all()}
 
         # Build phase results from logs
         phase_results: list[PhaseRunResult] = []
@@ -328,7 +326,9 @@ def _print_run_result(run_result: RunResult, config: RunConfig, warnings: list[s
         print("Phase Results")
         print("-" * 60)
         for phase in run_result.phases:
-            status_icon = {"completed": "\u2713", "failed": "\u2717", "skipped": "\u25cb"}.get(phase.status, "?")
+            status_icon = {"completed": "\u2713", "failed": "\u2717", "skipped": "\u25cb"}.get(
+                phase.status, "?"
+            )
             duration_str = f" ({phase.duration_seconds:.1f}s)" if phase.duration_seconds > 0 else ""
             print(f"  {status_icon} {phase.phase_name}: {phase.status}{duration_str}")
             if phase.error:

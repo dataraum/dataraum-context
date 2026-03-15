@@ -93,9 +93,7 @@ def load_statistics(session: Session, column_id: str) -> dict[str, Any] | None:
         "profile_data": sp.profile_data,
     }
     qm = session.execute(
-        select(StatisticalQualityMetrics).where(
-            StatisticalQualityMetrics.column_id == column_id
-        )
+        select(StatisticalQualityMetrics).where(StatisticalQualityMetrics.column_id == column_id)
     ).scalar_one_or_none()
     if qm:
         qd = qm.quality_data or {}
@@ -201,9 +199,7 @@ def load_relationships(
     ]
 
 
-def load_correlation(
-    session: Session, column_id: str, column_name: str
-) -> dict[str, Any] | None:
+def load_correlation(session: Session, column_id: str, column_name: str) -> dict[str, Any] | None:
     """Load derived column info for a column.
 
     Returns dict with derived_columns list or None if no derivations found.
@@ -260,9 +256,7 @@ def load_drift_summaries(
         .all()
     )
     # Load all columns in the table for name resolution
-    all_cols = (
-        session.execute(select(Column).where(Column.table_id == table_id)).scalars().all()
-    )
+    all_cols = session.execute(select(Column).where(Column.table_id == table_id)).scalars().all()
     col_name_map = {c.column_id: c.column_name for c in all_cols}
 
     # Resolve source table name for namespaced slice table names

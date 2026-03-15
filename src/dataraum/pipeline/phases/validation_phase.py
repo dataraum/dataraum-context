@@ -75,9 +75,7 @@ class ValidationPhase(BasePhase):
         # table_ids is a JSON array, so we check overlap in Python but only
         # project the minimal columns needed.
         table_id_set = {t.table_id for t in typed_tables}
-        rows = ctx.session.execute(
-            select(ValidationResultRecord.table_ids)
-        ).all()
+        rows = ctx.session.execute(select(ValidationResultRecord.table_ids)).all()
 
         for (result_table_ids,) in rows:
             if set(result_table_ids or []) & table_id_set:
@@ -149,9 +147,7 @@ class ValidationPhase(BasePhase):
         run_result = validation_result.unwrap()
 
         # Surface failed validations as warnings for CLI display
-        warnings = [
-            f"{r.validation_id}: {r.message}" for r in run_result.results if not r.passed
-        ]
+        warnings = [f"{r.validation_id}: {r.message}" for r in run_result.results if not r.passed]
 
         return PhaseResult.success(
             outputs={

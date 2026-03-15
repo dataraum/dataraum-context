@@ -109,11 +109,7 @@ def measure_at_gate(
 
     # Get all typed tables for this source
     typed_tables = (
-        session.execute(
-            select(Table).where(
-                Table.source_id == source_id, Table.layer == "typed"
-            )
-        )
+        session.execute(select(Table).where(Table.source_id == source_id, Table.layer == "typed"))
         .scalars()
         .all()
     )
@@ -126,9 +122,7 @@ def measure_at_gate(
     if col_dims:
         for table in typed_tables:
             columns = (
-                session.execute(
-                    select(ColumnModel).where(ColumnModel.table_id == table.table_id)
-                )
+                session.execute(select(ColumnModel).where(ColumnModel.table_id == table.table_id))
                 .scalars()
                 .all()
             )
@@ -170,9 +164,7 @@ def measure_at_gate(
         enriched_views = (
             session.execute(
                 select(EnrichedView).where(
-                    EnrichedView.fact_table_id.in_(
-                        [t.table_id for t in typed_tables]
-                    )
+                    EnrichedView.fact_table_id.in_([t.table_id for t in typed_tables])
                 )
             )
             .scalars()
@@ -194,9 +186,7 @@ def measure_at_gate(
                     actions_by_dim[str(obj.sub_dimension)].add(opt.action)
 
     # Build sub_dimension -> dimension_path mapping
-    sub_dim_to_path: dict[str, str] = {
-        str(d.sub_dimension): d.dimension_path for d in runnable
-    }
+    sub_dim_to_path: dict[str, str] = {str(d.sub_dimension): d.dimension_path for d in runnable}
 
     # Aggregate per dimension: max(mean, max²)
     # The squared-max term ensures a single bad column (e.g. VARCHAR date)
@@ -353,10 +343,7 @@ def persist_gate_result(
         return
 
     registry = get_default_registry()
-    detector_id_map = {
-        d.dimension_path: d.detector_id
-        for d in registry.get_all_detectors()
-    }
+    detector_id_map = {d.dimension_path: d.detector_id for d in registry.get_all_detectors()}
 
     log.entropy_scores = dict(gate_result.scores)
     existing_outputs = dict(log.outputs) if log.outputs else {}

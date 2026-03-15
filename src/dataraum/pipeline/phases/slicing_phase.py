@@ -338,11 +338,15 @@ class SlicingPhase(BasePhase):
 
                 # Build SQL using target table's enriched view
                 enriched_view = tdata.get("enriched_duckdb_path")
-                duckdb_table = enriched_view or tdata.get("duckdb_path", f"typed_{target_table_name}")
+                duckdb_table = enriched_view or tdata.get(
+                    "duckdb_path", f"typed_{target_table_name}"
+                )
 
                 safe_source = agent._sanitize_for_table_name(target_table_name)
                 sql_template = agent._build_sql_template(
-                    duckdb_table, col_name, rec.distinct_values,
+                    duckdb_table,
+                    col_name,
+                    rec.distinct_values,
                     source_table_name=target_table_name,
                 )
 
@@ -492,7 +496,9 @@ class SlicingPhase(BasePhase):
                         dim_profiles[prof.column_id] = prof
 
                 for dim_col in dim_cols:
-                    fk_prefix = dim_col.column_name.split("__")[0] if "__" in dim_col.column_name else None
+                    fk_prefix = (
+                        dim_col.column_name.split("__")[0] if "__" in dim_col.column_name else None
+                    )
                     fk_col_id = col_id_by_name.get(fk_prefix) if fk_prefix else None
                     dim_entry: dict[str, Any] = {
                         "column_id": fk_col_id or dim_col.column_id,

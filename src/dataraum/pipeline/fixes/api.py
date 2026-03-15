@@ -128,8 +128,10 @@ def apply_fixes(
             source = _get_source(session)
 
             gate_before = measure_at_gate(
-                session, manager._duckdb_conn,
-                source.source_id, _zone1_analyses(),
+                session,
+                manager._duckdb_conn,
+                source.source_id,
+                _zone1_analyses(),
             )
 
             applied = apply_and_persist(
@@ -145,8 +147,10 @@ def apply_fixes(
                 logger.info("fix_api_cascade_clean", phase=phase_name)
                 assert manager._duckdb_conn is not None  # set by initialize()
                 cleanup_phase_cascade(
-                    phase_name, source.source_id,
-                    session, manager._duckdb_conn,
+                    phase_name,
+                    source.source_id,
+                    session,
+                    manager._duckdb_conn,
                 )
             session.commit()
 
@@ -158,13 +162,15 @@ def apply_fixes(
         set_config_root(config_root)
         clear_entropy_config_cache()
 
-        run_result = pipeline_run(RunConfig(
-            source_path=source_path,
-            output_dir=output_dir,
-            target_phase="quality_review",
-            gate_mode=GateMode.SKIP,
-            contract=contract,
-        )).unwrap()
+        run_result = pipeline_run(
+            RunConfig(
+                source_path=source_path,
+                output_dir=output_dir,
+                target_phase="quality_review",
+                gate_mode=GateMode.SKIP,
+                contract=contract,
+            )
+        ).unwrap()
 
         logger.info(
             "fix_api_rerun_done",
@@ -183,8 +189,10 @@ def apply_fixes(
             with manager2.session_scope() as session2:
                 source2 = _get_source(session2)
                 gate_after = measure_at_gate(
-                    session2, manager2._duckdb_conn,
-                    source2.source_id, _zone1_analyses(),
+                    session2,
+                    manager2._duckdb_conn,
+                    source2.source_id,
+                    _zone1_analyses(),
                 )
                 persist_gate_result(session2, source2.source_id, gate_after)
         finally:

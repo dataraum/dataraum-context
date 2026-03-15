@@ -177,9 +177,7 @@ class TemporalSliceAnalysisPhase(BasePhase):
         # temporal columns (or none at all). We scope selection to each table
         # to avoid cross-table type mismatches (e.g. "date" is DATE in one
         # table but VARCHAR in another).
-        table_time_columns = self._resolve_time_columns_per_table(
-            ctx, table_ids, typed_tables
-        )
+        table_time_columns = self._resolve_time_columns_per_table(ctx, table_ids, typed_tables)
 
         if not table_time_columns:
             return PhaseResult.success(

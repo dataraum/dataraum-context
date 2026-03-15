@@ -78,9 +78,7 @@ class Relationship(Base):
 
     # Confidence and evidence
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    detection_method: Mapped[str | None] = mapped_column(
-        String
-    )  # 'candidate', 'llm', 'manual'
+    detection_method: Mapped[str | None] = mapped_column(String)  # 'candidate', 'llm', 'manual'
     evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Verification (human-in-loop)

@@ -35,11 +35,7 @@ class TemporalDriftDetector(EntropyDetector):
 
     def load_data(self, context: DetectorContext) -> None:
         """Load drift summaries and semantic annotation for this column."""
-        if (
-            context.session is None
-            or context.column_id is None
-            or context.table_id is None
-        ):
+        if context.session is None or context.column_id is None or context.table_id is None:
             return
         from dataraum.entropy.detectors.loaders import load_drift_summaries, load_semantic
 
