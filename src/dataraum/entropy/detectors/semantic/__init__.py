@@ -14,12 +14,7 @@ from dataraum.entropy.detectors.semantic.column_quality import (
     ColumnQualityDetector,
 )
 from dataraum.entropy.detectors.semantic.dimensional_entropy import (
-    ColumnVariancePattern,
-    CrossColumnPattern,
     DimensionalEntropyDetector,
-    DimensionalEntropyScore,
-    TemporalColumnPattern,
-    compute_dimensional_entropy,
 )
 from dataraum.entropy.detectors.semantic.temporal_entropy import (
     TemporalEntropyDetector,
@@ -34,10 +29,4 @@ __all__ = [
     "DimensionalEntropyDetector",
     "TemporalEntropyDetector",
     "UnitEntropyDetector",
-    # Dimensional entropy models
-    "ColumnVariancePattern",
-    "TemporalColumnPattern",
-    "CrossColumnPattern",
-    "DimensionalEntropyScore",
-    "compute_dimensional_entropy",
 ]
