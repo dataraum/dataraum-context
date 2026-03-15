@@ -513,12 +513,25 @@ class DimensionalEntropyDetector(EntropyDetector):
         patterns.extend(drift_patterns)
         entropy_score.temporal_drift_count = len(drift_patterns)
 
+        # 6. Value-based mutual exclusivity for numeric column pairs.
+        # The null-based check (step 1) requires columns to be "interesting"
+        # (high null_spread). For debit/credit-style columns where one is
+        # always zero when the other has a value, null_spread is 0.0 but the
+        # mutual exclusivity is real. Check directly via DuckDB.
+        if context.duckdb_conn is not None and entropy_score.mutual_exclusivity_count == 0:
+            value_mutex_patterns = self._detect_value_mutual_exclusivity(
+                context, columns_data, mutual_exclusivity_threshold
+            )
+            patterns.extend(value_mutex_patterns)
+            entropy_score.mutual_exclusivity_count += len(value_mutex_patterns)
+
         # Calculate overall entropy score using configurable weights
+        num_categorical = max(len(interesting_columns), entropy_score.mutual_exclusivity_count, 1)
         entropy_score.categorical_entropy = (
             entropy_score.mutual_exclusivity_count * w_me
             + entropy_score.conditional_dependency_count * w_cd
             + entropy_score.correlated_variance_count * w_cv
-        ) / max(len(interesting_columns), 1)
+        ) / num_categorical
 
         entropy_score.temporal_entropy = (
             entropy_score.temporal_correlation_count * w_tc
@@ -717,12 +730,25 @@ class DimensionalEntropyDetector(EntropyDetector):
         patterns.extend(drift_patterns)
         entropy_score.temporal_drift_count = len(drift_patterns)
 
+        # 6. Value-based mutual exclusivity for numeric column pairs.
+        # The null-based check (step 1) requires columns to be "interesting"
+        # (high null_spread). For debit/credit-style columns where one is
+        # always zero when the other has a value, null_spread is 0.0 but the
+        # mutual exclusivity is real. Check directly via DuckDB.
+        if context.duckdb_conn is not None and entropy_score.mutual_exclusivity_count == 0:
+            value_mutex_patterns = self._detect_value_mutual_exclusivity(
+                context, columns_data, mutual_exclusivity_threshold
+            )
+            patterns.extend(value_mutex_patterns)
+            entropy_score.mutual_exclusivity_count += len(value_mutex_patterns)
+
         # Calculate overall entropy score using configurable weights
+        num_categorical = max(len(interesting_columns), entropy_score.mutual_exclusivity_count, 1)
         entropy_score.categorical_entropy = (
             entropy_score.mutual_exclusivity_count * w_me
             + entropy_score.conditional_dependency_count * w_cd
             + entropy_score.correlated_variance_count * w_cv
-        ) / max(len(interesting_columns), 1)
+        ) / num_categorical
 
         entropy_score.temporal_entropy = (
             entropy_score.temporal_correlation_count * w_tc
@@ -912,6 +938,97 @@ class DimensionalEntropyDetector(EntropyDetector):
                                 "inverse_null_correlation": inverse_score,
                                 "col_a_null_spread": col_a.null_spread,
                                 "col_b_null_spread": col_b.null_spread,
+                            },
+                        )
+                    )
+
+        return patterns
+
+    def _detect_value_mutual_exclusivity(
+        self,
+        context: DetectorContext,
+        columns_data: dict[str, Any],
+        threshold: float,
+    ) -> list[CrossColumnPattern]:
+        """Detect value-based mutual exclusivity via DuckDB.
+
+        Finds numeric column pairs where one is zero/NULL whenever the other
+        has a non-zero value (e.g., debit/credit in journal lines).
+        Unlike _detect_mutual_exclusivity which checks NULL spread across
+        slices, this checks actual row-level value patterns.
+        """
+        from dataraum.storage import Column
+
+        if context.session is None or context.table_id is None:
+            return []
+
+        # Get numeric columns for this table
+        numeric_types = {"DECIMAL", "NUMERIC", "FLOAT", "DOUBLE", "INTEGER", "BIGINT"}
+        numeric_cols = list(
+            context.session.execute(
+                select(Column).where(
+                    Column.table_id == context.table_id,
+                    Column.resolved_type.in_(list(numeric_types)),
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        if len(numeric_cols) < 2:
+            return []
+
+        patterns: list[CrossColumnPattern] = []
+
+        for i, col_a in enumerate(numeric_cols):
+            for col_b in numeric_cols[i + 1 :]:
+                # Query: what fraction of rows have both columns non-zero?
+                try:
+                    sql = f"""
+                        SELECT
+                            COUNT(*) AS total,
+                            SUM(CASE WHEN "{col_a.column_name}" != 0
+                                      AND "{col_b.column_name}" != 0 THEN 1 ELSE 0 END) AS both_nonzero,
+                            SUM(CASE WHEN "{col_a.column_name}" = 0
+                                      AND "{col_b.column_name}" = 0 THEN 1 ELSE 0 END) AS both_zero
+                        FROM "typed_{context.table_name}"
+                        WHERE "{col_a.column_name}" IS NOT NULL
+                          AND "{col_b.column_name}" IS NOT NULL
+                    """
+                    row = context.duckdb_conn.execute(sql).fetchone()
+                except Exception:
+                    continue
+
+                if not row or row[0] == 0:
+                    continue
+
+                total, both_nonzero, both_zero = row[0], row[1], row[2]
+
+                # Mutual exclusivity: very few rows have both non-zero
+                # AND the columns aren't both-zero everywhere (trivial case)
+                mutex_ratio = 1.0 - (both_nonzero / total)
+                nontrivial = (total - both_zero) / total  # fraction with at least one non-zero
+
+                if mutex_ratio >= threshold and nontrivial > 0.5:
+                    patterns.append(
+                        CrossColumnPattern(
+                            pattern_type="mutual_exclusivity",
+                            columns=[col_a.column_name, col_b.column_name],
+                            confidence=mutex_ratio,
+                            description=(
+                                f"{col_a.column_name} and {col_b.column_name} "
+                                f"are value-mutually-exclusive ({mutex_ratio:.1%} of rows)"
+                            ),
+                            business_rule_hypothesis=(
+                                f"When {col_a.column_name} has a non-zero value, "
+                                f"{col_b.column_name} is zero, and vice versa. "
+                                "This suggests a business constraint (e.g., debit vs credit)."
+                            ),
+                            evidence={
+                                "mutex_ratio": mutex_ratio,
+                                "both_nonzero_count": both_nonzero,
+                                "total_rows": total,
+                                "detection_method": "value_based",
                             },
                         )
                     )
