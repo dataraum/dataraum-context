@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 from rich.console import Console
 
 from dataraum.cli.gate_handler import (
-    _DimensionFixGroup,
     _collect_fix_groups,
+    _DimensionFixGroup,
     _handle_pause,
     build_gate_context,
     handle_exit_check,
