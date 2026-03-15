@@ -4,6 +4,8 @@ pipeline_output/
 pipeline_testdata/
 examples/
 prototypes/
+.claire/
+.claude/agent-memory/
 
 .claude/agent-memory/
 .claire/agent-memory/
@@ -45,9 +47,6 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
-
-# E2E test output (cached pipeline runs)
-.e2e/
 
 # Unit test / coverage reports
 htmlcov/
