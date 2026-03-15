@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 _ZONE1_ANALYSES = None  # lazy singleton
 
 
-def _zone1_analyses() -> set:
+def _zone1_analyses() -> set[Any]:
     """Return the set of Zone 1 analysis keys."""
     global _ZONE1_ANALYSES  # noqa: PLW0603
     if _ZONE1_ANALYSES is None:
@@ -143,6 +143,7 @@ def apply_fixes(
             rerun_phases = _determine_rerun_phases(fix_documents)
             for phase_name in sorted(rerun_phases):
                 logger.info("fix_api_cascade_clean", phase=phase_name)
+                assert manager._duckdb_conn is not None  # set by initialize()
                 cleanup_phase_cascade(
                     phase_name, source.source_id,
                     session, manager._duckdb_conn,

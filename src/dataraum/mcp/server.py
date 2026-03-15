@@ -422,19 +422,19 @@ def create_server(output_dir: Path | None = None) -> Server:
             result = _add_source(output_dir, arguments)
         elif name == "apply_fix":
             ctx = server.request_context
-            experimental: Experimental = ctx.experimental
-            source_path = arguments.get("source_path")
-            if experimental and experimental.is_task:
+            fix_experimental: Experimental = ctx.experimental
+            fix_source_path: str | None = arguments.get("source_path")
+            if fix_experimental and fix_experimental.is_task:
                 loop = asyncio.get_running_loop()
 
                 async def _fix_work(task: ServerTaskContext) -> CallToolResult:
                     await task.update_status("Applying fixes and re-running pipeline...")
                     text = await asyncio.to_thread(
-                        _apply_fix, output_dir, arguments["fixes"], source_path
+                        _apply_fix, output_dir, arguments["fixes"], fix_source_path
                     )
                     return CallToolResult(content=[TextContent(type="text", text=text)])
 
-                return await experimental.run_task(
+                return await fix_experimental.run_task(
                     _fix_work,
                     model_immediate_response=(
                         "Applying fixes and re-running affected pipeline phases. "
@@ -442,7 +442,7 @@ def create_server(output_dir: Path | None = None) -> Server:
                     ),
                 )
             else:
-                result = _apply_fix(output_dir, arguments["fixes"], source_path)
+                result = _apply_fix(output_dir, arguments["fixes"], fix_source_path)
         else:
             result = f"Unknown tool: {name}"
 
