@@ -1327,16 +1327,16 @@ def _get_zone_status(
             thresholds = contract.dimension_thresholds
 
             # Assess violations
-            issues = assess_contracts(
-                scores, thresholds, column_details, gate_phase
-            )
+            issues = assess_contracts(scores, thresholds, column_details, gate_phase)
 
             # Build violation entries with fix actions from detector registry
             registry = get_default_registry()
             violation_dims = {i.dimension_path for i in issues}
             violations = []
             for issue in issues:
-                detector_id = id_map.get(issue.dimension_path, issue.dimension_path.rsplit(".", 1)[-1])
+                detector_id = id_map.get(
+                    issue.dimension_path, issue.dimension_path.rsplit(".", 1)[-1]
+                )
                 # Get fix actions from detector registry
                 fix_actions: list[str] = []
                 detector = registry.detectors.get(detector_id)
@@ -1346,14 +1346,16 @@ def _get_zone_status(
                 # Build per-target scores from all detail dicts
                 affected: list[str] = issue.affected_targets
 
-                violations.append({
-                    "dimension_path": issue.dimension_path,
-                    "detector_id": detector_id,
-                    "score": issue.score,
-                    "threshold": issue.threshold,
-                    "fix_actions": fix_actions,
-                    "affected_targets": affected,
-                })
+                violations.append(
+                    {
+                        "dimension_path": issue.dimension_path,
+                        "detector_id": detector_id,
+                        "score": issue.score,
+                        "threshold": issue.threshold,
+                        "fix_actions": fix_actions,
+                        "affected_targets": affected,
+                    }
+                )
 
             # Build passing entries
             passing = []
@@ -1363,21 +1365,29 @@ def _get_zone_status(
                 threshold = match_threshold(dim_path, thresholds)
                 if threshold is not None:
                     detector_id = id_map.get(dim_path, dim_path.rsplit(".", 1)[-1])
-                    passing.append({
-                        "dimension_path": dim_path,
-                        "detector_id": detector_id,
-                        "score": score,
-                        "threshold": threshold,
-                    })
+                    passing.append(
+                        {
+                            "dimension_path": dim_path,
+                            "detector_id": detector_id,
+                            "score": score,
+                            "threshold": threshold,
+                        }
+                    )
 
             # Determine skipped detectors
             # Detectors whose required_analyses aren't satisfied at this gate
             _gate_analyses = {
                 "quality_review": {"TYPING", "STATISTICS", "RELATIONSHIPS", "SEMANTIC"},
                 "analysis_review": {
-                    "TYPING", "STATISTICS", "RELATIONSHIPS", "SEMANTIC",
-                    "ENRICHED_VIEWS", "SLICING", "CORRELATIONS",
-                    "TEMPORAL_SLICING", "QUALITY_SUMMARY",
+                    "TYPING",
+                    "STATISTICS",
+                    "RELATIONSHIPS",
+                    "SEMANTIC",
+                    "ENRICHED_VIEWS",
+                    "SLICING",
+                    "CORRELATIONS",
+                    "TEMPORAL_SLICING",
+                    "QUALITY_SUMMARY",
                 },
             }
             available = _gate_analyses.get(gate_phase, set())
@@ -1386,22 +1396,24 @@ def _get_zone_status(
             for d in registry.get_all_detectors():
                 if d.detector_id in measured_ids:
                     continue
-                missing = [
-                    a.value for a in d.required_analyses
-                    if a.value.upper() not in available
-                ]
+                missing = [a.value for a in d.required_analyses if a.value.upper() not in available]
                 if missing:
-                    skipped.append({
-                        "detector_id": d.detector_id,
-                        "reason": f"missing analyses: {', '.join(missing)}",
-                    })
+                    skipped.append(
+                        {
+                            "detector_id": d.detector_id,
+                            "reason": f"missing analyses: {', '.join(missing)}",
+                        }
+                    )
 
-            zone_name, gate_label = _GATE_ZONES.get(
-                gate_phase, ("unknown", "Gate ?")
-            )
+            zone_name, gate_label = _GATE_ZONES.get(gate_phase, ("unknown", "Gate ?"))
             return format_zone_status(
-                zone_name, gate_label, gate_phase,
-                violations, passing, skipped, contract.name,
+                zone_name,
+                gate_label,
+                gate_phase,
+                violations,
+                passing,
+                skipped,
+                contract.name,
             )
     finally:
         manager.close()
@@ -1443,7 +1455,9 @@ def _build_mcp_gate_context(
     col_scores = column_details.get(dimension, {})
     tbl_scores = table_details.get(dimension, {})
     all_scores = {**col_scores, **tbl_scores}
-    affected_targets = [t for t, s in sorted(all_scores.items(), key=lambda x: -x[1]) if s > threshold]
+    affected_targets = [
+        t for t, s in sorted(all_scores.items(), key=lambda x: -x[1]) if s > threshold
+    ]
 
     # Get fix actions from detector registry
     id_map = outputs.get("detector_id_map", {})
@@ -1554,7 +1568,12 @@ def _get_fix_proposal(
 
             # Build context
             context = _build_mcp_gate_context(
-                session, source.source_id, dimension, gate, outputs, scores,
+                session,
+                source.source_id,
+                dimension,
+                gate,
+                outputs,
+                scores,
             )
 
             # Create agent and generate questions
@@ -1573,7 +1592,9 @@ def _get_fix_proposal(
             if questions.context_summary:
                 lines.append(f"\n{questions.context_summary}")
             lines.append("\n## Questions")
-            lines.append("Answer these questions, then call `submit_fix_answers` with your responses.\n")
+            lines.append(
+                "Answer these questions, then call `submit_fix_answers` with your responses.\n"
+            )
 
             for i, q in enumerate(questions.questions, 1):
                 lines.append(f"**{i}. {q.question}**")
@@ -1583,7 +1604,9 @@ def _get_fix_proposal(
                 lines.append("")
 
             lines.append("## How to respond")
-            lines.append("Call `submit_fix_answers` with the same gate and dimension, and format your answers as:")
+            lines.append(
+                "Call `submit_fix_answers` with the same gate and dimension, and format your answers as:"
+            )
             lines.append("```")
             for i, q in enumerate(questions.questions, 1):
                 lines.append(f"Q: {q.question}")
@@ -1647,7 +1670,12 @@ def _submit_fix_answers(
 
             # Rebuild context (same as get_fix_proposal)
             context = _build_mcp_gate_context(
-                session, source.source_id, dimension, gate, outputs, scores,
+                session,
+                source.source_id,
+                dimension,
+                gate,
+                outputs,
+                scores,
             )
 
             # Create agent and interpret answers
@@ -1755,8 +1783,7 @@ def _submit_fix_answers(
                 "`apply_fix(fixes=[<the document>])` to apply it"
             )
             lines.append(
-                f"- Or call `get_zone_status(gate=\"{gate}\")` to re-check "
-                "the current state first"
+                f'- Or call `get_zone_status(gate="{gate}")` to re-check the current state first'
             )
 
             return "\n".join(lines)
