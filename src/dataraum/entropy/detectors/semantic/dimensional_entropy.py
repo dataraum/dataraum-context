@@ -496,9 +496,6 @@ class DimensionalEntropyDetector(EntropyDetector):
         correlation_threshold = detector_config.get("correlation_threshold", 0.8)
         mutual_exclusivity_threshold = detector_config.get("mutual_exclusivity_threshold", 0.95)
         pattern_weights = detector_config.get("pattern_weights", {})
-        score_accepted = self.config.get("score_accepted") or detector_config.get(
-            "score_accepted", 0.2
-        )
         accepted_tables: list[str] = self.config.get("accepted_tables") or detector_config.get(
             "accepted_tables", []
         )
@@ -653,20 +650,18 @@ class DimensionalEntropyDetector(EntropyDetector):
 
         for pattern in patterns:
             score = score_undocumented_rule if pattern.confidence > 0.9 else score_partial_pattern
+            ev_dict: dict[str, Any] = {
+                "pattern_type": pattern.pattern_type,
+                "columns": pattern.columns,
+                "confidence": pattern.confidence,
+                "description": pattern.description,
+                "business_rule_hypothesis": pattern.business_rule_hypothesis,
+                "raw_evidence": pattern.evidence,
+                "uncertainty_bits": pattern.uncertainty_bits,
+            }
             if is_accepted:
-                score = score_accepted
-
-            evidence = [
-                {
-                    "pattern_type": pattern.pattern_type,
-                    "columns": pattern.columns,
-                    "confidence": pattern.confidence,
-                    "description": pattern.description,
-                    "business_rule_hypothesis": pattern.business_rule_hypothesis,
-                    "raw_evidence": pattern.evidence,
-                    "uncertainty_bits": pattern.uncertainty_bits,
-                }
-            ]
+                ev_dict["accepted"] = True
+            evidence = [ev_dict]
 
             resolution_options = [
                 ResolutionOption(
@@ -701,27 +696,27 @@ class DimensionalEntropyDetector(EntropyDetector):
 
         # Add summary entropy object with overall score
         if patterns:
-            summary_evidence = [
-                {
-                    "dimensional_entropy_score": {
-                        "total_score": entropy_score.total_score,
-                        "total_uncertainty_bits": entropy_score.total_uncertainty_bits,
-                        "categorical_entropy": entropy_score.categorical_entropy,
-                        "temporal_entropy": entropy_score.temporal_entropy,
-                        "total_patterns": entropy_score.total_patterns,
-                        "pattern_breakdown": {
-                            "mutual_exclusivity": entropy_score.mutual_exclusivity_count,
-                            "conditional_dependency": entropy_score.conditional_dependency_count,
-                            "correlated_variance": entropy_score.correlated_variance_count,
-                            "temporal_correlation": entropy_score.temporal_correlation_count,
-                            "temporal_drift": entropy_score.temporal_drift_count,
-                        },
-                        "interpretation": entropy_score.interpretation,
-                    }
-                }
-            ]
-
-            overall_score = score_accepted if is_accepted else entropy_score.total_score
+            summary_ev: dict[str, Any] = {
+                "dimensional_entropy_score": {
+                    "total_score": entropy_score.total_score,
+                    "total_uncertainty_bits": entropy_score.total_uncertainty_bits,
+                    "categorical_entropy": entropy_score.categorical_entropy,
+                    "temporal_entropy": entropy_score.temporal_entropy,
+                    "total_patterns": entropy_score.total_patterns,
+                    "pattern_breakdown": {
+                        "mutual_exclusivity": entropy_score.mutual_exclusivity_count,
+                        "conditional_dependency": entropy_score.conditional_dependency_count,
+                        "correlated_variance": entropy_score.correlated_variance_count,
+                        "temporal_correlation": entropy_score.temporal_correlation_count,
+                        "temporal_drift": entropy_score.temporal_drift_count,
+                    },
+                    "interpretation": entropy_score.interpretation,
+                },
+            }
+            if is_accepted:
+                summary_ev["accepted"] = True
+            summary_evidence = [summary_ev]
+            overall_score = entropy_score.total_score
             entropy_objects.append(
                 EntropyObject(
                     layer=self.layer,
