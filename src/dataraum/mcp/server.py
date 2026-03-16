@@ -27,6 +27,7 @@ from dataraum.mcp.formatters import (
     format_pipeline_result,
     format_quality_report,
     format_query_result,
+    format_zone_status,
 )
 from dataraum.pipeline.events import EventCallback, EventType, PipelineEvent
 
@@ -280,6 +281,61 @@ def create_server(output_dir: Path | None = None) -> Server:
                     },
                 },
             ),
+            # --- Zone status tool ---
+            Tool(
+                name="get_zone_status",
+                description=(
+                    "Get the current pipeline zone status: which gate was last measured, "
+                    "per-column scores, violations against the active contract, available "
+                    "fix actions, and skipped detectors. Use this after `analyze` completes "
+                    "to understand what needs fixing before calling `continue_pipeline`."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "required": ["gate"],
+                    "properties": {
+                        "gate": {
+                            "type": "string",
+                            "enum": ["quality_review", "analysis_review"],
+                            "description": "Which gate to inspect. quality_review = Gate 1 (Zone 1, after semantic). analysis_review = Gate 2 (Zone 2, after quality_summary).",
+                        },
+                        "contract_name": {
+                            "type": "string",
+                            "description": "Contract to evaluate against (e.g., 'aggregation_safe'). Auto-detects if omitted.",
+                        },
+                    },
+                },
+            ),
+            # --- Continue pipeline tool ---
+            Tool(
+                name="continue_pipeline",
+                description=(
+                    "Resume the pipeline from the current position to the next zone boundary. "
+                    "After inspecting gate scores with `get_zone_status` and applying fixes "
+                    "with `apply_fix`, call this to advance to the next zone. "
+                    "Skips already-completed phases automatically."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "required": ["target_gate"],
+                    "properties": {
+                        "target_gate": {
+                            "type": "string",
+                            "enum": ["analysis_review", "end"],
+                            "description": (
+                                "Where to stop: "
+                                "'analysis_review' = run through Gate 2 (Zone 2). "
+                                "'end' = run through the end of the pipeline (Zone 3)."
+                            ),
+                        },
+                        "source_path": {
+                            "type": "string",
+                            "description": "Path to original source data (needed for pipeline re-runs).",
+                        },
+                    },
+                },
+                execution=ToolExecution(taskSupport="optional"),
+            ),
             # --- Fix tool ---
             Tool(
                 name="apply_fix",
@@ -426,6 +482,36 @@ def create_server(output_dir: Path | None = None) -> Server:
             result = _discover_sources(output_dir, scan_path, recursive)
         elif name == "add_source":
             result = _add_source(output_dir, arguments)
+        elif name == "get_zone_status":
+            result = _get_zone_status(
+                output_dir,
+                gate=arguments["gate"],
+                contract_name=arguments.get("contract_name"),
+            )
+        elif name == "continue_pipeline":
+            target_gate = arguments["target_gate"]
+            cont_source_path: str | None = arguments.get("source_path")
+            ctx = server.request_context
+            cont_experimental: Experimental = ctx.experimental
+            if cont_experimental and cont_experimental.is_task:
+                loop = asyncio.get_running_loop()
+
+                async def _cont_work(task: ServerTaskContext) -> CallToolResult:
+                    callback = _make_task_event_callback(task, loop)
+                    text = await asyncio.to_thread(
+                        _continue_pipeline, output_dir, target_gate, cont_source_path, callback
+                    )
+                    return CallToolResult(content=[TextContent(type="text", text=text)])
+
+                return await cont_experimental.run_task(
+                    _cont_work,
+                    model_immediate_response=(
+                        f"Continuing pipeline to {target_gate}. "
+                        f"Completed phases will be skipped. Progress updates will follow."
+                    ),
+                )
+            else:
+                result = _continue_pipeline(output_dir, target_gate, cont_source_path)
         elif name == "apply_fix":
             ctx = server.request_context
             fix_experimental: Experimental = ctx.experimental
@@ -1077,6 +1163,205 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
             return json.dumps(output, indent=2)
     finally:
         manager.close()
+
+
+# ---------------------------------------------------------------------------
+# Zone status
+# ---------------------------------------------------------------------------
+
+# Maps gate phase names to (zone_name, gate_label).
+_GATE_ZONES: dict[str, tuple[str, str]] = {
+    "quality_review": ("foundation", "Gate 1"),
+    "analysis_review": ("enrichment", "Gate 2"),
+}
+
+
+def _get_zone_status(
+    output_dir: Path,
+    gate: str,
+    contract_name: str | None = None,
+) -> str:
+    """Read persisted gate scores and format zone status for an agent.
+
+    Args:
+        output_dir: Pipeline output directory.
+        gate: Gate phase to inspect (quality_review or analysis_review).
+        contract_name: Contract to evaluate against. Auto-detects if omitted.
+    """
+    from sqlalchemy import select
+
+    from dataraum.core.connections import get_manager_for_directory
+    from dataraum.entropy.contracts import get_contract, get_contracts
+    from dataraum.entropy.detectors.base import get_default_registry
+    from dataraum.entropy.gate import assess_contracts, match_threshold
+    from dataraum.pipeline.db_models import PhaseLog
+    from dataraum.storage import Source
+
+    try:
+        manager = get_manager_for_directory(output_dir)
+    except FileNotFoundError:
+        return _NO_DATA_MSG.format(path=output_dir)
+
+    try:
+        with manager.session_scope() as session:
+            # Find source
+            source = session.execute(select(Source)).scalar_one_or_none()
+            if not source:
+                return "Error: No sources found."
+
+            # Find latest PhaseLog for the requested gate
+            gate_phase = gate
+            log = session.execute(
+                select(PhaseLog)
+                .where(
+                    PhaseLog.source_id == source.source_id,
+                    PhaseLog.phase_name == gate_phase,
+                    PhaseLog.status == "completed",
+                )
+                .order_by(PhaseLog.completed_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            if not log or not log.outputs:
+                return (
+                    f"No gate measurement found for `{gate_phase}`. "
+                    f"The pipeline may not have reached this gate yet.\n\n"
+                    f"Run `analyze` first, then call `get_zone_status(gate='{gate_phase}')`."
+                )
+
+            outputs = log.outputs
+            scores = log.entropy_scores or {}
+            column_details = outputs.get("gate_column_details", {})
+            id_map = outputs.get("detector_id_map", {})
+
+            # Resolve contract
+            if contract_name:
+                contract = get_contract(contract_name)
+            else:
+                contracts = get_contracts()
+                contract = next(iter(contracts.values()), None) if contracts else None
+
+            if not contract:
+                return "Error: No contract found."
+
+            thresholds = contract.dimension_thresholds
+
+            # Assess violations
+            issues = assess_contracts(
+                scores, thresholds, column_details, gate_phase
+            )
+
+            # Build violation entries with fix actions from detector registry
+            registry = get_default_registry()
+            violation_dims = {i.dimension_path for i in issues}
+            violations = []
+            for issue in issues:
+                detector_id = id_map.get(issue.dimension_path, issue.dimension_path.rsplit(".", 1)[-1])
+                # Get fix actions from detector registry
+                fix_actions: list[str] = []
+                detector = registry.detectors.get(detector_id)
+                if detector:
+                    fix_actions = [s.action for s in detector.fix_schemas]
+
+                # Build per-target scores from all detail dicts
+                affected: list[str] = issue.affected_targets
+
+                violations.append({
+                    "dimension_path": issue.dimension_path,
+                    "detector_id": detector_id,
+                    "score": issue.score,
+                    "threshold": issue.threshold,
+                    "fix_actions": fix_actions,
+                    "affected_targets": affected,
+                })
+
+            # Build passing entries
+            passing = []
+            for dim_path, score in sorted(scores.items()):
+                if dim_path in violation_dims:
+                    continue
+                threshold = match_threshold(dim_path, thresholds)
+                if threshold is not None:
+                    detector_id = id_map.get(dim_path, dim_path.rsplit(".", 1)[-1])
+                    passing.append({
+                        "dimension_path": dim_path,
+                        "detector_id": detector_id,
+                        "score": score,
+                        "threshold": threshold,
+                    })
+
+            # Determine skipped detectors
+            # Detectors whose required_analyses aren't satisfied at this gate
+            _gate_analyses = {
+                "quality_review": {"TYPING", "STATISTICS", "RELATIONSHIPS", "SEMANTIC"},
+                "analysis_review": {
+                    "TYPING", "STATISTICS", "RELATIONSHIPS", "SEMANTIC",
+                    "ENRICHED_VIEWS", "SLICING", "CORRELATIONS",
+                    "TEMPORAL_SLICING", "QUALITY_SUMMARY",
+                },
+            }
+            available = _gate_analyses.get(gate_phase, set())
+            measured_ids = {id_map.get(dp, dp.rsplit(".", 1)[-1]) for dp in scores}
+            skipped = []
+            for d in registry.get_all_detectors():
+                if d.detector_id in measured_ids:
+                    continue
+                missing = [
+                    a.value for a in d.required_analyses
+                    if a.value.upper() not in available
+                ]
+                if missing:
+                    skipped.append({
+                        "detector_id": d.detector_id,
+                        "reason": f"missing analyses: {', '.join(missing)}",
+                    })
+
+            zone_name, gate_label = _GATE_ZONES.get(
+                gate_phase, ("unknown", "Gate ?")
+            )
+            return format_zone_status(
+                zone_name, gate_label, gate_phase,
+                violations, passing, skipped, contract.name,
+            )
+    finally:
+        manager.close()
+
+
+def _continue_pipeline(
+    output_dir: Path,
+    target_gate: str,
+    source_path: str | None = None,
+    event_callback: EventCallback | None = None,
+) -> str:
+    """Resume the pipeline from current position to the next zone boundary.
+
+    Args:
+        output_dir: Pipeline output directory (must already exist from prior run).
+        target_gate: Where to stop — 'analysis_review' (Gate 2) or 'end' (full pipeline).
+        source_path: Path to original source data. Needed if pipeline re-run requires it.
+        event_callback: Optional callback for progress updates.
+    """
+    from dataraum.pipeline.runner import GateMode, RunConfig, run
+
+    # Map target_gate to target_phase (None = run to end)
+    target_phase: str | None = None if target_gate == "end" else target_gate
+
+    sp: Path | None = Path(source_path) if source_path else None
+
+    config = RunConfig(
+        source_path=sp,
+        output_dir=output_dir,
+        target_phase=target_phase,
+        event_callback=event_callback,
+        gate_mode=GateMode.SKIP,
+    )
+
+    result = run(config)
+
+    if not result.success or not result.value:
+        return f"Error: Pipeline failed: {result.error}"
+
+    return format_pipeline_result(result.value)
 
 
 def _export(
