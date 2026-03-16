@@ -88,7 +88,11 @@ class RelationshipEntropyDetector(EntropyDetector):
                 guidance=(
                     "Confirms or rejects a detected relationship between tables. "
                     "Ask whether the relationship is a real foreign key, shared "
-                    "reference data, or coincidental overlap."
+                    "reference data, or coincidental overlap.\n"
+                    "IMPORTANT: This only reduces the semantic component of the score. "
+                    "If the score is driven by referential integrity issues (orphan "
+                    "records, low RI %), confirming the relationship won't help — "
+                    "use accept_finding instead."
                 ),
                 fields={
                     "from_table": FixSchemaField(
