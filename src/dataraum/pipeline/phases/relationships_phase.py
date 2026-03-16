@@ -223,13 +223,13 @@ def _apply_relationship_overrides(
             continue
 
         for rel in rels:
-            changed = False
             for field_name, value in field_values.items():
                 if hasattr(rel, field_name) and getattr(rel, field_name) != value:
                     setattr(rel, field_name, value)
-                    changed = True
 
-            if changed:
+            # Always confirm — the override entry itself is the confirmation,
+            # regardless of whether field values changed.
+            if not rel.is_confirmed:
                 rel.is_confirmed = True
                 rel.confirmed_at = datetime.now(UTC)
                 rel.confirmed_by = "config_override"
