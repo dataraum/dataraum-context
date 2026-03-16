@@ -592,7 +592,11 @@ class DimensionalEntropyDetector(EntropyDetector):
             documented_keys = set()
             for dp in documented_patterns:
                 if dp.get("table") == context.table_name:
-                    cols = frozenset(dp.get("columns", []))
+                    raw_cols = dp.get("columns", [])
+                    # Handle both list and comma-separated string formats
+                    if isinstance(raw_cols, str):
+                        raw_cols = [c.strip() for c in raw_cols.split(",")]
+                    cols = frozenset(raw_cols)
                     documented_keys.add((dp.get("pattern_type", ""), cols))
 
             undocumented: list[CrossColumnPattern] = []
