@@ -786,28 +786,40 @@ def build_gate_context(
     action_lines.append("</available_actions>")
     sections.append("\n".join(action_lines))
 
-    # Section 2: Entropy evidence with per-column component breakdown
+    # Section 2: Entropy evidence with per-target component breakdown
+    # Merge column, table, and view details — detectors may be any scope
+    all_target_scores: dict[str, float] = {}
+    all_target_scores.update(event.column_details.get(dim_path, {}))
+    all_target_scores.update(getattr(event, "table_details", {}).get(dim_path, {}))
+    all_target_scores.update(getattr(event, "view_details", {}).get(dim_path, {}))
+
     evidence_lines = [
         "<entropy_evidence>",
         f"Detector: {dim_path.split('.')[-1]}",
         f"Score: {score:.2f}",
         f"Threshold: {threshold:.2f}",
     ]
-    col_scores = event.column_details.get(dim_path, {})
-    # Per-column component evidence from gate result (if available)
-    col_evidence = getattr(event, "column_evidence", {}).get(dim_path, {})
-    if col_scores:
+    # Per-target component evidence from gate result (if available)
+    target_evidence = getattr(event, "column_evidence", {}).get(dim_path, {})
+    if all_target_scores:
         evidence_lines.append("")
-        evidence_lines.append("Per-column breakdown:")
-        for target, col_score in sorted(col_scores.items(), key=lambda x: -x[1]):
-            label = "VIOLATING" if col_score > threshold else "passing"
-            line = f"  {target}: {col_score:.2f} ({label})"
-            ev = col_evidence.get(target, {})
+        evidence_lines.append("Per-target breakdown:")
+        for target, target_score in sorted(all_target_scores.items(), key=lambda x: -x[1]):
+            label = "VIOLATING" if target_score > threshold else "passing"
+            line = f"  {target}: {target_score:.2f} ({label})"
+            ev = target_evidence.get(target, {})
             if ev:
                 components = []
-                for k in ("ri_entropy", "card_entropy", "semantic_entropy"):
+                for k in (
+                    "ri_entropy",
+                    "card_entropy",
+                    "semantic_entropy",
+                    "pattern_type",
+                    "columns",
+                    "description",
+                ):
                     if k in ev:
-                        components.append(f"{k}={ev[k]:.2f}")
+                        components.append(f"{k}={ev[k]}")
                 if ev.get("accepted"):
                     components.append("ACCEPTED")
                 if components:
@@ -828,20 +840,22 @@ def _get_affected_targets(
     dim_path: str,
     event: PipelineEvent,
 ) -> list[str]:
-    """Extract column/table targets that actually violate the contract.
+    """Extract column/table/view targets that actually violate the contract.
 
-    Only returns targets whose individual score exceeds the contract
-    threshold. Columns that scored but are below threshold (e.g.
-    aligned temporal columns at 0.1) are healthy and not actionable.
+    Checks column_details, table_details, and view_details — detectors
+    may be column-scoped, table-scoped, or view-scoped.
     """
-    col_scores = event.column_details.get(dim_path, {})
-    if not col_scores:
+    all_scores: dict[str, float] = {}
+    all_scores.update(event.column_details.get(dim_path, {}))
+    all_scores.update(getattr(event, "table_details", {}).get(dim_path, {}))
+    all_scores.update(getattr(event, "view_details", {}).get(dim_path, {}))
+    if not all_scores:
         return []
 
     _, threshold = event.violations.get(dim_path, (0.0, 0.0))
 
     return [
-        t for t, s in sorted(col_scores.items(), key=lambda x: x[1], reverse=True) if s > threshold
+        t for t, s in sorted(all_scores.items(), key=lambda x: x[1], reverse=True) if s > threshold
     ]
 
 

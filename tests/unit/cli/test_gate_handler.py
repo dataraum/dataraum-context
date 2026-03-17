@@ -531,4 +531,4 @@ class TestBuildGateContext:
         assert "<entropy_evidence>" in context
         assert "type_fidelity" in context
         assert "0.85" in context
-        assert "Per-column breakdown:" in context
+        assert "Per-target breakdown:" in context

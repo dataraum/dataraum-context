@@ -124,10 +124,9 @@ class EnrichedViewsPhase(BasePhase):
         if not fact_entities:
             return "No fact tables identified"
 
-        # Check if views already exist
-        existing_stmt = select(EnrichedView).where(
-            EnrichedView.fact_table_id.in_([e.table_id for e in fact_entities])
-        )
+        # Check if views already exist for all fact tables
+        fact_table_ids = [e.table_id for e in fact_entities]
+        existing_stmt = select(EnrichedView).where(EnrichedView.fact_table_id.in_(fact_table_ids))
         existing = ctx.session.execute(existing_stmt).scalars().all()
 
         if len(existing) >= len(fact_entities):
