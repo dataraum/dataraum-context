@@ -1595,7 +1595,7 @@ def _get_fix_proposal(
             }
             affected = [t for t, s in all_col_scores.items() if s > threshold]
 
-            from dataraum.cli.commands.fix import _create_document_agent
+            from dataraum.cli.gate_handler import _create_document_agent
 
             agent = _create_document_agent()
 
@@ -1848,7 +1848,7 @@ def _submit_fix_answers(
             }
             affected = [t for t, s in all_col_scores.items() if s > threshold]
 
-            from dataraum.cli.commands.fix import _create_document_agent
+            from dataraum.cli.gate_handler import _create_document_agent
 
             agent = _create_document_agent()
             registry = get_default_registry()
@@ -2075,7 +2075,7 @@ def _continue_pipeline(
         source_path: Path to original source data. Needed if pipeline re-run requires it.
         event_callback: Optional callback for progress updates.
     """
-    from dataraum.pipeline.runner import GateMode, RunConfig, run
+    from dataraum.pipeline.runner import RunConfig, run
 
     # Map target_gate to target_phase (None = run to end)
     target_phase: str | None = None if target_gate == "end" else target_gate
@@ -2087,7 +2087,6 @@ def _continue_pipeline(
         output_dir=output_dir,
         target_phase=target_phase,
         event_callback=event_callback,
-        gate_mode=GateMode.SKIP,
     )
 
     result = run(config)
