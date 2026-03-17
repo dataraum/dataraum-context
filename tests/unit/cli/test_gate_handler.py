@@ -11,7 +11,6 @@ from rich.console import Console
 from dataraum.cli.gate_handler import (
     _collect_fix_groups,
     _DimensionFixGroup,
-    _handle_pause,
     build_gate_context,
     handle_exit_check_interactive,
 )
@@ -152,7 +151,7 @@ class TestHandlePause:
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(available_fixes={})
 
-        result = _handle_pause(console, event, None, None, None)
+        result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
 
@@ -168,7 +167,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="d"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
 
@@ -184,7 +183,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="a"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.ABORT
 
@@ -200,7 +199,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="xyz"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
 
@@ -217,7 +216,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="1"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
         rendered = _strip_ansi(output.getvalue())
@@ -236,7 +235,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="d"):
-            _handle_pause(console, event, None, None, None)
+            handle_exit_check_interactive(console, event, None, None, None)
 
         rendered = _strip_ansi(output.getvalue())
         assert "type_fidelity" in rendered

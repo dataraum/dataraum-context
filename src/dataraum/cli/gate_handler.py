@@ -23,37 +23,6 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-def handle_exit_check_interactive(
-    console: Console,
-    event: PipelineEvent,
-    contract_thresholds: dict[str, float] | None = None,
-    session: Session | None = None,
-    source_id: str | None = None,
-) -> Resolution:
-    """Resolve an EXIT_CHECK event interactively.
-
-    Shows violations and presents an interactive fix UI so the user can
-    review and apply fixes at the quality gate.
-
-    Args:
-        console: Rich console for output.
-        event: The EXIT_CHECK event with violations.
-        contract_thresholds: Dimension thresholds from the contract.
-        session: DB session (required for fix flow).
-        source_id: Source ID (required for fix flow).
-
-    Returns:
-        Resolution telling the scheduler what to do.
-    """
-    return _handle_pause(
-        console,
-        event,
-        contract_thresholds,
-        session,
-        source_id,
-    )
-
-
 def render_gate_scores(
     console: Console,
     scores: dict[str, float],
@@ -302,12 +271,12 @@ def render_violations(
 # ---------------------------------------------------------------------------
 
 
-def _handle_pause(
+def handle_exit_check_interactive(
     console: Console,
     event: PipelineEvent,
-    contract_thresholds: dict[str, float] | None,
-    session: Session | None,
-    source_id: str | None,
+    contract_thresholds: dict[str, float] | None = None,
+    session: Session | None = None,
+    source_id: str | None = None,
 ) -> Resolution:
     """Handle EXIT_CHECK interactively — show violations and run fix UI.
 
