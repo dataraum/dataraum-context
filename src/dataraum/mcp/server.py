@@ -1481,8 +1481,8 @@ def _build_mcp_gate_context(
         f"Score: {score:.2f} (threshold: {threshold:.2f})",
         f"Affected columns: {', '.join(affected_targets)}",
         "",
-        "Choose the BEST action for this data issue. Set config_action to the chosen action name.",
-        "Set applicable=false only if NONE of the actions fit.",
+        "Choose the BEST action for each violating target.",
+        "Prefer corrective actions (recalculate, override, add pattern) over accept_finding.",
         "",
     ]
     if detector:
@@ -1502,6 +1502,10 @@ def _build_mcp_gate_context(
             action_lines.append("")
     action_lines.append("</available_actions>")
     sections.append("\n".join(action_lines))
+
+    # Section 1b: Detector-specific triage guidance
+    if detector and detector.triage_guidance:
+        sections.append(f"<triage_guidance>\n{detector.triage_guidance}\n</triage_guidance>")
 
     # Section 2: Entropy evidence with per-column component breakdown
     col_evidence = outputs.get("gate_column_evidence", {}).get(dimension, {})

@@ -650,8 +650,8 @@ def build_gate_context(
         f"Score: {score:.2f} (threshold: {threshold:.2f})",
         f"Affected columns: {', '.join(affected_targets)}",
         "",
-        "Choose the BEST action for this data issue. Set config_action to the chosen action name.",
-        "Set applicable=false only if NONE of the actions fit.",
+        "Choose the BEST action for each violating target.",
+        "Prefer corrective actions (recalculate, override, add pattern) over accept_finding.",
         "",
     ]
     for i, action in enumerate(group.actions, 1):
@@ -666,6 +666,15 @@ def build_gate_context(
         action_lines.append("")
     action_lines.append("</available_actions>")
     sections.append("\n".join(action_lines))
+
+    # Section 1b: Detector-specific triage guidance (if available)
+    from dataraum.entropy.detectors.base import get_default_registry
+
+    registry = get_default_registry()
+    detector_by_path = {d.dimension_path: d for d in registry.get_all_detectors()}
+    detector = detector_by_path.get(dim_path)
+    if detector and detector.triage_guidance:
+        sections.append(f"<triage_guidance>\n{detector.triage_guidance}\n</triage_guidance>")
 
     # Section 2: Entropy evidence with per-target component breakdown
     # Merge column, table, and view details — detectors may be any scope

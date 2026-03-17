@@ -56,6 +56,20 @@ class DerivedValueDetector(EntropyDetector):
     description = "Measures reliability of detected derived column formulas"
 
     @property
+    def triage_guidance(self) -> str:
+        return (
+            "This detector found a derived column (computed from other columns) with "
+            "formula mismatches. Choose based on the match rate:\n"
+            "- recalculate_derived_column: DEFAULT choice. The formula is known and "
+            "mismatches indicate data that drifted from the formula. Recalculating "
+            "enforces consistency. Ask the user to confirm the formula via a "
+            "follow_up_question (propose the detected formula as default).\n"
+            "- accept_finding: Only if the user has confirmed that mismatches are "
+            "intentional (manual adjustments, rounding). Do NOT assume this — "
+            "formula drift is usually a data quality problem, not expected behavior."
+        )
+
+    @property
     def fix_schemas(self) -> list[FixSchema]:
         return [
             FixSchema(
