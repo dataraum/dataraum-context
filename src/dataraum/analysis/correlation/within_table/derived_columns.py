@@ -61,13 +61,14 @@ def _check_derived_triple(
                     "{target_name}" IS NOT NULL
                     AND "{col1_name}" IS NOT NULL
                     AND "{col2_name}" IS NOT NULL
-                    -- Exclude all-zero rows: 0 op 0 = 0 is trivially true
-                    -- and inflates match rates when columns use 0 instead of NULL
-                    AND NOT (
-                        TRY_CAST("{target_name}" AS DOUBLE) = 0
-                        AND TRY_CAST("{col1_name}" AS DOUBLE) = 0
-                        AND TRY_CAST("{col2_name}" AS DOUBLE) = 0
-                    )
+                    -- Exclude zero-target rows: when the target is zero, any
+                    -- formula producing a near-zero result passes the absolute
+                    -- tolerance (< 0.01), inflating match rates for non-derived
+                    -- columns.  E.g. discount_amount=0 "matches" quantity/amount
+                    -- ≈ 0.00002.  Zero targets carry no discriminative power for
+                    -- formula detection; the match rate is meaningful only on
+                    -- rows where the target has a non-trivial value.
+                    AND TRY_CAST("{target_name}" AS DOUBLE) != 0
             )
             SELECT
                 COUNT(CASE WHEN diff < 0.01 THEN 1 END) as matches,
