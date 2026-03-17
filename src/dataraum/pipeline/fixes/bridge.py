@@ -72,15 +72,17 @@ def _build_append_documents(
 ) -> list[FixDocument]:
     """Build append documents — one per affected column.
 
-    When the schema has fields (e.g., document_business_rule with table,
-    columns, pattern_type), appends the structured parameters dict.
-    When fieldless (e.g., accept_finding), appends the column reference string.
+    When the schema has structured fields beyond just "reason" (e.g.,
+    document_business_rule with table, columns, pattern_type), appends
+    the parameters dict. Otherwise (e.g., accept_finding with only an
+    optional reason), appends the column reference string.
     """
     docs: list[FixDocument] = []
     reason = fix_input.interpretation or f"{schema.action} for {table_name}"
 
-    # Schema with fields: append structured parameters dict
-    if schema.fields:
+    # Structured append: schema has fields beyond just "reason"
+    has_structured_fields = bool(schema.fields.keys() - {"reason"})
+    if has_structured_fields:
         value: object = _extract_value(schema, fix_input)
     else:
         value = None  # set per-column below
@@ -99,7 +101,7 @@ def _build_append_documents(
                     "config_path": config_path,
                     "key_path": key_path,
                     "operation": "append",
-                    "value": value if schema.fields else col_ref,
+                    "value": value if has_structured_fields else col_ref,
                     "reason": reason,
                 },
             )
