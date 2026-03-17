@@ -355,7 +355,10 @@ def create_server(output_dir: Path | None = None) -> Server:
                 name="apply_fix",
                 description=(
                     "Apply fix documents and re-run affected pipeline phases. "
-                    "Returns before/after score deltas. Source path is auto-resolved."
+                    "Returns before/after score deltas. Source path is auto-resolved. "
+                    "Note: accept_finding marks an issue as acknowledged but does NOT "
+                    "lower the entropy score — the data issue remains, only the gate "
+                    "stops flagging it. Prefer corrective actions when possible."
                 ),
                 inputSchema={
                     "type": "object",
@@ -1786,6 +1789,7 @@ def _build_mcp_gate_context(
         "",
         "Choose the BEST action for each violating target.",
         "Prefer corrective actions (recalculate, override, add pattern) over accept_finding.",
+        "accept_finding acknowledges an issue but does NOT lower the entropy score.",
         "",
     ]
     if detector:
