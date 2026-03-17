@@ -11,7 +11,6 @@ from rich.console import Console
 from dataraum.cli.commands.run import _drive_pipeline, _PhaseTracker, _print_summary
 from dataraum.entropy.gate import ExitCheckIssue
 from dataraum.pipeline.events import EventType, PipelineEvent
-from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import (
     PipelineResult,
     Resolution,
@@ -111,7 +110,7 @@ class TestDriveBasicPipeline:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
 
         rendered = output.getvalue()
@@ -146,7 +145,7 @@ class TestDriveWithSkip:
                 events, _ok_result(phases_skipped=["semantic"], phases_completed=[])
             ),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
 
         rendered = output.getvalue()
@@ -184,7 +183,7 @@ class TestDriveWithFailure:
                 ),
             ),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
 
         rendered = output.getvalue()
@@ -193,9 +192,9 @@ class TestDriveWithFailure:
         assert "File not found" in rendered
 
 
-class TestExitCheckSkipMode:
+class TestExitCheckAutoDefer:
     def test_auto_sends_defer(self):
-        """gate_mode=SKIP auto-sends DEFER at EXIT_CHECK."""
+        """Non-interactive mode auto-sends DEFER at EXIT_CHECK."""
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
 
@@ -225,54 +224,13 @@ class TestExitCheckSkipMode:
                 expected_resolutions=[Resolution(action=ResolutionAction.DEFER)],
             ),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
 
         assert result.success
         rendered = output.getvalue().lower()
-        # Skip mode suppresses inline violation panel (shown in final summary instead)
+        # Non-interactive mode suppresses inline violation panel (shown in final summary)
         assert "post-verification" not in rendered
-
-
-class TestExitCheckFailMode:
-    def test_auto_sends_abort(self):
-        """gate_mode=FAIL auto-sends ABORT at EXIT_CHECK."""
-        output = StringIO()
-        console = Console(file=output, force_terminal=True, width=100)
-
-        events = [
-            PipelineEvent(event_type=EventType.PIPELINE_STARTED, step=1, total=2),
-            PipelineEvent(
-                event_type=EventType.PHASE_COMPLETED,
-                phase="typing",
-                step=2,
-                total=2,
-                duration_seconds=1.0,
-            ),
-            PipelineEvent(
-                event_type=EventType.EXIT_CHECK,
-                step=3,
-                total=2,
-                violations={"structural.types.type_fidelity": (0.62, 0.50)},
-            ),
-            # After ABORT, the generator will raise PipelineAborted,
-            # which the scheduler catches internally and returns a failed result
-            PipelineEvent(event_type=EventType.PIPELINE_COMPLETED, step=4, total=2),
-        ]
-
-        _drive_pipeline(
-            gen=_mock_generator(
-                events,
-                _ok_result(success=False, error="Pipeline aborted by user"),
-                expected_resolutions=[Resolution(action=ResolutionAction.ABORT)],
-            ),
-            console=console,
-            gate_mode=GateMode.FAIL,
-        )
-
-        # The mock generator doesn't actually abort — it just yields remaining events.
-        # But the handle_exit_check sends ABORT resolution.
-        assert "abort" in output.getvalue().lower()
 
 
 class TestQuietMode:
@@ -297,7 +255,7 @@ class TestQuietMode:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
             quiet=True,
         )
 
@@ -331,7 +289,7 @@ class TestPipelineResultReturned:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, expected_result),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
 
         assert result is not None
@@ -361,7 +319,7 @@ class TestSummaryDisplay:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
         _print_summary(console, result, stats)
 
@@ -392,7 +350,7 @@ class TestSummaryDisplay:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
         _print_summary(
             console,
@@ -429,7 +387,7 @@ class TestSummaryDisplay:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
         _print_summary(
             console,
@@ -486,7 +444,7 @@ class TestParallelSpinner:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
-            gate_mode=GateMode.SKIP,
+            interactive=False,
         )
 
         assert result.success

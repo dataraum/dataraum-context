@@ -1,4 +1,4 @@
-"""Tests for the CLI gate handler — PAUSE mode and fix flow."""
+"""Tests for the CLI gate handler — interactive fix flow."""
 
 from __future__ import annotations
 
@@ -11,12 +11,10 @@ from rich.console import Console
 from dataraum.cli.gate_handler import (
     _collect_fix_groups,
     _DimensionFixGroup,
-    _handle_pause,
     build_gate_context,
-    handle_exit_check,
+    handle_exit_check_interactive,
 )
 from dataraum.pipeline.events import EventType, PipelineEvent
-from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import ResolutionAction
 
 
@@ -64,30 +62,14 @@ def _make_group(
     )
 
 
-class TestHandleExitCheckModes:
-    def test_skip_returns_defer(self) -> None:
-        console = Console(file=StringIO())
-        event = _make_exit_check_event()
-
-        result = handle_exit_check(console, event, GateMode.SKIP)
-
-        assert result.action == ResolutionAction.DEFER
-
-    def test_fail_returns_abort(self) -> None:
-        console = Console(file=StringIO())
-        event = _make_exit_check_event()
-
-        result = handle_exit_check(console, event, GateMode.FAIL)
-
-        assert result.action == ResolutionAction.ABORT
-
-    def test_pause_delegates_to_handle_pause(self) -> None:
-        """PAUSE mode without fixable actions defers."""
+class TestHandleExitCheckInteractive:
+    def test_no_fixes_defers(self) -> None:
+        """Interactive handler without fixable actions defers."""
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(available_fixes={})
 
-        result = handle_exit_check(console, event, GateMode.PAUSE)
+        result = handle_exit_check_interactive(console, event)
 
         assert result.action == ResolutionAction.DEFER
         assert "no fix actions" in _strip_ansi(output.getvalue()).lower()
@@ -169,7 +151,7 @@ class TestHandlePause:
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(available_fixes={})
 
-        result = _handle_pause(console, event, None, None, None)
+        result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
 
@@ -185,7 +167,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="d"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
 
@@ -201,7 +183,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="a"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.ABORT
 
@@ -217,7 +199,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="xyz"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
 
@@ -234,7 +216,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="1"):
-            result = _handle_pause(console, event, None, None, None)
+            result = handle_exit_check_interactive(console, event, None, None, None)
 
         assert result.action == ResolutionAction.DEFER
         rendered = _strip_ansi(output.getvalue())
@@ -253,7 +235,7 @@ class TestHandlePause:
         )
 
         with patch.object(console, "input", return_value="d"):
-            _handle_pause(console, event, None, None, None)
+            handle_exit_check_interactive(console, event, None, None, None)
 
         rendered = _strip_ansi(output.getvalue())
         assert "type_fidelity" in rendered
@@ -315,9 +297,11 @@ class TestRunFixFlow:
         mock_agent.generate_batch_plan.return_value = Result.ok(mock_plan)
 
         # User confirms plan with "y"
+        input_values = iter(["y"])
+
         with (
-            patch("dataraum.cli.commands.fix._create_document_agent", return_value=mock_agent),
-            patch.object(console, "input", return_value="y"),
+            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, session, source_id, group, event)
 
@@ -355,9 +339,11 @@ class TestRunFixFlow:
         mock_agent = MagicMock()
         mock_agent.generate_batch_plan.return_value = Result.ok(mock_plan)
 
+        input_values = iter(["n"])
+
         with (
-            patch("dataraum.cli.commands.fix._create_document_agent", return_value=mock_agent),
-            patch.object(console, "input", return_value="n"),
+            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(
                 console,
@@ -384,7 +370,7 @@ class TestRunFixFlow:
         mock_agent.generate_batch_plan.return_value = Result.fail("API error")
 
         with patch(
-            "dataraum.cli.commands.fix._create_document_agent",
+            "dataraum.cli.gate_handler._create_document_agent",
             return_value=mock_agent,
         ):
             result = _run_fix_flow(
@@ -419,9 +405,11 @@ class TestRunFixFlow:
         mock_agent = MagicMock()
         mock_agent.generate_batch_plan.return_value = Result.ok(mock_plan)
 
-        with patch(
-            "dataraum.cli.commands.fix._create_document_agent",
-            return_value=mock_agent,
+        input_values = iter(["answer"])
+
+        with (
+            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, MagicMock(), "src", group, event)
 

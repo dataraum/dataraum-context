@@ -16,12 +16,11 @@ from rich.live import Live
 from rich.text import Text
 
 from dataraum.cli.common import console, setup_logging
-from dataraum.cli.gate_handler import handle_exit_check
+from dataraum.cli.gate_handler import handle_exit_check_interactive
 from dataraum.core.logging import LogBuffer, activate_console, deactivate_console
 from dataraum.entropy.gate import match_threshold
 from dataraum.pipeline.events import EventType, PipelineEvent
-from dataraum.pipeline.runner import GateMode
-from dataraum.pipeline.scheduler import PipelineResult, Resolution
+from dataraum.pipeline.scheduler import PipelineResult, Resolution, ResolutionAction
 from dataraum.pipeline.setup import setup_pipeline
 
 
@@ -56,14 +55,6 @@ def run(
             help="Run only this phase and its dependencies",
         ),
     ] = None,
-    gate_mode: Annotated[
-        str,
-        typer.Option(
-            "--gate-mode",
-            "-g",
-            help="How to handle entropy gates: skip (default), pause (interactive), fail",
-        ),
-    ] = "skip",
     contract: Annotated[
         str | None,
         typer.Option(
@@ -123,13 +114,6 @@ def run(
         dataraum run /path/to/data --log-format json  # JSON logs for cloud
     """
     setup_logging(verbosity=verbose, log_format=log_format)
-
-    # Validate --gate-mode
-    try:
-        resolved_gate_mode = GateMode(gate_mode)
-    except ValueError:
-        console.print(f"[red]Error: Invalid gate mode: {gate_mode}. Use: skip, pause, fail[/red]")
-        raise typer.Exit(1) from None
 
     # Validate --force flag
     if force and not phase:
@@ -208,7 +192,7 @@ def run(
         result, stats = _drive_pipeline(
             gen=gen,
             console=console,
-            gate_mode=resolved_gate_mode,
+            interactive=False,
             quiet=quiet,
             contract_name=setup.contract_name,
             contract_thresholds=setup.contract_thresholds,
@@ -286,7 +270,7 @@ class _PhaseTracker:
 def _drive_pipeline(
     gen: Generator[PipelineEvent, Resolution | None, PipelineResult],
     console: Console,
-    gate_mode: GateMode,
+    interactive: bool = False,
     quiet: bool = False,
     contract_name: str | None = None,
     contract_thresholds: dict[str, float] | None = None,
@@ -298,12 +282,13 @@ def _drive_pipeline(
     Args:
         gen: The scheduler generator.
         console: Rich console for output.
-        gate_mode: How to handle EXIT_CHECK events.
+        interactive: When True, pause at EXIT_CHECK for interactive fix UI.
+            When False, auto-defer all gate violations.
         quiet: Suppress progress output.
         contract_name: Name of the target contract (for summary display).
         contract_thresholds: Dimension thresholds from the contract.
-        session: DB session (required for PAUSE gate mode).
-        source_id: Source ID (required for PAUSE gate mode).
+        session: DB session (required for interactive mode).
+        source_id: Source ID (required for interactive mode).
 
     Returns:
         Tuple of (PipelineResult, _RunStats) from the generator.
@@ -370,21 +355,23 @@ def _drive_pipeline(
                             console.print(f"  [dim]~ {sd['detector_id']}: {sd['reason']}[/dim]")
 
                 case EventType.EXIT_CHECK:
-                    if live:
-                        deactivate_console()
-                        live.stop()
-                    resolution = handle_exit_check(
-                        console,
-                        event,
-                        gate_mode,
-                        contract_thresholds=contract_thresholds,
-                        session=session,
-                        source_id=source_id,
-                    )
-                    event = gen.send(resolution)
-                    if live:
-                        live.start()
-                        activate_console(console, log_buffer=log_buffer)
+                    if interactive:
+                        if live:
+                            deactivate_console()
+                            live.stop()
+                        resolution = handle_exit_check_interactive(
+                            console,
+                            event,
+                            contract_thresholds=contract_thresholds,
+                            session=session,
+                            source_id=source_id,
+                        )
+                        event = gen.send(resolution)
+                        if live:
+                            live.start()
+                            activate_console(console, log_buffer=log_buffer)
+                    else:
+                        event = gen.send(Resolution(action=ResolutionAction.DEFER))
                     continue
 
                 case EventType.PIPELINE_COMPLETED:

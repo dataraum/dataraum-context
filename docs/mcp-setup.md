@@ -112,7 +112,7 @@ See the plugin repo's README for installation and configuration instructions. Th
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `analyze` | `path`, `name?`, `gate_mode?` | Run pipeline on CSV/Parquet data |
+| `analyze` | `path`, `name?` | Run pipeline on CSV/Parquet data |
 | `get_context` | — | Schema, relationships, semantic annotations, quality |
 | `get_quality` | `contract_name?`, `table_name?`, `priority?`, `include?` | Unified quality report (entropy + contracts + actions) |
 | `query` | `question`, `contract_name?` | Natural language query with confidence level |
