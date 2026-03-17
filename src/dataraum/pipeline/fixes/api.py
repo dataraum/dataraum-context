@@ -112,7 +112,7 @@ def apply_fixes(
     from dataraum.entropy.gate import measure_at_gate, persist_gate_result
     from dataraum.pipeline.cleanup import cleanup_phase_cascade
     from dataraum.pipeline.fixes.interpreters import apply_and_persist
-    from dataraum.pipeline.runner import GateMode, RunConfig
+    from dataraum.pipeline.runner import RunConfig
     from dataraum.pipeline.runner import run as pipeline_run
 
     config_root = output_dir / "config"
@@ -167,7 +167,6 @@ def apply_fixes(
                 source_path=source_path,
                 output_dir=output_dir,
                 target_phase="quality_review",
-                gate_mode=GateMode.SKIP,
                 contract=contract,
             )
         ).unwrap()

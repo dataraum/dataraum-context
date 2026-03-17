@@ -172,7 +172,7 @@ src/dataraum/
 ├── query/                 # Natural language query execution
 ├── pipeline/              # Pipeline orchestrator
 │   ├── registry.py        # Phase auto-discovery
-│   ├── runner.py          # Execution engine + GateMode + RunConfig
+│   ├── runner.py          # Execution engine + RunConfig
 │   ├── gates.py           # Gate model, GateHandler protocol, build_gate()
 │   ├── entropy_state.py   # PipelineEntropyState: runtime hard score tracking
 │   └── phases/            # 20 phase implementations (with entropy_preconditions)

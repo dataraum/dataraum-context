@@ -1,8 +1,8 @@
 """CLI gate handler — functions for resolving EXIT_CHECK events.
 
-Renders post-verification results during the pipeline run and resolves
-EXIT_CHECK events based on gate mode. In PAUSE mode, provides an
-interactive fix UI with DocumentAgent config mode Q&A.
+Renders post-verification results during the pipeline run.
+In interactive mode (``dataraum fix``), provides a fix UI with
+DocumentAgent config-mode Q&A.
 """
 
 from __future__ import annotations
@@ -17,63 +17,41 @@ from rich.table import Table
 from dataraum.entropy.gate import match_threshold
 from dataraum.pipeline.events import PipelineEvent
 from dataraum.pipeline.fixes import FixInput
-from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import Resolution, ResolutionAction
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-def handle_exit_check(
+def handle_exit_check_interactive(
     console: Console,
     event: PipelineEvent,
-    gate_mode: GateMode,
     contract_thresholds: dict[str, float] | None = None,
     session: Session | None = None,
     source_id: str | None = None,
 ) -> Resolution:
-    """Resolve an EXIT_CHECK event based on gate mode.
+    """Resolve an EXIT_CHECK event interactively.
+
+    Shows violations and presents an interactive fix UI so the user can
+    review and apply fixes at the quality gate.
 
     Args:
         console: Rich console for output.
         event: The EXIT_CHECK event with violations.
-        gate_mode: How to handle the check.
         contract_thresholds: Dimension thresholds from the contract.
-        session: DB session (required for PAUSE mode).
-        source_id: Source ID (required for PAUSE mode).
+        session: DB session (required for fix flow).
+        source_id: Source ID (required for fix flow).
 
     Returns:
         Resolution telling the scheduler what to do.
     """
-    match gate_mode:
-        case GateMode.SKIP:
-            # Skip mode: suppress inline panel, violations appear in final summary
-            return Resolution(action=ResolutionAction.DEFER)
-
-        case GateMode.FAIL:
-            # Fail mode: show violations so user understands why pipeline aborts
-            render_violations(
-                console,
-                event.violations,
-                event.column_details,
-                all_scores=event.scores or None,
-                contract_thresholds=contract_thresholds,
-                phase_name=event.phase,
-            )
-            console.print("  [red]Aborting — gate mode is fail[/red]")
-            return Resolution(action=ResolutionAction.ABORT)
-
-        case GateMode.PAUSE:
-            return _handle_pause(
-                console,
-                event,
-                contract_thresholds,
-                session,
-                source_id,
-            )
-
-        case _:
-            return Resolution(action=ResolutionAction.DEFER)
+    return _handle_pause(
+        console,
+        event,
+        contract_thresholds,
+        session,
+        source_id,
+    )
 
 
 def render_gate_scores(
@@ -262,7 +240,7 @@ def render_violations(
 
 
 # ---------------------------------------------------------------------------
-# PAUSE mode
+# Interactive fix flow
 # ---------------------------------------------------------------------------
 
 
@@ -273,7 +251,7 @@ def _handle_pause(
     session: Session | None,
     source_id: str | None,
 ) -> Resolution:
-    """Handle EXIT_CHECK in PAUSE mode — interactive fix UI.
+    """Handle EXIT_CHECK interactively — show violations and run fix UI.
 
     Shows violations, presents available fix actions, and runs an
     agent-driven Q&A flow to produce a fix resolution.
@@ -336,7 +314,7 @@ def _handle_pause(
     selected_group = groups[idx]
 
     if session is None or source_id is None:
-        console.print("[red]Session not available for PAUSE mode. Deferring.[/red]")
+        console.print("[red]Session not available for interactive mode. Deferring.[/red]")
         return Resolution(action=ResolutionAction.DEFER)
 
     return _run_fix_flow(console, session, source_id, selected_group, event)
@@ -419,8 +397,6 @@ def _run_fix_flow(
 
     Returns a FIX resolution on success, DEFER on cancellation or error.
     """
-    from dataraum.cli.commands.fix import _create_document_agent
-
     context = build_gate_context(session, source_id, group, event)
 
     try:
@@ -715,3 +691,29 @@ def _build_data_profile(
 
     lines.append("</data_profile>")
     return "\n".join(lines) if has_data else ""
+
+
+# ---------------------------------------------------------------------------
+# LLM agent factory
+# ---------------------------------------------------------------------------
+
+
+def _create_document_agent() -> Any:
+    """Create a DocumentAgent with the configured LLM provider."""
+    from dataraum.documentation.agent import DocumentAgent
+    from dataraum.llm import PromptRenderer, create_provider, load_llm_config
+
+    config = load_llm_config()
+    provider_config = config.providers.get(config.active_provider)
+    if not provider_config:
+        raise ValueError(f"Provider '{config.active_provider}' not configured")
+
+    provider = create_provider(config.active_provider, provider_config.model_dump())
+    renderer = PromptRenderer()
+    model = provider.get_model_for_tier("capable")
+
+    return DocumentAgent(
+        provider=provider,
+        renderer=renderer,
+        model=model,
+    )

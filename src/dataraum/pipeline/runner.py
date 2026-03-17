@@ -33,7 +33,6 @@ from sqlalchemy import select
 
 from dataraum.core.logging import get_logger
 from dataraum.core.models.base import Result
-from dataraum.entropy.dimensions import _StrValueMixin
 from dataraum.pipeline.db_models import PhaseLog
 from dataraum.pipeline.events import EventCallback, EventType, PipelineEvent  # noqa: F401
 from dataraum.pipeline.scheduler import (
@@ -44,14 +43,6 @@ from dataraum.pipeline.scheduler import (
 from dataraum.pipeline.setup import setup_pipeline
 
 logger = get_logger(__name__)
-
-
-class GateMode(_StrValueMixin):
-    """How the pipeline handles entropy gates."""
-
-    SKIP = "skip"  # Log warning, continue (backward compatible)
-    FAIL = "fail"  # Treat as pipeline failure
-    PAUSE = "pause"  # Pause for interactive resolution (CLI only)
 
 
 @dataclass
@@ -69,9 +60,6 @@ class RunConfig:
     target_phase: str | None = None
     force_phase: bool = False
     event_callback: EventCallback | None = None
-
-    # Gate configuration
-    gate_mode: GateMode = GateMode.SKIP
     contract: str | None = None  # Target contract name
 
 
@@ -194,9 +182,8 @@ def run(config: RunConfig) -> Result[RunResult]:
                         pass  # Never let callback failures break the pipeline
 
                 if event.event_type == EventType.EXIT_CHECK:
-                    # Resolve based on gate_mode
-                    resolution = _resolve_exit_check(config.gate_mode, event)
-                    event = gen.send(resolution)
+                    # Programmatic runs always defer gate violations
+                    event = gen.send(Resolution(action=ResolutionAction.DEFER))
                 else:
                     event = next(gen)
         except StopIteration as e:
@@ -286,23 +273,6 @@ def run(config: RunConfig) -> Result[RunResult]:
             error=str(e),
         )
         return Result.ok(run_result, warnings=[f"Pipeline error: {e}"])
-
-
-def _resolve_exit_check(gate_mode: GateMode, event: PipelineEvent) -> Resolution:
-    """Resolve an EXIT_CHECK event for programmatic callers.
-
-    Args:
-        gate_mode: How the caller wants gates handled.
-        event: The EXIT_CHECK event with violations.
-
-    Returns:
-        Resolution for the scheduler.
-    """
-    if gate_mode == GateMode.FAIL:
-        return Resolution(action=ResolutionAction.ABORT)
-    # SKIP and PAUSE both defer in programmatic context.
-    # PAUSE is interactive — handled by the CLI gate handler, not here.
-    return Resolution(action=ResolutionAction.DEFER)
 
 
 def _print_run_result(run_result: RunResult, config: RunConfig, warnings: list[str]) -> None:

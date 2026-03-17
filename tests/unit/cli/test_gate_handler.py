@@ -1,4 +1,4 @@
-"""Tests for the CLI gate handler — PAUSE mode and fix flow."""
+"""Tests for the CLI gate handler — interactive fix flow."""
 
 from __future__ import annotations
 
@@ -13,10 +13,9 @@ from dataraum.cli.gate_handler import (
     _DimensionFixGroup,
     _handle_pause,
     build_gate_context,
-    handle_exit_check,
+    handle_exit_check_interactive,
 )
 from dataraum.pipeline.events import EventType, PipelineEvent
-from dataraum.pipeline.runner import GateMode
 from dataraum.pipeline.scheduler import ResolutionAction
 
 
@@ -64,30 +63,14 @@ def _make_group(
     )
 
 
-class TestHandleExitCheckModes:
-    def test_skip_returns_defer(self) -> None:
-        console = Console(file=StringIO())
-        event = _make_exit_check_event()
-
-        result = handle_exit_check(console, event, GateMode.SKIP)
-
-        assert result.action == ResolutionAction.DEFER
-
-    def test_fail_returns_abort(self) -> None:
-        console = Console(file=StringIO())
-        event = _make_exit_check_event()
-
-        result = handle_exit_check(console, event, GateMode.FAIL)
-
-        assert result.action == ResolutionAction.ABORT
-
-    def test_pause_delegates_to_handle_pause(self) -> None:
-        """PAUSE mode without fixable actions defers."""
+class TestHandleExitCheckInteractive:
+    def test_no_fixes_defers(self) -> None:
+        """Interactive handler without fixable actions defers."""
         output = StringIO()
         console = Console(file=output, force_terminal=True, width=100)
         event = _make_exit_check_event(available_fixes={})
 
-        result = handle_exit_check(console, event, GateMode.PAUSE)
+        result = handle_exit_check_interactive(console, event)
 
         assert result.action == ResolutionAction.DEFER
         assert "no fix actions" in _strip_ansi(output.getvalue()).lower()
@@ -331,7 +314,7 @@ class TestRunFixFlow:
         input_values = iter(["1", "y"])
 
         with (
-            patch("dataraum.cli.commands.fix._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, session, source_id, group, event)
@@ -385,7 +368,7 @@ class TestRunFixFlow:
         input_values = iter(["DATE", "n"])  # answer, then decline
 
         with (
-            patch("dataraum.cli.commands.fix._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(
@@ -409,7 +392,7 @@ class TestRunFixFlow:
         mock_agent.generate_config_questions.return_value = Result.fail("API error")
 
         with patch(
-            "dataraum.cli.commands.fix._create_document_agent",
+            "dataraum.cli.gate_handler._create_document_agent",
             return_value=mock_agent,
         ):
             result = _run_fix_flow(
@@ -458,7 +441,7 @@ class TestRunFixFlow:
         input_values = iter(["answer"])
 
         with (
-            patch("dataraum.cli.commands.fix._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, MagicMock(), "src", group, event)
