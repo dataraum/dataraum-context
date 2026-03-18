@@ -1047,8 +1047,7 @@ class QueryAgent(LLMFeature):
                 for v in contract_evaluation.violations:
                     if v.dimension:
                         lines.append(
-                            f"  - {v.dimension}: {v.actual:.2f} "
-                            f"(max allowed: {v.max_allowed:.2f})"
+                            f"  - {v.dimension}: {v.actual:.2f} (max allowed: {v.max_allowed:.2f})"
                         )
                     elif v.condition:
                         lines.append(f"  - {v.details}")

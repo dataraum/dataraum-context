@@ -793,9 +793,7 @@ def build_execution_context(
                     max_timestamp=str(temp_profile.max_timestamp)
                     if temp_profile and temp_profile.max_timestamp
                     else None,
-                    completeness_ratio=temp_profile.completeness_ratio
-                    if temp_profile
-                    else None,
+                    completeness_ratio=temp_profile.completeness_ratio if temp_profile else None,
                     quality_grade=col_report.quality_grade if col_report else None,
                     quality_score=col_report.overall_quality_score if col_report else None,
                     quality_summary=col_report.summary if col_report else None,
@@ -811,9 +809,7 @@ def build_execution_context(
                     entropy_scores=col_entropy,
                     resolution_hints=col_entropy.get("resolution_hints", []) if col_entropy else [],
                     entropy_explanation=col_interp.explanation if col_interp else None,
-                    entropy_assumptions=col_interp.assumptions_json or []
-                    if col_interp
-                    else [],
+                    entropy_assumptions=col_interp.assumptions_json or [] if col_interp else [],
                 )
             )
 
@@ -1107,9 +1103,7 @@ def format_metadata_document(
             meta_parts.append(f"**Rows**: {table.row_count:,}.")
         if table.time_column:
             # Find matching temporal column for time range
-            time_col = next(
-                (c for c in table.columns if c.column_name == table.time_column), None
-            )
+            time_col = next((c for c in table.columns if c.column_name == table.time_column), None)
             time_info = f"**Time column**: {table.time_column}"
             if time_col:
                 time_parts = []
@@ -1132,7 +1126,9 @@ def format_metadata_document(
             col_role = col.semantic_role or ""
             col_desc = _build_column_description(col)
             col_notes = _build_column_notes(col)
-            lines.append(f"| {col.column_name} | {col_type} | {col_role} | {col_desc} | {col_notes} |")
+            lines.append(
+                f"| {col.column_name} | {col_type} | {col_role} | {col_desc} | {col_notes} |"
+            )
 
         # Quality section (per-table)
         _append_table_quality(lines, table)
@@ -1372,9 +1368,7 @@ def _append_data_quality_notes(lines: list[str], table: TableContext) -> None:
             lines.append(f"  Assumption: {text} (confidence: {conf}, basis: {basis})")
 
 
-def _append_business_processes(
-    lines: list[str], context: GraphExecutionContext
-) -> None:
+def _append_business_processes(lines: list[str], context: GraphExecutionContext) -> None:
     """Append business processes section."""
     # Build health lookup
     health_lookup: dict[str, Any] = {}
@@ -1394,14 +1388,14 @@ def _append_business_processes(
                 status = "PARTIAL"
             else:
                 status = "UNVERIFIED"
-            val_info = f"({health_score.validations_passed}/{health_score.validations_run} validations)"
+            val_info = (
+                f"({health_score.validations_passed}/{health_score.validations_run} validations)"
+            )
         else:
             status = "UNVERIFIED"
             val_info = ""
 
-        lines.append(
-            f"\n### {cycle.cycle_name} ({cycle.cycle_type}) — {status} {val_info}"
-        )
+        lines.append(f"\n### {cycle.cycle_name} ({cycle.cycle_type}) — {status} {val_info}")
         lines.append("")
 
         if cycle.description:
@@ -1434,9 +1428,7 @@ def _append_business_processes(
                 progress = (
                     f" ({stage.completion_rate:.0%})" if stage.completion_rate is not None else ""
                 )
-                lines.append(
-                    f"  {stage.stage_order}. {stage.stage_name}{indicator}{progress}"
-                )
+                lines.append(f"  {stage.stage_order}. {stage.stage_name}{indicator}{progress}")
 
         # Completion tracking
         if cycle.status_column and cycle.completion_value:
