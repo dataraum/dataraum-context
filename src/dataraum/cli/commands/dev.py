@@ -240,6 +240,61 @@ def inspect(
 
 
 @app.command()
+def context(
+    output_dir: OutputDirArg = Path("./pipeline_output"),
+) -> None:
+    """Print the full metadata document that agents receive.
+
+    Shows exactly what the query and graph agents see when generating SQL.
+    Requires a completed pipeline run (at minimum through the typing phase).
+    """
+    from sqlalchemy import select
+
+    from dataraum.core.connections import get_manager_for_directory
+    from dataraum.graphs.context import build_execution_context, format_metadata_document
+    from dataraum.storage import Table
+
+    try:
+        manager = get_manager_for_directory(output_dir)
+    except FileNotFoundError:
+        console.print(f"[red]No pipeline output found at {output_dir}[/red]")
+        raise typer.Exit(1) from None
+
+    try:
+        with manager.session_scope() as session:
+            source_result = session.execute(select(Table.source_id).limit(1))
+            source_id = source_result.scalar()
+            if not source_id:
+                console.print("[red]No tables found. Run the pipeline first.[/red]")
+                raise typer.Exit(1)
+
+            tables = (
+                session.execute(
+                    select(Table).where(Table.source_id == source_id, Table.layer == "typed")
+                )
+                .scalars()
+                .all()
+            )
+            if not tables:
+                console.print("[red]No typed tables found. Run at least the typing phase.[/red]")
+                raise typer.Exit(1)
+
+            table_ids = [t.table_id for t in tables]
+
+            with manager.duckdb_cursor() as cursor:
+                ctx = build_execution_context(
+                    session=session,
+                    table_ids=table_ids,
+                    duckdb_conn=cursor,
+                )
+
+            document = format_metadata_document(ctx)
+            console.print(document)
+    finally:
+        manager.close()
+
+
+@app.command()
 def reset(
     output_dir: Annotated[
         Path,
