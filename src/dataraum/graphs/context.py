@@ -21,6 +21,7 @@ from dataraum.core.logging import get_logger
 if TYPE_CHECKING:
     import duckdb
 
+    from dataraum.analysis.cycles.health import HealthReport
     from dataraum.graphs.field_mapping import FieldMappings
 
 logger = get_logger(__name__)
@@ -233,6 +234,9 @@ class GraphExecutionContext:
 
     # Business cycles (from cycles analysis)
     business_cycles: list[BusinessCycleContext] = field(default_factory=list)
+
+    # Cycle health (from cycles health computation)
+    cycle_health: HealthReport | None = None
 
     # Validation results (from validation analysis)
     validations: list[ValidationContext] = field(default_factory=list)
@@ -546,6 +550,20 @@ def build_execution_context(
                 )
             )
 
+    # 13d. Compute cycle health
+    from dataraum.analysis.cycles.health import compute_cycle_health
+    from dataraum.core.config import load_phase_config
+
+    cycle_health_report: HealthReport | None = None
+    if _source_id:
+        bc_config = load_phase_config("business_cycles")
+        _vertical = bc_config.get("vertical")
+        if _vertical:
+            try:
+                cycle_health_report = compute_cycle_health(session, _source_id, vertical=_vertical)
+            except Exception as e:
+                logger.warning("cycle_health_failed", error=str(e))
+
     # 14. Load field mappings
     field_mappings = load_semantic_mappings(session, table_ids)
 
@@ -770,6 +788,7 @@ def build_execution_context(
         slice_value=slice_value,
         available_slices=slice_contexts,
         business_cycles=business_cycle_contexts,
+        cycle_health=cycle_health_report,
         validations=validation_contexts,
         enriched_views=enriched_view_contexts,
         field_mappings=field_mappings,
@@ -1279,6 +1298,46 @@ def format_context_for_prompt(context: GraphExecutionContext) -> str:
             # Tables involved
             tables_str = ", ".join(cycle.tables_involved)
             lines.append(f"Tables: {tables_str}")
+
+    # --- Business Capabilities ---
+    if context.business_cycles:
+        # Build health lookup from cycle_health report
+        health_lookup: dict[str, float] = {}
+        if context.cycle_health:
+            for cs in context.cycle_health.cycle_scores:
+                if cs.composite_score is not None:
+                    # Match by canonical_type (same as cycle_type on BusinessCycleContext)
+                    if cs.canonical_type:
+                        health_lookup[cs.canonical_type] = cs.composite_score
+
+        lines.append("")
+        lines.append("## BUSINESS CAPABILITIES")
+        lines.append("")
+
+        for cycle in context.business_cycles:
+            score = health_lookup.get(cycle.cycle_type)
+            if score is not None:
+                if score >= 0.8:
+                    status = "VERIFIED"
+                elif score >= 0.5:
+                    status = "PARTIAL"
+                else:
+                    status = "UNVERIFIED"
+            else:
+                status = "UNVERIFIED"
+
+            # Validation counts from health report
+            val_info = ""
+            if context.cycle_health:
+                for cs in context.cycle_health.cycle_scores:
+                    if cs.canonical_type == cycle.cycle_type:
+                        val_info = (
+                            f" ({cs.validations_passed}/{cs.validations_run} validations)"
+                        )
+                        break
+
+            tables_str = ", ".join(cycle.tables_involved)
+            lines.append(f"- {cycle.cycle_name} [{status}]{val_info} — tables: {tables_str}")
 
     return "\n".join(lines)
 

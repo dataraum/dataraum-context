@@ -703,3 +703,98 @@ class TestFormatBusinessCycleSection:
         assert "customers.customer_id" in result
         assert "orders" in result
         assert "FK" in result
+
+
+class TestFormatBusinessCapabilities:
+    """Tests for BUSINESS CAPABILITIES section in format_context_for_prompt."""
+
+    def test_no_cycles_no_capabilities_section(self) -> None:
+        """No cycles means no capabilities section."""
+        ctx = GraphExecutionContext()
+        result = format_context_for_prompt(ctx)
+        assert "BUSINESS CAPABILITIES" not in result
+
+    def test_cycles_with_health_correct_labels(self) -> None:
+        """Cycles with health report show VERIFIED/PARTIAL/UNVERIFIED labels."""
+        from dataraum.analysis.cycles.health import CycleHealthScore, HealthReport
+
+        cycle_ar = BusinessCycleContext(
+            cycle_name="Accounts Receivable",
+            cycle_type="accounts_receivable",
+            tables_involved=["invoices", "payments"],
+        )
+        cycle_otc = BusinessCycleContext(
+            cycle_name="Order to Cash",
+            cycle_type="order_to_cash",
+            tables_involved=["orders", "customers"],
+        )
+        cycle_exp = BusinessCycleContext(
+            cycle_name="Expense Cycle",
+            cycle_type="expense",
+            tables_involved=["expenses"],
+        )
+        health = HealthReport(
+            source_id="src-1",
+            cycle_scores=[
+                CycleHealthScore(
+                    cycle_id="c1",
+                    cycle_name="Accounts Receivable",
+                    canonical_type="accounts_receivable",
+                    completion_rate=0.95,
+                    validation_pass_rate=1.0,
+                    validations_run=3,
+                    validations_passed=3,
+                    composite_score=0.9,
+                ),
+                CycleHealthScore(
+                    cycle_id="c2",
+                    cycle_name="Order to Cash",
+                    canonical_type="order_to_cash",
+                    completion_rate=0.6,
+                    validation_pass_rate=0.5,
+                    validations_run=4,
+                    validations_passed=2,
+                    composite_score=0.55,
+                ),
+                CycleHealthScore(
+                    cycle_id="c3",
+                    cycle_name="Expense Cycle",
+                    canonical_type="expense",
+                    completion_rate=0.3,
+                    validation_pass_rate=0.0,
+                    validations_run=2,
+                    validations_passed=0,
+                    composite_score=0.3,
+                ),
+            ],
+        )
+        ctx = GraphExecutionContext(
+            business_cycles=[cycle_ar, cycle_otc, cycle_exp],
+            cycle_health=health,
+        )
+        result = format_context_for_prompt(ctx)
+
+        assert "BUSINESS CAPABILITIES" in result
+        assert "Accounts Receivable [VERIFIED]" in result
+        assert "(3/3 validations)" in result
+        assert "Order to Cash [PARTIAL]" in result
+        assert "(2/4 validations)" in result
+        assert "Expense Cycle [UNVERIFIED]" in result
+        assert "(0/2 validations)" in result
+
+    def test_cycles_without_health_report_unverified(self) -> None:
+        """Cycles without a health report default to UNVERIFIED."""
+        cycle = BusinessCycleContext(
+            cycle_name="Revenue Recognition",
+            cycle_type="revenue_recognition",
+            tables_involved=["revenue", "contracts"],
+        )
+        ctx = GraphExecutionContext(
+            business_cycles=[cycle],
+            cycle_health=None,
+        )
+        result = format_context_for_prompt(ctx)
+
+        assert "BUSINESS CAPABILITIES" in result
+        assert "Revenue Recognition [UNVERIFIED]" in result
+        assert "revenue, contracts" in result
