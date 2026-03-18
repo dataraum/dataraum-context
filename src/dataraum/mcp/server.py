@@ -644,10 +644,15 @@ def _get_pipeline_progress(manager: Any) -> str | None:
     Returns:
         Progress/error message string if running or failed, None if pipeline is idle.
     """
+    from datetime import UTC, datetime
+
     from sqlalchemy import func, select
 
     from dataraum.pipeline.db_models import PhaseLog, PipelineRun
     from dataraum.pipeline.registry import get_registry
+
+    # A "running" pipeline older than this is considered stale (process died).
+    _STALE_THRESHOLD_MINUTES = 30
 
     with manager.session_scope() as session:
         source = _get_pipeline_source(session)
@@ -665,8 +670,8 @@ def _get_pipeline_progress(manager: Any) -> str | None:
         if latest_run is None:
             return None
 
-        # Pipeline completed successfully — no progress to report
-        if latest_run.status == "completed":
+        # Terminal states — no progress to report
+        if latest_run.status in ("completed", "stopped"):
             return None
 
         # Pipeline failed — surface the error
@@ -690,7 +695,12 @@ def _get_pipeline_progress(manager: Any) -> str | None:
                 f"Fix the issue and re-run `analyze`."
             )
 
-        # Pipeline is still running — show progress
+        # Status is "running" — check if stale (process crashed without updating status)
+        age_minutes = (datetime.now(UTC) - latest_run.started_at).total_seconds() / 60
+        if age_minutes > _STALE_THRESHOLD_MINUTES:
+            return None
+
+        # Pipeline is actively running — show progress
         completed_count: int = (
             session.execute(
                 select(func.count()).where(PhaseLog.run_id == latest_run.run_id)
