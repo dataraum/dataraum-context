@@ -115,9 +115,7 @@ class BusinessCycleHealthDetector(EntropyDetector):
         )
 
         # Filter to cycles involving this table
-        matching = [
-            c for c in cycles if context.table_name in (c.tables_involved or [])
-        ]
+        matching = [c for c in cycles if context.table_name in (c.tables_involved or [])]
 
         if matching:
             context.analysis_results["business_cycles"] = matching
@@ -166,11 +164,7 @@ class BusinessCycleHealthDetector(EntropyDetector):
 
         resolution_options: list[ResolutionOption] = []
         if final_score > 0.5:
-            low_cycles = [
-                e["cycle_name"]
-                for e in evidence
-                if e["score"] > 0.5
-            ]
+            low_cycles = [e["cycle_name"] for e in evidence if e["score"] > 0.5]
             resolution_options.append(
                 ResolutionOption(
                     action="investigate_cycle_health",
