@@ -23,8 +23,7 @@ class SQLStepOutput(BaseModel):
     step_id: str = Field(description="Unique identifier for this step (e.g., 'filter_active')")
     sql: str = Field(
         description="Standalone DuckDB SQL query for this step. "
-        "Must be executable as: CREATE TEMP VIEW {step_id} AS {this_sql}. "
-        "Must NOT contain WITH clauses or reference other steps."
+        "Executed as: CREATE TEMP VIEW {step_id} AS {this_sql}."
     )
     description: str = Field(description="Human-readable description of what this step does")
     snippet_id: str | None = Field(
@@ -77,8 +76,8 @@ class QueryAnalysisOutput(BaseModel):
     )
     final_sql: str = Field(
         description="SQL that combines step results to produce the final output. "
-        "Reference steps via: SELECT ... FROM step_1 JOIN step_2 ... "
-        "Do NOT use CTEs to redefine step logic."
+        "Steps are available as temp views — reference via: "
+        "SELECT ... FROM step_1 JOIN step_2 ..."
     )
     column_mappings: dict[str, str] = Field(
         default_factory=dict,

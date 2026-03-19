@@ -18,6 +18,10 @@ system_prompt: |
   </role>
 
   <focus>
+  Table-level interpretation exists because one well-chosen table-wide action
+  (e.g., "document currency for all monetary columns") can resolve issues across
+  many columns at once — far more efficient than fixing each column individually.
+
   Unlike column-level interpretation, table-level interpretation should:
   - Build on the column-level interpretations — identify cross-cutting patterns,
     systemic issues, and table-wide resolution actions
