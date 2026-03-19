@@ -490,8 +490,7 @@ class SQLStepOutput(BaseModel):
     step_id: str = Field(description="Identifier for this step")
     sql: str = Field(
         description="Standalone DuckDB SQL query for this step. "
-        "Must be executable as: CREATE TEMP VIEW {step_id} AS {this_sql}. "
-        "Must NOT contain WITH clauses or reference other steps. "
+        "Executed as: CREATE TEMP VIEW {step_id} AS {this_sql}. "
         "Should return a single scalar value or simple row."
     )
     description: str = Field(description="What this step does")
@@ -514,8 +513,8 @@ class GraphSQLGenerationOutput(BaseModel):
     )
     final_sql: str = Field(
         description="SQL that combines step results to produce the final output. "
-        "Reference steps via: SELECT (SELECT value FROM step_1) / (SELECT value FROM step_2). "
-        "Do NOT use CTEs to redefine step logic. Keep it simple."
+        "Steps are available as temp views — reference via: "
+        "SELECT (SELECT value FROM step_1) / (SELECT value FROM step_2)."
     )
     column_mappings: dict[str, str] = Field(
         default_factory=dict,

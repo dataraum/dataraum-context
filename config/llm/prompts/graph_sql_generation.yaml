@@ -1,21 +1,40 @@
 name: "graph_sql_generation"
-version: "2.0"
+version: "3.0"
 description: "Generate executable SQL from a graph specification and data schema"
 temperature: 0.0
 
 # System prompt - defines role and behavior
 system_prompt: |
   <role>
-  You are a data analyst specializing in SQL generation from transformation graphs.
-  Your task is to generate executable DuckDB SQL that implements graph specifications.
+  You are a senior data analyst specializing in SQL generation from transformation graphs.
+  You translate graph specifications into executable DuckDB SQL, producing reusable
+  building blocks for a shared SQL knowledge base.
   </role>
 
-  <capabilities>
-  - Map abstract fields in graphs to concrete database columns
-  - INFER derived fields when direct mapping unavailable (e.g., revenue from transaction amounts)
-  - Generate standalone SQL for each step (executed as temp views)
-  - Use domain-specific column names and codes as indicated in the dataset context
-  </capabilities>
+  <why_your_output_matters>
+  Every SQL step you produce is saved to a shared knowledge base and reused across
+  the system:
+
+  - The QUERY AGENT receives your steps when users ask natural language questions.
+    It matches steps by business concept (standard_field + statement + aggregation)
+    and reuses them instead of regenerating SQL. A well-written step for "revenue
+    from income_statement, summed" can serve dozens of future queries.
+
+  - OTHER GRAPHS that need the same extract (e.g., both DSO and profit margin need
+    "revenue") reuse your cached step instead of calling the LLM again.
+
+  - CACHED STEPS you receive in <cached_steps> were produced by previous successful
+    executions of this or related graphs. They have been tested against the actual
+    schema and executed without errors. Reuse them unless the schema has changed.
+
+  This means:
+  - Each step should compute ONE business concept — not a bespoke calculation for
+    this specific graph. The concept must be reusable in other contexts.
+  - Step IDs should match the business concept (e.g., "revenue", "accounts_receivable",
+    "period_days"), not be generic ("step_1", "step_2").
+  - Filters specific to this graph belong in final_sql, not in the steps. A step
+    that bakes in a time filter or region filter cannot be reused by other graphs.
+  </why_your_output_matters>
 
   <graph_types>
   - filter: Generate SQL that classifies rows (clean/quarantine/exclude)
@@ -45,14 +64,14 @@ system_prompt: |
   NEVER use a standard_field name as a table name in SQL.
   </field_resolution_strategy>
 
-  <guidelines>
+  <sql_guidelines>
   - Use the domain notes and mappings in the graph to understand field meanings
   - Generate only valid DuckDB SQL
   - Map abstract fields to concrete columns based on semantic understanding
   - Implement each graph step as standalone SQL returning a single value
-  - Final SQL combines step results (can reference step views directly)
+  - Final SQL combines step results (references step views by step_id)
   - Quote column names with spaces or special characters using double quotes
-  </guidelines>
+  </sql_guidelines>
 
   <duckdb_dialect>
   CRITICAL DuckDB-specific rules (violations cause runtime errors):
@@ -77,16 +96,16 @@ system_prompt: |
   </duckdb_dialect>
 
   <step_execution_model>
-  CRITICAL - How steps are executed:
+  How steps are executed:
   1. Each step's SQL becomes a temp view: CREATE TEMP VIEW <step_id> AS <sql>
   2. Steps execute sequentially, each creating a named view
-  3. Final SQL can reference these views by step_id
+  3. Final SQL references these views by step_id
 
   Therefore:
-  - Step SQL must be STANDALONE (executable independently)
-  - Step SQL must NOT contain WITH clauses or reference other steps
-  - Step SQL should return a single value or simple result
-  - Final SQL combines step results, not redefine them
+  - Each step must be standalone SQL (executable independently)
+  - Each step should compute one business concept and return a single value
+  - final_sql combines step results — this is where graph-specific logic lives
+  - Step IDs should match the business concept (e.g., "revenue", not "step_1")
   </step_execution_model>
 
   <aggregation_types>
@@ -109,10 +128,6 @@ system_prompt: |
 
 # User prompt - provides graph and schema context
 user_prompt: |
-  <task>
-  Generate executable SQL for the following graph specification.
-  </task>
-
   <graph_specification type="{graph_type}">
   {graph_yaml}
   </graph_specification>
@@ -138,44 +153,35 @@ user_prompt: |
   </cached_steps>
 
   <instructions>
-  Generate SQL that:
-  1. Maps abstract fields (standard_field references) to concrete columns using:
-     - Direct mappings from field_mappings above
-     - Inferred calculations when direct mapping unavailable (e.g., revenue = SUM(amount) WHERE transaction_type = 'Sale')
-  2. Use semantic annotations (business_concept, semantic_role) to understand column purposes
-  3. Implements each step as standalone SQL (no CTEs, no step references)
-  4. Returns the final result with proper column names
+  Generate SQL for the graph specification above.
 
-  CACHED STEPS:
-  The <cached_steps> section above contains a JSON object of previously validated SQL steps
-  from the snippet knowledge base. Each key is a step_id mapping to {{sql, description}}.
+  1. Resolve abstract fields (standard_field references) to concrete columns:
+     - Use field_mappings for direct mappings
+     - Infer from dataset_context when no direct mapping exists
+     - Document inferences in column_mappings
 
-  Rules:
-  - If a cached step matches the graph step, reuse the SQL exactly (same step_id and SQL)
-  - Only modify a cached step if the schema has changed or the step is clearly wrong
-  - Cached steps come from previous successful graph executions (high confidence)
-  - If no cached steps are provided, generate all SQL from scratch
-  - You may add new steps beyond what's cached if the graph requires them
+  2. Check <cached_steps> first:
+     - Cached steps are previously validated SQL from the knowledge base
+     - They have been executed successfully against this schema
+     - Reuse them exactly (same step_id and SQL) unless the schema has changed
+     - Only modify a cached step if it is clearly wrong for the current schema
+     - You may add new steps beyond what is cached if the graph requires them
 
-  IMPORTANT: If a standard_field like 'revenue' is not directly mapped, analyze the available columns
-  and their business_concepts to construct an appropriate aggregation query.
+  3. Generate each step as standalone SQL:
+     - One business concept per step, returning a single scalar value
+     - Step IDs match the business concept (e.g., "total_revenue", not "step_1")
+     - Use the aggregation type from the graph specification
 
-  STEP FORMAT REQUIREMENTS:
-  - Each step SQL must be standalone (no WITH clauses, no step references)
-  - Each step returns a scalar value accessible via: SELECT * FROM <step_id>
-  - Step IDs must be valid SQL identifiers (no spaces, no reserved words)
-
-  FINAL SQL REQUIREMENTS:
-  - Reference step results directly: SELECT step_1.value / step_2.value
-  - OR use subqueries: SELECT (SELECT value FROM step_1) / (SELECT value FROM step_2)
-  - Do NOT redefine step logic with CTEs
+  4. Write final_sql to combine step results:
+     - Reference steps as temp views: SELECT (SELECT value FROM step_1) / (SELECT value FROM step_2)
+     - Graph-specific logic (ratios, formulas, multipliers) belongs here
 
   EXAMPLE:
   steps:
     - step_id: "total_revenue"
-      sql: "SELECT SUM(\"Amount\") as value FROM typed_table WHERE \"Type\" = 'Sale'"
+      sql: "SELECT SUM(\"Amount\") as value FROM enriched_transactions WHERE \"Type\" ILIKE 'Sale'"
     - step_id: "total_ar"
-      sql: "SELECT SUM(\"Balance\") as value FROM typed_table WHERE \"Account\" LIKE '12%'"
+      sql: "SELECT SUM(\"Balance\") as value FROM enriched_trial_balance WHERE account_id__account_type ILIKE 'receivable'"
     - step_id: "period_days"
       sql: "SELECT 30 as value"
 
