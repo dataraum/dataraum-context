@@ -66,11 +66,6 @@ def run_detectors(
     for col in columns:
         columns_by_table.setdefault(col.table_id, []).append(col)
 
-    # Build column_id lookup for table-scoped objects that reference columns
-    column_id_by_table_col: dict[tuple[str, str], str] = {}
-    for col in columns:
-        column_id_by_table_col[(col.table_id, col.column_name)] = col.column_id
-
     # Build table name -> table_id lookup for target resolution
     table_id_by_name = {t.table_name: t.table_id for t in typed_tables}
 
@@ -110,7 +105,7 @@ def run_detectors(
         )
 
         for entropy_obj in table_snapshot.objects:
-            record_column_id = _extract_column_id(entropy_obj, column_id_by_table_col)
+            record_column_id = _extract_column_id(entropy_obj)
             record = _make_record(
                 source_id=source_id,
                 entropy_obj=entropy_obj,
@@ -142,10 +137,10 @@ def build_network_context(
         EntropyForNetwork with per-column results and aggregated summaries.
     """
     from dataraum.entropy.network.model import EntropyNetwork
-    from dataraum.entropy.views.network_context import _assemble_network_context
+    from dataraum.entropy.views.network_context import assemble_network_context
 
     network = EntropyNetwork()
-    return _assemble_network_context(domain_objects, network)
+    return assemble_network_context(domain_objects, network)
 
 
 def persist_records(
@@ -294,12 +289,11 @@ def _resolve_table_id_from_target(
 
 def _extract_column_id(
     entropy_obj: EntropyObject,
-    column_id_by_table_col: dict[tuple[str, str], str],
 ) -> str | None:
-    """Extract column_id from an entropy object's evidence or target.
+    """Extract column_id from an entropy object's evidence.
 
     For column-level objects produced by table-scoped detectors (e.g. column_quality),
-    the evidence contains column_id and the target is 'column:table.col'.
+    the evidence contains column_id.
     """
     for ev in entropy_obj.evidence or []:
         col_id = ev.get("column_id")

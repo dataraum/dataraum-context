@@ -52,15 +52,15 @@ class TestExtractColumnId:
             target="column:orders.amount",
             evidence=[{"column_id": "col_001", "table_id": "tbl_001"}],
         )
-        assert _extract_column_id(obj, {}) == "col_001"
+        assert _extract_column_id(obj) == "col_001"
 
     def test_returns_none_without_evidence(self) -> None:
         obj = EntropyObject(target="table:orders", evidence=[{"some_key": "val"}])
-        assert _extract_column_id(obj, {}) is None
+        assert _extract_column_id(obj) is None
 
     def test_returns_none_for_empty_evidence(self) -> None:
         obj = EntropyObject(target="table:orders", evidence=[])
-        assert _extract_column_id(obj, {}) is None
+        assert _extract_column_id(obj) is None
 
 
 # ---------------------------------------------------------------------------

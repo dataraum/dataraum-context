@@ -349,7 +349,7 @@ class EntropyInterpretationPhase(BasePhase):
         from dataraum.entropy.network.model import EntropyNetwork
         from dataraum.entropy.views.network_context import (
             EntropyForNetwork,
-            _assemble_network_context,
+            assemble_network_context,
         )
 
         network_ctx: EntropyForNetwork | None = None
@@ -359,7 +359,7 @@ class EntropyInterpretationPhase(BasePhase):
         if typed_table_ids:
             entropy_domain_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
             if entropy_domain_objects:
-                network_ctx = _assemble_network_context(entropy_domain_objects, network)
+                network_ctx = assemble_network_context(entropy_domain_objects, network)
 
                 # Inject per-column network_analysis into each InterpretationInput
                 for inp in inputs:
