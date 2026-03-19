@@ -49,6 +49,12 @@ nodes:
     sub_dimension: benford_compliance
     prior: [0.6, 0.25, 0.15]
 
+  slice_stability:
+    layer: value
+    dimension: variance
+    sub_dimension: slice_stability
+    prior: [0.6, 0.25, 0.15]
+
   dimension_coverage:
     layer: semantic
     dimension: coverage
@@ -104,6 +110,9 @@ edges:
   # dimension_coverage -> intent leaves
   - [dimension_coverage, query_intent, 0.5]
   - [dimension_coverage, reporting_intent, 0.6]
+  # slice_stability -> intents
+  - [slice_stability, query_intent, 0.4]
+  - [slice_stability, aggregation_intent, 0.5]
   # -> query_intent (6 parents)
   - [type_fidelity, query_intent, 0.7]
   - [join_path_determinism, query_intent, 0.8]

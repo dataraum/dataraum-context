@@ -106,7 +106,7 @@ class TestSubgraph:
         all_roots = {
             "type_fidelity", "null_ratio", "outlier_rate", "naming_clarity",
             "unit_declaration", "time_role", "temporal_drift", "benford_compliance",
-            "dimension_coverage",
+            "slice_stability", "dimension_coverage",
         }
         # Also include observable children
         observed = all_roots | {"join_path_determinism", "relationship_quality", "formula_match"}
