@@ -1272,9 +1272,7 @@ def _build_readiness_summary(context: GraphExecutionContext) -> str | None:
 
     summary = context.entropy_summary
     readiness = summary.get("overall_readiness", "unknown")
-    columns_with_assumptions = len(
-        {(a["table"], a["column"]) for a in context.active_assumptions}
-    )
+    columns_with_assumptions = len({(a["table"], a["column"]) for a in context.active_assumptions})
     blocked_count = summary.get("critical_entropy_count", 0)
 
     return (
@@ -1326,9 +1324,7 @@ def _build_column_notes(col: ColumnContext) -> str:
 
 def _append_table_quality(lines: list[str], table: TableContext) -> None:
     """Append quality section for a table."""
-    quality_cols = [
-        col for col in table.columns if col.quality_grade and col.quality_summary
-    ]
+    quality_cols = [col for col in table.columns if col.quality_grade and col.quality_summary]
     if not quality_cols:
         return
 

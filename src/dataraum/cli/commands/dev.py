@@ -271,9 +271,7 @@ def context(
 
             tables = (
                 session.execute(
-                    select(Table).where(
-                        Table.source_id == source.source_id, Table.layer == "typed"
-                    )
+                    select(Table).where(Table.source_id == source.source_id, Table.layer == "typed")
                 )
                 .scalars()
                 .all()
