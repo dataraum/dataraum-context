@@ -597,7 +597,7 @@ def build_gate_context(
         f"Affected columns: {', '.join(affected_targets)}",
         "",
         "Choose the BEST action for each violating target.",
-        "Prefer corrective actions (recalculate, override, add pattern) "
+        "Prefer corrective actions (override, add pattern) "
         "over document_accepted_* actions.",
         "",
     ]
@@ -658,6 +658,11 @@ def build_gate_context(
     data_section = _build_data_profile(session, source_id, affected_targets)
     if data_section:
         sections.append(data_section)
+
+    # Section 4: Existing fixes (so the agent avoids re-proposing)
+    existing_section = _build_existing_fixes(session, source_id, dim_path)
+    if existing_section:
+        sections.append(existing_section)
 
     return "\n\n".join(sections)
 
@@ -764,6 +769,41 @@ def _build_data_profile(
 
     lines.append("</data_profile>")
     return "\n".join(lines) if has_data else ""
+
+
+def _build_existing_fixes(
+    session: Session,
+    source_id: str,
+    dimension_path: str,
+) -> str:
+    """Build existing fixes section from DataFix records.
+
+    Shows already-applied fixes so the agent avoids re-proposing them.
+    """
+    from sqlalchemy import select
+
+    from dataraum.pipeline.fixes.models import DataFix
+
+    fixes = (
+        session.execute(
+            select(DataFix).where(
+                DataFix.source_id == source_id,
+                DataFix.dimension == dimension_path,
+                DataFix.status == "applied",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not fixes:
+        return ""
+
+    lines = ["<existing_fixes>"]
+    for fix in fixes:
+        target = f"{fix.table_name}.{fix.column_name}" if fix.column_name else fix.table_name
+        lines.append(f"  {fix.action} on {target}")
+    lines.append("</existing_fixes>")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
