@@ -242,22 +242,37 @@ class EntropyInterpretationPhase(BasePhase):
         for ann in (ctx.session.execute(sem_stmt)).scalars().all():
             semantic_annotations[ann.column_id] = ann
 
-        # Load quality reports for enriching column-level interpretation
-        # Aggregate per source_column_id: best grade + top findings
-        quality_by_column: dict[str, dict[str, Any]] = {}
-        qr_stmt = select(ColumnQualityReport).where(
-            ColumnQualityReport.source_column_id.in_(column_ids)
+        # Load quality reports for enriching column-level interpretation.
+        # Reports are keyed by slicing_view column IDs (source_column_id),
+        # but interpretations work on typed table columns.  Resolve via the
+        # report's denormalized (table_name, column_name) instead of IDs.
+        # Key: "typed_table.column_name" → {grades, findings}
+        quality_by_key: dict[str, dict[str, Any]] = {}
+        qr_all_stmt = select(ColumnQualityReport).where(
+            ColumnQualityReport.source_column_id.in_(
+                select(Column.column_id).where(
+                    Column.table_id.in_(
+                        select(Table.table_id).where(
+                            Table.source_id == ctx.source_id,
+                        )
+                    )
+                )
+            )
         )
-        for qr in ctx.session.execute(qr_stmt).scalars().all():
-            col_id = qr.source_column_id
-            if col_id not in quality_by_column:
-                quality_by_column[col_id] = {
+        for qr in ctx.session.execute(qr_all_stmt).scalars().all():
+            # Derive typed table name: "slicing_journal_lines" → "journal_lines"
+            typed_name = qr.source_table_name
+            if typed_name.startswith("slicing_"):
+                typed_name = typed_name[len("slicing_") :]
+            key = f"{typed_name}.{qr.column_name}"
+            if key not in quality_by_key:
+                quality_by_key[key] = {
                     "grades": [],
                     "findings": [],
                 }
-            quality_by_column[col_id]["grades"].append(qr.quality_grade)
+            quality_by_key[key]["grades"].append(qr.quality_grade)
             data = qr.report_data or {}
-            quality_by_column[col_id]["findings"].extend(data.get("key_findings", []))
+            quality_by_key[key]["findings"].extend(data.get("key_findings", []))
 
         # Initialize LLM infrastructure
         try:
@@ -313,8 +328,9 @@ class EntropyInterpretationPhase(BasePhase):
             # Extract quality context if available
             quality_grade = None
             quality_findings = None
-            if column_id in quality_by_column:
-                qc = quality_by_column[column_id]
+            qc_key = f"{table.table_name}.{col.column_name}"
+            if qc_key in quality_by_key:
+                qc = quality_by_key[qc_key]
                 # Use worst grade as representative
                 grade_order = {"F": 0, "D": 1, "C": 2, "B": 3, "A": 4}
                 grades = qc["grades"]
@@ -647,16 +663,10 @@ class EntropyInterpretationPhase(BasePhase):
                 }
             )
 
-        # Build quality overview per table from quality_by_column
+        # Build quality overview per table from quality_by_key
         quality_overview_by_table: dict[str, dict[str, Any]] = {}
-        for col_id, qc in quality_by_column.items():
-            qc_col = column_map.get(col_id)
-            if not qc_col:
-                continue
-            qc_tbl = table_map.get(qc_col.table_id)
-            if not qc_tbl:
-                continue
-            tbl_name = qc_tbl.table_name
+        for qc_key, qc in quality_by_key.items():
+            tbl_name = qc_key.split(".", 1)[0]
             if tbl_name not in quality_overview_by_table:
                 quality_overview_by_table[tbl_name] = {"grade_counts": {}, "total": 0}
             overview = quality_overview_by_table[tbl_name]

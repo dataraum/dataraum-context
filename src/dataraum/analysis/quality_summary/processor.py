@@ -564,7 +564,7 @@ def summarize_quality(
         columns_to_process, readiness_map = _filter_by_network_readiness(
             session=session,
             columns_with_data=eligible_columns,
-            source_table_id=effective_table.table_id,
+            source_table_id=source_table.table_id,
             p_high_threshold=p_high_threshold,
         )
 
