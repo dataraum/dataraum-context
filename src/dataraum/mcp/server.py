@@ -1681,6 +1681,10 @@ def _get_zone_status(
                 get_triage_guidance,
             )
 
+            # Per-target evidence is stored in gate outputs during gate measurement.
+            # Keyed by dimension_path → target → evidence dict.
+            gate_evidence = outputs.get("gate_column_evidence", {})
+
             # Load interpretation records scoped to violated targets only
             from dataraum.entropy.interpretation_db_models import (
                 EntropyInterpretationRecord,
@@ -1756,19 +1760,30 @@ def _get_zone_status(
                 # Accepted targets for this dimension
                 dim_accepted = list(accepted.get(issue.dimension_path, set()))
 
-                violations.append(
-                    {
-                        "dimension_path": issue.dimension_path,
-                        "detector_id": detector_id,
-                        "score": issue.score,
-                        "threshold": issue.threshold,
-                        "affected_targets": issue.affected_targets,
-                        "executable_actions": executable_actions,
-                        "triage_guidance": triage,
-                        "interpretation": interpretation,
-                        "accepted_targets": dim_accepted,
-                    }
-                )
+                # Per-target evidence from gate measurement (outlier_ratio, null_ratio, etc.)
+                dim_evidence = gate_evidence.get(issue.dimension_path, {})
+                target_evidence: dict[str, Any] = {}
+                for target in issue.affected_targets:
+                    ev = dim_evidence.get(target)
+                    if ev:
+                        target_evidence[target] = ev
+
+                violation: dict[str, Any] = {
+                    "dimension_path": issue.dimension_path,
+                    "detector_id": detector_id,
+                    "score": issue.score,
+                    "threshold": issue.threshold,
+                    "affected_targets": issue.affected_targets,
+                    "target_evidence": target_evidence,
+                    "executable_actions": executable_actions,
+                    "triage_guidance": triage,
+                }
+                if interpretation:
+                    violation["interpretation"] = interpretation
+                if dim_accepted:
+                    violation["accepted_targets"] = dim_accepted
+
+                violations.append(violation)
 
             # Build passing entries
             passing = []
