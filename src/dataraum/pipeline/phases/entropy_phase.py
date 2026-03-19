@@ -3,8 +3,9 @@
 Non-LLM entropy detection across all dimensions (structural, semantic, value, computational).
 Runs detectors to quantify uncertainty in each column and table.
 
-Delegates to the entropy engine library for detector execution, network
-inference, and persistence.
+Wipes all existing entropy records at start to ensure a clean slate,
+then delegates to the entropy engine library for detector execution
+and persistence.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from sqlalchemy import delete, func, select
 from dataraum.core.logging import get_logger
 from dataraum.entropy.db_models import (
     EntropyObjectRecord,
-    EntropySnapshotRecord,
 )
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.cleanup import exec_delete
@@ -38,6 +38,9 @@ class EntropyPhase(BasePhase):
 
     Runs entropy detectors across all dimensions to quantify uncertainty
     in data. Produces entropy profiles for each column and table.
+
+    Always wipes existing entropy records at start to ensure no stale
+    data accumulates across runs.
 
     Requires: typing, column_eligibility, semantic, relationships, slice_analysis.
     """
@@ -67,15 +70,10 @@ class EntropyPhase(BasePhase):
         table_ids: list[str],
         column_ids: list[str],
     ) -> int:
-        count = exec_delete(
+        return exec_delete(
             session,
             delete(EntropyObjectRecord).where(EntropyObjectRecord.source_id == source_id),
         )
-        count += exec_delete(
-            session,
-            delete(EntropySnapshotRecord).where(EntropySnapshotRecord.source_id == source_id),
-        )
-        return count
 
     @property
     def db_models(self) -> list[ModuleType]:
@@ -117,15 +115,25 @@ class EntropyPhase(BasePhase):
         return None
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
-        """Run entropy detection on all columns and tables."""
-        from dataraum.entropy.detectors.base import get_default_registry
+        """Run entropy detection on all columns and tables.
+
+        Wipes all existing entropy records first, then runs detectors fresh.
+        """
         from dataraum.entropy.engine import (
-            build_network_context,
             compute_dimension_scores,
-            create_snapshot,
             persist_records,
             run_detectors,
         )
+
+        # Wipe all existing entropy records for this source — clean slate
+        wiped = exec_delete(
+            ctx.session,
+            delete(EntropyObjectRecord).where(EntropyObjectRecord.source_id == ctx.source_id),
+        )
+        if wiped:
+            logger.info("entropy_wipe", source_id=ctx.source_id, records_deleted=wiped)
+
+        from dataraum.entropy.detectors.base import get_default_registry
 
         registry = get_default_registry()
         all_detectors = registry.get_all_detectors()
@@ -162,37 +170,18 @@ class EntropyPhase(BasePhase):
         # Persist records
         persist_records(ctx.session, detector_results.records)
 
-        # Build network context from in-memory domain objects
-        network_ctx = build_network_context(detector_results.domain_objects)
-
-        # Create and persist snapshot
-        snapshot_record = create_snapshot(
-            source_id=ctx.source_id,
-            domain_objects=detector_results.domain_objects,
-            network_ctx=network_ctx,
-        )
-        ctx.session.add(snapshot_record)
-
         # Compute dimension scores for gate checking
         entropy_scores = compute_dimension_scores(detector_results.domain_objects)
 
         total_entropy_objects = len(detector_results.records)
-        high_entropy_count = network_ctx.columns_blocked + network_ctx.columns_investigate
-        critical_entropy_count = network_ctx.columns_blocked
 
         return PhaseResult.success(
             outputs={
                 "entropy_profiles": detector_results.tables_processed,
                 "entropy_objects": total_entropy_objects,
-                "overall_readiness": network_ctx.overall_readiness,
-                "high_entropy_columns": high_entropy_count,
-                "critical_entropy_columns": critical_entropy_count,
                 "entropy_scores": entropy_scores,
             },
             records_processed=len(all_columns),
-            records_created=total_entropy_objects + 1,
-            summary=(
-                f"{network_ctx.overall_readiness} readiness, "
-                f"{critical_entropy_count} critical columns"
-            ),
+            records_created=total_entropy_objects,
+            summary=f"{total_entropy_objects} entropy objects across {detector_results.tables_processed} tables",
         )

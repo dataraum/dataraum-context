@@ -43,7 +43,7 @@ class SliceVarianceDetector(EntropyDetector):
     dimension = Dimension.VARIANCE
     sub_dimension = SubDimension.SLICE_STABILITY
     scope = "column"
-    required_analyses: list[AnalysisKey] = []
+    required_analyses = [AnalysisKey.SLICE_PROFILES]
     description = "Measures cross-slice statistical variance for a column"
 
     @property
@@ -202,7 +202,7 @@ class SliceVarianceDetector(EntropyDetector):
 
             slice_profiles.append(entry)
 
-        context.analysis_results["slice_profiles"] = slice_profiles
+        context.analysis_results[AnalysisKey.SLICE_PROFILES] = slice_profiles
 
     def detect(self, context: DetectorContext) -> list[EntropyObject]:
         """Detect slice variance entropy.
@@ -213,7 +213,7 @@ class SliceVarianceDetector(EntropyDetector):
         Returns:
             List with single EntropyObject, or empty if < 2 slices.
         """
-        slice_profiles: list[dict[str, Any]] = context.get_analysis("slice_profiles", [])
+        slice_profiles: list[dict[str, Any]] = context.get_analysis(AnalysisKey.SLICE_PROFILES, [])
 
         if len(slice_profiles) < 2:
             return []

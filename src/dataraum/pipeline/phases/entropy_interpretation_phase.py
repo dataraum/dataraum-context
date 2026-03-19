@@ -8,6 +8,7 @@ LLM-powered interpretation of entropy metrics to generate:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
@@ -177,6 +178,13 @@ class EntropyInterpretationPhase(BasePhase):
         column_ids = [c.column_id for c in all_columns]
         column_map = {c.column_id: c for c in all_columns}
 
+        # --- Run quality-dependent detectors ---
+        # ColumnQualityDetector and DimensionalEntropyDetector need data from
+        # quality_summary (ColumnQualityReport, ColumnSliceProfile). They were
+        # skipped during the entropy phase because that data didn't exist yet.
+        # Run them now and persist the new EntropyObjectRecords.
+        self._run_quality_dependent_detectors(ctx, typed_tables, table_map)
+
         # Load entropy records grouped by column
         # Include both column-level records AND table-level records (column_id is NULL)
         entropy_stmt = select(EntropyObjectRecord).where(
@@ -345,69 +353,59 @@ class EntropyInterpretationPhase(BasePhase):
 
         # Build Bayesian network context and inject per-column analysis.
         # network_ctx is also used for table-level interpretation below.
-        from dataraum.entropy.core.storage import EntropyRepository
-        from dataraum.entropy.network.model import EntropyNetwork
-        from dataraum.entropy.views.network_context import (
-            EntropyForNetwork,
-            assemble_network_context,
-        )
+        from dataraum.entropy.engine import compute_network
+        from dataraum.entropy.views.network_context import EntropyForNetwork
 
-        network_ctx: EntropyForNetwork | None = None
-        network = EntropyNetwork()
-        repo = EntropyRepository(ctx.session)
-        typed_table_ids = repo.get_typed_table_ids(table_ids)
-        if typed_table_ids:
-            entropy_domain_objects = repo.load_for_tables(typed_table_ids, enforce_typed=True)
-            if entropy_domain_objects:
-                network_ctx = assemble_network_context(entropy_domain_objects, network)
+        network_ctx: EntropyForNetwork | None = compute_network(ctx.session, ctx.source_id)
 
-                # Inject per-column network_analysis into each InterpretationInput
-                for inp in inputs:
-                    col_target = f"column:{inp.table_name}.{inp.column_name}"
-                    col_result = network_ctx.columns.get(col_target)
-                    if col_result is None:
-                        logger.warning(
-                            "network_analysis_missing_for_column",
-                            column=f"{inp.table_name}.{inp.column_name}",
-                            target=col_target,
-                        )
-                        continue
+        if network_ctx is not None:
+            # Inject per-column network_analysis into each InterpretationInput
+            for inp in inputs:
+                col_target = f"column:{inp.table_name}.{inp.column_name}"
+                col_result = network_ctx.columns.get(col_target)
+                if col_result is None:
+                    logger.warning(
+                        "network_analysis_missing_for_column",
+                        column=f"{inp.table_name}.{inp.column_name}",
+                        target=col_target,
+                    )
+                    continue
 
-                    # Build compact network analysis dict for prompt
-                    intents_dict: dict[str, dict[str, Any]] = {}
-                    for intent in col_result.intents:
-                        intents_dict[intent.intent_name] = {
-                            "p_high": round(intent.p_high, 2),
-                            "readiness": intent.readiness,
-                        }
-
-                    high_impact_nodes = [
-                        {
-                            "node": ne.node_name,
-                            "state": ne.state,
-                            "impact_delta": round(ne.impact_delta, 2),
-                        }
-                        for ne in sorted(
-                            col_result.node_evidence,
-                            key=lambda x: x.impact_delta,
-                            reverse=True,
-                        )
-                        if ne.state != "low"
-                    ]
-
-                    top_fix_dict: dict[str, Any] | None = None
-                    if col_result.top_priority_node:
-                        top_fix_dict = {
-                            "node": col_result.top_priority_node,
-                            "impact_delta": round(col_result.top_priority_impact, 2),
-                        }
-
-                    inp.network_analysis = {
-                        "readiness": col_result.readiness,
-                        "intents": intents_dict,
-                        "high_impact_nodes": high_impact_nodes,
-                        "top_fix": top_fix_dict,
+                # Build compact network analysis dict for prompt
+                intents_dict: dict[str, dict[str, Any]] = {}
+                for intent in col_result.intents:
+                    intents_dict[intent.intent_name] = {
+                        "p_high": round(intent.p_high, 2),
+                        "readiness": intent.readiness,
                     }
+
+                high_impact_nodes = [
+                    {
+                        "node": ne.node_name,
+                        "state": ne.state,
+                        "impact_delta": round(ne.impact_delta, 2),
+                    }
+                    for ne in sorted(
+                        col_result.node_evidence,
+                        key=lambda x: x.impact_delta,
+                        reverse=True,
+                    )
+                    if ne.state != "low"
+                ]
+
+                top_fix_dict: dict[str, Any] | None = None
+                if col_result.top_priority_node:
+                    top_fix_dict = {
+                        "node": col_result.top_priority_node,
+                        "impact_delta": round(col_result.top_priority_impact, 2),
+                    }
+
+                inp.network_analysis = {
+                    "readiness": col_result.readiness,
+                    "intents": intents_dict,
+                    "high_impact_nodes": high_impact_nodes,
+                    "top_fix": top_fix_dict,
+                }
 
         # Initialize result accumulators (before filtering, so baseline entries are preserved)
         all_interpretations: dict[str, Any] = {}
@@ -670,11 +668,14 @@ class EntropyInterpretationPhase(BasePhase):
         table_inputs: list[TableInterpretationInput] = []
         table_id_map: dict[str, str] = {}  # table_name -> table_id
 
+        from dataraum.entropy.network.model import EntropyNetwork
         from dataraum.entropy.views.network_context import (
             _aggregate_intents,
             _compute_cross_column_fix,
             _readiness_from_p_high,
         )
+
+        network = EntropyNetwork()
 
         if network_ctx is not None:
             for table in typed_tables:
@@ -816,3 +817,67 @@ class EntropyInterpretationPhase(BasePhase):
             warnings=all_errors if all_errors else None,
             summary=f"{interp_count} interpretations, {total_actions} resolution actions",
         )
+
+    def _run_quality_dependent_detectors(
+        self,
+        ctx: PhaseContext,
+        typed_tables: Sequence[Any],
+        table_map: dict[str, Any],
+    ) -> int:
+        """Run table-scoped detectors that were skipped during the entropy phase.
+
+        Detectors like ColumnQualityDetector and DimensionalEntropyDetector
+        require data from quality_summary. They fail can_run() during the
+        entropy phase and are silently skipped. Now that quality_summary
+        has run, re-run all table-scoped detectors — can_run() filters
+        naturally — and persist only records from detectors that didn't
+        produce records during the entropy phase.
+
+        Returns:
+            Number of new EntropyObjectRecords created.
+        """
+        from sqlalchemy import func
+
+        from dataraum.entropy.engine import _extract_column_id, _make_record, persist_records
+        from dataraum.entropy.snapshot import take_snapshot
+
+        # Detector IDs that already have records from the entropy phase
+        existing_ids = set(
+            ctx.session.execute(
+                select(func.distinct(EntropyObjectRecord.detector_id)).where(
+                    EntropyObjectRecord.source_id == ctx.source_id
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        new_records: list[Any] = []
+        for table in typed_tables:
+            snapshot = take_snapshot(
+                target=f"table:{table.table_name}",
+                session=ctx.session,
+            )
+
+            for obj in snapshot.objects:
+                if obj.detector_id in existing_ids:
+                    continue
+                record = _make_record(
+                    source_id=ctx.source_id,
+                    entropy_obj=obj,
+                    table_id=table.table_id,
+                    column_id=_extract_column_id(obj),
+                )
+                new_records.append(record)
+
+        if new_records:
+            persist_records(ctx.session, new_records)
+            new_detector_ids = {r.detector_id for r in new_records}
+            logger.info(
+                "quality_dependent_detectors",
+                source_id=ctx.source_id,
+                records=len(new_records),
+                detectors=sorted(new_detector_ids),
+            )
+
+        return len(new_records)

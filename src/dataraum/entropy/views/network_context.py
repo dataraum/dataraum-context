@@ -135,6 +135,7 @@ class EntropyForNetwork:
     columns_ready: int = 0
     total_direct_signals: int = 0
     overall_readiness: str = "ready"
+    avg_entropy_score: float = 0.0
     computed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -528,6 +529,13 @@ def assemble_network_context(
     else:
         overall_readiness = "ready"
 
+    # Average entropy: per-target max score, then mean across targets.
+    target_max: dict[str, float] = {}
+    for obj in objects:
+        if obj.target not in target_max or obj.score > target_max[obj.target]:
+            target_max[obj.target] = obj.score
+    avg_entropy_score = sum(target_max.values()) / len(target_max) if target_max else 0.0
+
     return EntropyForNetwork(
         columns=columns,
         intents=agg_intents,
@@ -539,6 +547,7 @@ def assemble_network_context(
         columns_ready=columns_ready,
         total_direct_signals=len(all_direct_signals),
         overall_readiness=overall_readiness,
+        avg_entropy_score=avg_entropy_score,
     )
 
 

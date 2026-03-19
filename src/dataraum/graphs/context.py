@@ -661,18 +661,10 @@ def build_execution_context(
 
     column_summaries = network_to_column_summaries(network_ctx)
 
-    # 16c. Read overall entropy score from snapshot (_source_id resolved in step 13)
-    from dataraum.entropy.db_models import EntropySnapshotRecord
-
-    overall_entropy_score: float | None = None
-    if _source_id:
-        snapshot_result = session.execute(
-            select(EntropySnapshotRecord.avg_entropy_score)
-            .where(EntropySnapshotRecord.source_id == _source_id)
-            .order_by(EntropySnapshotRecord.snapshot_at.desc())
-            .limit(1)
-        )
-        overall_entropy_score = snapshot_result.scalar()
+    # 16c. Overall entropy score from network context
+    overall_entropy_score: float | None = (
+        network_ctx.avg_entropy_score if network_ctx.total_columns > 0 else None
+    )
 
     # 18. Load entropy interpretations
     from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord

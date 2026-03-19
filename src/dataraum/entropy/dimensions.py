@@ -59,6 +59,7 @@ class AnalysisKey(_StrValueMixin):
     RELATIONSHIPS = "relationships"
     CORRELATION = "correlation"
     DRIFT_SUMMARIES = "drift_summaries"
+    SLICE_PROFILES = "slice_profiles"
     SLICE_VARIANCE = "slice_variance"
     COLUMN_QUALITY_REPORTS = "column_quality_reports"
     ENRICHED_VIEW = "enriched_view"

@@ -52,7 +52,7 @@ variance_filter:
 # Network readiness filter (replaces variance filter for column selection)
 # Columns are sent to LLM if their Bayesian network readiness is
 # "investigate" or "blocked", OR if any intent P(high) exceeds threshold.
-# Variance metrics are still computed for ColumnSliceProfile.variance_classification.
+# Variance metrics are still computed for EMPTY/CONSTANT pre-filtering.
 network_filter:
   # P(high) threshold: "ready" columns with any intent P(high) above
   # this value are still included for LLM analysis.

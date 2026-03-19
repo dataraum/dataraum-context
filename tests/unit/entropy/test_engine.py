@@ -9,9 +9,7 @@ import pytest
 from dataraum.entropy.engine import (
     _extract_column_id,
     _resolve_table_id_from_target,
-    build_network_context,
     compute_dimension_scores,
-    create_snapshot,
     persist_records,
     run_detectors,
 )
@@ -83,83 +81,6 @@ class TestComputeDimensionScores:
 
     def test_empty_objects(self) -> None:
         assert compute_dimension_scores([]) == {}
-
-
-# ---------------------------------------------------------------------------
-# build_network_context
-# ---------------------------------------------------------------------------
-
-
-class TestBuildNetworkContext:
-    def test_empty_objects_returns_empty_context(self) -> None:
-        ctx = build_network_context([])
-        assert ctx.total_columns == 0
-        assert ctx.overall_readiness == "ready"
-
-    def test_with_column_objects(self) -> None:
-        objects = [
-            EntropyObject(
-                layer="value",
-                dimension="nulls",
-                sub_dimension="null_ratio",
-                target="column:orders.amount",
-                score=0.8,
-                detector_id="null_ratio",
-            ),
-        ]
-        ctx = build_network_context(objects)
-        assert ctx.total_columns == 1
-        assert "column:orders.amount" in ctx.columns
-
-
-# ---------------------------------------------------------------------------
-# create_snapshot
-# ---------------------------------------------------------------------------
-
-
-class TestCreateSnapshot:
-    @patch("dataraum.entropy.engine.EntropySnapshotRecord")
-    def test_creates_valid_snapshot(self, mock_record_cls: MagicMock) -> None:
-        objects = [
-            EntropyObject(target="column:orders.amount", score=0.5),
-            EntropyObject(target="column:orders.qty", score=0.3),
-        ]
-        network_ctx = MagicMock()
-        network_ctx.columns_blocked = 1
-        network_ctx.columns_investigate = 0
-        network_ctx.overall_readiness = "blocked"
-        network_ctx.intents = []
-
-        create_snapshot("src_001", objects, network_ctx)
-
-        mock_record_cls.assert_called_once()
-        kwargs = mock_record_cls.call_args.kwargs
-        assert kwargs["source_id"] == "src_001"
-        assert kwargs["total_entropy_objects"] == 2
-        assert kwargs["high_entropy_count"] == 1
-        assert kwargs["critical_entropy_count"] == 1
-        assert kwargs["overall_readiness"] == "blocked"
-        assert kwargs["avg_entropy_score"] == pytest.approx(0.4)
-
-    @patch("dataraum.entropy.engine.EntropySnapshotRecord")
-    def test_avg_uses_per_target_max(self, mock_record_cls: MagicMock) -> None:
-        """Multiple objects for same target: avg uses max score per target."""
-        objects = [
-            EntropyObject(target="column:orders.amount", score=0.2),
-            EntropyObject(target="column:orders.amount", score=0.8),
-            EntropyObject(target="column:orders.qty", score=0.4),
-        ]
-        network_ctx = MagicMock()
-        network_ctx.columns_blocked = 0
-        network_ctx.columns_investigate = 0
-        network_ctx.overall_readiness = "ready"
-        network_ctx.intents = []
-
-        create_snapshot("src_001", objects, network_ctx)
-
-        kwargs = mock_record_cls.call_args.kwargs
-        # Per-target max: amount=0.8, qty=0.4. Mean = 0.6
-        assert kwargs["avg_entropy_score"] == pytest.approx(0.6)
 
 
 # ---------------------------------------------------------------------------

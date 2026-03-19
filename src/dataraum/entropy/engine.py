@@ -5,20 +5,21 @@ quality_summary, entropy_interpretation) can run detectors and build
 network context without duplicating orchestration logic.
 
 Core API:
+- compute_network: Load records from DB, build Bayesian network. Returns None if no data.
 - run_detectors: Execute detectors on typed tables, return records + domain objects
-- build_network_context: Build Bayesian network inference from domain objects
 - persist_records: Add EntropyObjectRecords to session
-- create_snapshot: Build an EntropySnapshotRecord from results
 - compute_dimension_scores: Aggregate scores by dimension path for gate checking
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from sqlalchemy import select
 
 from dataraum.core.logging import get_logger
-from dataraum.entropy.db_models import EntropyObjectRecord, EntropySnapshotRecord
+from dataraum.entropy.db_models import EntropyObjectRecord
 from dataraum.entropy.models import EntropyObject
 from dataraum.entropy.snapshot import take_snapshot
 
@@ -125,22 +126,48 @@ def run_detectors(
     )
 
 
-def build_network_context(
-    domain_objects: list[EntropyObject],
-) -> EntropyForNetwork:
-    """Build Bayesian network inference from in-memory domain objects.
+def compute_network(
+    session: Session,
+    source_id: str,
+) -> EntropyForNetwork | None:
+    """Compute entropy network from persisted records.
+
+    Pure function: loads EntropyObjectRecords for the source, converts
+    to domain objects, builds Bayesian network inference. Returns None
+    if no records exist.
 
     Args:
-        domain_objects: EntropyObject instances from detector execution.
+        session: SQLAlchemy session.
+        source_id: Source to compute network for.
 
     Returns:
-        EntropyForNetwork with per-column results and aggregated summaries.
+        EntropyForNetwork with per-column results and aggregated summaries,
+        or None if no entropy data exists.
     """
+    from dataraum.entropy.core.storage import EntropyRepository
     from dataraum.entropy.network.model import EntropyNetwork
     from dataraum.entropy.views.network_context import assemble_network_context
+    from dataraum.storage import Table
+
+    table_ids = list(
+        session.execute(
+            select(Table.table_id).where(Table.source_id == source_id, Table.layer == "typed")
+        )
+        .scalars()
+        .all()
+    )
+
+    if not table_ids:
+        return None
+
+    repo = EntropyRepository(session)
+    entropy_objects = repo.load_for_tables(table_ids, enforce_typed=True)
+
+    if not entropy_objects:
+        return None
 
     network = EntropyNetwork()
-    return assemble_network_context(domain_objects, network)
+    return assemble_network_context(entropy_objects, network)
 
 
 def persist_records(
@@ -157,62 +184,6 @@ def persist_records(
     """
     if records:
         session.add_all(records)
-
-
-def create_snapshot(
-    source_id: str,
-    domain_objects: list[EntropyObject],
-    network_ctx: EntropyForNetwork,
-) -> EntropySnapshotRecord:
-    """Create an EntropySnapshotRecord from detector results and network context.
-
-    Args:
-        source_id: Source ID this snapshot belongs to.
-        domain_objects: All EntropyObjects for avg_entropy computation.
-        network_ctx: Network inference results for summary stats.
-
-    Returns:
-        EntropySnapshotRecord ready to be added to session.
-    """
-    high_entropy_count = network_ctx.columns_blocked + network_ctx.columns_investigate
-    critical_entropy_count = network_ctx.columns_blocked
-    overall_readiness = network_ctx.overall_readiness
-
-    # Average entropy score: per-target max, then mean across targets.
-    target_max: dict[str, float] = {}
-    for obj in domain_objects:
-        if obj.target not in target_max or obj.score > target_max[obj.target]:
-            target_max[obj.target] = obj.score
-    avg_entropy = sum(target_max.values()) / len(target_max) if target_max else 0.0
-
-    # Serialize Bayesian network state
-    snapshot_data: dict[str, Any] = {
-        "node_states": {
-            intent.intent_name: {
-                "worst_p_high": intent.worst_p_high,
-                "mean_p_high": intent.mean_p_high,
-                "columns_blocked": intent.columns_blocked,
-                "columns_investigate": intent.columns_investigate,
-                "columns_ready": intent.columns_ready,
-                "overall_readiness": intent.overall_readiness,
-            }
-            for intent in network_ctx.intents
-        },
-        "total_columns": network_ctx.total_columns,
-        "columns_blocked": network_ctx.columns_blocked,
-        "columns_investigate": network_ctx.columns_investigate,
-        "columns_ready": network_ctx.columns_ready,
-    }
-
-    return EntropySnapshotRecord(
-        source_id=source_id,
-        total_entropy_objects=len(domain_objects),
-        high_entropy_count=high_entropy_count,
-        critical_entropy_count=critical_entropy_count,
-        overall_readiness=overall_readiness,
-        avg_entropy_score=avg_entropy,
-        snapshot_data=snapshot_data,
-    )
 
 
 def compute_dimension_scores(

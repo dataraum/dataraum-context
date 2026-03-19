@@ -104,9 +104,16 @@ class TestSubgraph:
     def test_full_evidence_returns_self(self, full_network: EntropyNetwork):
         """When all root nodes are observed, no pruning needed."""
         all_roots = {
-            "type_fidelity", "null_ratio", "outlier_rate", "naming_clarity",
-            "unit_declaration", "time_role", "temporal_drift", "benford_compliance",
-            "slice_stability", "dimension_coverage",
+            "type_fidelity",
+            "null_ratio",
+            "outlier_rate",
+            "naming_clarity",
+            "unit_declaration",
+            "time_role",
+            "temporal_drift",
+            "benford_compliance",
+            "slice_stability",
+            "dimension_coverage",
         }
         # Also include observable children
         observed = all_roots | {"join_path_determinism", "relationship_quality", "formula_match"}

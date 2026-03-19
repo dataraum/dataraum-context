@@ -57,32 +57,18 @@ def _make_network_ctx(
 
 @pytest.fixture
 def _patch_entropy():
-    """Patch entropy infrastructure for filter tests.
+    """Patch build_for_network for filter tests.
 
-    Patches at the source module level since _filter_by_network_readiness
-    uses local imports. Yields a setter to control the network context.
+    Yields a setter to control the network context returned.
     """
-    # list used as mutable cell for the closure setter
     ctx_holder: list[EntropyForNetwork] = [EntropyForNetwork()]
 
-    mock_repo = MagicMock()
-    mock_repo.get_typed_table_ids.return_value = ["typed-table-1"]
-    mock_repo.load_for_tables.return_value = [MagicMock()]  # non-empty
-
-    mock_repo_cls = MagicMock(return_value=mock_repo)
-
-    def _build_network(objects):
+    def _build_for_network(session, table_ids):
         return ctx_holder[0]
 
-    with (
-        patch(
-            "dataraum.entropy.core.storage.EntropyRepository",
-            mock_repo_cls,
-        ),
-        patch(
-            "dataraum.entropy.engine.build_network_context",
-            side_effect=_build_network,
-        ),
+    with patch(
+        "dataraum.entropy.views.network_context.build_for_network",
+        side_effect=_build_for_network,
     ):
 
         def _set_ctx(ctx: EntropyForNetwork) -> None:
@@ -146,15 +132,11 @@ class TestFilterByNetworkReadiness:
 
         assert len(filtered) == 1
 
-    def test_no_entropy_objects_returns_all(self):
-        """When no entropy objects exist, returns all columns with no_signal."""
-        mock_repo = MagicMock()
-        mock_repo.get_typed_table_ids.return_value = ["typed-1"]
-        mock_repo.load_for_tables.return_value = []
-
+    def test_no_network_data_returns_all(self):
+        """When build_for_network returns empty, returns all columns with no_signal."""
         with patch(
-            "dataraum.entropy.core.storage.EntropyRepository",
-            MagicMock(return_value=mock_repo),
+            "dataraum.entropy.views.network_context.build_for_network",
+            return_value=EntropyForNetwork(),
         ):
             session = MagicMock()
             cols = [_make_col("amount")]
@@ -211,22 +193,3 @@ class TestFilterByNetworkReadiness:
         filtered_names = {c.column_name for c in filtered}
         assert filtered_names == {"col_a", "col_b", "col_d"}
         assert readiness_map["col_c"] == "ready"
-
-    def test_no_typed_tables_returns_all(self):
-        """When no typed tables found, returns all columns with no_signal."""
-        mock_repo = MagicMock()
-        mock_repo.get_typed_table_ids.return_value = []
-
-        with patch(
-            "dataraum.entropy.core.storage.EntropyRepository",
-            MagicMock(return_value=mock_repo),
-        ):
-            session = MagicMock()
-            cols = [_make_col("amount")]
-
-            filtered, readiness_map = _filter_by_network_readiness(
-                session, cols, "table-1", p_high_threshold=0.35
-            )
-
-            assert len(filtered) == 1
-            assert readiness_map == {"amount": "no_signal"}
