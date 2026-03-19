@@ -89,7 +89,7 @@ class EntropyInterpretationPhase(BasePhase):
 
     @property
     def dependencies(self) -> list[str]:
-        return ["entropy"]
+        return ["entropy", "computation_review"]
 
     def cleanup(
         self,

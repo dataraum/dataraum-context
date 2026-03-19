@@ -114,6 +114,8 @@ class TestSubgraph:
             "benford_compliance",
             "slice_stability",
             "dimension_coverage",
+            "cross_table_consistency",
+            "business_cycle_health",
         }
         # Also include observable children
         observed = all_roots | {"join_path_determinism", "relationship_quality", "formula_match"}
