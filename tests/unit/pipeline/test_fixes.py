@@ -16,13 +16,13 @@ class TestFixInput:
 
     def test_create_with_all_fields(self) -> None:
         fix_input = FixInput(
-            action_name="accept_finding",
+            action_name="document_accepted_outlier_rate",
             parameters={"method": "iqr"},
             interpretation="User wants to accept outlier findings",
             affected_columns=["orders.amount", "orders.quantity"],
             entropy_evidence={"outlier_rate": 0.15, "method": "iqr"},
         )
-        assert fix_input.action_name == "accept_finding"
+        assert fix_input.action_name == "document_accepted_outlier_rate"
         assert fix_input.parameters["method"] == "iqr"
         assert len(fix_input.affected_columns) == 2
 

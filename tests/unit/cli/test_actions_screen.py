@@ -122,7 +122,7 @@ class TestMergeActions:
         interp = FakeInterp(
             resolution_actions_json=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "Add unit declaration",
                     "effort": "low",
                 }

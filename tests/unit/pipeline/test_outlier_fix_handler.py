@@ -2,29 +2,29 @@
 
 from __future__ import annotations
 
-from dataraum.entropy.detectors.value.outliers import OutlierRateDetector
+from dataraum.entropy.fix_schemas import get_schemas_for_detector
 from dataraum.pipeline.fixes import FixInput
 from dataraum.pipeline.fixes.bridge import build_fix_documents
 
 
 class TestOutlierDetectorFixSchemas:
     def test_has_fix_schema(self) -> None:
-        detector = OutlierRateDetector()
-        schemas = detector.fix_schemas
+        schemas = get_schemas_for_detector("outlier_rate")
         assert len(schemas) == 1
-        assert schemas[0].action == "accept_finding"
-        assert schemas[0].requires_rerun == "quality_review"
+        assert schemas[0].action == "document_accepted_outlier_rate"
+        assert schemas[0].target == "metadata"
+        assert schemas[0].routing == "postprocess"
+        assert schemas[0].gate == "quality_review"
 
 
 class TestAcceptFindingBridge:
     def _get_schema(self):
-        detector = OutlierRateDetector()
-        return detector.fix_schemas[0]
+        return get_schemas_for_detector("outlier_rate")[0]
 
     def test_single_column(self) -> None:
         schema = self._get_schema()
         fix_input = FixInput(
-            action_name="accept_finding",
+            action_name="document_accepted_outlier_rate",
             affected_columns=["orders.amount"],
             parameters={"detector_id": "outlier_rate"},
             interpretation="Outliers are expected for this column",
@@ -33,17 +33,15 @@ class TestAcceptFindingBridge:
 
         assert len(docs) == 1
         doc = docs[0]
-        assert doc.target == "config"
-        assert doc.action == "accept_finding"
-        assert doc.payload["config_path"] == "entropy/thresholds.yaml"
-        assert doc.payload["operation"] == "append"
-        assert doc.payload["key_path"] == ["detectors", "outlier_rate", "accepted_columns"]
-        assert doc.payload["value"] == "orders.amount"
+        assert doc.target == "metadata"
+        assert doc.action == "document_accepted_outlier_rate"
+        assert doc.column_name == "amount"
+        assert doc.payload["reason"] == "Outliers are expected for this column"
 
     def test_multiple_columns(self) -> None:
         schema = self._get_schema()
         fix_input = FixInput(
-            action_name="accept_finding",
+            action_name="document_accepted_outlier_rate",
             affected_columns=["orders.amount", "orders.quantity"],
             parameters={"detector_id": "outlier_rate"},
             interpretation="Outliers expected",
@@ -51,14 +49,14 @@ class TestAcceptFindingBridge:
         docs = build_fix_documents(schema, fix_input, "orders", "amount", "quality_review")
 
         assert len(docs) == 2
-        values = [d.payload["value"] for d in docs]
-        assert "orders.amount" in values
-        assert "orders.quantity" in values
+        col_names = [d.column_name for d in docs]
+        assert "amount" in col_names
+        assert "quantity" in col_names
 
     def test_no_affected_columns(self) -> None:
         schema = self._get_schema()
         fix_input = FixInput(
-            action_name="accept_finding",
+            action_name="document_accepted_outlier_rate",
             affected_columns=[],
             parameters={"detector_id": "outlier_rate"},
         )
@@ -68,7 +66,7 @@ class TestAcceptFindingBridge:
     def test_uses_interpretation_as_reason(self) -> None:
         schema = self._get_schema()
         fix_input = FixInput(
-            action_name="accept_finding",
+            action_name="document_accepted_outlier_rate",
             affected_columns=["orders.amount"],
             parameters={"detector_id": "outlier_rate"},
             interpretation="User confirmed outliers are valid business data",

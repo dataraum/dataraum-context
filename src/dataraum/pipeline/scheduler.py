@@ -202,6 +202,7 @@ class PipelineScheduler:
                 view_details: dict[str, dict[str, float]] = {}
                 column_evidence: dict[str, dict[str, dict[str, Any]]] = {}
                 resolution_actions: dict[str, set[str]] = {}
+                accepted_targets: dict[str, set[str]] = {}
                 wave_skipped: list[dict[str, str]] = []
                 last_gate_phase: str = ""
 
@@ -220,6 +221,8 @@ class PipelineScheduler:
                         table_details.update(gate_result.table_details)
                         view_details.update(gate_result.view_details)
                         column_evidence.update(gate_result.column_evidence)
+                        for dim, targets in gate_result.accepted_targets.items():
+                            accepted_targets.setdefault(dim, set()).update(targets)
                         for path, acts in gate_result.resolution_actions.items():
                             resolution_actions.setdefault(path, set()).update(acts)
                         # Collect skipped detectors (deduplicate by detector_id)
@@ -255,7 +258,7 @@ class PipelineScheduler:
                         column_details,
                         last_gate_phase,
                         resolution_actions=resolution_actions,
-                        column_evidence=column_evidence,
+                        accepted_targets=accepted_targets,
                     )
                     pending_issues.extend(issues)
 
@@ -275,6 +278,7 @@ class PipelineScheduler:
                         table_details=dict(table_details),
                         view_details=dict(view_details),
                         column_evidence=dict(column_evidence),
+                        accepted_targets=accepted_targets,
                         available_fixes=fixes,
                     )
                     if resolution is not None:
@@ -574,8 +578,10 @@ class PipelineScheduler:
     def _apply_fixes(self, fix_inputs: list[FixInput]) -> None:
         """Apply fix inputs via bridge + interpreters, log to ledger, reset.
 
-        After this method returns the scheduler loop naturally re-runs
-        the reset phases, triggering fresh gate measurement.
+        Routing:
+        - preprocess: cascade-clean + phase re-run (existing behaviour)
+        - postprocess: MetadataInterpreter patches DB directly, skip
+          cascade-clean. The next gate measurement picks up the change.
         """
         from dataraum.core.config import _get_config_root
         from dataraum.documentation.ledger import log_fix
@@ -604,7 +610,7 @@ class PipelineScheduler:
                 for ref in (fix_input.affected_columns or [fix_input.action_name])
             ]
             table_name, column_name = parsed[0]
-            dimension = schema.requires_rerun or ""
+            dimension = schema.dimension_path or fix_input.dimension or ""
 
             documents = build_fix_documents(schema, fix_input, table_name, column_name, dimension)
 
@@ -614,10 +620,10 @@ class PipelineScheduler:
                     documents,
                     session=self.session,
                     config_root=config_root,
-                    duckdb_conn=self.duckdb_conn,
                 )
 
-            if schema.requires_rerun:
+            # Only preprocess fixes trigger cascade-clean + phase re-run
+            if schema.routing == "preprocess" and schema.requires_rerun:
                 phases_to_rerun.add(schema.requires_rerun)
 
             # Log to fix ledger
@@ -636,14 +642,18 @@ class PipelineScheduler:
                 "fix_applied",
                 action=fix_input.action_name,
                 documents=len(documents),
+                routing=schema.routing,
                 rerun=schema.requires_rerun,
             )
 
-        # Reload configs from disk so re-runs pick up the patches
+        # Reload configs from disk so re-runs pick up the patches.
+        # Postprocess metadata fixes are applied directly to DB by
+        # MetadataInterpreter — no config YAML intermediary needed.
         from dataraum.core.config import load_phase_config
         from dataraum.entropy.config import clear_entropy_config_cache
 
         clear_entropy_config_cache()
+
         for phase_name in phases_to_rerun:
             self._phase_configs[phase_name] = load_phase_config(phase_name)
 
@@ -671,8 +681,8 @@ class PipelineScheduler:
     ) -> dict[str, list[dict[str, str]]]:
         """Gather available fixes for EXIT_CHECK event display.
 
-        Consults the detector registry's fix_schemas, filtered to only
-        actions that appear in the entropy objects' resolution options.
+        Consults the YAML fix schema loader, filtered to only actions
+        that appear in the entropy objects' resolution options.
 
         Returns:
             dim_path -> [{"action_name": str, "phase_name": str, ...}]
@@ -682,6 +692,8 @@ class PipelineScheduler:
         detector_registry = get_default_registry()
 
         # Build dim_path -> detector lookup for matching issues
+        from dataraum.entropy.fix_schemas import get_schemas_for_detector
+
         detector_by_path = {d.dimension_path: d for d in detector_registry.get_all_detectors()}
 
         result: dict[str, list[dict[str, str]]] = {}
@@ -689,13 +701,13 @@ class PipelineScheduler:
             detector = detector_by_path.get(issue.dimension_path)
             if detector:
                 actions: list[dict[str, str]] = []
-                for schema in detector.fix_schemas:
+                for schema in get_schemas_for_detector(detector.detector_id):
                     # Only include schemas matching actual resolution options
                     if issue.available_actions and schema.action not in issue.available_actions:
                         continue
                     action_dict: dict[str, str] = {
                         "action_name": schema.action,
-                        "phase_name": schema.requires_rerun or "",
+                        "phase_name": schema.requires_rerun or schema.gate or "",
                     }
                     if schema.guidance:
                         action_dict["guidance"] = schema.guidance

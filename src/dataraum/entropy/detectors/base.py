@@ -20,10 +20,11 @@ from dataraum.entropy.models import (
     EntropyObject,
     ResolutionOption,
 )
-from dataraum.pipeline.fixes.models import FixSchema
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+    from dataraum.pipeline.fixes.models import FixSchema
 
 
 @dataclass
@@ -183,29 +184,6 @@ class EntropyDetector(ABC):
         )
 
     @property
-    def fix_schemas(self) -> list[FixSchema]:
-        """Schemas for fix documents this detector can produce.
-
-        Each schema tells the bridge function how to build FixDocuments
-        for a given action. Override in subclasses.
-
-        Default: empty (no fix schemas).
-        """
-        return []
-
-    @property
-    def triage_guidance(self) -> str:
-        """Detector-specific instructions for choosing between fix actions.
-
-        When a detector has multiple fix schemas, this tells the LLM how
-        to pick the right one based on the evidence. Override in subclasses
-        that have non-trivial triage logic.
-
-        Default: empty (generic prompt rules apply).
-        """
-        return ""
-
-    @property
     def dimension_path(self) -> str:
         """Get full dimension path."""
         return f"{self.layer}.{self.dimension}.{self.sub_dimension}"
@@ -274,9 +252,11 @@ class DetectorRegistry:
     ) -> FixSchema | None:
         """Find a FixSchema by action name, optionally scoped by dimension.
 
-        When multiple detectors share the same action name (e.g.
-        ``accept_finding``), *dimension_path* disambiguates by matching
-        the detector's ``dimension_path`` property.
+        Delegates to the YAML fix schema loader.
+
+        Each action name is now unique (e.g. ``document_accepted_null_ratio``).
+        *dimension_path* can still be used to scope the search to a specific
+        detector.
 
         Args:
             action_name: The action to look up.
@@ -286,13 +266,9 @@ class DetectorRegistry:
         Returns:
             The matching FixSchema, or None if not found.
         """
-        for detector in self.detectors.values():
-            if dimension_path and detector.dimension_path != dimension_path:
-                continue
-            for schema in detector.fix_schemas:
-                if schema.action == action_name:
-                    return schema
-        return None
+        from dataraum.entropy.fix_schemas import get_fix_schema as yaml_get_fix_schema
+
+        return yaml_get_fix_schema(action_name, dimension_path=dimension_path)
 
 
 # Global registry instance

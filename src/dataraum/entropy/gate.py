@@ -43,6 +43,8 @@ class GateResult:
     # Per-target component evidence: dim_path -> target -> {component_key: value}
     # Enables smart context: LLM sees which component drives each column's score
     column_evidence: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
+    # dim_path -> {target, ...} — targets accepted via DataFix records
+    accepted_targets: dict[str, set[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -55,6 +57,40 @@ class ExitCheckIssue:
     producing_phase: str  # phase after which this was measured
     affected_targets: list[str] = field(default_factory=list)
     available_actions: list[str] = field(default_factory=list)
+
+
+def _get_accepted_targets(
+    session: Session,
+    source_id: str,
+) -> dict[str, set[str]]:
+    """Query DataFix for accepted targets grouped by dimension.
+
+    Returns a dict mapping dimension_path to a set of target strings
+    (e.g. ``"column:orders.amount"``, ``"table:orders"``).
+    Only considers applied ``document_accepted_*`` DataFix records.
+    """
+    from dataraum.pipeline.fixes.models import DataFix
+
+    fixes = (
+        session.execute(
+            select(DataFix).where(
+                DataFix.source_id == source_id,
+                DataFix.action.like("document_accepted_%"),
+                DataFix.status == "applied",
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    result: dict[str, set[str]] = defaultdict(set)
+    for fix in fixes:
+        if fix.column_name:
+            target = f"column:{fix.table_name}.{fix.column_name}"
+        else:
+            target = f"table:{fix.table_name}"
+        result[fix.dimension].add(target)
+    return dict(result)
 
 
 def _collect_evidence(
@@ -260,6 +296,9 @@ def measure_at_gate(
         path = sub_dim_to_path.get(sd, sd)
         result_evidence[path] = targets_ev
 
+    # Query DataFix for accepted targets
+    accepted = _get_accepted_targets(session, source_id)
+
     return GateResult(
         scores=result_scores,
         column_details=result_column_details,
@@ -268,6 +307,7 @@ def measure_at_gate(
         skipped_detectors=skipped,
         resolution_actions=result_actions,
         column_evidence=result_evidence,
+        accepted_targets=accepted,
     )
 
 
@@ -307,15 +347,15 @@ def assess_contracts(
     column_details: dict[str, dict[str, float]],
     producing_phase: str,
     resolution_actions: dict[str, set[str]] | None = None,
-    column_evidence: dict[str, dict[str, dict[str, Any]]] | None = None,
+    accepted_targets: dict[str, set[str]] | None = None,
 ) -> list[ExitCheckIssue]:
     """Check scores against contract thresholds.
 
-    Accepted targets (``evidence.accepted=True``) are excluded from
-    violation assessment.  The dimension score is still computed from all
-    targets, but only non-accepted targets above threshold count as
-    affected.  If every above-threshold target is accepted, the dimension
-    is not reported as a violation (contract overrule).
+    Accepted targets (from DataFix records) are excluded from violation
+    assessment.  The dimension score is still computed from all targets,
+    but only non-accepted targets above threshold count as affected.
+    If every above-threshold target is accepted, the dimension is not
+    reported as a violation (contract overrule).
 
     Args:
         scores: Dimension path -> score mapping.
@@ -325,8 +365,8 @@ def assess_contracts(
         resolution_actions: Dimension path -> action names from detector
             resolution options. Used to filter fix schemas to only those
             the detectors actually recommended.
-        column_evidence: Per-target evidence dicts for accepted-target
-            detection.  Keyed by dimension_path -> target -> evidence dict.
+        accepted_targets: Dimension path -> set of accepted target strings
+            from DataFix records.
 
     Returns:
         List of contract violations found.
@@ -334,20 +374,18 @@ def assess_contracts(
     if not thresholds or not scores:
         return []
 
-    ev = column_evidence or {}
+    accepted = accepted_targets or {}
 
     issues: list[ExitCheckIssue] = []
     for dimension_path, score in scores.items():
         threshold = match_threshold(dimension_path, thresholds)
         if threshold is not None and score > threshold:
             col_scores = column_details.get(dimension_path, {})
-            dim_evidence = ev.get(dimension_path, {})
+            dim_accepted = accepted.get(dimension_path, set())
 
             # Filter: only non-accepted targets above threshold are violations
             above_threshold = [t for t, s in col_scores.items() if s > threshold]
-            affected = [
-                t for t in above_threshold if not dim_evidence.get(t, {}).get("accepted", False)
-            ]
+            affected = [t for t in above_threshold if t not in dim_accepted]
 
             # Contract overrule: if all above-threshold targets are accepted,
             # the dimension is acknowledged — don't block the gate.
@@ -431,5 +469,10 @@ def persist_gate_result(
     existing_outputs["detector_id_map"] = detector_id_map
     if gate_result.column_evidence:
         existing_outputs["gate_column_evidence"] = dict(gate_result.column_evidence)
+    if gate_result.accepted_targets:
+        # Convert sets to lists for JSON serialization
+        existing_outputs["accepted_targets"] = {
+            k: sorted(v) for k, v in gate_result.accepted_targets.items()
+        }
     log.outputs = existing_outputs
     session.commit()

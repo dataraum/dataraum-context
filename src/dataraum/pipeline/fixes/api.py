@@ -1,9 +1,8 @@
 """Public API for applying fixes and re-running the pipeline.
 
-Thin wrapper around existing components: ``apply_and_persist()`` creates
-DataFix records, ``cleanup_phase_cascade()`` clears affected phases,
-``pipeline_run()`` re-executes through quality_review, and
-``persist_gate_result()`` writes scores to PhaseLog.
+Routes fixes by schema routing field:
+- preprocess: ``cleanup_phase_cascade()`` + ``pipeline_run()``
+- postprocess: MetadataInterpreter patches DB directly, measured at next gate
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ logger = get_logger(__name__)
 
 _ZONE1_ANALYSES = None  # lazy singleton
 _ZONE2_ANALYSES = None  # lazy singleton
+_ZONE3_ANALYSES = None  # lazy singleton
 
 
 def _zone1_analyses() -> set[Any]:
@@ -52,8 +52,23 @@ def _zone2_analyses() -> set[Any]:
     return _ZONE2_ANALYSES
 
 
+def _zone3_analyses() -> set[Any]:
+    """Return the set of Zone 1 + Zone 2 + Zone 3 analysis keys."""
+    global _ZONE3_ANALYSES  # noqa: PLW0603
+    if _ZONE3_ANALYSES is None:
+        from dataraum.entropy.dimensions import AnalysisKey
+
+        _ZONE3_ANALYSES = _zone2_analyses() | {
+            AnalysisKey.VALIDATION,
+            AnalysisKey.BUSINESS_CYCLES,
+        }
+    return _ZONE3_ANALYSES
+
+
 def _analyses_for_gate(target_phase: str) -> set[Any]:
     """Return analysis keys available at the given gate."""
+    if target_phase == "computation_review":
+        return _zone3_analyses()
     if target_phase == "analysis_review":
         return _zone2_analyses()
     return _zone1_analyses()
@@ -86,24 +101,18 @@ def _get_source(session: Any) -> Any:
 def _determine_rerun_phases(fix_documents: list[FixDocument]) -> set[str]:
     """Determine which phases need re-running based on fix actions.
 
-    Looks up each fix action's FixSchema from the detector registry
-    and collects ``requires_rerun`` values. Gate-only phases (quality_review,
-    semantic) are excluded — measure_at_gate handles them directly.
+    Looks up each fix action's FixSchema from the YAML fix schema loader.
+    Only preprocess schemas (those with ``requires_rerun``) contribute —
+    postprocess schemas have ``requires_rerun=None`` and are skipped.
     """
-    from dataraum.entropy.detectors.base import get_default_registry
+    from dataraum.entropy.fix_schemas import get_fix_schema
 
-    gate_only_phases = {"quality_review", "analysis_review", "semantic"}
-    registry = get_default_registry()
     phases: set[str] = set()
 
     for doc in fix_documents:
-        # Check all detectors' fix schemas for a matching action
-        for detector in registry.get_all_detectors():
-            for schema in detector.fix_schemas:
-                if schema.action == doc.action and schema.requires_rerun:
-                    if schema.requires_rerun not in gate_only_phases:
-                        phases.add(schema.requires_rerun)
-                    break
+        schema = get_fix_schema(doc.action, dimension_path=doc.dimension)
+        if schema and schema.requires_rerun:
+            phases.add(schema.requires_rerun)
 
     return phases
 
@@ -149,7 +158,11 @@ def apply_fixes(
     manager.initialize()
 
     try:
-        # 1. Snapshot gate BEFORE, apply fixes, cascade-clean
+        # Determine routing: are there preprocess fixes?
+        rerun_phases = _determine_rerun_phases(fix_documents)
+        has_preprocess = bool(rerun_phases)
+
+        # 1. Snapshot gate BEFORE, apply fixes
         with manager.session_scope() as session:
             source = _get_source(session)
 
@@ -165,43 +178,47 @@ def apply_fixes(
                 fix_documents,
                 session=session,
                 config_root=config_root,
-                duckdb_conn=manager._duckdb_conn,
             )
 
-            rerun_phases = _determine_rerun_phases(fix_documents)
-            for phase_name in sorted(rerun_phases):
-                logger.info("fix_api_cascade_clean", phase=phase_name)
-                assert manager._duckdb_conn is not None  # set by initialize()
-                cleanup_phase_cascade(
-                    phase_name,
-                    source.source_id,
-                    session,
-                    manager._duckdb_conn,
-                )
+            if has_preprocess:
+                # Cascade-clean for preprocess fixes
+                for phase_name in sorted(rerun_phases):
+                    logger.info("fix_api_cascade_clean", phase=phase_name)
+                    assert manager._duckdb_conn is not None  # set by initialize()
+                    cleanup_phase_cascade(
+                        phase_name,
+                        source.source_id,
+                        session,
+                        manager._duckdb_conn,
+                    )
+            # Postprocess-only: MetadataInterpreter already patched
+            # DB rows directly — no config intermediary needed.
+
             session.commit()
 
         manager.close()
 
-        # 2. Re-run pipeline — scheduler picks up PENDING phases,
-        #    DataFixesPhase replays metadata fixes, gate re-measures
-        reset_config_root()
-        set_config_root(config_root)
-        clear_entropy_config_cache()
+        if has_preprocess:
+            # 2. Re-run pipeline — scheduler picks up PENDING phases,
+            #    DataFixesPhase replays metadata fixes, gate re-measures
+            reset_config_root()
+            set_config_root(config_root)
+            clear_entropy_config_cache()
 
-        run_result = pipeline_run(
-            RunConfig(
-                source_path=source_path,
-                output_dir=output_dir,
-                target_phase="quality_review",
-                contract=contract,
+            run_result = pipeline_run(
+                RunConfig(
+                    source_path=source_path,
+                    output_dir=output_dir,
+                    target_phase=target_phase,
+                    contract=contract,
+                )
+            ).unwrap()
+
+            logger.info(
+                "fix_api_rerun_done",
+                success=run_result.success,
+                phases_completed=run_result.phases_completed,
             )
-        ).unwrap()
-
-        logger.info(
-            "fix_api_rerun_done",
-            success=run_result.success,
-            phases_completed=run_result.phases_completed,
-        )
 
         # 3. Read gate AFTER
         reset_config_root()
@@ -219,7 +236,12 @@ def apply_fixes(
                     source2.source_id,
                     _analyses_for_gate(target_phase),
                 )
-                persist_gate_result(session2, source2.source_id, gate_after)
+                persist_gate_result(
+                    session2,
+                    source2.source_id,
+                    gate_after,
+                    phase_name=target_phase,
+                )
         finally:
             manager2.close()
 

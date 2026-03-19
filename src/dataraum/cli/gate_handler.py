@@ -2,7 +2,7 @@
 
 Renders post-verification results during the pipeline run.
 In interactive mode (``dataraum fix``), provides a fix UI with
-DocumentAgent config-mode Q&A.
+BatchPlanAgent for one-shot triage.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def render_gate_scores(
     contract_thresholds: dict[str, float] | None = None,
     phase_name: str | None = None,
     column_details: dict[str, dict[str, float]] | None = None,
-    column_evidence: dict[str, dict[str, dict[str, Any]]] | None = None,
+    accepted_targets: dict[str, set[str]] | None = None,
 ) -> None:
     """Render all gate measurement scores as a Rich panel.
 
@@ -43,14 +43,15 @@ def render_gate_scores(
         contract_thresholds: Contract thresholds keyed by dimension path.
         phase_name: Name of the gate phase.
         column_details: Per-column scores for accepted detection.
-        column_evidence: Per-column evidence with accepted flags.
+        accepted_targets: Dimension path -> set of accepted target strings
+            from DataFix records.
     """
     if not scores:
         return
 
     thresholds = contract_thresholds or {}
     col_details = column_details or {}
-    col_evidence = column_evidence or {}
+    accepted = accepted_targets or {}
 
     table = Table(show_header=True, box=None, padding=(0, 2))
     table.add_column("Dimension", style="bold")
@@ -71,7 +72,7 @@ def render_gate_scores(
         if threshold is not None:
             if score > threshold:
                 # Check if all above-threshold targets are accepted
-                if _is_dimension_accepted(dim_path, threshold, col_details, col_evidence):
+                if _is_dimension_accepted(dim_path, threshold, col_details, accepted):
                     accepted_count += 1
                     color = "cyan"
                     status = "[cyan]ACCEPTED[/cyan]"
@@ -127,24 +128,24 @@ def _is_dimension_accepted(
     dim_path: str,
     threshold: float,
     column_details: dict[str, dict[str, float]],
-    column_evidence: dict[str, dict[str, dict[str, Any]]],
+    accepted_targets: dict[str, set[str]],
 ) -> bool:
     """Check if a dimension's above-threshold targets are all accepted.
 
     Returns True if there are above-threshold targets and every one of
-    them has ``evidence.accepted=True``. This mirrors the contract
-    overrule logic in ``assess_contracts``.
+    them is in the accepted_targets set (from DataFix records). This
+    mirrors the contract overrule logic in ``assess_contracts``.
     """
     col_scores = column_details.get(dim_path, {})
     if not col_scores:
         return False
 
-    dim_ev = column_evidence.get(dim_path, {})
+    dim_accepted = accepted_targets.get(dim_path, set())
     above_threshold = [t for t, s in col_scores.items() if s > threshold]
     if not above_threshold:
         return False
 
-    return all(dim_ev.get(t, {}).get("accepted", False) for t in above_threshold)
+    return all(t in dim_accepted for t in above_threshold)
 
 
 def render_violations(
@@ -154,7 +155,7 @@ def render_violations(
     all_scores: dict[str, float] | None = None,
     contract_thresholds: dict[str, float] | None = None,
     phase_name: str | None = None,
-    column_evidence: dict[str, dict[str, dict[str, Any]]] | None = None,
+    accepted_targets: dict[str, set[str]] | None = None,
 ) -> None:
     """Render post-verification violations as a Rich panel.
 
@@ -165,7 +166,8 @@ def render_violations(
         all_scores: All measured entropy scores (for distance-to-green display).
         contract_thresholds: Contract thresholds keyed by dimension path.
         phase_name: Name of the phase that triggered the check.
-        column_evidence: Per-column evidence for accepted detection.
+        accepted_targets: Dimension path -> set of accepted target strings
+            from DataFix records.
     """
     if not violations:
         return
@@ -212,7 +214,7 @@ def render_violations(
 
     # Show passing and accepted dimensions
     col_det = column_details or {}
-    col_ev = column_evidence or {}
+    accepted_map = accepted_targets or {}
 
     if all_scores and contract_thresholds:
         passing_rows: list[tuple[str, float, float, float, bool]] = []
@@ -223,7 +225,7 @@ def render_violations(
             if matched is not None:
                 threshold = matched
                 headroom = threshold - score
-                accepted = _is_dimension_accepted(dim_path, threshold, col_det, col_ev)
+                accepted = _is_dimension_accepted(dim_path, threshold, col_det, accepted_map)
                 passing_rows.append((dim_path, score, threshold, headroom, accepted))
 
         if passing_rows:
@@ -291,7 +293,7 @@ def handle_exit_check_interactive(
         all_scores=event.scores or None,
         contract_thresholds=contract_thresholds,
         phase_name=event.phase,
-        column_evidence=event.column_evidence,
+        accepted_targets=event.accepted_targets,
     )
 
     # Collect available fixes grouped by dimension
@@ -428,7 +430,7 @@ def _run_fix_flow(
     context = build_gate_context(session, source_id, group, event)
 
     try:
-        agent = _create_document_agent()
+        agent = _create_batch_plan_agent()
     except Exception as e:
         console.print(f"[red]Failed to initialize LLM: {e}[/red]")
         return Resolution(action=ResolutionAction.DEFER)
@@ -519,7 +521,7 @@ def _run_fix_flow(
             params["table"] = item.target.split(":", 1)[1]
 
         # Thread follow-up answers into parameters as "reason"
-        # (accept_finding's only user-provided parameter)
+        # (document_accepted_*'s only user-provided parameter)
         if follow_up_answers and "reason" not in params:
             # Use first follow-up answer as reason
             first_answer = next(iter(follow_up_answers.values()), None)
@@ -562,7 +564,7 @@ def build_gate_context(
     group: _DimensionFixGroup,
     event: PipelineEvent,
 ) -> str:
-    """Build context for DocumentAgent config mode at a quality gate.
+    """Build context for BatchPlanAgent at a quality gate.
 
     Lighter than _build_agent_context() in fix.py — works at Gate 1
     where EntropyInterpretationRecord doesn't yet exist. Uses detector
@@ -595,7 +597,7 @@ def build_gate_context(
         f"Affected columns: {', '.join(affected_targets)}",
         "",
         "Choose the BEST action for each violating target.",
-        "Prefer corrective actions (recalculate, override, add pattern) over accept_finding.",
+        "Prefer corrective actions (override, add pattern) over document_accepted_* actions.",
         "",
     ]
     for i, action in enumerate(group.actions, 1):
@@ -612,13 +614,12 @@ def build_gate_context(
     sections.append("\n".join(action_lines))
 
     # Section 1b: Detector-specific triage guidance (if available)
-    from dataraum.entropy.detectors.base import get_default_registry
+    from dataraum.entropy.fix_schemas import get_detector_id_for_dimension, get_triage_guidance
 
-    registry = get_default_registry()
-    detector_by_path = {d.dimension_path: d for d in registry.get_all_detectors()}
-    detector = detector_by_path.get(dim_path)
-    if detector and detector.triage_guidance:
-        sections.append(f"<triage_guidance>\n{detector.triage_guidance}\n</triage_guidance>")
+    _detector_id = get_detector_id_for_dimension(dim_path) if dim_path else None
+    _triage = get_triage_guidance(_detector_id) if _detector_id else ""
+    if _triage:
+        sections.append(f"<triage_guidance>\n{_triage}\n</triage_guidance>")
 
     # Section 2: Entropy evidence with per-target component breakdown
     # Merge column, table, and view details — detectors may be any scope
@@ -645,11 +646,7 @@ def build_gate_context(
             if ev:
                 components = []
                 for k, v in sorted(ev.items()):
-                    if k == "accepted":
-                        if v:
-                            components.append("ACCEPTED")
-                    else:
-                        components.append(f"{k}={v}")
+                    components.append(f"{k}={v}")
                 if components:
                     line += f" [{', '.join(components)}]"
             evidence_lines.append(line)
@@ -660,6 +657,11 @@ def build_gate_context(
     data_section = _build_data_profile(session, source_id, affected_targets)
     if data_section:
         sections.append(data_section)
+
+    # Section 4: Existing fixes (so the agent avoids re-proposing)
+    existing_section = _build_existing_fixes(session, source_id, dim_path)
+    if existing_section:
+        sections.append(existing_section)
 
     return "\n\n".join(sections)
 
@@ -768,14 +770,49 @@ def _build_data_profile(
     return "\n".join(lines) if has_data else ""
 
 
+def _build_existing_fixes(
+    session: Session,
+    source_id: str,
+    dimension_path: str,
+) -> str:
+    """Build existing fixes section from DataFix records.
+
+    Shows already-applied fixes so the agent avoids re-proposing them.
+    """
+    from sqlalchemy import select
+
+    from dataraum.pipeline.fixes.models import DataFix
+
+    fixes = (
+        session.execute(
+            select(DataFix).where(
+                DataFix.source_id == source_id,
+                DataFix.dimension == dimension_path,
+                DataFix.status == "applied",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not fixes:
+        return ""
+
+    lines = ["<existing_fixes>"]
+    for fix in fixes:
+        target = f"{fix.table_name}.{fix.column_name}" if fix.column_name else fix.table_name
+        lines.append(f"  {fix.action} on {target}")
+    lines.append("</existing_fixes>")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # LLM agent factory
 # ---------------------------------------------------------------------------
 
 
-def _create_document_agent() -> Any:
-    """Create a DocumentAgent with the configured LLM provider."""
-    from dataraum.documentation.agent import DocumentAgent
+def _create_batch_plan_agent() -> Any:
+    """Create a BatchPlanAgent with the configured LLM provider."""
+    from dataraum.documentation.agent import BatchPlanAgent
     from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 
     config = load_llm_config()
@@ -787,7 +824,7 @@ def _create_document_agent() -> Any:
     renderer = PromptRenderer()
     model = provider.get_model_for_tier("capable")
 
-    return DocumentAgent(
+    return BatchPlanAgent(
         provider=provider,
         renderer=renderer,
         model=model,

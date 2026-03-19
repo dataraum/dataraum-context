@@ -20,11 +20,11 @@ import yaml
 class FixInput:
     """Structured user decision after agent interpretation.
 
-    Produced by the DocumentAgent in config mode, consumed by the bridge
+    Produced by the BatchPlanAgent or MCP apply_fix, consumed by the bridge
     function to build FixDocuments.
 
     Args:
-        action_name: The entropy action being addressed, e.g. "accept_finding".
+        action_name: The entropy action being addressed, e.g. "document_accepted_outlier_rate".
         parameters: Structured parameters from user interaction.
         interpretation: Agent's interpretation of user answers.
         affected_columns: Which columns this fix applies to, e.g. ["orders.amount"].

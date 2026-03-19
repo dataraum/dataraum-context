@@ -7,6 +7,7 @@ Output directory is resolved from DATARAUM_OUTPUT_DIR env var or passed to creat
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -34,6 +35,11 @@ _log = logging.getLogger(__name__)
 
 # Prevent background pipeline tasks from being garbage-collected.
 _background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _json_text_content(data: dict[str, Any]) -> list[TextContent]:
+    """Serialize a dict to JSON and wrap in MCP TextContent."""
+    return [TextContent(type="text", text=json.dumps(data, indent=2, default=str))]
 
 
 def _make_task_event_callback(
@@ -323,42 +329,16 @@ def create_server(output_dir: Path | None = None) -> Server:
                 execution=ToolExecution(taskSupport="optional"),
             ),
             # --- Agent-driven fix tools ---
-            Tool(
-                name="get_fix_proposal",
-                description=(
-                    "Get agent-driven fix suggestions for a specific violation. "
-                    "Returns ready-to-apply fix documents with per-target action plan. "
-                    "Pass the fix documents directly to `apply_fix`."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "required": ["gate", "dimension"],
-                    "properties": {
-                        "gate": {
-                            "type": "string",
-                            "enum": ["quality_review", "analysis_review", "computation_review"],
-                            "description": "Which gate this violation was measured at.",
-                        },
-                        "dimension": {
-                            "type": "string",
-                            "description": (
-                                "The dimension path of the violation to fix "
-                                "(e.g., 'value.temporal.temporal_drift'). "
-                                "Get this from get_quality(gate=...)."
-                            ),
-                        },
-                    },
-                },
-            ),
-            # --- Low-level fix tool ---
+            # --- Fix tool ---
             Tool(
                 name="apply_fix",
                 description=(
-                    "Apply fix documents and re-run affected pipeline phases. "
-                    "Returns before/after score deltas. Source path is auto-resolved. "
-                    "Note: accept_finding marks an issue as acknowledged but does NOT "
-                    "lower the entropy score — the data issue remains, only the gate "
-                    "stops flagging it. Prefer corrective actions when possible."
+                    "Apply fixes and re-run affected pipeline phases. "
+                    "Provide action name + target from get_quality output. "
+                    "The system resolves the schema and builds documents internally. "
+                    "Returns before/after score deltas. "
+                    "Note: document_accepted_* actions acknowledge an issue but do NOT "
+                    "lower the entropy score. Prefer corrective actions when possible."
                 ),
                 inputSchema={
                     "type": "object",
@@ -366,52 +346,46 @@ def create_server(output_dir: Path | None = None) -> Server:
                     "properties": {
                         "fixes": {
                             "type": "array",
-                            "description": "List of fix documents to apply",
+                            "description": "List of fixes to apply",
                             "items": {
                                 "type": "object",
-                                "required": [
-                                    "target",
-                                    "action",
-                                    "table_name",
-                                    "dimension",
-                                    "payload",
-                                ],
+                                "required": ["action", "target"],
                                 "properties": {
-                                    "target": {
-                                        "type": "string",
-                                        "enum": ["config", "metadata", "data"],
-                                        "description": "Which interpreter handles this fix",
-                                    },
                                     "action": {
                                         "type": "string",
-                                        "description": "Fix action name (e.g. accept_finding, set_column_type)",
+                                        "description": (
+                                            "Fix action name from get_quality output "
+                                            "(e.g. document_accepted_outlier_rate, "
+                                            "document_type_override)"
+                                        ),
                                     },
-                                    "table_name": {
+                                    "target": {
                                         "type": "string",
-                                        "description": "Table this fix applies to",
+                                        "description": (
+                                            "Target from get_quality affected_targets "
+                                            "(e.g. 'column:orders.amount', 'table:orders')"
+                                        ),
                                     },
-                                    "column_name": {
-                                        "type": ["string", "null"],
-                                        "description": "Column this fix applies to (null for table-scoped fixes)",
-                                    },
-                                    "dimension": {
-                                        "type": "string",
-                                        "description": "Entropy dimension this addresses",
-                                    },
-                                    "payload": {
+                                    "parameters": {
                                         "type": "object",
-                                        "description": "Target-specific fix data",
+                                        "description": (
+                                            "Action-specific parameters "
+                                            "(field values from the action schema)"
+                                        ),
+                                        "default": {},
                                     },
-                                    "description": {
+                                    "reason": {
                                         "type": "string",
-                                        "description": "Human-readable summary of what this fix does",
+                                        "description": "Why this fix is being applied",
                                     },
                                 },
                             },
                         },
                         "source_path": {
                             "type": "string",
-                            "description": "Path to original source data. Auto-resolved from registered sources if omitted.",
+                            "description": (
+                                "Path to original source data. Auto-resolved if omitted."
+                            ),
                         },
                     },
                 },
@@ -423,7 +397,7 @@ def create_server(output_dir: Path | None = None) -> Server:
     async def call_tool(
         name: str, arguments: dict[str, Any]
     ) -> list[TextContent] | CallToolResult | CreateTaskResult:
-        """Execute a tool and return results."""
+        """Execute a tool and return JSON results."""
         if name == "analyze":
             path = arguments.get("path")
             source_name = arguments.get("name")
@@ -434,7 +408,7 @@ def create_server(output_dir: Path | None = None) -> Server:
             if path:
                 source_path = Path(path)
                 if not source_path.exists():
-                    return [TextContent(type="text", text=f"Error: Path not found: {path}")]
+                    return _json_text_content({"error": f"Path not found: {path}"})
 
             display_label = path or "(registered sources)"
             ctx = server.request_context
@@ -445,7 +419,7 @@ def create_server(output_dir: Path | None = None) -> Server:
 
                 async def _work(task: ServerTaskContext) -> CallToolResult:
                     callback = _make_task_event_callback(task, loop)
-                    text = await asyncio.to_thread(
+                    result_dict = await asyncio.to_thread(
                         _analyze,
                         output_dir,
                         path,
@@ -454,7 +428,14 @@ def create_server(output_dir: Path | None = None) -> Server:
                         target_gate,
                         contract,
                     )
-                    return CallToolResult(content=[TextContent(type="text", text=text)])
+                    return CallToolResult(
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=json.dumps(result_dict, indent=2, default=str),
+                            )
+                        ]
+                    )
 
                 return await experimental.run_task(
                     _work,
@@ -471,11 +452,14 @@ def create_server(output_dir: Path | None = None) -> Server:
                 )
                 _background_tasks.add(bg)
                 bg.add_done_callback(_background_tasks.discard)
-                result = (
-                    f"Pipeline started for: {display_label}. "
-                    f"This typically takes 3–7 minutes depending on file size. "
-                    f"Call `get_context` every ~2 minutes to check progress."
-                )
+                result: dict[str, Any] = {
+                    "status": "started",
+                    "source": display_label,
+                    "message": (
+                        "Pipeline started. This typically takes 3-7 minutes depending on file size."
+                    ),
+                    "hint": "Call get_context every ~2 minutes to check progress.",
+                }
         elif name == "get_context":
             result = _get_context(output_dir)
         elif name == "get_quality":
@@ -505,12 +489,6 @@ def create_server(output_dir: Path | None = None) -> Server:
             result = _discover_sources(output_dir, scan_path, recursive)
         elif name == "add_source":
             result = _add_source(output_dir, arguments)
-        elif name == "get_fix_proposal":
-            result = _get_fix_proposal(
-                output_dir,
-                gate=arguments["gate"],
-                dimension=arguments["dimension"],
-            )
         elif name == "continue_pipeline":
             target_gate = arguments["target_gate"]
             cont_source_path: str | None = arguments.get("source_path")
@@ -521,10 +499,17 @@ def create_server(output_dir: Path | None = None) -> Server:
 
                 async def _cont_work(task: ServerTaskContext) -> CallToolResult:
                     callback = _make_task_event_callback(task, loop)
-                    text = await asyncio.to_thread(
+                    result_dict = await asyncio.to_thread(
                         _continue_pipeline, output_dir, target_gate, cont_source_path, callback
                     )
-                    return CallToolResult(content=[TextContent(type="text", text=text)])
+                    return CallToolResult(
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=json.dumps(result_dict, indent=2, default=str),
+                            )
+                        ]
+                    )
 
                 return await cont_experimental.run_task(
                     _cont_work,
@@ -544,10 +529,17 @@ def create_server(output_dir: Path | None = None) -> Server:
 
                 async def _fix_work(task: ServerTaskContext) -> CallToolResult:
                     await task.update_status("Applying fixes and re-running pipeline...")
-                    text = await asyncio.to_thread(
+                    result_dict = await asyncio.to_thread(
                         _apply_fix, output_dir, arguments["fixes"], fix_source_path
                     )
-                    return CallToolResult(content=[TextContent(type="text", text=text)])
+                    return CallToolResult(
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=json.dumps(result_dict, indent=2, default=str),
+                            )
+                        ]
+                    )
 
                 return await fix_experimental.run_task(
                     _fix_work,
@@ -559,9 +551,9 @@ def create_server(output_dir: Path | None = None) -> Server:
             else:
                 result = _apply_fix(output_dir, arguments["fixes"], fix_source_path)
         else:
-            result = f"Unknown tool: {name}"
+            result = {"error": f"Unknown tool: {name}"}
 
-        return [TextContent(type="text", text=result)]
+        return _json_text_content(result)
 
     return server
 
@@ -586,14 +578,16 @@ def _get_pipeline_source(session: Any) -> Any | None:
     return session.execute(select(Source).order_by(Source.created_at).limit(1)).scalar_one_or_none()
 
 
-_NO_DATA_MSG = (
-    "No analyzed data found at {path}. "
-    "This can happen if the output directory was cleared or never created.\n\n"
-    "To fix this, run the `analyze` tool:\n"
-    "  analyze(path='/path/to/your/data.csv')\n\n"
-    "If analysis results existed earlier in this conversation, "
-    "re-run `analyze` with the same source path to regenerate them."
-)
+def _no_data_error(path: Path) -> dict[str, Any]:
+    """Build error dict for missing pipeline output."""
+    return {
+        "error": f"No analyzed data found at {path}.",
+        "hint": (
+            "Run the analyze tool first: analyze(path='/path/to/your/data.csv'). "
+            "If analysis results existed earlier, re-run analyze with the same source path."
+        ),
+    }
+
 
 # Human-readable phase descriptions for progress reporting.
 # Keys must match the `name` property of each phase class.
@@ -637,11 +631,11 @@ async def _run_analyze_background(
         _log.exception("Background pipeline failed for %s", path or "(registered sources)")
 
 
-def _get_pipeline_progress(manager: Any) -> str | None:
-    """Check if a pipeline is running or recently failed and return a status message.
+def _get_pipeline_progress(manager: Any) -> dict[str, Any] | None:
+    """Check if a pipeline is running or recently failed.
 
     Returns:
-        Progress/error message string if running or failed, None if pipeline is idle.
+        Progress/error dict if running or failed, None if pipeline is idle.
     """
     from datetime import UTC, datetime
 
@@ -675,27 +669,24 @@ def _get_pipeline_progress(manager: Any) -> str | None:
 
         # Pipeline failed — surface the error
         if latest_run.status == "failed":
-            error_detail = f": {latest_run.error}" if latest_run.error else ""
-            # Collect failed phases for context
             failed_phases = session.execute(
                 select(PhaseLog.phase_name, PhaseLog.error).where(
                     PhaseLog.run_id == latest_run.run_id,
                     PhaseLog.status == "failed",
                 )
             ).all()
-            phase_detail = ""
-            if failed_phases:
-                details = [
-                    f"  - {name}: {err}" if err else f"  - {name}" for name, err in failed_phases
-                ]
-                phase_detail = "\nFailed phases:\n" + "\n".join(details)
-            return (
-                f"Error: Pipeline failed{error_detail}{phase_detail}\n\n"
-                f"Fix the issue and re-run `analyze`."
-            )
+            return {
+                "status": "pipeline_failed",
+                "error": latest_run.error or "Unknown error",
+                "failed_phases": [{"phase": name, "error": err} for name, err in failed_phases],
+                "hint": "Fix the issue and re-run analyze.",
+            }
 
         # Status is "running" — check if stale (process crashed without updating status)
-        age_minutes = (datetime.now(UTC) - latest_run.started_at).total_seconds() / 60
+        started = latest_run.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        age_minutes = (datetime.now(UTC) - started).total_seconds() / 60
         if age_minutes > _STALE_THRESHOLD_MINUTES:
             return None
 
@@ -727,19 +718,19 @@ def _get_pipeline_progress(manager: Any) -> str | None:
             if deps.issubset(completed_names):
                 running_phases.append(name)
 
-        current_detail = ""
-        if running_phases:
-            labels = [_PHASE_LABELS.get(p, p) for p in running_phases]
-            current_detail = f" Current: {', '.join(labels)}."
+        current_labels = [_PHASE_LABELS.get(p, p) for p in running_phases]
 
-        return (
-            f"Phase {completed_count} of {total_phases} complete.{current_detail}\n"
-            f"Call `get_context` again to check for completion."
-        )
+        return {
+            "status": "pipeline_running",
+            "completed": completed_count,
+            "total": total_phases,
+            "current_phases": current_labels,
+            "hint": "Call get_context again to check for completion.",
+        }
 
 
-def _build_pipeline_status(session: Any, source_id: str) -> str | None:
-    """Build a short pipeline status section for get_context.
+def _build_pipeline_status(session: Any, source_id: str) -> dict[str, Any] | None:
+    """Build pipeline status dict for get_context.
 
     Returns None if no pipeline runs exist.
     """
@@ -777,18 +768,13 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
     contract_name = run.config.get("contract") if run.config else None
     target_phase = run.config.get("target_phase") if run.config else None
 
-    lines = ["## Pipeline Status"]
-
-    # Contract
+    result: dict[str, Any] = {"phases_completed": phase_count}
     if contract_name:
-        lines.append(f"- Contract: {contract_name}")
-
-    # Phases completed
-    lines.append(f"- Phases completed: {phase_count}")
+        result["contract"] = contract_name
     if target_phase:
-        lines.append(f"- Stopped at: {target_phase}")
+        result["stopped_at"] = target_phase
 
-    # Check gates — track state for next steps
+    # Check gates
     contracts = get_contracts()
     contract = None
     if contract_name:
@@ -796,7 +782,8 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
     if not contract:
         contract = next(iter(contracts.values()), None) if contracts else None
 
-    gate_states: dict[str, int | None] = {}  # gate_phase -> violation count or None
+    gates: dict[str, dict[str, Any]] = {}
+    gate_states: dict[str, int | None] = {}
     for gate_phase, (zone_name, gate_label) in _GATE_ZONES.items():
         gate_log = session.execute(
             select(PhaseLog)
@@ -810,82 +797,93 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
         ).scalar_one_or_none()
 
         if not gate_log or not gate_log.outputs:
-            lines.append(f"- {gate_label} ({zone_name}): not yet reached")
+            gates[gate_phase] = {
+                "zone": zone_name,
+                "label": gate_label,
+                "status": "not_reached",
+            }
             gate_states[gate_phase] = None
             continue
 
         scores = gate_log.entropy_scores or {}
         if not scores:
-            lines.append(f"- {gate_label} ({zone_name}): measured, no scores")
+            gates[gate_phase] = {
+                "zone": zone_name,
+                "label": gate_label,
+                "status": "measured",
+                "violations": 0,
+            }
             gate_states[gate_phase] = 0
             continue
 
-        # Count violations
         n_violations = 0
         if contract:
             column_details = gate_log.outputs.get("gate_column_details", {})
-            col_evidence = gate_log.outputs.get("gate_column_evidence", {})
+            accepted_raw = gate_log.outputs.get("accepted_targets", {})
+            accepted = {k: set(v) for k, v in accepted_raw.items()}
             issues = assess_contracts(
                 scores,
                 contract.dimension_thresholds,
                 column_details,
                 gate_phase,
-                column_evidence=col_evidence,
+                accepted_targets=accepted,
             )
             n_violations = len(issues)
 
-        if n_violations > 0:
-            lines.append(f"- {gate_label} ({zone_name}): {n_violations} violations")
-        else:
-            lines.append(f"- {gate_label} ({zone_name}): passing")
+        gates[gate_phase] = {
+            "zone": zone_name,
+            "label": gate_label,
+            "status": "violations" if n_violations > 0 else "passing",
+            "violations": n_violations,
+        }
         gate_states[gate_phase] = n_violations
 
-    # Next steps — contextual guidance based on pipeline state
-    lines.append("")
-    lines.append("### Next Steps")
+    result["gates"] = gates
 
+    # Next steps — contextual guidance
     g1 = gate_states.get("quality_review")
     g2 = gate_states.get("analysis_review")
+    g3 = gate_states.get("computation_review")
 
+    next_steps: list[str] = []
     if g1 is None:
-        # Pipeline hasn't reached Gate 1 yet
-        lines.append("- Run `analyze(path='...', target_gate='quality_review')` to start")
+        next_steps.append("Run analyze(path='...', target_gate='quality_review') to start")
     elif g1 and g1 > 0:
-        # Gate 1 has violations
-        lines.append('- Use `get_quality(gate="quality_review")` to see violation details')
-        lines.append(
-            '- Use `get_fix_proposal(gate="quality_review", dimension="...")` for fix suggestions'
+        next_steps.append(
+            'Use get_quality(gate="quality_review") to see violations and fix actions'
         )
-        lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
-        lines.append(
-            '- Use `continue_pipeline(target_gate="analysis_review")` to advance after fixing'
+        next_steps.append("Use apply_fix(fixes=[...]) to apply fixes")
+        next_steps.append(
+            'Use continue_pipeline(target_gate="analysis_review") to advance after fixing'
         )
     elif g2 is None:
-        # Gate 1 passing, Gate 2 not yet reached
-        lines.append(
-            '- Gate 1 is clean — use `continue_pipeline(target_gate="analysis_review")` to advance'
+        next_steps.append(
+            'Gate 1 clean — use continue_pipeline(target_gate="analysis_review") to advance'
         )
     elif g2 and g2 > 0:
-        # Gate 2 has violations
-        lines.append('- Use `get_quality(gate="analysis_review")` to see violation details')
-        lines.append(
-            '- Use `get_fix_proposal(gate="analysis_review", dimension="...")` for fix suggestions'
+        next_steps.append(
+            'Use get_quality(gate="analysis_review") to see violations and fix actions'
         )
-        lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
-        lines.append(
-            '- Use `continue_pipeline(target_gate="end")` to complete the pipeline after fixing'
+        next_steps.append("Use apply_fix(fixes=[...]) to apply fixes")
+        next_steps.append('Use continue_pipeline(target_gate="end") to complete after fixing')
+    elif g3 is None:
+        next_steps.append('Gates 1-2 clean — use continue_pipeline(target_gate="end") to complete')
+    elif g3 and g3 > 0:
+        next_steps.append(
+            'Use get_quality(gate="computation_review") to see violations and fix actions'
         )
+        next_steps.append("Use apply_fix(fixes=[...]) to apply fixes")
     else:
-        # Both gates passing
-        lines.append("- All gates passing — data is ready for use")
-        lines.append("- Use `query` to ask questions about the data")
-        lines.append("- Use `export` to export results")
+        next_steps.append("All gates passing — data is ready for use")
+        next_steps.append("Use query to ask questions about the data")
+        next_steps.append("Use export to export results")
 
-    return "\n".join(lines)
+    result["next_steps"] = next_steps
+    return result
 
 
-def _build_contract_catalog(session: Any, table_ids: list[str]) -> str | None:
-    """Build a contract catalog section with live compliance status.
+def _build_contract_catalog(session: Any, table_ids: list[str]) -> dict[str, Any] | None:
+    """Build a contract catalog dict with live compliance status.
 
     Shows all available contracts with descriptions and, when entropy data
     is available, evaluates each one to show pass/fail and score.
@@ -912,60 +910,54 @@ def _build_contract_catalog(session: Any, table_ids: list[str]) -> str | None:
     except Exception:
         pass
 
-    lines = ["## Available Contracts"]
-    lines.append("")
+    catalog_contracts: list[dict[str, Any]] = []
 
     if column_summaries:
         evaluations = evaluate_all_contracts(column_summaries)
         best_name, _ = find_best_contract(column_summaries)
 
-        lines.append("| Contract | Description | Threshold | Score | Status |")
-        lines.append("|----------|-------------|-----------|-------|--------|")
-
         for c in contracts:
+            entry: dict[str, Any] = {
+                "name": c["name"],
+                "display_name": c["display_name"],
+                "description": c["description"],
+                "threshold": c["overall_threshold"],
+            }
             ev = evaluations.get(c["name"])
             if ev:
-                status = "PASS" if ev.is_compliant else "FAIL"
+                entry["score"] = round(ev.overall_score, 2)
+                entry["status"] = "PASS" if ev.is_compliant else "FAIL"
                 if c["name"] == best_name:
-                    status += " (strictest passing)"
-                score = f"{ev.overall_score:.2f}"
-            else:
-                status = "?"
-                score = "—"
-            lines.append(
-                f"| `{c['name']}` | {c['description']} "
-                f"| {c['overall_threshold']} | {score} | {status} |"
-            )
+                    entry["recommended"] = True
+            catalog_contracts.append(entry)
 
-        lines.append("")
+        result: dict[str, Any] = {"contracts": catalog_contracts}
         if best_name:
-            lines.append(
-                f"**Recommended:** `{best_name}` — strictest contract your data currently passes."
-            )
+            result["recommended"] = best_name
         else:
-            lines.append(
-                "**No contracts pass.** Use `get_quality` to see violations, "
-                "then `get_fix_proposal` to address them."
+            result["hint"] = (
+                "No contracts pass. Use get_quality(gate=...) to see violations "
+                "and fix actions, then apply_fix to address them."
             )
     else:
-        lines.append(
-            "Compliance status available after pipeline runs entropy phase. "
-            "Pass `contract` to `analyze` to select one."
-        )
-        lines.append("")
         for c in contracts:
-            lines.append(
-                f"- **{c['display_name']}** (`{c['name']}`, "
-                f"threshold: {c['overall_threshold']}): {c['description']}"
+            catalog_contracts.append(
+                {
+                    "name": c["name"],
+                    "display_name": c["display_name"],
+                    "description": c["description"],
+                    "threshold": c["overall_threshold"],
+                }
             )
+        result = {
+            "contracts": catalog_contracts,
+            "hint": (
+                "Compliance status available after pipeline runs entropy phase. "
+                "Pass contract to analyze to select one."
+            ),
+        }
 
-    lines.append("")
-    lines.append(
-        "Use `analyze(contract='name')` or `get_quality(contract_name='name')` "
-        "to evaluate against a specific contract."
-    )
-
-    return "\n".join(lines)
+    return result
 
 
 def _analyze(
@@ -975,7 +967,7 @@ def _analyze(
     event_callback: EventCallback | None = None,
     target_gate: str | None = None,
     contract: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Run the pipeline on a data source.
 
     Args:
@@ -987,7 +979,7 @@ def _analyze(
         contract: Optional contract name to use for evaluation.
 
     Returns:
-        Formatted pipeline result summary, optionally with inline gate status.
+        Dict with pipeline result, optionally with inline gate status.
     """
     from dataraum.pipeline.runner import RunConfig, run
 
@@ -995,7 +987,7 @@ def _analyze(
     if path:
         source_path = Path(path)
         if not source_path.exists():
-            return f"Error: Path not found: {path}"
+            return {"error": f"Path not found: {path}"}
 
     # Fall back to cached contract from prior run
     resolved_contract = contract or _get_cached_contract(output_dir)
@@ -1012,20 +1004,21 @@ def _analyze(
     result = run(config)
 
     if not result.success or not result.value:
-        return f"Error: Pipeline failed: {result.error}"
+        return {"error": f"Pipeline failed: {result.error}"}
 
-    text = format_pipeline_result(result.value)
+    result_dict = format_pipeline_result(result.value)
 
-    # When stopping at a gate, append inline zone status
+    # When stopping at a gate, append inline gate status
     if target_gate:
-        zone_status = _get_zone_status(output_dir, gate=target_gate, contract_name=contract)
-        text += "\n\n---\n\n" + zone_status
+        result_dict["gate_status"] = _get_zone_status(
+            output_dir, gate=target_gate, contract_name=contract
+        )
 
-    return text
+    return result_dict
 
 
-def _get_context(output_dir: Path) -> str:
-    """Get formatted context document, or progress status if pipeline is running."""
+def _get_context(output_dir: Path) -> dict[str, Any]:
+    """Get context document as structured dict, or progress status if pipeline is running."""
     from sqlalchemy import select
 
     from dataraum.core.connections import get_manager_for_directory
@@ -1035,7 +1028,7 @@ def _get_context(output_dir: Path) -> str:
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         # If pipeline is running or failed, return status instead of partial context
@@ -1047,7 +1040,7 @@ def _get_context(output_dir: Path) -> str:
             source = _get_pipeline_source(session)
 
             if not source:
-                return "Error: No sources found in database"
+                return {"error": "No sources found in database"}
 
             tables_result = session.execute(
                 select(Table).where(
@@ -1058,7 +1051,7 @@ def _get_context(output_dir: Path) -> str:
             tables = tables_result.scalars().all()
 
             if not tables:
-                return "Error: No tables found. Run pipeline first."
+                return {"error": "No tables found. Run pipeline first."}
 
             table_ids = [t.table_id for t in tables]
 
@@ -1069,43 +1062,44 @@ def _get_context(output_dir: Path) -> str:
                     duckdb_conn=cursor,
                 )
 
-            result = format_metadata_document(context, source_name=source.name)
+            # metadata_document stays as markdown — it's a rich narrative
+            # document used by multiple callers (query agent, graph agent).
+            result: dict[str, Any] = {
+                "metadata": format_metadata_document(context, source_name=source.name),
+            }
 
-            # Append pipeline status summary
+            # Pipeline status as structured data
             try:
-                status_section = _build_pipeline_status(session, source.source_id)
-                if status_section:
-                    result += "\n\n" + status_section
+                status = _build_pipeline_status(session, source.source_id)
+                if status:
+                    result["pipeline_status"] = status
             except Exception:
                 pass  # Pipeline status is non-critical
 
-            # Append contract catalog with live compliance status
+            # Contract catalog as structured data
             try:
-                contract_section = _build_contract_catalog(session, table_ids)
-                if contract_section:
-                    result += "\n\n" + contract_section
+                catalog = _build_contract_catalog(session, table_ids)
+                if catalog:
+                    result["contract_catalog"] = catalog
             except Exception:
                 pass  # Contract catalog is non-critical
 
-            # Append snippet knowledge base stats if available
+            # Snippet knowledge base stats
             try:
                 from dataraum.query.snippet_library import SnippetLibrary
 
                 library = SnippetLibrary(session)
                 stats = library.get_stats(schema_mapping_id=source.source_id)
                 if stats.get("total_snippets", 0) > 0:
-                    kb_lines = [
-                        "",
-                        "## SQL Knowledge Base",
-                        f"- Total snippets: {stats['total_snippets']}",
-                        f"- Validated (used at least once): {stats['validated_snippets']}",
-                    ]
+                    kb: dict[str, Any] = {
+                        "total_snippets": stats["total_snippets"],
+                        "validated_snippets": stats["validated_snippets"],
+                    }
                     if stats.get("snippets_by_type"):
-                        parts = [f"{t}: {c}" for t, c in stats["snippets_by_type"].items()]
-                        kb_lines.append(f"- By type: {', '.join(parts)}")
+                        kb["by_type"] = stats["snippets_by_type"]
                     if stats.get("cache_hit_rate", 0) > 0:
-                        kb_lines.append(f"- Cache hit rate: {stats['cache_hit_rate']:.1%}")
-                    result += "\n".join(kb_lines)
+                        kb["cache_hit_rate"] = round(stats["cache_hit_rate"], 3)
+                    result["sql_knowledge_base"] = kb
             except Exception:
                 pass  # Snippet stats are non-critical
 
@@ -1121,7 +1115,7 @@ def _get_quality(
     table_name: str | None = None,
     priority: str | None = None,
     include: list[str] | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Get unified data quality report or zone-specific gate status.
 
     When ``gate`` is set, delegates to ``_get_zone_status`` for per-gate
@@ -1144,14 +1138,14 @@ def _get_quality(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         with manager.session_scope() as session:
             source = _get_pipeline_source(session)
 
             if not source:
-                return "Error: No sources found"
+                return {"error": "No sources found"}
 
             tables_result = session.execute(
                 select(Table).where(
@@ -1178,7 +1172,7 @@ def _get_quality(
                 except Exception:
                     _log.debug("Network context unavailable", exc_info=True)
 
-            sections: dict[str, str] = {}
+            sections: dict[str, Any] = {}
 
             # --- Entropy section ---
             if "entropy" in sections_to_include:
@@ -1194,7 +1188,27 @@ def _get_quality(
             if "actions" in sections_to_include:
                 sections["actions"] = _build_actions_section(session, source, priority, table_name)
 
-            return format_quality_report(sections)
+            result = format_quality_report(sections)
+
+            # When sections are unavailable, explain the zone-by-zone model.
+            # The overall report (entropy + contract + actions) requires a
+            # complete pipeline run. During zone-by-zone execution, agents
+            # should use the gate parameter instead.
+            any_unavailable = any(
+                isinstance(v, dict) and v.get("status") == "unavailable" for v in sections.values()
+            )
+            if any_unavailable:
+                result["hint"] = (
+                    "The overall quality report requires a complete pipeline run. "
+                    "The pipeline runs zone-by-zone: Gate 1 (quality_review) checks "
+                    "foundation quality, Gate 2 (analysis_review) checks enrichment, "
+                    "Gate 3 (computation_review) checks interpretation. "
+                    "Use get_quality(gate=...) to see violations and fix actions at "
+                    "the current gate. Use get_context to see pipeline status and "
+                    "which gate to inspect next."
+                )
+
+            return result
     finally:
         manager.close()
 
@@ -1205,14 +1219,14 @@ def _build_entropy_section(
     network_context: Any,
     column_summaries: Any,
     table_name: str | None,
-) -> str:
+) -> dict[str, Any]:
     """Build entropy section for quality report."""
     from sqlalchemy import select
 
     from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
 
     if not network_context or network_context.total_columns == 0:
-        return "## Entropy\nNo entropy data available. Run entropy phase first."
+        return {"status": "unavailable"}
 
     interp_query = select(EntropyInterpretationRecord).where(
         EntropyInterpretationRecord.source_id == source.source_id,
@@ -1246,7 +1260,7 @@ def _build_entropy_section(
 
     from dataraum.entropy.views.network_context import format_network_context
 
-    result += "\n\n" + format_network_context(network_context)
+    result["network_analysis"] = format_network_context(network_context)
 
     return result
 
@@ -1254,12 +1268,12 @@ def _build_entropy_section(
 def _build_contract_section(
     column_summaries: Any,
     contract_name: str | None,
-) -> str:
+) -> dict[str, Any]:
     """Build contract section for quality report."""
     from dataraum.entropy.contracts import evaluate_contract, get_contract, list_contracts
 
     if not column_summaries:
-        return "## Contract Evaluation\nNo data available for contract evaluation."
+        return {"status": "unavailable"}
 
     # Auto-detect contract if not specified
     resolved_name = contract_name
@@ -1269,7 +1283,7 @@ def _build_contract_section(
 
     profile = get_contract(resolved_name)
     if profile is None:
-        return f"## Contract Evaluation\nContract not found: {resolved_name}"
+        return {"status": "error", "message": f"Contract not found: {resolved_name}"}
 
     evaluation = evaluate_contract(column_summaries, resolved_name)
     return format_contract_evaluation(evaluation, profile)
@@ -1280,14 +1294,14 @@ def _build_actions_section(
     source: Any,
     priority: str | None,
     table_name: str | None,
-) -> str:
+) -> dict[str, Any]:
     """Build actions section for quality report."""
     from dataraum.entropy.actions import load_actions
 
     actions = load_actions(session, source)
 
     if not actions:
-        return "## Resolution Actions\nNo actions available."
+        return {"total_actions": 0, "actions": []}
 
     if priority:
         actions = [a for a in actions if a["priority"] == priority]
@@ -1308,7 +1322,7 @@ def _query(
     output_dir: Path,
     question: str,
     contract_name: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Execute a natural language query."""
     from dataraum.core.connections import get_manager_for_directory
     from dataraum.query import answer_question
@@ -1316,14 +1330,14 @@ def _query(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         with manager.session_scope() as session:
             source = _get_pipeline_source(session)
 
             if not source:
-                return "Error: No sources found"
+                return {"error": "No sources found"}
 
             with manager.duckdb_cursor() as cursor:
                 result = answer_question(
@@ -1335,7 +1349,7 @@ def _query(
                 )
 
             if not result.success or not result.value:
-                return f"Error: {result.error}"
+                return {"error": str(result.error)}
 
             return format_query_result(result.value)
     finally:
@@ -1406,15 +1420,13 @@ def _get_or_create_manager(output_dir: Path) -> Any:
     return manager
 
 
-def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> str:
+def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> dict[str, Any]:
     """Scan workspace for data files and list existing registered sources."""
-    import json
-
     from dataraum.sources.discovery import discover_sources
 
     root = Path(scan_path).resolve()
     if not root.is_dir():
-        return f"Error: Directory not found: {scan_path}"
+        return {"error": f"Directory not found: {scan_path}"}
 
     # Get existing source names from the database if available
     existing_names: list[str] = []
@@ -1459,7 +1471,7 @@ def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> str:
     except FileNotFoundError:
         pass
 
-    # Format as structured output for LLM
+    # Format as structured output
     output: dict[str, Any] = {
         "scan_root": result.scan_root,
         "files": [
@@ -1477,23 +1489,24 @@ def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> str:
     }
 
     if not result.files and not result.existing_sources:
-        return f"No data files found in {scan_path}. Try a different directory or add files."
+        output["hint"] = (
+            f"No data files found in {scan_path}. Try a different directory or add files."
+        )
+        return output
 
     # Add guidance
     unregistered = [f for f in output["files"] if not f["registered"]]
     if unregistered:
         output["hint"] = (
             f"{len(unregistered)} file(s) not yet registered. "
-            f"Use `add_source` to register them, then `analyze` to process all sources together."
+            f"Use add_source to register them, then analyze to process all sources together."
         )
 
-    return json.dumps(output, indent=2)
+    return output
 
 
-def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
+def _add_source(output_dir: Path, arguments: dict[str, Any]) -> dict[str, Any]:
     """Register a new data source."""
-    import json
-
     from sqlalchemy import select
 
     from dataraum.core.credentials import CredentialChain
@@ -1505,14 +1518,14 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
     backend = arguments.get("backend")
 
     if not path and not backend:
-        return "Error: Provide either 'path' (for files) or 'backend' (for databases)."
+        return {"error": "Provide either 'path' (for files) or 'backend' (for databases)."}
     if path and backend:
-        return "Error: Provide 'path' or 'backend', not both."
+        return {"error": "Provide 'path' or 'backend', not both."}
 
     try:
         manager = _get_or_create_manager(output_dir)
     except Exception as e:
-        return f"Error initializing database: {e}"
+        return {"error": f"Initializing database failed: {e}"}
 
     try:
         credential_chain = CredentialChain()
@@ -1539,7 +1552,7 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
                 result = src_mgr.add_file_source(name, path)
 
             if not result.success:
-                return f"Error: {result.error}"
+                return {"error": str(result.error)}
 
             session.commit()
 
@@ -1576,11 +1589,11 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
                 "names": list(all_sources),
             }
             output["next_steps"] = (
-                "Add more sources with `add_source`, or call `analyze` "
+                "Add more sources with add_source, or call analyze "
                 "to process all registered sources together."
             )
 
-            return json.dumps(output, indent=2)
+            return output
     finally:
         manager.close()
 
@@ -1601,7 +1614,7 @@ def _get_zone_status(
     output_dir: Path,
     gate: str,
     contract_name: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Read persisted gate scores and format zone status for an agent.
 
     Args:
@@ -1620,14 +1633,14 @@ def _get_zone_status(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         with manager.session_scope() as session:
             # Find source
             source = _get_pipeline_source(session)
             if not source:
-                return "Error: No sources found."
+                return {"error": "No sources found."}
 
             # Find latest PhaseLog for the requested gate
             gate_phase = gate
@@ -1643,11 +1656,13 @@ def _get_zone_status(
             ).scalar_one_or_none()
 
             if not log or not log.outputs:
-                return (
-                    f"No gate measurement found for `{gate_phase}`. "
-                    f"The pipeline may not have reached this gate yet.\n\n"
-                    f"Run `analyze` first, then call `get_quality(gate='{gate_phase}')`."
-                )
+                return {
+                    "error": f"No gate measurement found for {gate_phase}.",
+                    "hint": (
+                        f"The pipeline may not have reached this gate yet. "
+                        f"Run analyze first, then call get_quality(gate='{gate_phase}')."
+                    ),
+                }
 
             outputs = log.outputs
             scores = log.entropy_scores or {}
@@ -1662,47 +1677,133 @@ def _get_zone_status(
                 contract = next(iter(contracts.values()), None) if contracts else None
 
             if not contract:
-                return "Error: No contract found."
+                return {"error": "No contract found."}
 
             thresholds = contract.dimension_thresholds
 
             # Assess violations (accepted targets excluded via contract overrule)
-            col_evidence = outputs.get("gate_column_evidence", {})
+            accepted_raw = outputs.get("accepted_targets", {})
+            accepted = {k: set(v) for k, v in accepted_raw.items()}
             issues = assess_contracts(
                 scores,
                 thresholds,
                 column_details,
                 gate_phase,
-                column_evidence=col_evidence,
+                accepted_targets=accepted,
             )
 
-            # Build violation entries with fix actions from detector registry
+            # Build violation entries with full context for agent triage
             registry = get_default_registry()
             violation_dims = {i.dimension_path for i in issues}
+
+            from dataraum.entropy.fix_schemas import (
+                get_schemas_for_detector,
+                get_triage_guidance,
+            )
+
+            # Per-target evidence is stored in gate outputs during gate measurement.
+            # Keyed by dimension_path → target → evidence dict.
+            gate_evidence = outputs.get("gate_column_evidence", {})
+
+            # Load interpretation records scoped to violated targets only
+            from dataraum.entropy.interpretation_db_models import (
+                EntropyInterpretationRecord,
+            )
+
+            violated_tables = set()
+            for issue in issues:
+                for t in issue.affected_targets:
+                    ref = t.replace("column:", "").replace("table:", "")
+                    violated_tables.add(ref.split(".", 1)[0])
+
+            interp_by_col: dict[tuple[str, str | None], Any] = {}
+            if violated_tables:
+                interp_records = (
+                    session.execute(
+                        select(EntropyInterpretationRecord).where(
+                            EntropyInterpretationRecord.source_id == source.source_id,
+                            EntropyInterpretationRecord.table_name.in_(violated_tables),
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for rec in interp_records:
+                    interp_by_col[(rec.table_name, rec.column_name)] = rec
+
             violations = []
             for issue in issues:
                 detector_id = id_map.get(
                     issue.dimension_path, issue.dimension_path.rsplit(".", 1)[-1]
                 )
-                # Get fix actions from detector registry
-                fix_actions: list[str] = []
-                detector = registry.detectors.get(detector_id)
-                if detector:
-                    fix_actions = [s.action for s in detector.fix_schemas]
 
-                # Build per-target scores from all detail dicts
-                affected: list[str] = issue.affected_targets
-
-                violations.append(
-                    {
-                        "dimension_path": issue.dimension_path,
-                        "detector_id": detector_id,
-                        "score": issue.score,
-                        "threshold": issue.threshold,
-                        "fix_actions": fix_actions,
-                        "affected_targets": affected,
+                # Full action details from fix schemas
+                schemas = get_schemas_for_detector(detector_id)
+                executable_actions = []
+                for s in schemas:
+                    action_detail: dict[str, Any] = {
+                        "action": s.action,
+                        "description": s.description,
+                        "routing": s.routing,
+                        "guidance": s.guidance,
                     }
-                )
+                    if s.fields:
+                        action_detail["fields"] = {
+                            fname: {
+                                "type": fdef.type,
+                                "required": fdef.required,
+                                "description": fdef.description,
+                                **({"default": fdef.default} if fdef.default else {}),
+                                **({"enum_values": fdef.enum_values} if fdef.enum_values else {}),
+                            }
+                            for fname, fdef in s.fields.items()
+                        }
+                    executable_actions.append(action_detail)
+
+                # Triage guidance
+                triage = get_triage_guidance(detector_id)
+
+                # Interpretation context (from first affected target)
+                interpretation = None
+                for target in issue.affected_targets:
+                    parts = target.replace("column:", "").replace("table:", "").split(".", 1)
+                    tbl = parts[0]
+                    col = parts[1] if len(parts) > 1 else None
+                    interp_rec = interp_by_col.get((tbl, col))
+                    if interp_rec:
+                        interpretation = {
+                            "explanation": interp_rec.explanation,
+                            "resolution_actions": interp_rec.resolution_actions_json or [],
+                        }
+                        break
+
+                # Accepted targets for this dimension
+                dim_accepted = list(accepted.get(issue.dimension_path, set()))
+
+                # Per-target evidence from gate measurement (outlier_ratio, null_ratio, etc.)
+                dim_evidence = gate_evidence.get(issue.dimension_path, {})
+                target_evidence: dict[str, Any] = {}
+                for target in issue.affected_targets:
+                    ev = dim_evidence.get(target)
+                    if ev:
+                        target_evidence[target] = ev
+
+                violation: dict[str, Any] = {
+                    "dimension_path": issue.dimension_path,
+                    "detector_id": detector_id,
+                    "score": issue.score,
+                    "threshold": issue.threshold,
+                    "affected_targets": issue.affected_targets,
+                    "target_evidence": target_evidence,
+                    "executable_actions": executable_actions,
+                    "triage_guidance": triage,
+                }
+                if interpretation:
+                    violation["interpretation"] = interpretation
+                if dim_accepted:
+                    violation["accepted_targets"] = dim_accepted
+
+                violations.append(violation)
 
             # Build passing entries
             passing = []
@@ -1722,35 +1823,11 @@ def _get_zone_status(
                     )
 
             # Determine skipped detectors
-            # Detectors whose required_analyses aren't satisfied at this gate
-            _gate_analyses = {
-                "quality_review": {"TYPING", "STATISTICS", "RELATIONSHIPS", "SEMANTIC"},
-                "analysis_review": {
-                    "TYPING",
-                    "STATISTICS",
-                    "RELATIONSHIPS",
-                    "SEMANTIC",
-                    "ENRICHED_VIEWS",
-                    "SLICING",
-                    "CORRELATIONS",
-                    "TEMPORAL_SLICING",
-                    "QUALITY_SUMMARY",
-                },
-                "computation_review": {
-                    "TYPING",
-                    "STATISTICS",
-                    "RELATIONSHIPS",
-                    "SEMANTIC",
-                    "ENRICHED_VIEWS",
-                    "SLICING",
-                    "CORRELATIONS",
-                    "TEMPORAL_SLICING",
-                    "QUALITY_SUMMARY",
-                    "VALIDATION",
-                    "BUSINESS_CYCLES",
-                },
-            }
-            available = _gate_analyses.get(gate_phase, set())
+            # Detectors whose required_analyses aren't satisfied at this gate.
+            # Uses the canonical gate → analyses mapping from fixes/api.py.
+            from dataraum.pipeline.fixes.api import _analyses_for_gate
+
+            available = {a.value.upper() for a in _analyses_for_gate(gate_phase)}
             measured_ids = {id_map.get(dp, dp.rsplit(".", 1)[-1]) for dp in scores}
             skipped = []
             for d in registry.get_all_detectors():
@@ -1779,373 +1856,12 @@ def _get_zone_status(
         manager.close()
 
 
-# ---------------------------------------------------------------------------
-# Agent-driven fix flow
-# ---------------------------------------------------------------------------
-
-
-def _build_mcp_gate_context(
-    session: Any,
-    source_id: str,
-    dimension: str,
-    gate_phase: str,
-    outputs: dict[str, Any],
-    scores: dict[str, float],
-) -> str:
-    """Build context for the document agent from persisted gate data.
-
-    Same information as gate_handler.build_gate_context() but reads from
-    PhaseLog outputs instead of a live PipelineEvent.
-    """
-    from dataraum.cli.gate_handler import _build_data_profile
-    from dataraum.entropy.contracts import get_contracts
-    from dataraum.entropy.detectors.base import get_default_registry
-    from dataraum.entropy.gate import match_threshold
-
-    contracts = get_contracts()
-    contract = next(iter(contracts.values()), None)
-    thresholds = contract.dimension_thresholds if contract else {}
-
-    score = scores.get(dimension, 0.0)
-    threshold = match_threshold(dimension, thresholds) or 0.0
-
-    # Get affected targets from gate details
-    column_details = outputs.get("gate_column_details", {})
-    table_details = outputs.get("gate_table_details", {})
-    col_scores = column_details.get(dimension, {})
-    tbl_scores = table_details.get(dimension, {})
-    all_scores = {**col_scores, **tbl_scores}
-    affected_targets = [
-        t for t, s in sorted(all_scores.items(), key=lambda x: -x[1]) if s > threshold
-    ]
-
-    # Get fix actions from detector registry
-    id_map = outputs.get("detector_id_map", {})
-    detector_id = id_map.get(dimension, dimension.rsplit(".", 1)[-1])
-    registry = get_default_registry()
-    detector = registry.detectors.get(detector_id)
-
-    sections: list[str] = []
-
-    # Section 1: Available actions
-    action_lines = [
-        "<available_actions>",
-        f"Dimension: {dimension}",
-        f"Score: {score:.2f} (threshold: {threshold:.2f})",
-        f"Affected columns: {', '.join(affected_targets)}",
-        "",
-        "Choose the BEST action for each violating target.",
-        "Prefer corrective actions (recalculate, override, add pattern) over accept_finding.",
-        "accept_finding acknowledges an issue but does NOT lower the entropy score.",
-        "",
-    ]
-    if detector:
-        for i, schema in enumerate(detector.fix_schemas, 1):
-            action_lines.append(f"--- Action {i}: {schema.action} ---")
-            if schema.requires_rerun:
-                action_lines.append(f"Phase: {schema.requires_rerun}")
-            if schema.guidance:
-                action_lines.append(f"Guidance: {schema.guidance}")
-            if schema.fields:
-                action_lines.append("Expected parameters:")
-                for fname, fdef in schema.fields.items():
-                    line = f"  {fname} ({fdef.type}): {fdef.description}"
-                    if fdef.enum_values:
-                        line += f" [options: {', '.join(fdef.enum_values)}]"
-                    action_lines.append(line)
-            action_lines.append("")
-    action_lines.append("</available_actions>")
-    sections.append("\n".join(action_lines))
-
-    # Section 1b: Detector-specific triage guidance
-    if detector and detector.triage_guidance:
-        sections.append(f"<triage_guidance>\n{detector.triage_guidance}\n</triage_guidance>")
-
-    # Section 2: Entropy evidence with per-column component breakdown
-    col_evidence = outputs.get("gate_column_evidence", {}).get(dimension, {})
-    evidence_lines = [
-        "<entropy_evidence>",
-        f"Detector: {detector_id}",
-        f"Score: {score:.2f}",
-        f"Threshold: {threshold:.2f}",
-    ]
-    if all_scores:
-        evidence_lines.append("")
-        evidence_lines.append("Per-column breakdown:")
-        for target, col_score in sorted(all_scores.items(), key=lambda x: -x[1]):
-            label = "VIOLATING" if col_score > threshold else "passing"
-            line = f"  {target}: {col_score:.2f} ({label})"
-            ev = col_evidence.get(target, {})
-            if ev:
-                components = []
-                for k in ("ri_entropy", "card_entropy", "semantic_entropy"):
-                    if k in ev:
-                        components.append(f"{k}={ev[k]:.2f}")
-                if ev.get("accepted"):
-                    components.append("ACCEPTED")
-                if components:
-                    line += f" [{', '.join(components)}]"
-            evidence_lines.append(line)
-    evidence_lines.append("</entropy_evidence>")
-    sections.append("\n".join(evidence_lines))
-
-    # Section 3: Data profile
-    data_section = _build_data_profile(session, source_id, affected_targets)
-    if data_section:
-        sections.append(data_section)
-
-    return "\n\n".join(sections)
-
-
-def _get_fix_proposal(
-    output_dir: Path,
-    gate: str,
-    dimension: str,
-) -> str:
-    """Generate a batch action plan for a specific violation using the document agent.
-
-    Proposes one action per violating target with ready-to-apply FixDocuments.
-    Works for both single-target and multi-target dimensions.
-    """
-    from sqlalchemy import select
-
-    from dataraum.core.connections import get_manager_for_directory
-    from dataraum.pipeline.db_models import PhaseLog
-
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
-
-    try:
-        with manager.session_scope() as session:
-            source = _get_pipeline_source(session)
-            if not source:
-                return "Error: No sources found."
-
-            log = session.execute(
-                select(PhaseLog)
-                .where(
-                    PhaseLog.source_id == source.source_id,
-                    PhaseLog.phase_name == gate,
-                    PhaseLog.status == "completed",
-                )
-                .order_by(PhaseLog.completed_at.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-
-            if not log or not log.outputs:
-                return f"No gate measurement found for `{gate}`."
-
-            outputs = log.outputs
-            scores = log.entropy_scores or {}
-
-            if dimension not in scores:
-                return f"Dimension `{dimension}` not found in gate scores. Available: {', '.join(sorted(scores))}"
-
-            # Build context
-            context = _build_mcp_gate_context(
-                session,
-                source.source_id,
-                dimension,
-                gate,
-                outputs,
-                scores,
-            )
-
-            # Detect multi-target: check if >1 target violates
-            from dataraum.entropy.contracts import get_contracts
-            from dataraum.entropy.gate import match_threshold
-
-            contracts = get_contracts()
-            contract = next(iter(contracts.values()), None)
-            thresholds = contract.dimension_thresholds if contract else {}
-            threshold = match_threshold(dimension, thresholds) or 0.0
-
-            column_details = outputs.get("gate_column_details", {})
-            table_details = outputs.get("gate_table_details", {})
-            all_col_scores = {
-                **column_details.get(dimension, {}),
-                **table_details.get(dimension, {}),
-            }
-            affected = [t for t, s in all_col_scores.items() if s > threshold]
-
-            from dataraum.cli.gate_handler import _create_document_agent
-
-            agent = _create_document_agent()
-
-            return _format_batch_proposal(
-                agent, context, dimension, gate, outputs, affected, all_col_scores
-            )
-    finally:
-        manager.close()
-
-
-def _format_batch_proposal(
-    agent: Any,
-    context: str,
-    dimension: str,
-    gate: str,
-    outputs: dict[str, Any],
-    affected: list[str],
-    col_scores: dict[str, float],
-) -> str:
-    """Format a batch action plan proposal for multi-target dimensions.
-
-    Returns ready-to-apply FixDocuments so the outer agent can pass them
-    directly to apply_fix without a submit_fix_answers round trip.
-    """
-    import json
-
-    from dataraum.entropy.detectors.base import get_default_registry
-
-    plan_result = agent.generate_batch_plan(context)
-    if not plan_result.success:
-        return f"Error generating batch plan: {plan_result.error}"
-
-    plan = plan_result.unwrap()
-    if not plan.items:
-        return "No actions proposed for this dimension."
-
-    registry = get_default_registry()
-    id_map = outputs.get("detector_id_map", {})
-
-    # Build FixDocuments from plan items
-    fix_docs: list[dict[str, Any]] = []
-    for item in plan.items:
-        fix_doc = _build_fix_doc_from_plan_item(item, dimension, registry, id_map, col_scores)
-        if fix_doc:
-            fix_docs.append(fix_doc)
-
-    # Format response
-    lines = [f"# Batch Fix Plan: {dimension}", ""]
-    lines.append(f"**{plan.summary}**\n")
-
-    lines.append("| Target | Score | Action | Reason |")
-    lines.append("|--------|-------|--------|--------|")
-    for item in plan.items:
-        score = col_scores.get(item.target, 0.0)
-        lines.append(
-            f"| {item.target} | {score:.2f} | `{item.recommended_action}` | {item.reason} |"
-        )
-    lines.append("")
-
-    if plan.follow_up_questions:
-        lines.append("## Follow-up Questions")
-        lines.append(
-            "These are optional — include the answers in the `description` field "
-            "of the fix documents if you want to add context (e.g., reason for acceptance).\n"
-        )
-        for i, q in enumerate(plan.follow_up_questions, 1):
-            lines.append(f"**{i}. {q.question}**")
-            if q.question_type == "multiple_choice" and q.choices:
-                for j, choice in enumerate(q.choices, 1):
-                    lines.append(f"   {j}. {choice}")
-            lines.append("")
-
-    lines.append("## Ready-to-Apply Fix Documents")
-    lines.append(f"\nPass these {len(fix_docs)} fixes to `apply_fix` to apply them all at once:")
-    lines.append("```json")
-    lines.append(json.dumps(fix_docs, indent=2, default=str))
-    lines.append("```")
-    lines.append("")
-    lines.append("## Next Steps")
-    lines.append("- Review the plan above, then call `apply_fix(fixes=[...])` with the JSON above")
-    lines.append(f'- Or call `get_quality(gate="{gate}")` to re-check the current state first')
-
-    return "\n".join(lines)
-
-
-def _build_fix_doc_from_plan_item(
-    item: Any,
-    dimension: str,
-    registry: Any,
-    id_map: dict[str, str],
-    col_scores: dict[str, float],
-) -> dict[str, Any] | None:
-    """Build a FixDocument dict from a batch plan item."""
-    from dataraum.cli.gate_handler import _target_to_column_ref
-
-    action_name = item.recommended_action
-    schema = registry.get_fix_schema(action_name, dimension)
-
-    col_ref = _target_to_column_ref(item.target)
-    parts = col_ref.split(".", 1)
-    table_name = parts[0]
-    column_name = parts[1] if len(parts) > 1 else None
-
-    fix_doc: dict[str, Any] = {
-        "target": schema.target if schema else "config",
-        "action": action_name,
-        "table_name": table_name,
-        "column_name": column_name,
-        "dimension": dimension,
-        "description": item.reason,
-        "payload": {},
-    }
-
-    if not schema:
-        return fix_doc
-
-    if schema.target == "config":
-        # For append operations, the value is a column/table reference
-        if schema.operation == "append":
-            value: Any = f"{table_name}.{column_name}" if column_name else table_name
-        elif schema.operation == "merge" and schema.fields:
-            # merge with fields: build the value dict from agent parameters
-            value = {}
-            params = item.parameters if isinstance(item.parameters, dict) else {}
-            for field_name, field_def in schema.fields.items():
-                if field_name in params:
-                    value[field_name] = params[field_name]
-                elif field_def.default is not None:
-                    value[field_name] = field_def.default
-        else:
-            value = item.parameters
-
-        fix_doc["payload"] = {
-            "config_path": schema.config_path,
-            "key_path": list(schema.key_path or []),
-            "operation": schema.operation or "set",
-            "value": value,
-        }
-
-    elif schema.target == "data":
-        # Data-target fixes: instantiate SQL template from agent parameters
-        params = item.parameters if isinstance(item.parameters, dict) else {}
-        payload: dict[str, Any] = {}
-
-        if schema.templates:
-            # Pick the first template and substitute placeholders
-            template_name, template_sql = next(iter(schema.templates.items()))
-            substitutions = {
-                "table": table_name,
-                "column": column_name or "",
-                **params,
-            }
-            try:
-                payload["sql"] = template_sql.format(**substitutions)
-            except KeyError:
-                # Template has placeholders not in params — pass raw for agent review
-                payload["template"] = template_sql
-                payload["parameters"] = substitutions
-
-        # Also pass through any explicit fields from the agent
-        for field_name in schema.fields:
-            if field_name in params:
-                payload[field_name] = params[field_name]
-
-        fix_doc["payload"] = payload
-
-    return fix_doc
-
-
 def _continue_pipeline(
     output_dir: Path,
     target_gate: str,
     source_path: str | None = None,
     event_callback: EventCallback | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Resume the pipeline from current position to the next zone boundary.
 
     Args:
@@ -2173,16 +1889,15 @@ def _continue_pipeline(
     result = run(config)
 
     if not result.success or not result.value:
-        return f"Error: Pipeline failed: {result.error}"
+        return {"error": f"Pipeline failed: {result.error}"}
 
-    text = format_pipeline_result(result.value)
+    result_dict = format_pipeline_result(result.value)
 
     # Append inline zone status when stopping at a gate
     if target_gate != "end":
-        zone_status = _get_zone_status(output_dir, gate=target_gate)
-        text += "\n\n---\n\n" + zone_status
+        result_dict["gate_status"] = _get_zone_status(output_dir, gate=target_gate)
 
-    return text
+    return result_dict
 
 
 def _export(
@@ -2191,18 +1906,18 @@ def _export(
     sql: str | None = None,
     export_path: str = "./export.csv",
     fmt: str = "csv",
-) -> str:
+) -> dict[str, Any]:
     """Export query results or SQL output to a file."""
     from dataraum.core.connections import get_manager_for_directory
     from dataraum.export import ExportFormat, export_query_result, export_sql
 
     if not question and not sql:
-        return "Error: Provide either 'question' or 'sql'."
+        return {"error": "Provide either 'question' or 'sql'."}
     if question and sql:
-        return "Error: Provide 'question' or 'sql', not both."
+        return {"error": "Provide 'question' or 'sql', not both."}
 
     if fmt not in ("csv", "parquet", "json"):
-        return f"Error: Unknown format '{fmt}'. Use csv, parquet, or json."
+        return {"error": f"Unknown format '{fmt}'. Use csv, parquet, or json."}
 
     export_fmt: ExportFormat = fmt  # type: ignore[assignment]
     dest = Path(export_path)
@@ -2210,7 +1925,7 @@ def _export(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         if question:
@@ -2220,7 +1935,7 @@ def _export(
             with manager.session_scope() as session:
                 source = _get_pipeline_source(session)
                 if not source:
-                    return "Error: No sources found"
+                    return {"error": "No sources found"}
 
                 with manager.duckdb_cursor() as cursor:
                     query_result = answer_question(
@@ -2231,11 +1946,11 @@ def _export(
                     )
 
                 if not query_result.success or not query_result.value:
-                    return f"Error: Query failed: {query_result.error}"
+                    return {"error": f"Query failed: {query_result.error}"}
 
                 qr = query_result.value
                 if not qr.data or not qr.columns:
-                    return f"Error: Query returned no tabular data. Answer: {qr.answer}"
+                    return {"error": f"Query returned no tabular data. Answer: {qr.answer}"}
 
                 exported = export_query_result(qr, dest, fmt=export_fmt)
                 sidecar = exported.with_suffix(exported.suffix + ".meta.json")
@@ -2247,90 +1962,205 @@ def _export(
                 exported = export_sql(sql, cursor, dest, fmt=export_fmt)
                 sidecar = exported.with_suffix(exported.suffix + ".meta.json")
                 # Get row count from sidecar
-                import json as json_mod
-
                 with open(sidecar) as f:
-                    meta = json_mod.load(f)
+                    meta = json.load(f)
                 return format_export_result(
                     str(exported), fmt, meta.get("row_count", 0), str(sidecar)
                 )
     except Exception as e:
-        return f"Error: Export failed: {e}"
+        return {"error": f"Export failed: {e}"}
     finally:
         manager.close()
+
+
+def _parse_target(target: str) -> tuple[str, str | None]:
+    """Parse a target string into (table_name, column_name).
+
+    "column:orders.amount" → ("orders", "amount")
+    "table:orders"         → ("orders", None)
+    "orders.amount"        → ("orders", "amount")
+
+    Raises:
+        ValueError: If target is empty or produces an empty table name.
+    """
+    if not target or not target.strip():
+        raise ValueError("Target string is empty")
+
+    # Strip prefix
+    if ":" in target:
+        prefix, ref = target.split(":", 1)
+        if prefix == "table":
+            if not ref:
+                raise ValueError(f"Empty table name in target: {target!r}")
+            return ref, None
+        if prefix != "column":
+            raise ValueError(f"Unknown target prefix {prefix!r} in: {target!r}")
+        # column:table.col
+        parts = ref.split(".", 1)
+        table = parts[0]
+        col = parts[1] if len(parts) > 1 else None
+    else:
+        parts = target.split(".", 1)
+        table = parts[0]
+        col = parts[1] if len(parts) > 1 else None
+
+    if not table:
+        raise ValueError(f"Empty table name in target: {target!r}")
+    if col is not None and not col:
+        col = None  # Treat empty column as None
+
+    return table, col
 
 
 def _apply_fix(
     output_dir: Path,
     fixes: list[dict[str, Any]],
     source_path: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Apply fixes and re-run affected pipeline phases.
+
+    Resolves action -> FixSchema -> FixDocuments via the bridge, then
+    applies, logs to fix ledger, and reports before/after score deltas.
 
     Args:
         output_dir: Pipeline output directory.
-        fixes: List of fix document dicts from the MCP input.
+        fixes: List of fix dicts with action, target, parameters, reason.
         source_path: Optional path to original source data.
 
     Returns:
-        Formatted before/after delta report.
+        Dict with fix results and before/after score deltas.
     """
+    from dataraum.core.connections import get_manager_for_directory
+    from dataraum.documentation.ledger import log_fix
+    from dataraum.entropy.fix_schemas import get_fix_schema
+    from dataraum.pipeline.fixes import FixInput
     from dataraum.pipeline.fixes.api import apply_fixes
-    from dataraum.pipeline.fixes.models import FixDocument
+    from dataraum.pipeline.fixes.bridge import build_fix_documents
 
-    fix_documents = [
-        FixDocument(
-            target=f["target"],
-            action=f["action"],
-            table_name=f["table_name"],
-            column_name=f.get("column_name"),
-            dimension=f["dimension"],
-            payload=f["payload"],
-            description=f.get("description", ""),
+    all_documents = []
+    # Track fix metadata for ledger logging
+    fix_meta: list[dict[str, Any]] = []
+
+    for f in fixes:
+        action = f["action"]
+        target = f["target"]
+        parameters = f.get("parameters", {})
+        reason = f.get("reason", "")
+
+        try:
+            table_name, column_name = _parse_target(target)
+        except ValueError as e:
+            return {"error": f"Invalid target: {e}"}
+
+        schema = get_fix_schema(action)
+        if schema is None:
+            return {"error": f"Unknown action '{action}'"}
+
+        dimension = schema.dimension_path
+
+        # Build affected_columns list from target
+        if column_name:
+            affected = [f"{table_name}.{column_name}"]
+        else:
+            affected = [f"table:{table_name}"]
+
+        fix_input = FixInput(
+            action_name=action,
+            affected_columns=affected,
+            parameters=parameters,
+            interpretation=reason,
         )
-        for f in fixes
-    ]
+        docs = build_fix_documents(schema, fix_input, table_name, column_name, dimension)
+        all_documents.extend(docs)
+        fix_meta.append(
+            {
+                "action": action,
+                "table_name": table_name,
+                "column_name": column_name,
+                "reason": reason,
+            }
+        )
 
-    # Auto-resolve source_path if not provided
+    if not all_documents:
+        return {"error": "No fix documents generated. Check action names and parameters."}
+
+    # Determine the latest gate needed for re-measurement
+    gate_order = ["quality_review", "analysis_review", "computation_review"]
+    target_phase = "quality_review"
+    for meta in fix_meta:
+        s = get_fix_schema(meta["action"])
+        if s and s.gate and s.gate in gate_order:
+            if gate_order.index(s.gate) > gate_order.index(target_phase):
+                target_phase = s.gate
+
     resolved = source_path or _resolve_source_path(output_dir)
-
     result = apply_fixes(
         output_dir=output_dir,
-        fix_documents=fix_documents,
+        fix_documents=all_documents,
         source_path=Path(resolved) if resolved else None,
+        target_phase=target_phase,
     )
 
     if not result.success:
-        return f"Error: Fix application failed: {result.error}"
+        return {"error": f"Fix application failed: {result.error}"}
 
-    # Format before/after delta
-    lines = [
-        "## Fix Results",
-        "",
-        f"Applied {len(result.applied_fixes)} fix(es).",
-    ]
+    # Log to fix ledger for audit trail
+    try:
+        ledger_mgr = get_manager_for_directory(output_dir)
+        try:
+            with ledger_mgr.session_scope() as session:
+                source = _get_pipeline_source(session)
+                if source:
+                    for meta in fix_meta:
+                        log_fix(
+                            session=session,
+                            source_id=source.source_id,
+                            action_name=meta["action"],
+                            table_name=meta["table_name"],
+                            column_name=meta["column_name"],
+                            user_input=meta["reason"],
+                            interpretation=f"MCP apply_fix: {meta['action']}",
+                        )
+        finally:
+            ledger_mgr.close()
+    except Exception:
+        pass  # Ledger logging is best-effort
+
+    output: dict[str, Any] = {
+        "fixes_applied": len(result.applied_fixes),
+    }
     if result.phases_rerun:
-        lines.append(f"Phases re-run: {', '.join(result.phases_rerun)}")
-    lines.append("")
+        output["phases_rerun"] = result.phases_rerun
 
-    # Show score deltas for dimensions that changed
+    # Build score deltas
     all_dims = set(result.gate_before.keys()) | set(result.gate_after.keys())
-    if all_dims:
-        lines.append("| Dimension | Target | Before | After | Delta |")
-        lines.append("|-----------|--------|--------|-------|-------|")
-        for dim in sorted(all_dims):
-            before_targets = result.gate_before.get(dim, {})
-            after_targets = result.gate_after.get(dim, {})
-            all_targets = set(before_targets.keys()) | set(after_targets.keys())
-            for target in sorted(all_targets):
-                b = before_targets.get(target, 0.0)
-                a = after_targets.get(target, 0.0)
-                delta = a - b
-                if abs(delta) > 0.001:
-                    sign = "+" if delta > 0 else ""
-                    lines.append(f"| {dim} | {target} | {b:.3f} | {a:.3f} | {sign}{delta:.3f} |")
+    deltas: list[dict[str, Any]] = []
+    for dim in sorted(all_dims):
+        before_targets = result.gate_before.get(dim, {})
+        after_targets = result.gate_after.get(dim, {})
+        all_targets = set(before_targets.keys()) | set(after_targets.keys())
+        for target in sorted(all_targets):
+            b = before_targets.get(target, 0.0)
+            a = after_targets.get(target, 0.0)
+            delta = a - b
+            if abs(delta) > 0.001:
+                deltas.append(
+                    {
+                        "dimension": dim,
+                        "target": target,
+                        "before": round(b, 3),
+                        "after": round(a, 3),
+                        "delta": round(delta, 3),
+                    }
+                )
+    if deltas:
+        output["score_deltas"] = deltas
 
-    return "\n".join(lines)
+    # Include post-fix gate status so the agent can decide immediately
+    # whether to fix more or advance the pipeline.
+    output["gate_status"] = _get_zone_status(output_dir, gate=target_phase)
+
+    return output
 
 
 async def run_server() -> None:

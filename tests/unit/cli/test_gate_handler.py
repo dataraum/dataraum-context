@@ -81,7 +81,10 @@ class TestCollectFixGroups:
             available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
-                    {"action_name": "accept_finding", "phase_name": "quality_review"},
+                    {
+                        "action_name": "document_accepted_type_fidelity",
+                        "phase_name": "quality_review",
+                    },
                 ],
             }
         )
@@ -92,7 +95,7 @@ class TestCollectFixGroups:
         assert groups[0].dimension == "structural.types.type_fidelity"
         assert len(groups[0].actions) == 2
         names = {a["action_name"] for a in groups[0].actions}
-        assert names == {"override_type", "accept_finding"}
+        assert names == {"override_type", "document_accepted_type_fidelity"}
 
     def test_separate_groups_per_dimension(self) -> None:
         event = _make_exit_check_event(
@@ -229,7 +232,10 @@ class TestHandlePause:
             available_fixes={
                 "structural.types.type_fidelity": [
                     {"action_name": "override_type", "phase_name": "typing"},
-                    {"action_name": "accept_finding", "phase_name": "quality_review"},
+                    {
+                        "action_name": "document_accepted_type_fidelity",
+                        "phase_name": "quality_review",
+                    },
                 ],
             }
         )
@@ -273,7 +279,7 @@ class TestRunFixFlow:
                     "dimension": "structural.types.type_fidelity",
                 },
                 {
-                    "action_name": "accept_finding",
+                    "action_name": "document_accepted_type_fidelity",
                     "phase_name": "quality_review",
                     "dimension": "structural.types.type_fidelity",
                 },
@@ -300,7 +306,7 @@ class TestRunFixFlow:
         input_values = iter(["y"])
 
         with (
-            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_batch_plan_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, session, source_id, group, event)
@@ -342,7 +348,7 @@ class TestRunFixFlow:
         input_values = iter(["n"])
 
         with (
-            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_batch_plan_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(
@@ -370,7 +376,7 @@ class TestRunFixFlow:
         mock_agent.generate_batch_plan.return_value = Result.fail("API error")
 
         with patch(
-            "dataraum.cli.gate_handler._create_document_agent",
+            "dataraum.cli.gate_handler._create_batch_plan_agent",
             return_value=mock_agent,
         ):
             result = _run_fix_flow(
@@ -408,7 +414,7 @@ class TestRunFixFlow:
         input_values = iter(["answer"])
 
         with (
-            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_batch_plan_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, MagicMock(), "src", group, event)
@@ -439,7 +445,7 @@ class TestBuildGateContext:
                     "dimension": "structural.types.type_fidelity",
                 },
                 {
-                    "action_name": "accept_finding",
+                    "action_name": "document_accepted_type_fidelity",
                     "phase_name": "quality_review",
                     "dimension": "structural.types.type_fidelity",
                 },
@@ -450,7 +456,7 @@ class TestBuildGateContext:
 
         assert "<available_actions>" in context
         assert "override_type" in context
-        assert "accept_finding" in context
+        assert "document_accepted_type_fidelity" in context
         assert "Action 1:" in context
         assert "Action 2:" in context
         assert "0.62" in context

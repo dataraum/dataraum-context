@@ -4,11 +4,9 @@ Measures uncertainty from distribution drift over time.
 Uses max Jensen-Shannon divergence from ColumnDriftSummary records.
 """
 
-from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
-from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 class TemporalDriftDetector(EntropyDetector):
@@ -40,36 +38,6 @@ class TemporalDriftDetector(EntropyDetector):
     # Columns with cardinality ratio above this are near-unique (IDs, references)
     # and naturally produce max JS divergence — skip to avoid false positives.
     _CARDINALITY_SKIP_THRESHOLD = 0.90
-
-    @property
-    def fix_schemas(self) -> list[FixSchema]:
-        """Fix schemas for temporal drift."""
-        return [
-            FixSchema(
-                action="accept_finding",
-                target="config",
-                description="Accept temporal drift as expected (e.g., seasonal patterns, business growth)",
-                config_path="entropy/thresholds.yaml",
-                key_path=["detectors", "temporal_drift", "accepted_columns"],
-                operation="append",
-                requires_rerun="analysis_review",
-                guidance=(
-                    "The column shows distribution drift over time. This may be "
-                    "expected (seasonal patterns, business growth, price changes) "
-                    "or a real data quality issue (schema change, data corruption). "
-                    "Show the user the drift evidence: which period had the biggest "
-                    "shift, the JS divergence magnitude, and the top value shifts. "
-                    "Ask whether the drift is expected business behavior."
-                ),
-                fields={
-                    "reason": FixSchemaField(
-                        type="string",
-                        required=True,
-                        description="Why this drift is expected (e.g., 'seasonal revenue pattern')",
-                    ),
-                },
-            ),
-        ]
 
     def load_data(self, context: DetectorContext) -> None:
         """Load drift summaries, semantic annotation, and statistics for this column."""
@@ -134,13 +102,6 @@ class TemporalDriftDetector(EntropyDetector):
         if col_summary is None:
             return []
 
-        # Load config for accepted_columns
-        config = get_entropy_config()
-        detector_config = config.detector("temporal_drift")
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
-
         max_js = col_summary.max_js_divergence
 
         # Score mapping: piecewise linear
@@ -180,7 +141,7 @@ class TemporalDriftDetector(EntropyDetector):
         if score > 0:
             resolution_options.append(
                 ResolutionOption(
-                    action="accept_finding",
+                    action="document_accepted_temporal_drift",
                     parameters={
                         "column": context.column_name,
                         "detector_id": self.detector_id,
@@ -189,11 +150,6 @@ class TemporalDriftDetector(EntropyDetector):
                     description="Accept temporal drift as expected (seasonal, growth, etc.)",
                 )
             )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

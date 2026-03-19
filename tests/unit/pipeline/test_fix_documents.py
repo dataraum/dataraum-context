@@ -10,7 +10,7 @@ from dataraum.pipeline.fixes.models import FixDocument, FixSchema, FixSchemaFiel
 def _append_schema() -> FixSchema:
     """Accept-finding style: append column refs to a list."""
     return FixSchema(
-        action="accept_finding",
+        action="document_accepted_outlier_rate",
         target="config",
         config_path="entropy/thresholds.yaml",
         key_path=["detectors", "test", "accepted_columns"],
@@ -22,7 +22,7 @@ def _append_schema() -> FixSchema:
 def _per_column_schema() -> FixSchema:
     """Business-meaning style: merge dict per affected column."""
     return FixSchema(
-        action="document_business_meaning",
+        action="document_business_name",
         target="config",
         config_path="phases/semantic.yaml",
         key_path=["overrides", "business_meaning"],
@@ -39,7 +39,7 @@ def _per_column_schema() -> FixSchema:
 def _keyed_schema() -> FixSchema:
     """Confirm-relationship style: merge dict under template-derived key."""
     return FixSchema(
-        action="confirm_relationship",
+        action="document_relationship",
         target="config",
         config_path="phases/relationships.yaml",
         key_path=["overrides", "confirmed_relationships"],
@@ -65,7 +65,7 @@ class TestBridgeRouting:
     def test_append_route(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=["t.a"]),
+            FixInput(action_name="document_accepted_outlier_rate", affected_columns=["t.a"]),
             "t",
             "a",
             "quality_review",
@@ -77,7 +77,7 @@ class TestBridgeRouting:
         docs = build_fix_documents(
             _per_column_schema(),
             FixInput(
-                action_name="document_business_meaning",
+                action_name="document_business_name",
                 affected_columns=["t.a"],
                 parameters={"business_name": "Amount"},
             ),
@@ -93,7 +93,7 @@ class TestBridgeRouting:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={"from_table": "orders", "to_table": "products"},
             ),
@@ -104,8 +104,22 @@ class TestBridgeRouting:
         assert len(docs) == 1
         assert docs[0].payload["key_path"][-1] == "orders->products"
 
-    def test_non_config_target_returns_empty(self) -> None:
+    def test_metadata_target_builds_documents(self) -> None:
         schema = FixSchema(action="foo", target="metadata")
+        docs = build_fix_documents(
+            schema,
+            FixInput(action_name="foo", affected_columns=["t.a"]),
+            "t",
+            "a",
+            "dim",
+        )
+        assert len(docs) == 1
+        assert docs[0].target == "metadata"
+        assert docs[0].action == "foo"
+        assert "reason" in docs[0].payload
+
+    def test_unknown_target_returns_empty(self) -> None:
+        schema = FixSchema(action="foo", target="unknown")
         docs = build_fix_documents(
             schema,
             FixInput(action_name="foo", affected_columns=["t.a"]),
@@ -125,7 +139,7 @@ class TestAppendDocuments:
     def test_empty_columns(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=[]),
+            FixInput(action_name="document_accepted_outlier_rate", affected_columns=[]),
             "t",
             "a",
             "quality_review",
@@ -135,7 +149,9 @@ class TestAppendDocuments:
     def test_ordinals_sequential(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=["t.a", "t.b", "t.c"]),
+            FixInput(
+                action_name="document_accepted_outlier_rate", affected_columns=["t.a", "t.b", "t.c"]
+            ),
             "t",
             "a",
             "quality_review",
@@ -146,7 +162,7 @@ class TestAppendDocuments:
         docs = build_fix_documents(
             _append_schema(),
             FixInput(
-                action_name="accept_finding",
+                action_name="document_accepted_outlier_rate",
                 affected_columns=["t.a"],
                 interpretation="User reviewed",
             ),
@@ -159,7 +175,7 @@ class TestAppendDocuments:
     def test_default_reason_when_no_interpretation(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=["t.a"]),
+            FixInput(action_name="document_accepted_outlier_rate", affected_columns=["t.a"]),
             "t",
             "a",
             "quality_review",
@@ -177,7 +193,7 @@ class TestPerColumnDocuments:
         docs = build_fix_documents(
             _per_column_schema(),
             FixInput(
-                action_name="document_business_meaning",
+                action_name="document_business_name",
                 affected_columns=["t.a"],
                 parameters={
                     "business_name": "Amount",
@@ -196,7 +212,7 @@ class TestPerColumnDocuments:
         docs = build_fix_documents(
             _per_column_schema(),
             FixInput(
-                action_name="document_business_meaning",
+                action_name="document_business_name",
                 affected_columns=["t.a", "t.b"],
                 parameters={"business_name": "Test"},
             ),
@@ -220,7 +236,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={
                     "from_table": "orders",
@@ -242,7 +258,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={"relationship_type": "foreign_key"},  # missing from_table, to_table
             ),
@@ -257,7 +273,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a", "t.b", "t.c"],
                 parameters={"from_table": "a", "to_table": "b"},
             ),
@@ -271,7 +287,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={"from_table": "x", "to_table": "y"},
             ),
@@ -281,11 +297,159 @@ class TestKeyedDocuments:
         )
         doc = docs[0]
         assert doc.target == "config"
-        assert doc.action == "confirm_relationship"
+        assert doc.action == "document_relationship"
         assert doc.table_name == "x"
         assert doc.dimension == "relationships"
         assert doc.ordinal == 0
         assert isinstance(doc, FixDocument)
+
+
+# ---------------------------------------------------------------------------
+# Metadata model documents
+# ---------------------------------------------------------------------------
+
+
+def _model_schema() -> FixSchema:
+    """SemanticAnnotation-style: metadata target with model field."""
+    return FixSchema(
+        action="document_business_name",
+        target="metadata",
+        model="SemanticAnnotation",
+        routing="postprocess",
+        gate="quality_review",
+        fields={
+            "business_name": FixSchemaField(type="string", required=False),
+            "entity_type": FixSchemaField(type="string", required=False),
+        },
+    )
+
+
+def _marker_schema() -> FixSchema:
+    """DataFix-only style: metadata target without model (e.g. join_path)."""
+    return FixSchema(
+        action="document_join_path",
+        target="metadata",
+        routing="postprocess",
+        gate="quality_review",
+        fields={
+            "table": FixSchemaField(type="string", required=True),
+            "target_table": FixSchemaField(type="string", required=True),
+            "preferred_column": FixSchemaField(type="string", required=True),
+        },
+    )
+
+
+class TestMetadataModelDocuments:
+    def test_payload_contains_model_and_field_updates(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["t.a"],
+                parameters={"business_name": "Revenue"},
+            ),
+            "t",
+            "a",
+            "semantic.business_meaning.naming_clarity",
+        )
+        assert len(docs) == 1
+        assert docs[0].target == "metadata"
+        assert docs[0].payload["model"] == "SemanticAnnotation"
+        assert docs[0].payload["field_updates"] == {"business_name": "Revenue"}
+        assert "reason" in docs[0].payload
+
+    def test_extra_params_filtered_by_schema_fields(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["t.a"],
+                parameters={"business_name": "Revenue", "extra": "ignored"},
+            ),
+            "t",
+            "a",
+            "dim",
+        )
+        assert "extra" not in docs[0].payload["field_updates"]
+
+    def test_multiple_columns(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["t.a", "t.b"],
+                parameters={"business_name": "Revenue"},
+            ),
+            "t",
+            "a",
+            "dim",
+        )
+        assert len(docs) == 2
+        assert docs[0].column_name == "a"
+        assert docs[1].column_name == "b"
+
+    def test_column_parsed_from_ref(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["orders.amount"],
+                parameters={},
+            ),
+            "orders",
+            "amount",
+            "dim",
+        )
+        assert docs[0].column_name == "amount"
+
+
+class TestMetadataMarkerDocuments:
+    def test_marker_stores_parameters(self) -> None:
+        docs = build_fix_documents(
+            _marker_schema(),
+            FixInput(
+                action_name="document_join_path",
+                affected_columns=["t.a"],
+                parameters={
+                    "table": "orders",
+                    "target_table": "products",
+                    "preferred_column": "product_id",
+                },
+            ),
+            "orders",
+            "a",
+            "structural.relations.join_path_determinism",
+        )
+        assert len(docs) == 1
+        assert docs[0].target == "metadata"
+        assert "model" not in docs[0].payload
+        assert docs[0].payload["parameters"] == {
+            "table": "orders",
+            "target_table": "products",
+            "preferred_column": "product_id",
+        }
+        assert "reason" in docs[0].payload
+
+    def test_acceptance_marker_no_parameters(self) -> None:
+        """Acceptance schemas have no structured fields beyond reason."""
+        schema = FixSchema(
+            action="document_accepted_null_ratio",
+            target="metadata",
+            fields={"reason": FixSchemaField(type="string", required=False)},
+        )
+        docs = build_fix_documents(
+            schema,
+            FixInput(
+                action_name="document_accepted_null_ratio",
+                affected_columns=["t.a"],
+            ),
+            "t",
+            "a",
+            "value.nulls.null_ratio",
+        )
+        assert len(docs) == 1
+        assert "parameters" not in docs[0].payload
+        assert "reason" in docs[0].payload
 
 
 # ---------------------------------------------------------------------------

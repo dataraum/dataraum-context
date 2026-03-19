@@ -144,7 +144,7 @@ detectors:
     score_low_confidence: 0.5 # Unit detected but low confidence
     score_declared: 0.1 # Unit declared with high confidence
     confidence_threshold: 0.5 # Below this = low confidence
-    reduction_declare_unit: 0.8
+    reduction_document_unit: 0.8
 
   # --------------------------------------------------------------------------
   # BENFORD DETECTOR (value.distribution.benford_compliance)

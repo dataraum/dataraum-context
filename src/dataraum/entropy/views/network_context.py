@@ -596,125 +596,94 @@ def build_for_network(
 # ---------------------------------------------------------------------------
 
 
-def format_network_context(ctx: EntropyForNetwork) -> str:
-    """Format network context as Markdown for LLM consumption.
-
-    Sections:
-    1. Header with readiness status + column counts
-    2. Intent Readiness table (aggregated across columns)
-    3. Top Fix (cross-column)
-    4. At-Risk Columns (blocked + investigate)
-    5. Healthy Columns count
-    6. Direct Signals
+def format_network_context(ctx: EntropyForNetwork) -> dict[str, Any]:
+    """Format network context as structured dict for JSON MCP output.
 
     Args:
         ctx: EntropyForNetwork to format.
 
     Returns:
-        Markdown string.
+        Dict with network analysis data.
     """
-    lines: list[str] = []
+    result: dict[str, Any] = {
+        "overall_readiness": ctx.overall_readiness.upper(),
+        "total_columns": ctx.total_columns,
+        "columns_blocked": ctx.columns_blocked,
+        "columns_investigate": ctx.columns_investigate,
+        "columns_ready": ctx.columns_ready,
+        "total_direct_signals": ctx.total_direct_signals,
+    }
 
-    # 1. Header
-    status_label = {
-        "ready": "READY",
-        "investigate": "INVESTIGATE",
-        "blocked": "BLOCKED",
-    }.get(ctx.overall_readiness, ctx.overall_readiness.upper())
-
-    lines.append(f"## NETWORK ANALYSIS: {status_label}")
-
-    if ctx.total_columns > 0:
-        lines.append(
-            f"{ctx.total_columns} columns analyzed: "
-            f"{ctx.columns_blocked} blocked, "
-            f"{ctx.columns_investigate} investigate, "
-            f"{ctx.columns_ready} ready. "
-            f"{ctx.total_direct_signals} direct signals."
-        )
-    else:
-        lines.append(f"0 columns analyzed. {ctx.total_direct_signals} direct signals.")
-    lines.append("")
-
-    # 2. Intent Readiness (aggregated)
     if ctx.intents:
-        lines.append("### Intent Readiness")
-        lines.append("| Intent | Worst P(high) | Mean | Blocked | Investigate | Ready |")
-        lines.append("|--------|---------------|------|---------|-------------|-------|")
-        for ai in ctx.intents:
-            lines.append(
-                f"| {ai.intent_name} | {ai.worst_p_high:.3f} | "
-                f"{ai.mean_p_high:.3f} | {ai.columns_blocked} | "
-                f"{ai.columns_investigate} | {ai.columns_ready} |"
-            )
-        lines.append("")
+        result["intents"] = [
+            {
+                "intent": ai.intent_name,
+                "worst_p_high": round(ai.worst_p_high, 3),
+                "mean_p_high": round(ai.mean_p_high, 3),
+                "columns_blocked": ai.columns_blocked,
+                "columns_investigate": ai.columns_investigate,
+                "columns_ready": ai.columns_ready,
+            }
+            for ai in ctx.intents
+        ]
 
-    # 3. Top Fix (cross-column)
     if ctx.top_fix is not None:
         tf = ctx.top_fix
-        lines.append("### Top Fix")
-        lines.append(
-            f"Fix **{tf.node_name}** across {tf.columns_affected} columns "
-            f"-> total delta: {tf.total_intent_delta:.3f}"
-        )
-        if tf.example_columns:
-            cols_str = ", ".join(tf.example_columns)
-            lines.append(f"  Worst: {cols_str}")
+        top_fix: dict[str, Any] = {
+            "node": tf.node_name,
+            "columns_affected": tf.columns_affected,
+            "total_intent_delta": round(tf.total_intent_delta, 3),
+            "example_columns": tf.example_columns,
+        }
         if tf.resolution_options:
-            best = tf.resolution_options[0]
-            lines.append(f"  Action: **{best['action']}** — {best.get('description', '')}")
-        lines.append("")
+            top_fix["best_action"] = tf.resolution_options[0]
+        result["top_fix"] = top_fix
 
-    # 4. At-Risk Columns (blocked + investigate), capped at 10
+    # At-risk columns (blocked + investigate), capped at 10
     at_risk = [(target, col) for target, col in ctx.columns.items() if col.readiness != "ready"]
-    # Sort by worst_intent_p_high descending
     at_risk.sort(key=lambda x: x[1].worst_intent_p_high, reverse=True)
 
     if at_risk:
-        lines.append(f"### At-Risk Columns ({len(at_risk)} of {ctx.total_columns})")
+        at_risk_list: list[dict[str, Any]] = []
         for target, col in at_risk[:10]:
+            entry: dict[str, Any] = {
+                "target": target,
+                "readiness": col.readiness,
+                "worst_intent_p_high": round(col.worst_intent_p_high, 3),
+            }
             high_nodes = sorted(
                 [ne for ne in col.node_evidence if ne.state != "low"],
                 key=lambda ne: ne.impact_delta,
                 reverse=True,
             )
-            nodes_str = ", ".join(
-                f"{ne.node_name}={ne.state}(impact={ne.impact_delta:.3f})" for ne in high_nodes
-            )
-            lines.append(f"- **{target}** ({col.readiness}, P(high)={col.worst_intent_p_high:.3f})")
-            if nodes_str:
-                lines.append(f"  {nodes_str}")
-            # Show fix from column's top priority
+            if high_nodes:
+                entry["high_nodes"] = [
+                    {
+                        "node": ne.node_name,
+                        "state": ne.state,
+                        "impact_delta": round(ne.impact_delta, 3),
+                    }
+                    for ne in high_nodes
+                ]
             if col.top_priority_node:
-                # Find resolution from node evidence
                 for ne in col.node_evidence:
                     if ne.node_name == col.top_priority_node and ne.resolution_options:
-                        best = ne.resolution_options[0]
-                        lines.append(f"  Fix: {best['action']} — {best.get('description', '')}")
+                        entry["suggested_fix"] = ne.resolution_options[0]
                         break
+            at_risk_list.append(entry)
+        result["at_risk_columns"] = at_risk_list
         if len(at_risk) > 10:
-            lines.append(f"  ... and {len(at_risk) - 10} more")
-        lines.append("")
+            result["at_risk_total"] = len(at_risk)
 
-    # 5. Healthy Columns
-    healthy_count = ctx.columns_ready
-    if healthy_count > 0:
-        lines.append("### Healthy Columns")
-        lines.append(f"{healthy_count} columns have low entropy across all network dimensions.")
-        lines.append("")
-
-    # 6. Direct Signals
     if ctx.direct_signals:
-        lines.append("### Direct Signals (not in network)")
-        for ds in ctx.direct_signals:
-            lines.append(f"- **{ds.dimension_path}** (score={ds.score:.2f}, target={ds.target})")
-            if ds.evidence:
-                ev = ds.evidence[0]
-                source = ev.get("source", "") if isinstance(ev, dict) else ""
-                if source:
-                    lines.append(f"  Source: {source}")
-                else:
-                    lines.append(f"  Evidence: {ev}")
-        lines.append("")
+        result["direct_signals"] = [
+            {
+                "dimension_path": ds.dimension_path,
+                "score": round(ds.score, 2),
+                "target": ds.target,
+                "evidence": ds.evidence[:1] if ds.evidence else [],
+            }
+            for ds in ctx.direct_signals
+        ]
 
-    return "\n".join(lines)
+    return result

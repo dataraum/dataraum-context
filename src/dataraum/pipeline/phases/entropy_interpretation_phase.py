@@ -161,6 +161,9 @@ class EntropyInterpretationPhase(BasePhase):
 
     def _run(self, ctx: PhaseContext) -> PhaseResult:
         """Run entropy interpretation using LLM."""
+        # Delete stale interpretations to ensure idempotency on re-runs.
+        self.cleanup(ctx.session, ctx.source_id, [], [])
+
         # Get typed tables for this source
         stmt = select(Table).where(Table.layer == "typed", Table.source_id == ctx.source_id)
         result = ctx.session.execute(stmt)

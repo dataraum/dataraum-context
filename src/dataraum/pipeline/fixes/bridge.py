@@ -21,7 +21,7 @@ def build_fix_documents(
     """Build FixDocuments from a FixSchema and user input.
 
     Routes by target and operation type:
-    - data: Renders SQL templates with parameters
+    - metadata: Model-based (ORM patch) or marker (DataFix record only)
     - config/append: One FixDocument per affected_column
     - config/merge or set with key_template=None: One per affected_column
     - config/merge or set with key_template: One using template-derived key
@@ -36,8 +36,8 @@ def build_fix_documents(
     Returns:
         List of FixDocuments ready for interpreter application.
     """
-    if schema.target == "data":
-        return _build_data_documents(schema, fix_input, table_name, column_name, dimension)
+    if schema.target == "metadata":
+        return _build_metadata_documents(schema, fix_input, table_name, column_name, dimension)
 
     if schema.target != "config":
         return []
@@ -74,8 +74,8 @@ def _build_append_documents(
 
     When the schema has structured fields beyond just "reason" (e.g.,
     document_business_rule with table, columns, pattern_type), appends
-    the parameters dict. Otherwise (e.g., accept_finding with only an
-    optional reason), appends the column reference string.
+    the parameters dict. Otherwise (e.g., document_accepted_outlier_rate
+    with only an optional reason), appends the column reference string.
     """
     docs: list[FixDocument] = []
     reason = fix_input.interpretation or f"{schema.action} for {table_name}"
@@ -202,53 +202,107 @@ def _build_keyed_documents(
     ]
 
 
-def _build_data_documents(
+def _build_metadata_documents(
     schema: FixSchema,
     fix_input: FixInput,
     table_name: str,
     column_name: str | None,
     dimension: str,
 ) -> list[FixDocument]:
-    """Build data fix documents by rendering SQL templates.
+    """Build metadata fix documents.
 
-    The schema's ``templates`` dict maps template names to SQL strings with
-    ``{placeholders}``. Placeholders are filled from fix_input.parameters
-    plus ``{table}`` and ``{column}`` from scope.
+    Three flavours:
+    - **model-based**: Schema has ``model`` — builds payload with
+      ``model`` + ``field_updates`` so MetadataInterpreter patches
+      an ORM row directly (SemanticAnnotation, Relationship).
+    - **marker**: No ``model`` but has structured fields — stores
+      parameters in the DataFix payload for detector queries
+      (e.g. document_join_path, document_business_rule).
+    - **acceptance**: No ``model``, no structured fields — the
+      DataFix record itself is the fix; the gate queries it.
     """
-    if not schema.templates:
-        return []
+    reason = fix_input.interpretation or f"{schema.action} for {table_name}"
 
-    # Build substitution context: parameters + scope
-    subs = dict(fix_input.parameters)
-    subs["table"] = table_name
-    if column_name:
-        subs["column"] = column_name
+    if schema.model:
+        return _build_metadata_model_documents(
+            schema, fix_input, table_name, column_name, dimension, reason
+        )
+    return _build_metadata_marker_documents(
+        schema, fix_input, table_name, column_name, dimension, reason
+    )
 
+
+def _build_metadata_model_documents(
+    schema: FixSchema,
+    fix_input: FixInput,
+    table_name: str,
+    column_name: str | None,
+    dimension: str,
+    reason: str,
+) -> list[FixDocument]:
+    """Build metadata documents that patch an ORM model."""
+    field_updates = _extract_value(schema, fix_input)
     docs: list[FixDocument] = []
-    for i, (name, template) in enumerate(schema.templates.items()):
-        try:
-            sql = template.format(**subs)
-        except KeyError as e:
-            import logging
 
-            logging.getLogger(__name__).warning(
-                "SQL template %r requires field %s missing from parameters %s — skipping",
-                name,
-                e,
-                sorted(subs),
-            )
-            continue
+    for i, col_ref in enumerate(fix_input.affected_columns):
+        parts = col_ref.split(".", 1)
+        col_name = parts[1] if len(parts) > 1 else col_ref
 
         docs.append(
             FixDocument(
-                target="data",
+                target="metadata",
                 action=schema.action,
                 table_name=table_name,
-                column_name=column_name,
+                column_name=col_name,
                 dimension=dimension,
                 ordinal=i,
-                description=f"{schema.action}: {name}",
-                payload={"sql": sql},
+                description=f"{schema.action}: {col_ref}",
+                payload={
+                    "model": schema.model,
+                    "field_updates": dict(field_updates),
+                    "reason": reason,
+                },
+            )
+        )
+
+    return docs
+
+
+def _build_metadata_marker_documents(
+    schema: FixSchema,
+    fix_input: FixInput,
+    table_name: str,
+    column_name: str | None,
+    dimension: str,
+    reason: str,
+) -> list[FixDocument]:
+    """Build metadata marker documents — DataFix record is the fix.
+
+    For acceptance markers the payload is just ``{reason}``.
+    For DataFix-only fixes (e.g. document_join_path) the payload
+    also includes ``parameters`` so detectors can query them later.
+    """
+    params = _extract_value(schema, fix_input) if schema.fields else {}
+    docs: list[FixDocument] = []
+
+    for i, col_ref in enumerate(fix_input.affected_columns):
+        parts = col_ref.split(".", 1)
+        col_name = parts[1] if len(parts) > 1 else col_ref
+
+        payload: dict[str, object] = {"reason": reason}
+        if params:
+            payload["parameters"] = params
+
+        docs.append(
+            FixDocument(
+                target="metadata",
+                action=schema.action,
+                table_name=table_name,
+                column_name=col_name,
+                dimension=dimension,
+                ordinal=i,
+                description=f"{schema.action}: {col_ref}",
+                payload=payload,
             )
         )
 

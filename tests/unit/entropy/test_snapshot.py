@@ -330,7 +330,7 @@ class TestTakeSnapshotTableScope:
         with (
             patch(
                 "dataraum.entropy.snapshot._resolve_table_target",
-                return_value=("tbl1", "orders"),
+                return_value=("tbl1", "orders", "src1"),
             ),
             patch(
                 "dataraum.entropy.snapshot.get_default_registry",
@@ -353,7 +353,7 @@ class TestTakeSnapshotTableScope:
         with (
             patch(
                 "dataraum.entropy.snapshot._resolve_table_target",
-                return_value=("tbl1", "orders"),
+                return_value=("tbl1", "orders", "src1"),
             ),
             patch(
                 "dataraum.entropy.snapshot.get_default_registry",

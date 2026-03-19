@@ -1,4 +1,4 @@
-"""Fix interpreters — three generic handlers for config, metadata, and data fixes.
+"""Fix interpreters — generic handlers for config and metadata fixes.
 
 Each interpreter knows how to apply one target type. They are stateless —
 all context comes from the FixDocument and the runtime connections.
@@ -6,7 +6,6 @@ all context comes from the FixDocument and the runtime connections.
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,16 +15,9 @@ from dataraum.pipeline.fixes import apply_config_yaml
 from dataraum.pipeline.fixes.models import DataFix, FixDocument
 
 if TYPE_CHECKING:
-    import duckdb
     from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
-
-# SQL patterns that data fixes must not contain
-_DANGEROUS_SQL = re.compile(
-    r"\b(DROP\s+TABLE|DELETE\s+FROM\s+(?:raw_|typed_)|TRUNCATE)",
-    re.IGNORECASE,
-)
 
 
 class ConfigInterpreter:
@@ -81,6 +73,14 @@ class MetadataInterpreter:
     def apply(self, doc: FixDocument, session: Session) -> None:
         """Apply a metadata fix to an ORM model.
 
+        For markers (no ``model`` in payload), the DataFix record itself
+        is the fix — nothing to patch on an ORM model.  This covers
+        acceptance markers and DataFix-only fixes (e.g. document_join_path).
+
+        For model-based fixes, resolves the target row, applies field
+        updates, and runs model-specific side effects (e.g. setting
+        ``is_confirmed`` on Relationship records).
+
         Args:
             doc: Fix document with metadata payload.
             session: SQLAlchemy session for the metadata DB.
@@ -89,6 +89,18 @@ class MetadataInterpreter:
             KeyError: If required payload fields are missing.
             ValueError: If the model is unknown or the target row is not found.
         """
+        if "model" not in doc.payload:
+            # Marker — the persisted DataFix record is the fix.
+            # Gate queries DataFix for acceptance; detectors query
+            # DataFix for join preferences and documented patterns.
+            logger.info(
+                "metadata_marker_recorded",
+                action=doc.action,
+                table=doc.table_name,
+                column=doc.column_name,
+            )
+            return
+
         model_name = doc.payload["model"]
         field_updates = doc.payload["field_updates"]
 
@@ -98,10 +110,28 @@ class MetadataInterpreter:
         if instance is None:
             raise ValueError(f"No {model_name} found for {doc.table_name}.{doc.column_name}")
 
+        applied_fields: list[str] = []
         for field_name, value in field_updates.items():
             if not hasattr(instance, field_name):
-                raise ValueError(f"{model_name} has no field '{field_name}'")
+                # Skip resolution hints (e.g. from_table, to_table) that
+                # are schema fields but not model attributes.
+                continue
             setattr(instance, field_name, value)
+            applied_fields.append(field_name)
+
+        if not applied_fields:
+            logger.warning(
+                "metadata_fix_no_fields_applied",
+                action=doc.action,
+                model=model_name,
+                table=doc.table_name,
+                column=doc.column_name,
+                skipped_keys=list(field_updates),
+            )
+            return  # Don't apply side effects if nothing was actually patched
+
+        # Model-specific side effects
+        _apply_model_defaults(model_name, instance)
 
         session.flush()
         logger.info(
@@ -110,7 +140,7 @@ class MetadataInterpreter:
             model=model_name,
             table=doc.table_name,
             column=doc.column_name,
-            fields=list(field_updates.keys()),
+            fields=applied_fields,
         )
 
     def _get_resolver(self, model_name: str) -> Any:
@@ -119,78 +149,6 @@ class MetadataInterpreter:
         if resolver is None:
             raise ValueError(f"Unknown metadata model: {model_name!r}")
         return resolver
-
-
-class DataInterpreter:
-    """Apply data fixes by executing SQL against DuckDB.
-
-    Payload shape:
-        sql: str — DuckDB SQL to execute
-
-    Validates SQL with EXPLAIN before execution. Blocks destructive
-    operations (DROP TABLE, DELETE FROM raw_/typed_, TRUNCATE).
-    """
-
-    def validate(self, doc: FixDocument, conn: duckdb.DuckDBPyConnection) -> list[str]:
-        """Validate a data fix without executing it.
-
-        Returns:
-            List of validation error messages (empty if valid).
-        """
-        errors: list[str] = []
-        sql = doc.payload.get("sql", "")
-
-        if not sql.strip():
-            errors.append("SQL is empty")
-            return errors
-
-        # Check for dangerous operations
-        match = _DANGEROUS_SQL.search(sql)
-        if match:
-            errors.append(f"Dangerous operation not allowed: {match.group()}")
-            return errors
-
-        # Try EXPLAIN on SELECT statements only.
-        for stmt in _split_statements(sql):
-            stmt = stmt.strip()
-            if not stmt:
-                continue
-            upper = stmt.upper().lstrip()
-            if upper.startswith(("ALTER", "UPDATE", "INSERT", "CREATE")):
-                continue
-            try:
-                conn.execute(f"EXPLAIN {stmt}")
-            except Exception as e:
-                errors.append(f"SQL validation failed: {e}")
-
-        return errors
-
-    def apply(self, doc: FixDocument, conn: duckdb.DuckDBPyConnection) -> None:
-        """Apply a data fix by executing SQL.
-
-        Args:
-            doc: Fix document with SQL payload.
-            conn: DuckDB connection.
-
-        Raises:
-            ValueError: If SQL is invalid or contains dangerous operations.
-        """
-        errors = self.validate(doc, conn)
-        if errors:
-            raise ValueError(f"Data fix validation failed: {'; '.join(errors)}")
-
-        sql = doc.payload["sql"]
-        for stmt in _split_statements(sql):
-            stmt = stmt.strip()
-            if stmt:
-                conn.execute(stmt)
-
-        logger.info(
-            "data_fix_applied",
-            action=doc.action,
-            table=doc.table_name,
-            column=doc.column_name,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -280,14 +238,22 @@ _MODEL_RESOLVERS: dict[str, Any] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
+def _apply_model_defaults(model_name: str, instance: Any) -> None:
+    """Apply standard side-effect fields after user-provided updates.
+
+    Always unconditional so that replayed fixes update the audit trail.
+    """
+    if model_name == "SemanticAnnotation":
+        instance.annotation_source = "fix_system"
+    elif model_name == "Relationship":
+        instance.is_confirmed = True
+        instance.confirmed_at = datetime.now(UTC)
+        instance.confirmed_by = "fix_system"
 
 
-def _split_statements(sql: str) -> list[str]:
-    """Split SQL into individual statements on semicolons."""
-    return [s.strip() for s in sql.split(";") if s.strip()]
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
 
 
 def apply_fix_document(
@@ -295,18 +261,15 @@ def apply_fix_document(
     *,
     config_root: Path | None = None,
     session: Session | None = None,
-    duckdb_conn: duckdb.DuckDBPyConnection | None = None,
 ) -> None:
     """Apply a fix document using the appropriate interpreter.
 
-    Routes to ConfigInterpreter, MetadataInterpreter, or DataInterpreter
-    based on doc.target.
+    Routes to ConfigInterpreter or MetadataInterpreter based on doc.target.
 
     Args:
         doc: The fix document to apply.
         config_root: Required for config fixes.
         session: Required for metadata fixes.
-        duckdb_conn: Required for data fixes.
 
     Raises:
         ValueError: If the required connection for the target is not provided.
@@ -321,11 +284,6 @@ def apply_fix_document(
             raise ValueError("session required for metadata fixes")
         MetadataInterpreter().apply(doc, session)
 
-    elif doc.target == "data":
-        if duckdb_conn is None:
-            raise ValueError("duckdb_conn required for data fixes")
-        DataInterpreter().apply(doc, duckdb_conn)
-
     else:
         raise ValueError(f"Unknown fix target: {doc.target!r}")
 
@@ -336,7 +294,6 @@ def apply_and_persist(
     *,
     session: Session,
     config_root: Path | None = None,
-    duckdb_conn: duckdb.DuckDBPyConnection | None = None,
 ) -> list[DataFix]:
     """Apply a list of fix documents and persist them to the DB.
 
@@ -348,7 +305,6 @@ def apply_and_persist(
         documents: Ordered list of fix documents to apply.
         session: SQLAlchemy session (used for metadata fixes and persistence).
         config_root: Required if any document targets config.
-        duckdb_conn: Required if any document targets data.
 
     Returns:
         List of persisted DataFix records.
@@ -365,7 +321,6 @@ def apply_and_persist(
                 doc,
                 config_root=config_root,
                 session=session,
-                duckdb_conn=duckdb_conn,
             )
             record.status = "applied"
             record.applied_at = datetime.now(UTC)

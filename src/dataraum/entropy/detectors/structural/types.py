@@ -12,7 +12,6 @@ from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
-from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 
 def _boost_rate(rate: float) -> float:
@@ -59,120 +58,6 @@ class TypeFidelityDetector(EntropyDetector):
     required_analyses = [AnalysisKey.TYPING]
     description = "Measures uncertainty in type inference based on parse success rate"
 
-    @property
-    def triage_guidance(self) -> str:
-        return (
-            "Choose based on the evidence (quarantine rate, sample values, column type):\n"
-            "- add_type_pattern: The column contains date/time values that the typing "
-            "phase couldn't parse. Sample quarantined values look like dates in an "
-            "unusual format. Add a parsing pattern so typing handles them.\n"
-            "- set_column_type: The inferred type is wrong and quarantining valid data. "
-            "Force VARCHAR if the column has mixed types, or force a specific type if "
-            "the inference picked the wrong one.\n"
-            "- accept_finding: Only if the quarantined values are genuinely bad data "
-            "(not a format the system should learn). The user must confirm."
-        )
-
-    @property
-    def fix_schemas(self) -> list[FixSchema]:
-        """Schemas for type fidelity fixes."""
-        return [
-            FixSchema(
-                action="accept_finding",
-                target="config",
-                description="Mark type fidelity findings as reviewed and accepted",
-                config_path="entropy/thresholds.yaml",
-                key_path=["detectors", "type_fidelity", "accepted_columns"],
-                operation="append",
-                requires_rerun="quality_review",
-                guidance=(
-                    "Present ALL affected columns in a numbered list with their key metric "
-                    "(e.g., quarantine rate). For each column show: table.column — "
-                    "quarantine rate — detected type — sample quarantined values.\n"
-                    "Ask the user to select columns by number (comma-separated), or 'all'.\n"
-                    "Then ask WHY the finding is acceptable (e.g., 'mixed-type column', "
-                    "'known format variation', 'acceptable data loss')."
-                ),
-                fields={
-                    "reason": FixSchemaField(
-                        type="string",
-                        required=False,
-                        description="Why the finding was accepted",
-                    ),
-                },
-            ),
-            FixSchema(
-                action="set_column_type",
-                target="config",
-                description="Force a specific type for this column, overriding type inference",
-                config_path="phases/typing.yaml",
-                key_path=["overrides", "forced_types"],
-                operation="merge",
-                requires_rerun="typing",
-                guidance=(
-                    "The typing phase inferred a type that doesn't fit all values. "
-                    "Some values were quarantined (couldn't be cast). "
-                    "Show the user: current inferred type, quarantine rate, "
-                    "sample quarantined values. Ask whether to:\n"
-                    "  1. Force VARCHAR (keeps all values, no quarantine)\n"
-                    "  2. Force a different type\n"
-                    "PROPOSE VARCHAR as the default when quarantined values look valid."
-                ),
-                fields={
-                    "target_type": FixSchemaField(
-                        type="enum",
-                        required=True,
-                        description="Type to force for this column",
-                        enum_values=["VARCHAR", "BIGINT", "DOUBLE", "DATE", "TIMESTAMP", "BOOLEAN"],
-                        default="VARCHAR",
-                    ),
-                },
-            ),
-            FixSchema(
-                action="add_type_pattern",
-                target="config",
-                description="Add a custom date/time parsing pattern",
-                config_path="phases/typing.yaml",
-                key_path=["overrides", "patterns"],
-                operation="merge",
-                requires_rerun="typing",
-                key_template="{pattern_name}",
-                guidance=(
-                    "Adds a date/time pattern so the typing phase can parse "
-                    "this column correctly. From the sample values and column "
-                    "name, PROPOSE a concrete pattern:\n"
-                    "  1. The regex that matches the raw values (e.g. ^\\d{4}-\\d{2}-\\d{2}$)\n"
-                    "  2. The DuckDB STRPTIME expression (e.g. STRPTIME(\"{col}\", '%Y-%m-%d'))\n"
-                    "  3. A short pattern_name (e.g. iso_date, fiscal_period)\n"
-                    "Present your proposal and ask the user to confirm or correct it. "
-                    "Do NOT ask open-ended questions like 'what format is this?' — "
-                    "infer the format from the data and propose it."
-                ),
-                fields={
-                    "pattern_name": FixSchemaField(
-                        type="string",
-                        required=True,
-                        description="Short name for this pattern (e.g. fiscal_period, european_date)",
-                    ),
-                    "pattern": FixSchemaField(
-                        type="regex",
-                        required=True,
-                        description="Regex matching the raw values (e.g. ^\\d{4}-\\d{2}$)",
-                    ),
-                    "standardization_expr": FixSchemaField(
-                        type="duckdb_sql",
-                        required=True,
-                        description=(
-                            "DuckDB expression to parse the value into a date/timestamp. "
-                            "Use STRPTIME with {col} placeholder. "
-                            "Examples: STRPTIME(\"{col}\", '%Y-%m'), "
-                            "STRPTIME(\"{col}\", '%d/%m/%Y')"
-                        ),
-                    ),
-                },
-            ),
-        ]
-
     def load_data(self, context: DetectorContext) -> None:
         """Load type decision and candidate info for this column."""
         if context.session is None or context.column_id is None:
@@ -200,10 +85,6 @@ class TypeFidelityDetector(EntropyDetector):
         suggest_override = detector_config.get("suggest_override_threshold", 0.3)
         suggest_quarantine = detector_config.get("suggest_quarantine_threshold", 0.1)
         score_fallback = detector_config.get("score_fallback", 0.5)
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
-
         typing_result = context.get_analysis("typing", {})
 
         # Extract parse success rate and decision metadata
@@ -255,7 +136,7 @@ class TypeFidelityDetector(EntropyDetector):
         if score > suggest_override:
             resolution_options.append(
                 ResolutionOption(
-                    action="add_type_pattern",
+                    action="document_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": "VARCHAR",
@@ -269,7 +150,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Fallback columns always need type review
             resolution_options.append(
                 ResolutionOption(
-                    action="add_type_pattern",
+                    action="document_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": str(detected_type) if detected_type else "VARCHAR",
@@ -296,7 +177,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Force a different type (e.g. VARCHAR) to avoid quarantine
             resolution_options.append(
                 ResolutionOption(
-                    action="set_column_type",
+                    action="document_type_override",
                     parameters={
                         "column": context.column_name,
                         "detected_type": str(detected_type) if detected_type else "VARCHAR",
@@ -310,7 +191,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Accept finding: user reviewed, type fidelity issue is expected
             resolution_options.append(
                 ResolutionOption(
-                    action="accept_finding",
+                    action="document_accepted_type_fidelity",
                     parameters={
                         "column": context.column_name,
                         "detector_id": self.detector_id,
@@ -319,11 +200,6 @@ class TypeFidelityDetector(EntropyDetector):
                     description="Accept type fidelity findings as expected for this column",
                 )
             )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

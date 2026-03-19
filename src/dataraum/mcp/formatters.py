@@ -1,31 +1,47 @@
-"""Formatters for LLM-optimized output.
+"""Formatters for JSON-structured MCP tool output.
 
-These format data for consumption by LLMs via MCP tools.
-Focus on clarity and structured information.
+These produce Python dicts that the server layer serializes to JSON.
+Replaces the previous markdown formatters for better LLM parseability.
 """
 
 from __future__ import annotations
 
-import re
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from dataraum.entropy.contracts import ContractEvaluation, ContractProfile
     from dataraum.pipeline.runner import RunResult
     from dataraum.query.models import QueryResult
 
 
-def format_context_for_llm(source_name: str, context_text: str) -> str:
-    """Format context document for LLM consumption."""
-    return f"""# Data Context: {source_name}
-
-{context_text}
-
----
-Use this context to understand the data schema, relationships, and quality characteristics
-when answering questions or generating queries.
-"""
+def format_pipeline_result(result: RunResult) -> dict[str, Any]:
+    """Format pipeline run result as structured dict."""
+    failed = result.get_failed_phases()
+    return {
+        "status": "complete" if result.success else "failed",
+        "output_dir": str(result.output_dir) if result.output_dir else None,
+        "duration_seconds": round(result.duration_seconds, 1),
+        "phases": {
+            "completed": result.phases_completed,
+            "failed": result.phases_failed,
+            "skipped": result.phases_skipped,
+        },
+        "failures": [{"phase": p.phase_name, "error": p.error} for p in failed],
+        "next_steps": (
+            [
+                "Use get_context for full schema and relationships",
+                "Use get_quality for entropy, contracts, and resolution actions",
+                "Use query to ask questions about the data",
+            ]
+            if result.success
+            else [
+                "Check the failures above and fix the data issues",
+                "Re-run analyze after fixing",
+            ]
+        ),
+    }
 
 
 def format_entropy_summary(
@@ -35,196 +51,131 @@ def format_entropy_summary(
     interpretations: Sequence[Any],
     table_filter: str | None = None,
     dimension_scores: dict[str, float] | None = None,
-) -> str:
-    """Format entropy summary for LLM consumption.
-
-    Args:
-        source_name: Name of the data source
-        overall_readiness: Overall readiness status (ready/investigate/blocked)
-        avg_entropy_score: Average entropy score across all targets
-        interpretations: List of EntropyInterpretationRecord
-        table_filter: Optional table filter applied
-        dimension_scores: Optional dict of dimension path -> avg score across columns
-    """
-    lines = [f"# Entropy Summary: {source_name}"]
-
-    if table_filter:
-        lines.append(f"Filtered to table: {table_filter}")
-
-    lines.append("")
-    lines.append(f"## Overall Status: {overall_readiness.upper()}")
-    lines.append(f"Entropy Score: {avg_entropy_score:.3f}")
-    lines.append("")
-
-    # Dimension breakdown
+) -> dict[str, Any]:
+    """Format entropy summary as structured dict."""
+    dim_breakdown = None
     if dimension_scores:
-        lines.append("## Dimension Breakdown")
-        # Sort by score descending to highlight worst dimensions first
-        sorted_dims = sorted(dimension_scores.items(), key=lambda x: -x[1])
-        for dim, score in sorted_dims:
-            if score > 0:
-                lines.append(f"- {dim}: {score:.3f}")
-        lines.append("")
+        dim_breakdown = {
+            dim: round(score, 3)
+            for dim, score in sorted(dimension_scores.items(), key=lambda x: -x[1])
+            if score > 0
+        }
 
-    lines.append("## Issue Summary")
-    lines.append(f"- Total columns analyzed: {len(interpretations)}")
-    lines.append("")
+    interp_list = []
+    for interp in interpretations:
+        entry: dict[str, Any] = {
+            "table": interp.table_name,
+            "column": interp.column_name,
+        }
+        if interp.explanation:
+            entry["explanation"] = interp.explanation
+        interp_list.append(entry)
 
-    # Column interpretations (grouped by table)
-    if interpretations:
-        lines.append("## Column Interpretations")
-        current_table = None
-        for interp in interpretations:
-            if interp.table_name != current_table:
-                current_table = interp.table_name
-                lines.append(f"\n**{current_table}**")
-            if interp.explanation:
-                # Extract first sentence. Naive split(".") breaks on
-                # decimal numbers (e.g. "score is 0.39"). Split only
-                # on period followed by space+uppercase.
-                parts = re.split(r"(?<=[.!?])\s+(?=[A-Z])", interp.explanation, maxsplit=1)
-                lines.append(f"- {interp.column_name}: {parts[0]}")
-            else:
-                lines.append(f"- {interp.column_name}")
-
-    return "\n".join(lines)
+    result: dict[str, Any] = {
+        "source_name": source_name,
+        "overall_status": overall_readiness.upper(),
+        "entropy_score": round(avg_entropy_score, 3),
+        "columns_analyzed": len(interpretations),
+    }
+    if table_filter:
+        result["table_filter"] = table_filter
+    if dim_breakdown:
+        result["dimension_breakdown"] = dim_breakdown
+    if interp_list:
+        result["interpretations"] = interp_list
+    return result
 
 
 def format_contract_evaluation(
     evaluation: ContractEvaluation,
     profile: ContractProfile,
-) -> str:
-    """Format contract evaluation for LLM consumption."""
-    lines = [f"# Contract Evaluation: {profile.display_name}"]
-    lines.append("")
-
-    # Status
-    status = "PASS" if evaluation.is_compliant else "FAIL"
-    lines.append(f"## Status: {status} ({evaluation.confidence_level.label})")
-    lines.append(
-        f"Overall Score: {evaluation.overall_score:.2f} (threshold: {profile.overall_threshold})"
-    )
-    lines.append("")
-
-    # Description
-    lines.append(f"**Description:** {profile.description}")
-    lines.append("")
-
-    # Dimension scores
+) -> dict[str, Any]:
+    """Format contract evaluation as structured dict."""
     from dataraum.entropy.config import get_dimension_label
 
-    lines.append("## Dimension Scores")
+    dimensions = []
     for dim, threshold in profile.dimension_thresholds.items():
         score = evaluation.dimension_scores.get(dim, 0.0)
-        status_icon = "✓" if score <= threshold else "✗"
-        lines.append(f"- {get_dimension_label(dim)}: {score:.2f} / {threshold:.2f} [{status_icon}]")
-    lines.append("")
-
-    # Violations
-    if evaluation.violations:
-        lines.append("## Violations")
-        for v in evaluation.violations:
-            lines.append(f"- **[{v.severity}]** {v.details}")
-        lines.append("")
-
-    # Warnings
-    if evaluation.warnings:
-        lines.append("## Warnings")
-        for w in evaluation.warnings:
-            lines.append(f"- {w.details}")
-        lines.append("")
-
-    # Path to compliance
-    if not evaluation.is_compliant and evaluation.worst_dimension:
-        lines.append("## Path to Compliance")
-        lines.append(
-            f"Focus on: {evaluation.worst_dimension} (score: {evaluation.worst_dimension_score:.2f})"
+        dimensions.append(
+            {
+                "dimension": dim,
+                "label": get_dimension_label(dim),
+                "score": round(score, 2),
+                "threshold": threshold,
+                "passing": score <= threshold,
+            }
         )
-        lines.append(f"Estimated effort: {evaluation.estimated_effort_to_comply}")
 
-    return "\n".join(lines)
+    result: dict[str, Any] = {
+        "contract": profile.name,
+        "display_name": profile.display_name,
+        "description": profile.description,
+        "status": "PASS" if evaluation.is_compliant else "FAIL",
+        "confidence": evaluation.confidence_level.label,
+        "overall_score": round(evaluation.overall_score, 2),
+        "threshold": profile.overall_threshold,
+        "dimensions": dimensions,
+    }
+
+    if evaluation.violations:
+        result["violations"] = [
+            {"severity": v.severity, "details": v.details} for v in evaluation.violations
+        ]
+    if evaluation.warnings:
+        result["warnings"] = [{"details": w.details} for w in evaluation.warnings]
+
+    if not evaluation.is_compliant and evaluation.worst_dimension:
+        result["path_to_compliance"] = {
+            "focus_dimension": evaluation.worst_dimension,
+            "worst_score": round(evaluation.worst_dimension_score, 2),
+            "estimated_effort": evaluation.estimated_effort_to_comply,
+        }
+
+    return result
 
 
-def format_query_result(result: QueryResult) -> str:
-    """Format query result for LLM consumption."""
-    lines = ["# Query Result"]
-    lines.append("")
+def format_query_result(result: QueryResult) -> dict[str, Any]:
+    """Format query result as structured dict."""
+    output: dict[str, Any] = {
+        "confidence": {
+            "label": result.confidence_level.label,
+            "emoji": result.confidence_level.emoji,
+        },
+        "answer": result.answer,
+    }
 
-    # Confidence
-    lines.append(f"## Confidence: {result.confidence_level.label} {result.confidence_level.emoji}")
     if result.contract:
-        lines.append(f"Contract: {result.contract}")
-    lines.append("")
+        output["contract"] = result.contract
 
-    # Answer
-    lines.append("## Answer")
-    lines.append(result.answer)
-    lines.append("")
-
-    # Data
     if result.data and result.columns:
-        lines.append("## Data")
-        lines.append(f"Columns: {', '.join(result.columns)}")
-        lines.append(f"Rows: {len(result.data)}")
-        lines.append("")
+        output["data"] = {
+            "columns": result.columns,
+            "row_count": len(result.data),
+            "rows": result.data[:50],
+        }
 
-        # Show first few rows as markdown table
-        if len(result.data) <= 20:
-            # Header
-            lines.append("| " + " | ".join(result.columns) + " |")
-            lines.append("| " + " | ".join(["---"] * len(result.columns)) + " |")
-            # Rows
-            for row in result.data[:20]:
-                values = [str(row.get(c, ""))[:100] for c in result.columns]
-                lines.append("| " + " | ".join(values) + " |")
-        else:
-            lines.append(f"(Showing first 20 of {len(result.data)} rows)")
-            lines.append("| " + " | ".join(result.columns) + " |")
-            lines.append("| " + " | ".join(["---"] * len(result.columns)) + " |")
-            for row in result.data[:20]:
-                values = [str(row.get(c, ""))[:100] for c in result.columns]
-                lines.append("| " + " | ".join(values) + " |")
-        lines.append("")
-
-    # Execution graph (steps + final SQL)
     if result.execution_steps:
-        lines.append("## Execution Graph")
-        for i, step in enumerate(result.execution_steps, 1):
-            source = " (from snippet knowledge base)" if step.snippet_id else ""
-            lines.append(f"### Step {i}: {step.step_id}")
-            lines.append(f"{step.description}{source}")
-            lines.append("```sql")
-            lines.append(step.sql)
-            lines.append("```")
-            lines.append("")
-        if result.sql:
-            lines.append("### Final SQL")
-            lines.append(
-                "Combines "
-                + ", ".join(f"`{s.step_id}`" for s in result.execution_steps)
-                + " into the result."
-            )
-            lines.append("```sql")
-            lines.append(result.sql)
-            lines.append("```")
-            lines.append("")
-    elif result.sql:
-        lines.append("## Generated SQL")
-        lines.append("```sql")
-        lines.append(result.sql)
-        lines.append("```")
-        lines.append("")
+        output["execution_steps"] = [
+            {
+                "step_id": step.step_id,
+                "description": step.description,
+                "sql": step.sql,
+                "from_snippet": bool(step.snippet_id),
+            }
+            for step in result.execution_steps
+        ]
 
-    # Risk assessment (replaces separate assumptions section when present)
+    if result.sql:
+        output["sql"] = result.sql
+
     if result.risk_assessment:
-        lines.append("## Risk Assessment")
-        lines.append(result.risk_assessment)
+        output["risk_assessment"] = result.risk_assessment
     elif result.assumptions:
-        lines.append("## Assumptions")
-        for a in result.assumptions:
-            lines.append(f"- {a.assumption} ({a.basis.value})")
+        output["assumptions"] = [
+            {"assumption": a.assumption, "basis": a.basis.value} for a in result.assumptions
+        ]
 
-    return "\n".join(lines)
+    return output
 
 
 def format_actions_report(
@@ -232,165 +183,101 @@ def format_actions_report(
     actions: list[dict[str, Any]],
     priority_filter: str | None = None,
     table_filter: str | None = None,
-) -> str:
-    """Format resolution actions report for LLM consumption.
-
-    Args:
-        source_name: Name of the data source
-        actions: List of merged action dictionaries
-        priority_filter: Optional filter applied
-        table_filter: Optional table filter applied
-
-    Returns:
-        Formatted markdown report
-    """
-    lines = [f"# Resolution Actions Report: {source_name}"]
-    lines.append("")
-
-    # Filters applied
-    filters = []
-    if priority_filter:
-        filters.append(f"priority={priority_filter}")
-    if table_filter:
-        filters.append(f"table={table_filter}")
-    if filters:
-        lines.append(f"*Filters: {', '.join(filters)}*")
-        lines.append("")
-
-    if not actions:
-        lines.append("No resolution actions found matching the criteria.")
-        return "\n".join(lines)
-
-    # Summary
-    lines.append("## Summary")
-    lines.append(f"- **{len(actions)}** resolution actions ranked by combined score")
-    lines.append("- Score combines: detector reduction + column breadth + network causal impact")
-
-    if actions:
-        top = actions[0]
-        cols = len(top.get("affected_columns", []))
-        lines.append(f"- Top action: **{top['action']}** ({cols} columns)")
-    lines.append("")
-
-    # Ranked actions (single list, score-ordered)
-    lines.append("## Actions (ranked by impact)")
-    lines.append("")
-
-    for i, action in enumerate(actions, 1):
-        lines.append(f"### {i}. {action['action']}")
-
-        # Score and effort
-        score = action.get("priority_score", 0)
-        effort = action.get("effort", "medium")
-        lines.append(f"**Score:** {score:.3f} | **Effort:** {effort}")
-        lines.append("")
-
-        # Description
+) -> dict[str, Any]:
+    """Format resolution actions report as structured dict."""
+    formatted_actions = []
+    for action in actions:
+        entry: dict[str, Any] = {
+            "action": action["action"],
+            "priority_score": round(action.get("priority_score", 0), 3),
+            "effort": action.get("effort", "medium"),
+        }
         if action.get("description"):
-            lines.append(f"**Description:** {action['description']}")
-            lines.append("")
+            entry["description"] = action["description"]
 
-        # Network causal impact with per-column breakdown
         network_impact = action.get("network_impact", 0.0)
-        network_cols = action.get("network_columns", 0)
-        column_deltas = action.get("column_deltas", {})
         if network_impact > 0:
-            lines.append(
-                f"**Network Impact:** {network_impact:.3f} causal delta "
-                f"across {network_cols} columns"
-            )
+            net: dict[str, Any] = {
+                "delta": round(network_impact, 3),
+                "columns_affected": action.get("network_columns", 0),
+            }
+            column_deltas = action.get("column_deltas", {})
             if column_deltas:
-                # Show top columns by delta
                 sorted_deltas = sorted(column_deltas.items(), key=lambda x: -x[1])
-                for col, delta in sorted_deltas[:5]:
-                    lines.append(f"  - {col}: {delta:.3f}")
-                if len(sorted_deltas) > 5:
-                    lines.append(f"  - ... and {len(sorted_deltas) - 5} more")
-            lines.append("")
+                net["top_columns"] = {col: round(d, 3) for col, d in sorted_deltas[:5]}
+            entry["network_impact"] = net
 
-        # Affected columns
         affected = action.get("affected_columns", [])
         if affected:
-            lines.append(f"**Affected Columns ({len(affected)}):**")
-            for col in affected[:10]:
-                lines.append(f"- {col}")
-            if len(affected) > 10:
-                lines.append(f"- ... and {len(affected) - 10} more")
-            lines.append("")
+            entry["affected_columns"] = affected
 
-        # Parameters
         params = action.get("parameters", {})
         if params and isinstance(params, dict):
-            lines.append("**Parameters:**")
-            for k, v in params.items():
-                lines.append(f"- {k}: {v}")
-            lines.append("")
+            entry["parameters"] = params
 
-        # Expected impact
         if action.get("expected_impact"):
-            lines.append(f"**Expected Impact:** {action['expected_impact']}")
-            lines.append("")
+            entry["expected_impact"] = action["expected_impact"]
 
-        # Contract violations this fixes
         fixes = action.get("fixes_violations", [])
         if fixes:
-            lines.append(f"**Fixes Contract Violations:** {', '.join(fixes)}")
-            lines.append("")
+            entry["fixes_violations"] = fixes
 
-        lines.append("---")
-        lines.append("")
+        formatted_actions.append(entry)
 
-    # Quick wins: low effort + high score
     quick_wins = [
-        a for a in actions if a.get("effort") == "low" and a.get("priority_score", 0) > 0.5
-    ]
+        {
+            "action": a["action"],
+            "priority_score": round(a.get("priority_score", 0), 3),
+            "description": a.get("description", ""),
+        }
+        for a in actions
+        if a.get("effort") == "low" and a.get("priority_score", 0) > 0.5
+    ][:3]
+
+    result: dict[str, Any] = {
+        "source_name": source_name,
+        "total_actions": len(actions),
+        "actions": formatted_actions,
+    }
+
+    filters: dict[str, str] = {}
+    if priority_filter:
+        filters["priority"] = priority_filter
+    if table_filter:
+        filters["table"] = table_filter
+    if filters:
+        result["filters"] = filters
+
     if quick_wins:
-        lines.append("## Quick Wins (High Score, Low Effort)")
-        for a in quick_wins[:3]:
-            lines.append(
-                f"- **{a['action']}** (score={a.get('priority_score', 0):.3f}): "
-                f"{a.get('description', '')[:200]}"
-            )
-        lines.append("")
+        result["quick_wins"] = quick_wins
 
-    return "\n".join(lines)
+    return result
 
 
-def format_quality_report(sections: dict[str, str]) -> str:
-    """Combine quality sections into a unified report.
-
-    Args:
-        sections: Dict mapping section name ('entropy', 'contract', 'actions')
-            to their pre-formatted markdown content.
-    """
-    lines = ["# Data Quality Report", ""]
-
+def format_quality_report(sections: dict[str, Any]) -> dict[str, Any]:
+    """Combine quality sections into a unified report dict."""
+    result: dict[str, Any] = {}
     for name in ("entropy", "contract", "actions"):
         content = sections.get(name)
         if content:
-            lines.append(content)
-            lines.append("")
+            result[name] = content
 
-    if len(sections) == 0:
-        lines.append("No quality data available. Run the pipeline first.")
+    if not result:
+        result["message"] = "No quality data available. Run the pipeline first."
 
-    return "\n".join(lines)
+    return result
 
 
-def format_export_result(output_path: str, fmt: str, row_count: int, sidecar_path: str) -> str:
-    """Format export result for LLM consumption."""
-    lines = ["# Export Complete"]
-    lines.append("")
-    lines.append(f"**File:** `{output_path}`")
-    lines.append(f"**Format:** {fmt}")
-    lines.append(f"**Rows:** {row_count}")
-    lines.append(f"**Metadata:** `{sidecar_path}`")
-    lines.append("")
-    lines.append(
-        "The metadata sidecar contains provenance information: "
-        "source SQL, entropy score, assumptions, and confidence level."
-    )
-    return "\n".join(lines)
+def format_export_result(
+    output_path: str, fmt: str, row_count: int, sidecar_path: str
+) -> dict[str, Any]:
+    """Format export result as structured dict."""
+    return {
+        "file": output_path,
+        "format": fmt,
+        "rows": row_count,
+        "metadata_sidecar": sidecar_path,
+    }
 
 
 def format_zone_status(
@@ -401,136 +288,33 @@ def format_zone_status(
     passing: list[dict[str, Any]],
     skipped_detectors: list[dict[str, str]],
     contract_name: str | None = None,
-) -> str:
-    """Format zone status for LLM consumption.
-
-    Args:
-        zone_name: Human-readable zone name (e.g. "foundation")
-        gate_label: Gate label (e.g. "Gate 1")
-        gate_phase: Phase name (e.g. "quality_review")
-        violations: List of violation dicts with dimension_path, detector_id, score, threshold, fix_actions, affected_targets
-        passing: List of passing dimension dicts with dimension_path, detector_id, score, threshold
-        skipped_detectors: List of dicts with detector_id and reason
-        contract_name: Contract used for evaluation
-    """
-    lines = [f"# Zone Status: {zone_name} ({gate_label}: {gate_phase})"]
-    if contract_name:
-        lines.append(f"Contract: {contract_name}")
-    lines.append("")
-
-    n_violations = len(violations)
-    n_passing = len(passing)
-    lines.append(f"## Status: {n_violations} violations, {n_passing} dimensions passing")
-    lines.append("")
-
-    # Violations
+) -> dict[str, Any]:
+    """Format zone status as structured dict."""
     if violations:
-        lines.append("## Violations")
-        lines.append("")
-        lines.append("| Detector | Dimension Path | Score | Threshold | Fix Actions |")
-        lines.append("|----------|----------------|-------|-----------|-------------|")
-        for v in violations:
-            actions = ", ".join(v.get("fix_actions", []))
-            lines.append(
-                f"| {v['detector_id']} | `{v['dimension_path']}` | {v['score']:.3f} | {v['threshold']:.2f} | {actions} |"
-            )
-        lines.append("")
-
-        # Affected targets per violation
-        lines.append("### Affected Targets")
-        for v in violations:
-            targets = v.get("affected_targets", [])
-            if targets:
-                lines.append(f"- **{v['detector_id']}**: {', '.join(targets[:10])}")
-                if len(targets) > 10:
-                    lines.append(f"  ... and {len(targets) - 10} more")
-        lines.append("")
-
-    # Passing dimensions
-    if passing:
-        lines.append("## Passing Dimensions")
-        lines.append("")
-        lines.append("| Detector | Score | Threshold |")
-        lines.append("|----------|-------|-----------|")
-        for p in passing:
-            lines.append(f"| {p['detector_id']} | {p['score']:.3f} | {p['threshold']:.2f} |")
-        lines.append("")
-
-    # Skipped detectors
-    if skipped_detectors:
-        lines.append("## Skipped (need later zone analyses)")
-        for s in skipped_detectors:
-            lines.append(f"- {s['detector_id']}: {s['reason']}")
-        lines.append("")
-
-    # Next steps guidance
-    lines.append("## Next Steps")
-    if violations:
-        dim_path = violations[0]["dimension_path"]
-        lines.append(
-            f'- Use `get_fix_proposal(gate="{gate_phase}", dimension="{dim_path}")` '
-            f"to get agent-driven fix suggestions"
-        )
-        lines.append("- Use `apply_fix` with the fix documents from the proposal")
-        lines.append("- Use `continue_pipeline` to advance to the next zone after fixing")
+        next_steps = [
+            "Review triage guidance and pick an action for each violation",
+            (
+                "Call apply_fix(fixes=[{action: ..., target: "
+                '"column:table.col", parameters: {...}, reason: "..."}])'
+            ),
+            "Call continue_pipeline to advance to the next zone after fixing",
+        ]
     elif skipped_detectors:
-        lines.append("- All measured dimensions passing — use `continue_pipeline` to advance")
+        next_steps = ["All measured dimensions passing — use continue_pipeline to advance"]
     else:
-        lines.append("- All dimensions passing — pipeline is clean")
+        next_steps = ["All dimensions passing — pipeline is clean"]
 
-    return "\n".join(lines)
-
-
-def format_pipeline_result(result: RunResult) -> str:
-    """Format pipeline run result for LLM consumption.
-
-    Args:
-        result: RunResult from pipeline execution
-
-    Returns:
-        Formatted markdown summary
-    """
-    lines = ["# Pipeline Analysis Complete"]
-    lines.append("")
-
-    # Source info
-    if result.output_dir:
-        lines.append(f"**Output:** `{result.output_dir}`")
-
-    # Duration
-    minutes = int(result.duration_seconds // 60)
-    seconds = result.duration_seconds % 60
-    if minutes > 0:
-        lines.append(f"**Duration:** {minutes}m {seconds:.1f}s")
-    else:
-        lines.append(f"**Duration:** {seconds:.1f}s")
-    lines.append("")
-
-    # Phase summary
-    lines.append("## Phases")
-    lines.append(
-        f"- Completed: {result.phases_completed}"
-        f" | Failed: {result.phases_failed}"
-        f" | Skipped: {result.phases_skipped}"
-    )
-    lines.append("")
-
-    # Failed phases detail
-    failed = result.get_failed_phases()
-    if failed:
-        lines.append("## Failures")
-        for phase in failed:
-            lines.append(f"- **{phase.phase_name}**: {phase.error}")
-        lines.append("")
-
-    # Next steps
-    lines.append("## Next Steps")
-    if result.success:
-        lines.append("- Use `get_context` for full schema and relationships")
-        lines.append("- Use `get_quality` for entropy, contracts, and resolution actions")
-        lines.append("- Use `query` to ask questions about the data")
-    else:
-        lines.append("- Check the failures above and fix the data issues")
-        lines.append("- Re-run `analyze` after fixing")
-
-    return "\n".join(lines)
+    return {
+        "zone": zone_name,
+        "gate": gate_label,
+        "gate_phase": gate_phase,
+        "contract": contract_name,
+        "summary": {
+            "violations": len(violations),
+            "passing": len(passing),
+        },
+        "violations": violations,
+        "passing": passing,
+        "skipped_detectors": skipped_detectors,
+        "next_steps": next_steps,
+    }

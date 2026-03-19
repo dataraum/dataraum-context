@@ -27,9 +27,33 @@ from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
-from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
 
 logger = get_logger(__name__)
+
+
+def _get_documented_patterns(context: DetectorContext) -> list[dict[str, Any]]:
+    """Load documented business rule patterns from applied DataFix records.
+
+    Scoped to the current table to avoid false matches across tables.
+    """
+    if not context.session or not context.source_id:
+        return []
+
+    from dataraum.pipeline.fixes.models import DataFix
+
+    fixes = (
+        context.session.execute(
+            select(DataFix).where(
+                DataFix.source_id == context.source_id,
+                DataFix.action == "document_business_rule",
+                DataFix.table_name == context.table_name,
+                DataFix.status == "applied",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [fix.payload.get("parameters", {}) for fix in fixes if fix.payload.get("parameters")]
 
 
 @dataclass
@@ -198,59 +222,6 @@ class DimensionalEntropyDetector(EntropyDetector):
     scope = "table"
     required_analyses = [AnalysisKey.SLICE_VARIANCE]  # temporal_variance is optional
     description = "Detects cross-column business rules from slice and temporal variance patterns"
-
-    @property
-    def fix_schemas(self) -> list[FixSchema]:
-        return [
-            FixSchema(
-                action="document_business_rule",
-                target="config",
-                description="Document a detected cross-column pattern as a known business rule",
-                config_path="entropy/thresholds.yaml",
-                key_path=["detectors", "dimensional_entropy", "documented_patterns"],
-                operation="append",
-                requires_rerun="analysis_review",
-                guidance=(
-                    "The detector found undocumented cross-column patterns. "
-                    "Read the table name from the affected targets in <entropy_evidence> "
-                    "(format: 'table:TABLE_NAME'). Read the columns and pattern_type "
-                    "from the per-column evidence breakdown.\n"
-                    "Do NOT ask the user which table or columns are involved — extract "
-                    "them from the evidence. Only ask whether this is a known business "
-                    "rule and what it means in their domain.\n"
-                    "Example: debit/credit mutual exclusivity in double-entry bookkeeping."
-                ),
-                fields={
-                    "table": FixSchemaField(
-                        type="string",
-                        required=True,
-                        description="Table name where the pattern exists",
-                    ),
-                    "columns": FixSchemaField(
-                        type="string",
-                        required=True,
-                        description="Comma-separated column names involved in the pattern",
-                    ),
-                    "pattern_type": FixSchemaField(
-                        type="enum",
-                        required=True,
-                        description="Type of pattern",
-                        enum_values=[
-                            "mutual_exclusivity",
-                            "conditional_dependency",
-                            "correlated_variance",
-                            "temporal_correlation",
-                            "temporal_drift",
-                        ],
-                    ),
-                    "description": FixSchemaField(
-                        type="string",
-                        required=False,
-                        description="Business justification for why this pattern is expected",
-                    ),
-                },
-            ),
-        ]
 
     def load_data(self, context: DetectorContext) -> None:
         """Load slice variance data and network readiness for this table."""
@@ -516,9 +487,8 @@ class DimensionalEntropyDetector(EntropyDetector):
         )
         # Documented patterns: list of {"table", "columns", "pattern_type"} dicts.
         # Patterns matching a documented entry are excluded from scoring.
-        documented_patterns: list[dict[str, Any]] = self.config.get(
-            "documented_patterns"
-        ) or detector_config.get("documented_patterns", [])
+        # Loaded from applied DataFix records (document_business_rule action).
+        documented_patterns: list[dict[str, Any]] = _get_documented_patterns(context)
 
         slice_variance = context.get_analysis("slice_variance", {})
         columns_data = slice_variance.get("columns", {})

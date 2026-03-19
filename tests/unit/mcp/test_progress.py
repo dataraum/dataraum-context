@@ -132,13 +132,14 @@ class TestAnalyzeFunction:
     """Tests for the _analyze sync function."""
 
     def test_missing_path_returns_error(self):
-        """Returns error string for non-existent path."""
+        """Returns error dict for non-existent path."""
         result = _analyze(
             output_dir=MagicMock(),
             path="/nonexistent/path/to/data.csv",
         )
 
-        assert "Path not found" in result
+        assert isinstance(result, dict)
+        assert "Path not found" in result["error"]
 
     def test_pipeline_failure_returns_error(self):
         """Returns error when pipeline fails."""
@@ -159,14 +160,17 @@ class TestAnalyzeFunction:
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        assert "Error: Pipeline failed" in result
+        assert isinstance(result, dict)
+        assert "Pipeline failed" in result["error"]
 
     def test_success_returns_formatted_result(self):
-        """Returns formatted output on success."""
+        """Returns formatted dict on success."""
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.value = MagicMock()
         mock_result.error = None
+
+        mock_formatted = {"status": "complete", "phases": {"completed": 18}}
 
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             tmp_path = f.name
@@ -176,7 +180,7 @@ class TestAnalyzeFunction:
                 patch("dataraum.pipeline.runner.run", return_value=mock_result),
                 patch(
                     "dataraum.mcp.server.format_pipeline_result",
-                    return_value="Pipeline completed: 18/18 phases",
+                    return_value=mock_formatted,
                 ),
             ):
                 result = _analyze(
@@ -187,7 +191,7 @@ class TestAnalyzeFunction:
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        assert result == "Pipeline completed: 18/18 phases"
+        assert result == mock_formatted
 
     def test_event_callback_forwarded(self):
         """Event callback is passed through to RunConfig."""
@@ -203,7 +207,7 @@ class TestAnalyzeFunction:
         try:
             with (
                 patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run,
-                patch("dataraum.mcp.server.format_pipeline_result", return_value="ok"),
+                patch("dataraum.mcp.server.format_pipeline_result", return_value={"status": "ok"}),
             ):
                 _analyze(
                     output_dir=Path("/tmp/test_output"),
@@ -223,14 +227,16 @@ class TestAnalyzeFunction:
         mock_result.success = True
         mock_result.value = MagicMock()
 
+        mock_zone = {"zone": "foundation", "violations": []}
+
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             tmp_path = f.name
 
         try:
             with (
                 patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run,
-                patch("dataraum.mcp.server.format_pipeline_result", return_value="ok"),
-                patch("dataraum.mcp.server._get_zone_status", return_value="zone status"),
+                patch("dataraum.mcp.server.format_pipeline_result", return_value={"status": "ok"}),
+                patch("dataraum.mcp.server._get_zone_status", return_value=mock_zone),
             ):
                 result = _analyze(
                     output_dir=Path("/tmp/test_output"),
@@ -244,8 +250,8 @@ class TestAnalyzeFunction:
         run_config = mock_run.call_args[0][0]
         assert run_config.target_phase == "quality_review"
         assert run_config.contract == "executive_dashboard"
-        # Zone status should be appended when target_gate is set
-        assert "zone status" in result
+        # Zone status should be included when target_gate is set
+        assert result["gate_status"] == mock_zone
 
 
 class TestCreateServer:
