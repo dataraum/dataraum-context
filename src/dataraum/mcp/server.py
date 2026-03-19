@@ -809,6 +809,7 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
 
     g1 = gate_states.get("quality_review")
     g2 = gate_states.get("analysis_review")
+    g3 = gate_states.get("computation_review")
 
     if g1 is None:
         # Pipeline hasn't reached Gate 1 yet
@@ -836,8 +837,19 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
         lines.append(
             '- Use `continue_pipeline(target_gate="end")` to complete the pipeline after fixing'
         )
+    elif g3 is None:
+        # Gate 2 passing, Gate 3 not yet reached
+        lines.append(
+            '- Gates 1-2 clean — use `continue_pipeline(target_gate="end")` to complete'
+        )
+    elif g3 and g3 > 0:
+        # Gate 3 has violations
+        lines.append(
+            '- Use `get_quality(gate="computation_review")` to see violation details and fix actions'
+        )
+        lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
     else:
-        # Both gates passing
+        # All gates passing
         lines.append("- All gates passing — data is ready for use")
         lines.append("- Use `query` to ask questions about the data")
         lines.append("- Use `export` to export results")
@@ -1759,35 +1771,11 @@ def _get_zone_status(
                     )
 
             # Determine skipped detectors
-            # Detectors whose required_analyses aren't satisfied at this gate
-            _gate_analyses = {
-                "quality_review": {"TYPING", "STATISTICS", "RELATIONSHIPS", "SEMANTIC"},
-                "analysis_review": {
-                    "TYPING",
-                    "STATISTICS",
-                    "RELATIONSHIPS",
-                    "SEMANTIC",
-                    "ENRICHED_VIEWS",
-                    "SLICING",
-                    "CORRELATIONS",
-                    "TEMPORAL_SLICING",
-                    "QUALITY_SUMMARY",
-                },
-                "computation_review": {
-                    "TYPING",
-                    "STATISTICS",
-                    "RELATIONSHIPS",
-                    "SEMANTIC",
-                    "ENRICHED_VIEWS",
-                    "SLICING",
-                    "CORRELATIONS",
-                    "TEMPORAL_SLICING",
-                    "QUALITY_SUMMARY",
-                    "VALIDATION",
-                    "BUSINESS_CYCLES",
-                },
-            }
-            available = _gate_analyses.get(gate_phase, set())
+            # Detectors whose required_analyses aren't satisfied at this gate.
+            # Uses the canonical gate → analyses mapping from fixes/api.py.
+            from dataraum.pipeline.fixes.api import _analyses_for_gate
+
+            available = {a.value.upper() for a in _analyses_for_gate(gate_phase)}
             measured_ids = {id_map.get(dp, dp.rsplit(".", 1)[-1]) for dp in scores}
             skipped = []
             for d in registry.get_all_detectors():

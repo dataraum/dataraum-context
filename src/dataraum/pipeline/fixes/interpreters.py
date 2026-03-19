@@ -128,6 +128,7 @@ class MetadataInterpreter:
                 column=doc.column_name,
                 skipped_keys=list(field_updates),
             )
+            return  # Don't apply side effects if nothing was actually patched
 
         # Model-specific side effects
         _apply_model_defaults(model_name, instance)
