@@ -7,6 +7,7 @@ Output directory is resolved from DATARAUM_OUTPUT_DIR env var or passed to creat
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -34,6 +35,11 @@ _log = logging.getLogger(__name__)
 
 # Prevent background pipeline tasks from being garbage-collected.
 _background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _json_text_content(data: dict[str, Any]) -> list[TextContent]:
+    """Serialize a dict to JSON and wrap in MCP TextContent."""
+    return [TextContent(type="text", text=json.dumps(data, indent=2, default=str))]
 
 
 def _make_task_event_callback(
@@ -391,7 +397,7 @@ def create_server(output_dir: Path | None = None) -> Server:
     async def call_tool(
         name: str, arguments: dict[str, Any]
     ) -> list[TextContent] | CallToolResult | CreateTaskResult:
-        """Execute a tool and return results."""
+        """Execute a tool and return JSON results."""
         if name == "analyze":
             path = arguments.get("path")
             source_name = arguments.get("name")
@@ -402,7 +408,7 @@ def create_server(output_dir: Path | None = None) -> Server:
             if path:
                 source_path = Path(path)
                 if not source_path.exists():
-                    return [TextContent(type="text", text=f"Error: Path not found: {path}")]
+                    return _json_text_content({"error": f"Path not found: {path}"})
 
             display_label = path or "(registered sources)"
             ctx = server.request_context
@@ -413,7 +419,7 @@ def create_server(output_dir: Path | None = None) -> Server:
 
                 async def _work(task: ServerTaskContext) -> CallToolResult:
                     callback = _make_task_event_callback(task, loop)
-                    text = await asyncio.to_thread(
+                    result_dict = await asyncio.to_thread(
                         _analyze,
                         output_dir,
                         path,
@@ -422,7 +428,14 @@ def create_server(output_dir: Path | None = None) -> Server:
                         target_gate,
                         contract,
                     )
-                    return CallToolResult(content=[TextContent(type="text", text=text)])
+                    return CallToolResult(
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=json.dumps(result_dict, indent=2, default=str),
+                            )
+                        ]
+                    )
 
                 return await experimental.run_task(
                     _work,
@@ -439,11 +452,15 @@ def create_server(output_dir: Path | None = None) -> Server:
                 )
                 _background_tasks.add(bg)
                 bg.add_done_callback(_background_tasks.discard)
-                result = (
-                    f"Pipeline started for: {display_label}. "
-                    f"This typically takes 3–7 minutes depending on file size. "
-                    f"Call `get_context` every ~2 minutes to check progress."
-                )
+                result: dict[str, Any] = {
+                    "status": "started",
+                    "source": display_label,
+                    "message": (
+                        "Pipeline started. This typically takes 3-7 minutes "
+                        "depending on file size."
+                    ),
+                    "hint": "Call get_context every ~2 minutes to check progress.",
+                }
         elif name == "get_context":
             result = _get_context(output_dir)
         elif name == "get_quality":
@@ -483,10 +500,17 @@ def create_server(output_dir: Path | None = None) -> Server:
 
                 async def _cont_work(task: ServerTaskContext) -> CallToolResult:
                     callback = _make_task_event_callback(task, loop)
-                    text = await asyncio.to_thread(
+                    result_dict = await asyncio.to_thread(
                         _continue_pipeline, output_dir, target_gate, cont_source_path, callback
                     )
-                    return CallToolResult(content=[TextContent(type="text", text=text)])
+                    return CallToolResult(
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=json.dumps(result_dict, indent=2, default=str),
+                            )
+                        ]
+                    )
 
                 return await cont_experimental.run_task(
                     _cont_work,
@@ -506,10 +530,17 @@ def create_server(output_dir: Path | None = None) -> Server:
 
                 async def _fix_work(task: ServerTaskContext) -> CallToolResult:
                     await task.update_status("Applying fixes and re-running pipeline...")
-                    text = await asyncio.to_thread(
+                    result_dict = await asyncio.to_thread(
                         _apply_fix, output_dir, arguments["fixes"], fix_source_path
                     )
-                    return CallToolResult(content=[TextContent(type="text", text=text)])
+                    return CallToolResult(
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=json.dumps(result_dict, indent=2, default=str),
+                            )
+                        ]
+                    )
 
                 return await fix_experimental.run_task(
                     _fix_work,
@@ -521,9 +552,9 @@ def create_server(output_dir: Path | None = None) -> Server:
             else:
                 result = _apply_fix(output_dir, arguments["fixes"], fix_source_path)
         else:
-            result = f"Unknown tool: {name}"
+            result = {"error": f"Unknown tool: {name}"}
 
-        return [TextContent(type="text", text=result)]
+        return _json_text_content(result)
 
     return server
 
@@ -548,14 +579,15 @@ def _get_pipeline_source(session: Any) -> Any | None:
     return session.execute(select(Source).order_by(Source.created_at).limit(1)).scalar_one_or_none()
 
 
-_NO_DATA_MSG = (
-    "No analyzed data found at {path}. "
-    "This can happen if the output directory was cleared or never created.\n\n"
-    "To fix this, run the `analyze` tool:\n"
-    "  analyze(path='/path/to/your/data.csv')\n\n"
-    "If analysis results existed earlier in this conversation, "
-    "re-run `analyze` with the same source path to regenerate them."
-)
+def _no_data_error(path: Path) -> dict[str, Any]:
+    """Build error dict for missing pipeline output."""
+    return {
+        "error": f"No analyzed data found at {path}.",
+        "hint": (
+            "Run the analyze tool first: analyze(path='/path/to/your/data.csv'). "
+            "If analysis results existed earlier, re-run analyze with the same source path."
+        ),
+    }
 
 # Human-readable phase descriptions for progress reporting.
 # Keys must match the `name` property of each phase class.
@@ -599,11 +631,11 @@ async def _run_analyze_background(
         _log.exception("Background pipeline failed for %s", path or "(registered sources)")
 
 
-def _get_pipeline_progress(manager: Any) -> str | None:
-    """Check if a pipeline is running or recently failed and return a status message.
+def _get_pipeline_progress(manager: Any) -> dict[str, Any] | None:
+    """Check if a pipeline is running or recently failed.
 
     Returns:
-        Progress/error message string if running or failed, None if pipeline is idle.
+        Progress/error dict if running or failed, None if pipeline is idle.
     """
     from datetime import UTC, datetime
 
@@ -637,27 +669,26 @@ def _get_pipeline_progress(manager: Any) -> str | None:
 
         # Pipeline failed — surface the error
         if latest_run.status == "failed":
-            error_detail = f": {latest_run.error}" if latest_run.error else ""
-            # Collect failed phases for context
             failed_phases = session.execute(
                 select(PhaseLog.phase_name, PhaseLog.error).where(
                     PhaseLog.run_id == latest_run.run_id,
                     PhaseLog.status == "failed",
                 )
             ).all()
-            phase_detail = ""
-            if failed_phases:
-                details = [
-                    f"  - {name}: {err}" if err else f"  - {name}" for name, err in failed_phases
-                ]
-                phase_detail = "\nFailed phases:\n" + "\n".join(details)
-            return (
-                f"Error: Pipeline failed{error_detail}{phase_detail}\n\n"
-                f"Fix the issue and re-run `analyze`."
-            )
+            return {
+                "status": "pipeline_failed",
+                "error": latest_run.error or "Unknown error",
+                "failed_phases": [
+                    {"phase": name, "error": err} for name, err in failed_phases
+                ],
+                "hint": "Fix the issue and re-run analyze.",
+            }
 
         # Status is "running" — check if stale (process crashed without updating status)
-        age_minutes = (datetime.now(UTC) - latest_run.started_at).total_seconds() / 60
+        started = latest_run.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        age_minutes = (datetime.now(UTC) - started).total_seconds() / 60
         if age_minutes > _STALE_THRESHOLD_MINUTES:
             return None
 
@@ -689,19 +720,19 @@ def _get_pipeline_progress(manager: Any) -> str | None:
             if deps.issubset(completed_names):
                 running_phases.append(name)
 
-        current_detail = ""
-        if running_phases:
-            labels = [_PHASE_LABELS.get(p, p) for p in running_phases]
-            current_detail = f" Current: {', '.join(labels)}."
+        current_labels = [_PHASE_LABELS.get(p, p) for p in running_phases]
 
-        return (
-            f"Phase {completed_count} of {total_phases} complete.{current_detail}\n"
-            f"Call `get_context` again to check for completion."
-        )
+        return {
+            "status": "pipeline_running",
+            "completed": completed_count,
+            "total": total_phases,
+            "current_phases": current_labels,
+            "hint": "Call get_context again to check for completion.",
+        }
 
 
-def _build_pipeline_status(session: Any, source_id: str) -> str | None:
-    """Build a short pipeline status section for get_context.
+def _build_pipeline_status(session: Any, source_id: str) -> dict[str, Any] | None:
+    """Build pipeline status dict for get_context.
 
     Returns None if no pipeline runs exist.
     """
@@ -739,18 +770,13 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
     contract_name = run.config.get("contract") if run.config else None
     target_phase = run.config.get("target_phase") if run.config else None
 
-    lines = ["## Pipeline Status"]
-
-    # Contract
+    result: dict[str, Any] = {"phases_completed": phase_count}
     if contract_name:
-        lines.append(f"- Contract: {contract_name}")
-
-    # Phases completed
-    lines.append(f"- Phases completed: {phase_count}")
+        result["contract"] = contract_name
     if target_phase:
-        lines.append(f"- Stopped at: {target_phase}")
+        result["stopped_at"] = target_phase
 
-    # Check gates — track state for next steps
+    # Check gates
     contracts = get_contracts()
     contract = None
     if contract_name:
@@ -758,7 +784,8 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
     if not contract:
         contract = next(iter(contracts.values()), None) if contracts else None
 
-    gate_states: dict[str, int | None] = {}  # gate_phase -> violation count or None
+    gates: dict[str, dict[str, Any]] = {}
+    gate_states: dict[str, int | None] = {}
     for gate_phase, (zone_name, gate_label) in _GATE_ZONES.items():
         gate_log = session.execute(
             select(PhaseLog)
@@ -772,17 +799,25 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
         ).scalar_one_or_none()
 
         if not gate_log or not gate_log.outputs:
-            lines.append(f"- {gate_label} ({zone_name}): not yet reached")
+            gates[gate_phase] = {
+                "zone": zone_name,
+                "label": gate_label,
+                "status": "not_reached",
+            }
             gate_states[gate_phase] = None
             continue
 
         scores = gate_log.entropy_scores or {}
         if not scores:
-            lines.append(f"- {gate_label} ({zone_name}): measured, no scores")
+            gates[gate_phase] = {
+                "zone": zone_name,
+                "label": gate_label,
+                "status": "measured",
+                "violations": 0,
+            }
             gate_states[gate_phase] = 0
             continue
 
-        # Count violations
         n_violations = 0
         if contract:
             column_details = gate_log.outputs.get("gate_column_details", {})
@@ -797,66 +832,58 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
             )
             n_violations = len(issues)
 
-        if n_violations > 0:
-            lines.append(f"- {gate_label} ({zone_name}): {n_violations} violations")
-        else:
-            lines.append(f"- {gate_label} ({zone_name}): passing")
+        gates[gate_phase] = {
+            "zone": zone_name,
+            "label": gate_label,
+            "status": "violations" if n_violations > 0 else "passing",
+            "violations": n_violations,
+        }
         gate_states[gate_phase] = n_violations
 
-    # Next steps — contextual guidance based on pipeline state
-    lines.append("")
-    lines.append("### Next Steps")
+    result["gates"] = gates
 
+    # Next steps — contextual guidance
     g1 = gate_states.get("quality_review")
     g2 = gate_states.get("analysis_review")
     g3 = gate_states.get("computation_review")
 
+    next_steps: list[str] = []
     if g1 is None:
-        # Pipeline hasn't reached Gate 1 yet
-        lines.append("- Run `analyze(path='...', target_gate='quality_review')` to start")
+        next_steps.append("Run analyze(path='...', target_gate='quality_review') to start")
     elif g1 and g1 > 0:
-        # Gate 1 has violations
-        lines.append(
-            '- Use `get_quality(gate="quality_review")` to see violation details and fix actions'
-        )
-        lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
-        lines.append(
-            '- Use `continue_pipeline(target_gate="analysis_review")` to advance after fixing'
+        next_steps.append('Use get_quality(gate="quality_review") to see violations and fix actions')
+        next_steps.append("Use apply_fix(fixes=[...]) to apply fixes")
+        next_steps.append(
+            'Use continue_pipeline(target_gate="analysis_review") to advance after fixing'
         )
     elif g2 is None:
-        # Gate 1 passing, Gate 2 not yet reached
-        lines.append(
-            '- Gate 1 is clean — use `continue_pipeline(target_gate="analysis_review")` to advance'
+        next_steps.append(
+            'Gate 1 clean — use continue_pipeline(target_gate="analysis_review") to advance'
         )
     elif g2 and g2 > 0:
-        # Gate 2 has violations
-        lines.append(
-            '- Use `get_quality(gate="analysis_review")` to see violation details and fix actions'
+        next_steps.append(
+            'Use get_quality(gate="analysis_review") to see violations and fix actions'
         )
-        lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
-        lines.append(
-            '- Use `continue_pipeline(target_gate="end")` to complete the pipeline after fixing'
-        )
+        next_steps.append("Use apply_fix(fixes=[...]) to apply fixes")
+        next_steps.append('Use continue_pipeline(target_gate="end") to complete after fixing')
     elif g3 is None:
-        # Gate 2 passing, Gate 3 not yet reached
-        lines.append('- Gates 1-2 clean — use `continue_pipeline(target_gate="end")` to complete')
+        next_steps.append('Gates 1-2 clean — use continue_pipeline(target_gate="end") to complete')
     elif g3 and g3 > 0:
-        # Gate 3 has violations
-        lines.append(
-            '- Use `get_quality(gate="computation_review")` to see violation details and fix actions'
+        next_steps.append(
+            'Use get_quality(gate="computation_review") to see violations and fix actions'
         )
-        lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
+        next_steps.append("Use apply_fix(fixes=[...]) to apply fixes")
     else:
-        # All gates passing
-        lines.append("- All gates passing — data is ready for use")
-        lines.append("- Use `query` to ask questions about the data")
-        lines.append("- Use `export` to export results")
+        next_steps.append("All gates passing — data is ready for use")
+        next_steps.append("Use query to ask questions about the data")
+        next_steps.append("Use export to export results")
 
-    return "\n".join(lines)
+    result["next_steps"] = next_steps
+    return result
 
 
-def _build_contract_catalog(session: Any, table_ids: list[str]) -> str | None:
-    """Build a contract catalog section with live compliance status.
+def _build_contract_catalog(session: Any, table_ids: list[str]) -> dict[str, Any] | None:
+    """Build a contract catalog dict with live compliance status.
 
     Shows all available contracts with descriptions and, when entropy data
     is available, evaluates each one to show pass/fail and score.
@@ -883,60 +910,54 @@ def _build_contract_catalog(session: Any, table_ids: list[str]) -> str | None:
     except Exception:
         pass
 
-    lines = ["## Available Contracts"]
-    lines.append("")
+    catalog_contracts: list[dict[str, Any]] = []
 
     if column_summaries:
         evaluations = evaluate_all_contracts(column_summaries)
         best_name, _ = find_best_contract(column_summaries)
 
-        lines.append("| Contract | Description | Threshold | Score | Status |")
-        lines.append("|----------|-------------|-----------|-------|--------|")
-
         for c in contracts:
+            entry: dict[str, Any] = {
+                "name": c["name"],
+                "display_name": c["display_name"],
+                "description": c["description"],
+                "threshold": c["overall_threshold"],
+            }
             ev = evaluations.get(c["name"])
             if ev:
-                status = "PASS" if ev.is_compliant else "FAIL"
+                entry["score"] = round(ev.overall_score, 2)
+                entry["status"] = "PASS" if ev.is_compliant else "FAIL"
                 if c["name"] == best_name:
-                    status += " (strictest passing)"
-                score = f"{ev.overall_score:.2f}"
-            else:
-                status = "?"
-                score = "—"
-            lines.append(
-                f"| `{c['name']}` | {c['description']} "
-                f"| {c['overall_threshold']} | {score} | {status} |"
-            )
+                    entry["recommended"] = True
+            catalog_contracts.append(entry)
 
-        lines.append("")
+        result: dict[str, Any] = {"contracts": catalog_contracts}
         if best_name:
-            lines.append(
-                f"**Recommended:** `{best_name}` — strictest contract your data currently passes."
-            )
+            result["recommended"] = best_name
         else:
-            lines.append(
-                "**No contracts pass.** Use `get_quality(gate=...)` to see violations "
-                "and available fix actions, then `apply_fix` to address them."
+            result["hint"] = (
+                "No contracts pass. Use get_quality(gate=...) to see violations "
+                "and fix actions, then apply_fix to address them."
             )
     else:
-        lines.append(
-            "Compliance status available after pipeline runs entropy phase. "
-            "Pass `contract` to `analyze` to select one."
-        )
-        lines.append("")
         for c in contracts:
-            lines.append(
-                f"- **{c['display_name']}** (`{c['name']}`, "
-                f"threshold: {c['overall_threshold']}): {c['description']}"
+            catalog_contracts.append(
+                {
+                    "name": c["name"],
+                    "display_name": c["display_name"],
+                    "description": c["description"],
+                    "threshold": c["overall_threshold"],
+                }
             )
+        result = {
+            "contracts": catalog_contracts,
+            "hint": (
+                "Compliance status available after pipeline runs entropy phase. "
+                "Pass contract to analyze to select one."
+            ),
+        }
 
-    lines.append("")
-    lines.append(
-        "Use `analyze(contract='name')` or `get_quality(contract_name='name')` "
-        "to evaluate against a specific contract."
-    )
-
-    return "\n".join(lines)
+    return result
 
 
 def _analyze(
@@ -946,7 +967,7 @@ def _analyze(
     event_callback: EventCallback | None = None,
     target_gate: str | None = None,
     contract: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Run the pipeline on a data source.
 
     Args:
@@ -958,7 +979,7 @@ def _analyze(
         contract: Optional contract name to use for evaluation.
 
     Returns:
-        Formatted pipeline result summary, optionally with inline gate status.
+        Dict with pipeline result, optionally with inline gate status.
     """
     from dataraum.pipeline.runner import RunConfig, run
 
@@ -966,7 +987,7 @@ def _analyze(
     if path:
         source_path = Path(path)
         if not source_path.exists():
-            return f"Error: Path not found: {path}"
+            return {"error": f"Path not found: {path}"}
 
     # Fall back to cached contract from prior run
     resolved_contract = contract or _get_cached_contract(output_dir)
@@ -983,20 +1004,21 @@ def _analyze(
     result = run(config)
 
     if not result.success or not result.value:
-        return f"Error: Pipeline failed: {result.error}"
+        return {"error": f"Pipeline failed: {result.error}"}
 
-    text = format_pipeline_result(result.value)
+    result_dict = format_pipeline_result(result.value)
 
-    # When stopping at a gate, append inline zone status
+    # When stopping at a gate, append inline gate status
     if target_gate:
-        zone_status = _get_zone_status(output_dir, gate=target_gate, contract_name=contract)
-        text += "\n\n---\n\n" + zone_status
+        result_dict["gate_status"] = _get_zone_status(
+            output_dir, gate=target_gate, contract_name=contract
+        )
 
-    return text
+    return result_dict
 
 
-def _get_context(output_dir: Path) -> str:
-    """Get formatted context document, or progress status if pipeline is running."""
+def _get_context(output_dir: Path) -> dict[str, Any]:
+    """Get context document as structured dict, or progress status if pipeline is running."""
     from sqlalchemy import select
 
     from dataraum.core.connections import get_manager_for_directory
@@ -1006,7 +1028,7 @@ def _get_context(output_dir: Path) -> str:
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         # If pipeline is running or failed, return status instead of partial context
@@ -1018,7 +1040,7 @@ def _get_context(output_dir: Path) -> str:
             source = _get_pipeline_source(session)
 
             if not source:
-                return "Error: No sources found in database"
+                return {"error": "No sources found in database"}
 
             tables_result = session.execute(
                 select(Table).where(
@@ -1029,7 +1051,7 @@ def _get_context(output_dir: Path) -> str:
             tables = tables_result.scalars().all()
 
             if not tables:
-                return "Error: No tables found. Run pipeline first."
+                return {"error": "No tables found. Run pipeline first."}
 
             table_ids = [t.table_id for t in tables]
 
@@ -1040,43 +1062,44 @@ def _get_context(output_dir: Path) -> str:
                     duckdb_conn=cursor,
                 )
 
-            result = format_metadata_document(context, source_name=source.name)
+            # metadata_document stays as markdown — it's a rich narrative
+            # document used by multiple callers (query agent, graph agent).
+            result: dict[str, Any] = {
+                "metadata": format_metadata_document(context, source_name=source.name),
+            }
 
-            # Append pipeline status summary
+            # Pipeline status as structured data
             try:
-                status_section = _build_pipeline_status(session, source.source_id)
-                if status_section:
-                    result += "\n\n" + status_section
+                status = _build_pipeline_status(session, source.source_id)
+                if status:
+                    result["pipeline_status"] = status
             except Exception:
                 pass  # Pipeline status is non-critical
 
-            # Append contract catalog with live compliance status
+            # Contract catalog as structured data
             try:
-                contract_section = _build_contract_catalog(session, table_ids)
-                if contract_section:
-                    result += "\n\n" + contract_section
+                catalog = _build_contract_catalog(session, table_ids)
+                if catalog:
+                    result["contract_catalog"] = catalog
             except Exception:
                 pass  # Contract catalog is non-critical
 
-            # Append snippet knowledge base stats if available
+            # Snippet knowledge base stats
             try:
                 from dataraum.query.snippet_library import SnippetLibrary
 
                 library = SnippetLibrary(session)
                 stats = library.get_stats(schema_mapping_id=source.source_id)
                 if stats.get("total_snippets", 0) > 0:
-                    kb_lines = [
-                        "",
-                        "## SQL Knowledge Base",
-                        f"- Total snippets: {stats['total_snippets']}",
-                        f"- Validated (used at least once): {stats['validated_snippets']}",
-                    ]
+                    kb: dict[str, Any] = {
+                        "total_snippets": stats["total_snippets"],
+                        "validated_snippets": stats["validated_snippets"],
+                    }
                     if stats.get("snippets_by_type"):
-                        parts = [f"{t}: {c}" for t, c in stats["snippets_by_type"].items()]
-                        kb_lines.append(f"- By type: {', '.join(parts)}")
+                        kb["by_type"] = stats["snippets_by_type"]
                     if stats.get("cache_hit_rate", 0) > 0:
-                        kb_lines.append(f"- Cache hit rate: {stats['cache_hit_rate']:.1%}")
-                    result += "\n".join(kb_lines)
+                        kb["cache_hit_rate"] = round(stats["cache_hit_rate"], 3)
+                    result["sql_knowledge_base"] = kb
             except Exception:
                 pass  # Snippet stats are non-critical
 
@@ -1092,7 +1115,7 @@ def _get_quality(
     table_name: str | None = None,
     priority: str | None = None,
     include: list[str] | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Get unified data quality report or zone-specific gate status.
 
     When ``gate`` is set, delegates to ``_get_zone_status`` for per-gate
@@ -1115,14 +1138,14 @@ def _get_quality(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         with manager.session_scope() as session:
             source = _get_pipeline_source(session)
 
             if not source:
-                return "Error: No sources found"
+                return {"error": "No sources found"}
 
             tables_result = session.execute(
                 select(Table).where(
@@ -1149,7 +1172,7 @@ def _get_quality(
                 except Exception:
                     _log.debug("Network context unavailable", exc_info=True)
 
-            sections: dict[str, str] = {}
+            sections: dict[str, Any] = {}
 
             # --- Entropy section ---
             if "entropy" in sections_to_include:
@@ -1176,14 +1199,14 @@ def _build_entropy_section(
     network_context: Any,
     column_summaries: Any,
     table_name: str | None,
-) -> str:
+) -> dict[str, Any]:
     """Build entropy section for quality report."""
     from sqlalchemy import select
 
     from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
 
     if not network_context or network_context.total_columns == 0:
-        return "## Entropy\nNo entropy data available. Run entropy phase first."
+        return {"status": "unavailable", "message": "No entropy data. Run entropy phase first."}
 
     interp_query = select(EntropyInterpretationRecord).where(
         EntropyInterpretationRecord.source_id == source.source_id,
@@ -1217,7 +1240,7 @@ def _build_entropy_section(
 
     from dataraum.entropy.views.network_context import format_network_context
 
-    result += "\n\n" + format_network_context(network_context)
+    result["network_analysis"] = format_network_context(network_context)
 
     return result
 
@@ -1225,12 +1248,12 @@ def _build_entropy_section(
 def _build_contract_section(
     column_summaries: Any,
     contract_name: str | None,
-) -> str:
+) -> dict[str, Any]:
     """Build contract section for quality report."""
     from dataraum.entropy.contracts import evaluate_contract, get_contract, list_contracts
 
     if not column_summaries:
-        return "## Contract Evaluation\nNo data available for contract evaluation."
+        return {"status": "unavailable", "message": "No data available for contract evaluation."}
 
     # Auto-detect contract if not specified
     resolved_name = contract_name
@@ -1240,7 +1263,7 @@ def _build_contract_section(
 
     profile = get_contract(resolved_name)
     if profile is None:
-        return f"## Contract Evaluation\nContract not found: {resolved_name}"
+        return {"status": "error", "message": f"Contract not found: {resolved_name}"}
 
     evaluation = evaluate_contract(column_summaries, resolved_name)
     return format_contract_evaluation(evaluation, profile)
@@ -1251,14 +1274,14 @@ def _build_actions_section(
     source: Any,
     priority: str | None,
     table_name: str | None,
-) -> str:
+) -> dict[str, Any]:
     """Build actions section for quality report."""
     from dataraum.entropy.actions import load_actions
 
     actions = load_actions(session, source)
 
     if not actions:
-        return "## Resolution Actions\nNo actions available."
+        return {"total_actions": 0, "actions": []}
 
     if priority:
         actions = [a for a in actions if a["priority"] == priority]
@@ -1279,7 +1302,7 @@ def _query(
     output_dir: Path,
     question: str,
     contract_name: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Execute a natural language query."""
     from dataraum.core.connections import get_manager_for_directory
     from dataraum.query import answer_question
@@ -1287,14 +1310,14 @@ def _query(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         with manager.session_scope() as session:
             source = _get_pipeline_source(session)
 
             if not source:
-                return "Error: No sources found"
+                return {"error": "No sources found"}
 
             with manager.duckdb_cursor() as cursor:
                 result = answer_question(
@@ -1306,7 +1329,7 @@ def _query(
                 )
 
             if not result.success or not result.value:
-                return f"Error: {result.error}"
+                return {"error": str(result.error)}
 
             return format_query_result(result.value)
     finally:
@@ -1377,15 +1400,13 @@ def _get_or_create_manager(output_dir: Path) -> Any:
     return manager
 
 
-def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> str:
+def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> dict[str, Any]:
     """Scan workspace for data files and list existing registered sources."""
-    import json
-
     from dataraum.sources.discovery import discover_sources
 
     root = Path(scan_path).resolve()
     if not root.is_dir():
-        return f"Error: Directory not found: {scan_path}"
+        return {"error": f"Directory not found: {scan_path}"}
 
     # Get existing source names from the database if available
     existing_names: list[str] = []
@@ -1430,7 +1451,7 @@ def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> str:
     except FileNotFoundError:
         pass
 
-    # Format as structured output for LLM
+    # Format as structured output
     output: dict[str, Any] = {
         "scan_root": result.scan_root,
         "files": [
@@ -1448,23 +1469,24 @@ def _discover_sources(output_dir: Path, scan_path: str, recursive: bool) -> str:
     }
 
     if not result.files and not result.existing_sources:
-        return f"No data files found in {scan_path}. Try a different directory or add files."
+        output["hint"] = (
+            f"No data files found in {scan_path}. Try a different directory or add files."
+        )
+        return output
 
     # Add guidance
     unregistered = [f for f in output["files"] if not f["registered"]]
     if unregistered:
         output["hint"] = (
             f"{len(unregistered)} file(s) not yet registered. "
-            f"Use `add_source` to register them, then `analyze` to process all sources together."
+            f"Use add_source to register them, then analyze to process all sources together."
         )
 
-    return json.dumps(output, indent=2)
+    return output
 
 
-def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
+def _add_source(output_dir: Path, arguments: dict[str, Any]) -> dict[str, Any]:
     """Register a new data source."""
-    import json
-
     from sqlalchemy import select
 
     from dataraum.core.credentials import CredentialChain
@@ -1476,14 +1498,14 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
     backend = arguments.get("backend")
 
     if not path and not backend:
-        return "Error: Provide either 'path' (for files) or 'backend' (for databases)."
+        return {"error": "Provide either 'path' (for files) or 'backend' (for databases)."}
     if path and backend:
-        return "Error: Provide 'path' or 'backend', not both."
+        return {"error": "Provide 'path' or 'backend', not both."}
 
     try:
         manager = _get_or_create_manager(output_dir)
     except Exception as e:
-        return f"Error initializing database: {e}"
+        return {"error": f"Initializing database failed: {e}"}
 
     try:
         credential_chain = CredentialChain()
@@ -1510,7 +1532,7 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
                 result = src_mgr.add_file_source(name, path)
 
             if not result.success:
-                return f"Error: {result.error}"
+                return {"error": str(result.error)}
 
             session.commit()
 
@@ -1547,11 +1569,11 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> str:
                 "names": list(all_sources),
             }
             output["next_steps"] = (
-                "Add more sources with `add_source`, or call `analyze` "
+                "Add more sources with add_source, or call analyze "
                 "to process all registered sources together."
             )
 
-            return json.dumps(output, indent=2)
+            return output
     finally:
         manager.close()
 
@@ -1572,7 +1594,7 @@ def _get_zone_status(
     output_dir: Path,
     gate: str,
     contract_name: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Read persisted gate scores and format zone status for an agent.
 
     Args:
@@ -1591,14 +1613,14 @@ def _get_zone_status(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         with manager.session_scope() as session:
             # Find source
             source = _get_pipeline_source(session)
             if not source:
-                return "Error: No sources found."
+                return {"error": "No sources found."}
 
             # Find latest PhaseLog for the requested gate
             gate_phase = gate
@@ -1614,11 +1636,13 @@ def _get_zone_status(
             ).scalar_one_or_none()
 
             if not log or not log.outputs:
-                return (
-                    f"No gate measurement found for `{gate_phase}`. "
-                    f"The pipeline may not have reached this gate yet.\n\n"
-                    f"Run `analyze` first, then call `get_quality(gate='{gate_phase}')`."
-                )
+                return {
+                    "error": f"No gate measurement found for {gate_phase}.",
+                    "hint": (
+                        f"The pipeline may not have reached this gate yet. "
+                        f"Run analyze first, then call get_quality(gate='{gate_phase}')."
+                    ),
+                }
 
             outputs = log.outputs
             scores = log.entropy_scores or {}
@@ -1633,7 +1657,7 @@ def _get_zone_status(
                 contract = next(iter(contracts.values()), None) if contracts else None
 
             if not contract:
-                return "Error: No contract found."
+                return {"error": "No contract found."}
 
             thresholds = contract.dimension_thresholds
 
@@ -1802,7 +1826,7 @@ def _continue_pipeline(
     target_gate: str,
     source_path: str | None = None,
     event_callback: EventCallback | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Resume the pipeline from current position to the next zone boundary.
 
     Args:
@@ -1830,16 +1854,15 @@ def _continue_pipeline(
     result = run(config)
 
     if not result.success or not result.value:
-        return f"Error: Pipeline failed: {result.error}"
+        return {"error": f"Pipeline failed: {result.error}"}
 
-    text = format_pipeline_result(result.value)
+    result_dict = format_pipeline_result(result.value)
 
     # Append inline zone status when stopping at a gate
     if target_gate != "end":
-        zone_status = _get_zone_status(output_dir, gate=target_gate)
-        text += "\n\n---\n\n" + zone_status
+        result_dict["gate_status"] = _get_zone_status(output_dir, gate=target_gate)
 
-    return text
+    return result_dict
 
 
 def _export(
@@ -1848,18 +1871,18 @@ def _export(
     sql: str | None = None,
     export_path: str = "./export.csv",
     fmt: str = "csv",
-) -> str:
+) -> dict[str, Any]:
     """Export query results or SQL output to a file."""
     from dataraum.core.connections import get_manager_for_directory
     from dataraum.export import ExportFormat, export_query_result, export_sql
 
     if not question and not sql:
-        return "Error: Provide either 'question' or 'sql'."
+        return {"error": "Provide either 'question' or 'sql'."}
     if question and sql:
-        return "Error: Provide 'question' or 'sql', not both."
+        return {"error": "Provide 'question' or 'sql', not both."}
 
     if fmt not in ("csv", "parquet", "json"):
-        return f"Error: Unknown format '{fmt}'. Use csv, parquet, or json."
+        return {"error": f"Unknown format '{fmt}'. Use csv, parquet, or json."}
 
     export_fmt: ExportFormat = fmt  # type: ignore[assignment]
     dest = Path(export_path)
@@ -1867,7 +1890,7 @@ def _export(
     try:
         manager = get_manager_for_directory(output_dir)
     except FileNotFoundError:
-        return _NO_DATA_MSG.format(path=output_dir)
+        return _no_data_error(output_dir)
 
     try:
         if question:
@@ -1877,7 +1900,7 @@ def _export(
             with manager.session_scope() as session:
                 source = _get_pipeline_source(session)
                 if not source:
-                    return "Error: No sources found"
+                    return {"error": "No sources found"}
 
                 with manager.duckdb_cursor() as cursor:
                     query_result = answer_question(
@@ -1888,11 +1911,11 @@ def _export(
                     )
 
                 if not query_result.success or not query_result.value:
-                    return f"Error: Query failed: {query_result.error}"
+                    return {"error": f"Query failed: {query_result.error}"}
 
                 qr = query_result.value
                 if not qr.data or not qr.columns:
-                    return f"Error: Query returned no tabular data. Answer: {qr.answer}"
+                    return {"error": f"Query returned no tabular data. Answer: {qr.answer}"}
 
                 exported = export_query_result(qr, dest, fmt=export_fmt)
                 sidecar = exported.with_suffix(exported.suffix + ".meta.json")
@@ -1904,15 +1927,13 @@ def _export(
                 exported = export_sql(sql, cursor, dest, fmt=export_fmt)
                 sidecar = exported.with_suffix(exported.suffix + ".meta.json")
                 # Get row count from sidecar
-                import json as json_mod
-
                 with open(sidecar) as f:
-                    meta = json_mod.load(f)
+                    meta = json.load(f)
                 return format_export_result(
                     str(exported), fmt, meta.get("row_count", 0), str(sidecar)
                 )
     except Exception as e:
-        return f"Error: Export failed: {e}"
+        return {"error": f"Export failed: {e}"}
     finally:
         manager.close()
 
@@ -1960,10 +1981,10 @@ def _apply_fix(
     output_dir: Path,
     fixes: list[dict[str, Any]],
     source_path: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Apply fixes and re-run affected pipeline phases.
 
-    Resolves action → FixSchema → FixDocuments via the bridge, then
+    Resolves action -> FixSchema -> FixDocuments via the bridge, then
     applies, logs to fix ledger, and reports before/after score deltas.
 
     Args:
@@ -1972,7 +1993,7 @@ def _apply_fix(
         source_path: Optional path to original source data.
 
     Returns:
-        Formatted before/after delta report.
+        Dict with fix results and before/after score deltas.
     """
     from dataraum.core.connections import get_manager_for_directory
     from dataraum.documentation.ledger import log_fix
@@ -1994,11 +2015,11 @@ def _apply_fix(
         try:
             table_name, column_name = _parse_target(target)
         except ValueError as e:
-            return f"Error: Invalid target: {e}"
+            return {"error": f"Invalid target: {e}"}
 
         schema = get_fix_schema(action)
         if schema is None:
-            return f"Error: Unknown action '{action}'"
+            return {"error": f"Unknown action '{action}'"}
 
         dimension = schema.dimension_path
 
@@ -2026,7 +2047,7 @@ def _apply_fix(
         )
 
     if not all_documents:
-        return "No fix documents generated. Check action names and parameters."
+        return {"error": "No fix documents generated. Check action names and parameters."}
 
     # Determine the latest gate needed for re-measurement
     gate_order = ["quality_review", "analysis_review", "computation_review"]
@@ -2046,7 +2067,7 @@ def _apply_fix(
     )
 
     if not result.success:
-        return f"Error: Fix application failed: {result.error}"
+        return {"error": f"Fix application failed: {result.error}"}
 
     # Log to fix ledger for audit trail
     try:
@@ -2070,32 +2091,37 @@ def _apply_fix(
     except Exception:
         pass  # Ledger logging is best-effort
 
-    lines = [
-        "## Fix Results",
-        "",
-        f"Applied {len(result.applied_fixes)} fix(es).",
-    ]
+    output: dict[str, Any] = {
+        "fixes_applied": len(result.applied_fixes),
+    }
     if result.phases_rerun:
-        lines.append(f"Phases re-run: {', '.join(result.phases_rerun)}")
-    lines.append("")
+        output["phases_rerun"] = result.phases_rerun
 
+    # Build score deltas
     all_dims = set(result.gate_before.keys()) | set(result.gate_after.keys())
-    if all_dims:
-        lines.append("| Dimension | Target | Before | After | Delta |")
-        lines.append("|-----------|--------|--------|-------|-------|")
-        for dim in sorted(all_dims):
-            before_targets = result.gate_before.get(dim, {})
-            after_targets = result.gate_after.get(dim, {})
-            all_targets = set(before_targets.keys()) | set(after_targets.keys())
-            for target in sorted(all_targets):
-                b = before_targets.get(target, 0.0)
-                a = after_targets.get(target, 0.0)
-                delta = a - b
-                if abs(delta) > 0.001:
-                    sign = "+" if delta > 0 else ""
-                    lines.append(f"| {dim} | {target} | {b:.3f} | {a:.3f} | {sign}{delta:.3f} |")
+    deltas: list[dict[str, Any]] = []
+    for dim in sorted(all_dims):
+        before_targets = result.gate_before.get(dim, {})
+        after_targets = result.gate_after.get(dim, {})
+        all_targets = set(before_targets.keys()) | set(after_targets.keys())
+        for target in sorted(all_targets):
+            b = before_targets.get(target, 0.0)
+            a = after_targets.get(target, 0.0)
+            delta = a - b
+            if abs(delta) > 0.001:
+                deltas.append(
+                    {
+                        "dimension": dim,
+                        "target": target,
+                        "before": round(b, 3),
+                        "after": round(a, 3),
+                        "delta": round(delta, 3),
+                    }
+                )
+    if deltas:
+        output["score_deltas"] = deltas
 
-    return "\n".join(lines)
+    return output
 
 
 async def run_server() -> None:

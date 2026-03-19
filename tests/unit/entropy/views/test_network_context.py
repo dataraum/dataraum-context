@@ -744,17 +744,18 @@ class TestFormatNetworkContext:
     def test_empty_context_shows_ready(self):
         ctx = EntropyForNetwork()
         result = format_network_context(ctx)
-        assert "READY" in result
+        assert isinstance(result, dict)
+        assert result["overall_readiness"] == "READY"
 
     def test_blocked_context(self):
         ctx = EntropyForNetwork(overall_readiness="blocked")
         result = format_network_context(ctx)
-        assert "BLOCKED" in result
+        assert result["overall_readiness"] == "BLOCKED"
 
     def test_investigate_status(self):
         ctx = EntropyForNetwork(overall_readiness="investigate")
         result = format_network_context(ctx)
-        assert "INVESTIGATE" in result
+        assert result["overall_readiness"] == "INVESTIGATE"
 
     def test_column_counts_in_header(self):
         ctx = EntropyForNetwork(
@@ -765,11 +766,11 @@ class TestFormatNetworkContext:
             total_direct_signals=5,
         )
         result = format_network_context(ctx)
-        assert "47 columns analyzed" in result
-        assert "3 blocked" in result
-        assert "8 investigate" in result
-        assert "36 ready" in result
-        assert "5 direct signals" in result
+        assert result["total_columns"] == 47
+        assert result["columns_blocked"] == 3
+        assert result["columns_investigate"] == 8
+        assert result["columns_ready"] == 36
+        assert result["total_direct_signals"] == 5
 
     def test_intent_readiness_table(self):
         ctx = EntropyForNetwork(
@@ -786,10 +787,11 @@ class TestFormatNetworkContext:
             ],
         )
         result = format_network_context(ctx)
-        assert "Intent Readiness" in result
-        assert "aggregation_intent" in result
-        assert "0.645" in result
-        assert "0.120" in result
+        assert "intents" in result
+        intent = result["intents"][0]
+        assert intent["intent"] == "aggregation_intent"
+        assert intent["worst_p_high"] == 0.645
+        assert intent["mean_p_high"] == 0.120
 
     def test_top_fix_shown(self):
         ctx = EntropyForNetwork(
@@ -810,10 +812,11 @@ class TestFormatNetworkContext:
             ),
         )
         result = format_network_context(ctx)
-        assert "Top Fix" in result
-        assert "unit_declaration" in result
-        assert "7 columns" in result
-        assert "document_unit" in result
+        assert "top_fix" in result
+        tf = result["top_fix"]
+        assert tf["node"] == "unit_declaration"
+        assert tf["columns_affected"] == 7
+        assert tf["best_action"]["action"] == "document_unit"
 
     def test_at_risk_columns_shown(self):
         ctx = EntropyForNetwork(
@@ -840,18 +843,19 @@ class TestFormatNetworkContext:
             },
         )
         result = format_network_context(ctx)
-        assert "At-Risk Columns" in result
-        assert "column:t.c1" in result
-        assert "0.645" in result
-        assert "impact=0.143" in result
+        assert "at_risk_columns" in result
+        at_risk = result["at_risk_columns"]
+        assert len(at_risk) == 1
+        assert at_risk[0]["target"] == "column:t.c1"
+        assert at_risk[0]["worst_intent_p_high"] == 0.645
+        assert at_risk[0]["high_nodes"][0]["impact_delta"] == 0.143
 
     def test_healthy_columns_shown(self):
         ctx = EntropyForNetwork(
             columns_ready=36,
         )
         result = format_network_context(ctx)
-        assert "Healthy Columns" in result
-        assert "36 columns" in result
+        assert result["columns_ready"] == 36
 
     def test_direct_signals_listed(self):
         ctx = EntropyForNetwork(
@@ -865,10 +869,10 @@ class TestFormatNetworkContext:
             ],
         )
         result = format_network_context(ctx)
-        assert "Direct Signals" in result
-        assert "cross_column_patterns" in result
+        assert "direct_signals" in result
+        assert result["direct_signals"][0]["dimension_path"] == "semantic.dimensional.cross_column_patterns"
 
     def test_empty_columns_no_at_risk(self):
         ctx = EntropyForNetwork()
         result = format_network_context(ctx)
-        assert "At-Risk" not in result
+        assert "at_risk_columns" not in result
