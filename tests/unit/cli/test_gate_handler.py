@@ -306,7 +306,7 @@ class TestRunFixFlow:
         input_values = iter(["y"])
 
         with (
-            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_batch_plan_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, session, source_id, group, event)
@@ -348,7 +348,7 @@ class TestRunFixFlow:
         input_values = iter(["n"])
 
         with (
-            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_batch_plan_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(
@@ -376,7 +376,7 @@ class TestRunFixFlow:
         mock_agent.generate_batch_plan.return_value = Result.fail("API error")
 
         with patch(
-            "dataraum.cli.gate_handler._create_document_agent",
+            "dataraum.cli.gate_handler._create_batch_plan_agent",
             return_value=mock_agent,
         ):
             result = _run_fix_flow(
@@ -414,7 +414,7 @@ class TestRunFixFlow:
         input_values = iter(["answer"])
 
         with (
-            patch("dataraum.cli.gate_handler._create_document_agent", return_value=mock_agent),
+            patch("dataraum.cli.gate_handler._create_batch_plan_agent", return_value=mock_agent),
             patch.object(console, "input", side_effect=lambda _: next(input_values)),
         ):
             result = _run_fix_flow(console, MagicMock(), "src", group, event)

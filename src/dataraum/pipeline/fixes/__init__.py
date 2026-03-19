@@ -20,7 +20,7 @@ import yaml
 class FixInput:
     """Structured user decision after agent interpretation.
 
-    Produced by the DocumentAgent in config mode, consumed by the bridge
+    Produced by the BatchPlanAgent or MCP apply_fix, consumed by the bridge
     function to build FixDocuments.
 
     Args:

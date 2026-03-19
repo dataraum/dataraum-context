@@ -2,7 +2,7 @@
 
 Renders post-verification results during the pipeline run.
 In interactive mode (``dataraum fix``), provides a fix UI with
-DocumentAgent config-mode Q&A.
+BatchPlanAgent for one-shot triage.
 """
 
 from __future__ import annotations
@@ -430,7 +430,7 @@ def _run_fix_flow(
     context = build_gate_context(session, source_id, group, event)
 
     try:
-        agent = _create_document_agent()
+        agent = _create_batch_plan_agent()
     except Exception as e:
         console.print(f"[red]Failed to initialize LLM: {e}[/red]")
         return Resolution(action=ResolutionAction.DEFER)
@@ -564,7 +564,7 @@ def build_gate_context(
     group: _DimensionFixGroup,
     event: PipelineEvent,
 ) -> str:
-    """Build context for DocumentAgent config mode at a quality gate.
+    """Build context for BatchPlanAgent at a quality gate.
 
     Lighter than _build_agent_context() in fix.py — works at Gate 1
     where EntropyInterpretationRecord doesn't yet exist. Uses detector
@@ -771,9 +771,9 @@ def _build_data_profile(
 # ---------------------------------------------------------------------------
 
 
-def _create_document_agent() -> Any:
-    """Create a DocumentAgent with the configured LLM provider."""
-    from dataraum.documentation.agent import DocumentAgent
+def _create_batch_plan_agent() -> Any:
+    """Create a BatchPlanAgent with the configured LLM provider."""
+    from dataraum.documentation.agent import BatchPlanAgent
     from dataraum.llm import PromptRenderer, create_provider, load_llm_config
 
     config = load_llm_config()
@@ -785,7 +785,7 @@ def _create_document_agent() -> Any:
     renderer = PromptRenderer()
     model = provider.get_model_for_tier("capable")
 
-    return DocumentAgent(
+    return BatchPlanAgent(
         provider=provider,
         renderer=renderer,
         model=model,
