@@ -501,9 +501,7 @@ def format_zone_status(
     # Next steps guidance
     lines.append("## Next Steps")
     if violations:
-        lines.append(
-            "- Review triage guidance above and pick an action for each violation"
-        )
+        lines.append("- Review triage guidance above and pick an action for each violation")
         lines.append(
             '- Call `apply_fix(fixes=[{action: "...", target: "column:table.col", '
             'parameters: {...}, reason: "..."}])` to apply fixes'

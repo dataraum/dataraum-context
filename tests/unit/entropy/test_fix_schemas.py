@@ -128,9 +128,7 @@ class TestSchemaFields:
         all_schemas = get_all_schemas(config_path=_FIXES_YAML)
         for det_id, schemas in all_schemas.items():
             for schema in schemas:
-                assert schema.target != "data", (
-                    f"{det_id}/{schema.action} has target='data'"
-                )
+                assert schema.target != "data", f"{det_id}/{schema.action} has target='data'"
 
     def test_metadata_acceptance_schema(self) -> None:
         schema = get_fix_schema(

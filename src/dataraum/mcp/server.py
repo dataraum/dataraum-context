@@ -378,8 +378,7 @@ def create_server(output_dir: Path | None = None) -> Server:
                         "source_path": {
                             "type": "string",
                             "description": (
-                                "Path to original source data. "
-                                "Auto-resolved if omitted."
+                                "Path to original source data. Auto-resolved if omitted."
                             ),
                         },
                     },
@@ -816,7 +815,9 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
         lines.append("- Run `analyze(path='...', target_gate='quality_review')` to start")
     elif g1 and g1 > 0:
         # Gate 1 has violations
-        lines.append('- Use `get_quality(gate="quality_review")` to see violation details and fix actions')
+        lines.append(
+            '- Use `get_quality(gate="quality_review")` to see violation details and fix actions'
+        )
         lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
         lines.append(
             '- Use `continue_pipeline(target_gate="analysis_review")` to advance after fixing'
@@ -828,7 +829,9 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
         )
     elif g2 and g2 > 0:
         # Gate 2 has violations
-        lines.append('- Use `get_quality(gate="analysis_review")` to see violation details and fix actions')
+        lines.append(
+            '- Use `get_quality(gate="analysis_review")` to see violation details and fix actions'
+        )
         lines.append("- Use `apply_fix(fixes=[...])` to apply fixes")
         lines.append(
             '- Use `continue_pipeline(target_gate="end")` to complete the pipeline after fixing'
@@ -2109,9 +2112,7 @@ def _apply_fix(
                 delta = a - b
                 if abs(delta) > 0.001:
                     sign = "+" if delta > 0 else ""
-                    lines.append(
-                        f"| {dim} | {target} | {b:.3f} | {a:.3f} | {sign}{delta:.3f} |"
-                    )
+                    lines.append(f"| {dim} | {target} | {b:.3f} | {a:.3f} | {sign}{delta:.3f} |")
 
     return "\n".join(lines)
 

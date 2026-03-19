@@ -55,9 +55,7 @@ class TestGenerateBatchPlan:
         provider.converse.return_value = Result.ok(
             ConversationResponse(
                 content="",
-                tool_calls=[
-                    ToolCall(id="tc1", name="batch_action_plan", input=plan_data)
-                ],
+                tool_calls=[ToolCall(id="tc1", name="batch_action_plan", input=plan_data)],
                 stop_reason="tool_use",
                 model="test-model",
                 input_tokens=100,
