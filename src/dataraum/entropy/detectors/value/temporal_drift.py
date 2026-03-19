@@ -4,7 +4,6 @@ Measures uncertainty from distribution drift over time.
 Uses max Jensen-Shannon divergence from ColumnDriftSummary records.
 """
 
-from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
 from dataraum.entropy.models import EntropyObject, ResolutionOption
@@ -103,13 +102,6 @@ class TemporalDriftDetector(EntropyDetector):
         if col_summary is None:
             return []
 
-        # Load config for accepted_columns
-        config = get_entropy_config()
-        detector_config = config.detector("temporal_drift")
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
-
         max_js = col_summary.max_js_divergence
 
         # Score mapping: piecewise linear
@@ -149,7 +141,7 @@ class TemporalDriftDetector(EntropyDetector):
         if score > 0:
             resolution_options.append(
                 ResolutionOption(
-                    action="accept_finding",
+                    action="document_accepted_temporal_drift",
                     parameters={
                         "column": context.column_name,
                         "detector_id": self.detector_id,
@@ -158,11 +150,6 @@ class TemporalDriftDetector(EntropyDetector):
                     description="Accept temporal drift as expected (seasonal, growth, etc.)",
                 )
             )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

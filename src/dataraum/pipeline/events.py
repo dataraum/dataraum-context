@@ -59,6 +59,9 @@ class PipelineEvent:
     # EXIT_CHECK: per-target component evidence for smart context
     # dim_path -> target -> {component_key: value}
     column_evidence: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
+    # EXIT_CHECK: accepted targets from DataFix records
+    # dim_path -> {target, ...}
+    accepted_targets: dict[str, set[str]] = field(default_factory=dict)
 
 
 # Callback type for structured events

@@ -156,7 +156,10 @@ def load_yaml_config(relative_path: str) -> dict[str, Any]:
     return result
 
 
-def load_phase_config(phase_name: str) -> dict[str, Any]:
+def load_phase_config(
+    phase_name: str,
+    config_root: Path | None = None,
+) -> dict[str, Any]:
     """Load config for a pipeline phase by convention.
 
     Looks for config/phases/<phase_name>.yaml. Returns empty dict if the
@@ -164,6 +167,7 @@ def load_phase_config(phase_name: str) -> dict[str, Any]:
 
     Args:
         phase_name: Phase name, e.g. "statistics" -> config/phases/statistics.yaml
+        config_root: Optional config root override. Uses default if None.
 
     Returns:
         Parsed YAML content as a dict, or empty dict if file doesn't exist.
@@ -171,7 +175,8 @@ def load_phase_config(phase_name: str) -> dict[str, Any]:
     Raises:
         yaml.YAMLError: If the file exists but contains invalid YAML.
     """
-    config_root = _get_config_root()
+    if config_root is None:
+        config_root = _get_config_root()
     path = config_root / "phases" / f"{phase_name}.yaml"
     if not path.exists():
         return {}

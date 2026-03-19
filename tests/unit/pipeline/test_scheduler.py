@@ -939,9 +939,7 @@ class TestMeasureAtGate:
         assert "semantic.dimensional.cross_column_patterns" in gate_result.scores
 
 
-def _make_test_fix_schema(
-    action: str, phase_name: str
-) -> FixSchema:
+def _make_test_fix_schema(action: str, phase_name: str) -> FixSchema:
     """Create a test FixSchema."""
     return FixSchema(
         action=action,
@@ -1286,18 +1284,15 @@ class TestPostprocessFixRouting:
         )
 
         fix_input = FixInput(
-            action_name="accept_finding",
+            action_name="document_accepted_type_fidelity",
             affected_columns=["orders.amount"],
         )
 
         # Create a postprocess schema (routing="postprocess", no requires_rerun)
         postprocess_schema = FixSchema(
-            action="accept_finding",
-            target="config",
+            action="document_accepted_type_fidelity",
+            target="metadata",
             description="Accept finding",
-            config_path="entropy/thresholds.yaml",
-            key_path=["detectors", "test", "accepted_columns"],
-            operation="append",
             routing="postprocess",
             gate="quality_review",
             fields={},
@@ -1313,7 +1308,9 @@ class TestPostprocessFixRouting:
                 return GateResult(scores={"structural.types.type_fidelity": 0.8})
             return GateResult(scores={"structural.types.type_fidelity": 0.1})
 
-        detector_registry, _ = _make_test_detector_registry("accept_finding", "alpha")
+        detector_registry, _ = _make_test_detector_registry(
+            "document_accepted_type_fidelity", "alpha"
+        )
 
         with (
             patch(

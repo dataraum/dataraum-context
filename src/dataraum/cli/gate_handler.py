@@ -29,7 +29,7 @@ def render_gate_scores(
     contract_thresholds: dict[str, float] | None = None,
     phase_name: str | None = None,
     column_details: dict[str, dict[str, float]] | None = None,
-    column_evidence: dict[str, dict[str, dict[str, Any]]] | None = None,
+    accepted_targets: dict[str, set[str]] | None = None,
 ) -> None:
     """Render all gate measurement scores as a Rich panel.
 
@@ -43,14 +43,15 @@ def render_gate_scores(
         contract_thresholds: Contract thresholds keyed by dimension path.
         phase_name: Name of the gate phase.
         column_details: Per-column scores for accepted detection.
-        column_evidence: Per-column evidence with accepted flags.
+        accepted_targets: Dimension path -> set of accepted target strings
+            from DataFix records.
     """
     if not scores:
         return
 
     thresholds = contract_thresholds or {}
     col_details = column_details or {}
-    col_evidence = column_evidence or {}
+    accepted = accepted_targets or {}
 
     table = Table(show_header=True, box=None, padding=(0, 2))
     table.add_column("Dimension", style="bold")
@@ -71,7 +72,7 @@ def render_gate_scores(
         if threshold is not None:
             if score > threshold:
                 # Check if all above-threshold targets are accepted
-                if _is_dimension_accepted(dim_path, threshold, col_details, col_evidence):
+                if _is_dimension_accepted(dim_path, threshold, col_details, accepted):
                     accepted_count += 1
                     color = "cyan"
                     status = "[cyan]ACCEPTED[/cyan]"
@@ -127,24 +128,24 @@ def _is_dimension_accepted(
     dim_path: str,
     threshold: float,
     column_details: dict[str, dict[str, float]],
-    column_evidence: dict[str, dict[str, dict[str, Any]]],
+    accepted_targets: dict[str, set[str]],
 ) -> bool:
     """Check if a dimension's above-threshold targets are all accepted.
 
     Returns True if there are above-threshold targets and every one of
-    them has ``evidence.accepted=True``. This mirrors the contract
-    overrule logic in ``assess_contracts``.
+    them is in the accepted_targets set (from DataFix records). This
+    mirrors the contract overrule logic in ``assess_contracts``.
     """
     col_scores = column_details.get(dim_path, {})
     if not col_scores:
         return False
 
-    dim_ev = column_evidence.get(dim_path, {})
+    dim_accepted = accepted_targets.get(dim_path, set())
     above_threshold = [t for t, s in col_scores.items() if s > threshold]
     if not above_threshold:
         return False
 
-    return all(dim_ev.get(t, {}).get("accepted", False) for t in above_threshold)
+    return all(t in dim_accepted for t in above_threshold)
 
 
 def render_violations(
@@ -154,7 +155,7 @@ def render_violations(
     all_scores: dict[str, float] | None = None,
     contract_thresholds: dict[str, float] | None = None,
     phase_name: str | None = None,
-    column_evidence: dict[str, dict[str, dict[str, Any]]] | None = None,
+    accepted_targets: dict[str, set[str]] | None = None,
 ) -> None:
     """Render post-verification violations as a Rich panel.
 
@@ -165,7 +166,8 @@ def render_violations(
         all_scores: All measured entropy scores (for distance-to-green display).
         contract_thresholds: Contract thresholds keyed by dimension path.
         phase_name: Name of the phase that triggered the check.
-        column_evidence: Per-column evidence for accepted detection.
+        accepted_targets: Dimension path -> set of accepted target strings
+            from DataFix records.
     """
     if not violations:
         return
@@ -212,7 +214,7 @@ def render_violations(
 
     # Show passing and accepted dimensions
     col_det = column_details or {}
-    col_ev = column_evidence or {}
+    accepted_map = accepted_targets or {}
 
     if all_scores and contract_thresholds:
         passing_rows: list[tuple[str, float, float, float, bool]] = []
@@ -223,7 +225,7 @@ def render_violations(
             if matched is not None:
                 threshold = matched
                 headroom = threshold - score
-                accepted = _is_dimension_accepted(dim_path, threshold, col_det, col_ev)
+                accepted = _is_dimension_accepted(dim_path, threshold, col_det, accepted_map)
                 passing_rows.append((dim_path, score, threshold, headroom, accepted))
 
         if passing_rows:
@@ -291,7 +293,7 @@ def handle_exit_check_interactive(
         all_scores=event.scores or None,
         contract_thresholds=contract_thresholds,
         phase_name=event.phase,
-        column_evidence=event.column_evidence,
+        accepted_targets=event.accepted_targets,
     )
 
     # Collect available fixes grouped by dimension
@@ -519,7 +521,7 @@ def _run_fix_flow(
             params["table"] = item.target.split(":", 1)[1]
 
         # Thread follow-up answers into parameters as "reason"
-        # (accept_finding's only user-provided parameter)
+        # (document_accepted_*'s only user-provided parameter)
         if follow_up_answers and "reason" not in params:
             # Use first follow-up answer as reason
             first_answer = next(iter(follow_up_answers.values()), None)
@@ -595,7 +597,8 @@ def build_gate_context(
         f"Affected columns: {', '.join(affected_targets)}",
         "",
         "Choose the BEST action for each violating target.",
-        "Prefer corrective actions (recalculate, override, add pattern) over accept_finding.",
+        "Prefer corrective actions (recalculate, override, add pattern) "
+        "over document_accepted_* actions.",
         "",
     ]
     for i, action in enumerate(group.actions, 1):
@@ -644,11 +647,7 @@ def build_gate_context(
             if ev:
                 components = []
                 for k, v in sorted(ev.items()):
-                    if k == "accepted":
-                        if v:
-                            components.append("ACCEPTED")
-                    else:
-                        components.append(f"{k}={v}")
+                    components.append(f"{k}={v}")
                 if components:
                     line += f" [{', '.join(components)}]"
             evidence_lines.append(line)

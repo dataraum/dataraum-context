@@ -117,11 +117,11 @@ class TestNetworkEnrichesExistingActions:
     """Network adds causal impact to actions from LLM."""
 
     def test_network_adds_impact_to_llm_action(self):
-        # LLM produces declare_unit action
+        # LLM produces document_unit action
         interp = FakeInterp(
             resolution_actions_json=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "Add unit declaration",
                     "effort": "low",
                     "expected_impact": "Reduces semantic.units entropy",
@@ -129,14 +129,14 @@ class TestNetworkEnrichesExistingActions:
             ],
         )
 
-        # Network also sees unit_declaration node with resolution_option "declare_unit"
+        # Network also sees unit_declaration node with resolution_option "document_unit"
         ne = _make_node_evidence(
             node_name="unit_declaration",
             state="high",
             impact_delta=0.25,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "Add unit declaration",
                     "effort": "low",
                     "parameters": {},
@@ -162,7 +162,7 @@ class TestNetworkEnrichesExistingActions:
 
         assert len(result) == 1
         action = result[0]
-        assert action["action"] == "declare_unit"
+        assert action["action"] == "document_unit"
         assert action["from_llm"] is True
         assert action["network_impact"] == 0.25
         assert action["network_columns"] == 1
@@ -175,7 +175,7 @@ class TestNetworkEnrichesExistingActions:
             impact_delta=0.25,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -190,7 +190,7 @@ class TestNetworkEnrichesExistingActions:
             impact_delta=0.10,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -231,7 +231,7 @@ class TestNetworkEnrichesExistingActions:
             impact_delta=0.0,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -341,7 +341,7 @@ class TestNetworkImpactPriorityScoring:
         interp = FakeInterp(
             resolution_actions_json=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "Add unit declaration",
                     "effort": "low",
                     "expected_impact": "Reduces semantic.units entropy",
@@ -363,7 +363,7 @@ class TestNetworkImpactPriorityScoring:
             impact_delta=0.50,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -659,7 +659,7 @@ class TestScoreDerivedPriority:
             impact_delta=2.0,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "Add unit",
                     "effort": "low",
                     "parameters": {},
@@ -693,7 +693,7 @@ class TestScoreDerivedPriority:
             impact_delta=0.50,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "Add unit",
                     "effort": "low",
                     "parameters": {},
@@ -727,7 +727,7 @@ class TestScoreDerivedPriority:
             impact_delta=0.10,
             resolution_options=[
                 {
-                    "action": "declare_unit",
+                    "action": "document_unit",
                     "description": "Add unit",
                     "effort": "high",  # effort_factor = 4.0
                     "parameters": {},

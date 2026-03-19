@@ -39,6 +39,9 @@ def build_fix_documents(
     if schema.target == "data":
         return _build_data_documents(schema, fix_input, table_name, column_name, dimension)
 
+    if schema.target == "metadata":
+        return _build_metadata_documents(schema, fix_input, table_name, column_name, dimension)
+
     if schema.target != "config":
         return []
 
@@ -74,8 +77,8 @@ def _build_append_documents(
 
     When the schema has structured fields beyond just "reason" (e.g.,
     document_business_rule with table, columns, pattern_type), appends
-    the parameters dict. Otherwise (e.g., accept_finding with only an
-    optional reason), appends the column reference string.
+    the parameters dict. Otherwise (e.g., document_accepted_outlier_rate
+    with only an optional reason), appends the column reference string.
     """
     docs: list[FixDocument] = []
     reason = fix_input.interpretation or f"{schema.action} for {table_name}"
@@ -200,6 +203,43 @@ def _build_keyed_documents(
             },
         )
     ]
+
+
+def _build_metadata_documents(
+    schema: FixSchema,
+    fix_input: FixInput,
+    table_name: str,
+    column_name: str | None,
+    dimension: str,
+) -> list[FixDocument]:
+    """Build metadata fix documents — one per affected column.
+
+    Metadata fixes are persisted as DataFix records. For acceptance
+    actions, the DataFix record itself is the fix — the gate queries
+    DataFix directly to determine accepted targets.
+    """
+    docs: list[FixDocument] = []
+    reason = fix_input.interpretation or f"{schema.action} for {table_name}"
+
+    for i, col_ref in enumerate(fix_input.affected_columns):
+        # Parse column from col_ref (e.g. "orders.amount" -> "amount")
+        parts = col_ref.split(".", 1)
+        col_name = parts[1] if len(parts) > 1 else col_ref
+
+        docs.append(
+            FixDocument(
+                target="metadata",
+                action=schema.action,
+                table_name=table_name,
+                column_name=col_name,
+                dimension=dimension,
+                ordinal=i,
+                description=f"{schema.action}: {col_ref}",
+                payload={"reason": reason},
+            )
+        )
+
+    return docs
 
 
 def _build_data_documents(

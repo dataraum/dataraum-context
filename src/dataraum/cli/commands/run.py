@@ -348,7 +348,7 @@ def _drive_pipeline(
                                 contract_thresholds=contract_thresholds,
                                 phase_name=event.phase,
                                 column_details=event.column_details,
-                                column_evidence=event.column_evidence,
+                                accepted_targets=event.accepted_targets,
                             )
                     if event.skipped_detectors and not quiet:
                         for sd in event.skipped_detectors:

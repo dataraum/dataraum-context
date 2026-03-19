@@ -17,23 +17,20 @@ schemas:
     dimension_path: structural.types.type_fidelity
     triage_guidance: |
       Choose based on the evidence (quarantine rate, sample values, column type):
-      - add_type_pattern: The column contains date/time values that the typing
+      - document_type_pattern: The column contains date/time values that the typing
         phase couldn't parse. Sample quarantined values look like dates in an
         unusual format. Add a parsing pattern so typing handles them.
-      - set_column_type: The inferred type is wrong and quarantining valid data.
+      - document_type_override: The inferred type is wrong and quarantining valid data.
         Force VARCHAR if the column has mixed types, or force a specific type if
         the inference picked the wrong one.
-      - accept_finding: Only if the quarantined values are genuinely bad data
+      - document_accepted_type_fidelity: Only if the quarantined values are genuinely bad data
         (not a format the system should learn). The user must confirm.
     actions:
-      accept_finding:
-        target: config
+      document_accepted_type_fidelity:
+        target: metadata
         routing: postprocess
         gate: quality_review
         description: Mark type fidelity findings as reviewed and accepted
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, type_fidelity, accepted_columns]
-        operation: append
         guidance: |
           Present ALL affected columns in a numbered list with their key metric
           (e.g., quarantine rate). For each column show: table.column —
@@ -46,7 +43,7 @@ schemas:
             type: string
             required: false
             description: Why the finding was accepted
-      set_column_type:
+      document_type_override:
         target: config
         routing: preprocess
         requires_rerun: typing
@@ -69,7 +66,7 @@ schemas:
             description: Type to force for this column
             enum_values: [VARCHAR, BIGINT, DOUBLE, DATE, TIMESTAMP, BOOLEAN]
             default: VARCHAR
-      add_type_pattern:
+      document_type_pattern:
         target: config
         routing: preprocess
         requires_rerun: typing
@@ -110,7 +107,7 @@ schemas:
     dimension_path: structural.relations.join_path_determinism
     triage_guidance: ""
     actions:
-      resolve_join_ambiguity:
+      document_join_path:
         target: config
         routing: postprocess
         gate: quality_review
@@ -141,19 +138,16 @@ schemas:
     triage_guidance: |
       Use the component breakdown (ri_entropy, card_entropy, semantic_entropy)
       to choose:
-      - ri_entropy is the dominant component → accept_finding
-        (confirm_relationship only reduces semantic_entropy, not RI)
-      - semantic_entropy dominates and RI is low (< 0.15) → confirm_relationship
-      - All components are high → accept_finding
+      - ri_entropy is the dominant component → document_accepted_relationship_quality
+        (document_relationship only reduces semantic_entropy, not RI)
+      - semantic_entropy dominates and RI is low (< 0.15) → document_relationship
+      - All components are high → document_accepted_relationship_quality
     actions:
-      accept_finding:
-        target: config
+      document_accepted_relationship_quality:
+        target: metadata
         routing: postprocess
         gate: quality_review
         description: Mark relationship quality findings as reviewed and accepted
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, relationship_entropy, accepted_columns]
-        operation: append
         guidance: |
           This is a RELATIONSHIP finding between two tables, not a per-column issue.
           Present the relationship: from_table.column → to_table.column, with its
@@ -168,7 +162,7 @@ schemas:
             type: string
             required: false
             description: Why the finding was accepted
-      confirm_relationship:
+      document_relationship:
         target: config
         routing: postprocess
         gate: quality_review
@@ -184,7 +178,7 @@ schemas:
           IMPORTANT: This only reduces the semantic component of the score.
           If the score is driven by referential integrity issues (orphan
           records, low RI %), confirming the relationship won't help —
-          use accept_finding instead.
+          use document_accepted_relationship_quality instead.
         fields:
           from_table:
             type: string
@@ -211,14 +205,11 @@ schemas:
     dimension_path: value.nulls.null_ratio
     triage_guidance: ""
     actions:
-      accept_finding:
-        target: config
+      document_accepted_null_ratio:
+        target: metadata
         routing: postprocess
         gate: quality_review
         description: Mark null ratio findings as reviewed and accepted
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, null_ratio, accepted_columns]
-        operation: append
         guidance: |
           Present ALL affected columns in a numbered list with their key metric
           (e.g., null rate). For each column show: table.column — null rate —
@@ -236,14 +227,11 @@ schemas:
     dimension_path: value.outliers.outlier_rate
     triage_guidance: ""
     actions:
-      accept_finding:
-        target: config
+      document_accepted_outlier_rate:
+        target: metadata
         routing: postprocess
         gate: quality_review
         description: Mark outlier findings as reviewed and accepted
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, outlier_rate, accepted_columns]
-        operation: append
         guidance: |
           Present ALL affected columns in a numbered list with their key metric
           (e.g., outlier rate). For each column show: table.column — outlier
@@ -261,14 +249,11 @@ schemas:
     dimension_path: value.distribution.benford_compliance
     triage_guidance: ""
     actions:
-      accept_finding:
-        target: config
+      document_accepted_benford:
+        target: metadata
         routing: postprocess
         gate: quality_review
         description: Mark Benford deviation findings as reviewed and accepted
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, benford, accepted_columns]
-        operation: append
         guidance: |
           Present ALL affected columns in a numbered list with their key metric
           (e.g., Cramér's V, p-value). For each column show: table.column —
@@ -286,14 +271,11 @@ schemas:
     dimension_path: value.temporal.temporal_drift
     triage_guidance: ""
     actions:
-      accept_finding:
-        target: config
+      document_accepted_temporal_drift:
+        target: metadata
         routing: postprocess
         gate: analysis_review
         description: "Accept temporal drift as expected (e.g., seasonal patterns, business growth)"
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, temporal_drift, accepted_columns]
-        operation: append
         guidance: |
           The column shows distribution drift over time. This may be
           expected (seasonal patterns, business growth, price changes)
@@ -313,14 +295,14 @@ schemas:
     dimension_path: semantic.units.unit_declaration
     triage_guidance: |
       Choose based on the data profile and table structure:
-      - declare_unit: DEFAULT. The column always uses the same unit
+      - document_unit: DEFAULT. The column always uses the same unit
         (e.g., all values are USD, or kg, or percentages). Use the column
         name and sample values to propose a unit.
-      - set_unit_source: The unit varies per row and another column in the
+      - document_unit_source: The unit varies per row and another column in the
         same or a related table provides it (e.g., a 'currency' column).
         Only use this when such a column exists in the data profile.
     actions:
-      declare_unit:
+      document_unit:
         target: config
         routing: preprocess
         requires_rerun: typing
@@ -338,7 +320,7 @@ schemas:
             type: string
             required: true
             description: "Unit of measure (e.g. USD, EUR, kg, dimensionless)"
-      set_unit_source:
+      document_unit_source:
         target: config
         routing: postprocess
         gate: quality_review
@@ -364,15 +346,15 @@ schemas:
     dimension_path: semantic.temporal.time_role
     triage_guidance: |
       Choose based on the evidence (column type, semantic role, sample values):
-      - add_type_pattern: The column contains date/time values stored as VARCHAR
+      - document_type_pattern: The column contains date/time values stored as VARCHAR
         because the typing phase couldn't parse the format. The root cause is a
         type mismatch, not a missing role. This is the DEFAULT when the column
         type is VARCHAR and sample values look like dates.
-      - set_timestamp_role: The column already has a date/time type but was not
+      - document_timestamp_role: The column already has a date/time type but was not
         identified as a timestamp by the semantic agent. Only use this when the
         column is already correctly typed.
     actions:
-      set_timestamp_role:
+      document_timestamp_role:
         target: config
         routing: postprocess
         gate: quality_review
@@ -392,7 +374,7 @@ schemas:
             description: Semantic role to assign
             enum_values: [timestamp]
             default: timestamp
-      add_type_pattern:
+      document_type_pattern:
         target: config
         routing: preprocess
         requires_rerun: typing
@@ -430,7 +412,7 @@ schemas:
     dimension_path: semantic.business_meaning.naming_clarity
     triage_guidance: ""
     actions:
-      document_business_meaning:
+      document_business_name:
         target: config
         routing: postprocess
         gate: quality_review
@@ -511,17 +493,14 @@ schemas:
         that genuinely has low throughput.
       - Low confidence: the LLM was uncertain about cycle detection.
         Could mean the cycle vocabulary doesn't match this dataset.
-      - accept_finding: If the low health is expected (e.g., partial data
+      - document_accepted_business_cycle: If the low health is expected (e.g., partial data
         load, new process with low volume). Ask the user to confirm.
     actions:
-      accept_finding:
-        target: config
+      document_accepted_business_cycle:
+        target: metadata
         routing: postprocess
         gate: computation_review
         description: Accept low cycle health as expected for this dataset
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, business_cycle_health, accepted_columns]
-        operation: append
         guidance: |
           A business cycle has low completion rate or detection confidence.
           Show the user the cycle name, type, completion rate, and confidence.
@@ -545,18 +524,15 @@ schemas:
         mismatches indicate data that drifted from the formula. Recalculating
         enforces consistency. Ask the user to confirm the formula via a
         follow_up_question (propose the detected formula as default).
-      - accept_finding: Only if the user has confirmed that mismatches are
+      - document_accepted_formula_match: Only if the user has confirmed that mismatches are
         intentional (manual adjustments, rounding). Do NOT assume this —
         formula drift is usually a data quality problem, not expected behavior.
     actions:
-      accept_finding:
-        target: config
+      document_accepted_formula_match:
+        target: metadata
         routing: postprocess
         gate: analysis_review
         description: "Accept formula mismatch as expected (e.g., manual adjustments, rounding)"
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, derived_value, accepted_columns]
-        operation: append
         guidance: |
           The column was detected as derived (computed from other columns)
           but some rows don't match the formula. Show the user the detected
@@ -594,18 +570,15 @@ schemas:
       understand the root cause:
       - If the failure is a real data issue (e.g., wrong account classifications),
         it needs upstream data correction — outside the fix system.
-      - accept_finding: Only if the validation failure is expected (e.g., known
+      - document_accepted_cross_table: Only if the validation failure is expected (e.g., known
         reclassification in progress, tolerance too strict for this dataset).
         Ask the user to confirm and provide a reason.
     actions:
-      accept_finding:
-        target: config
+      document_accepted_cross_table:
+        target: metadata
         routing: postprocess
         gate: computation_review
         description: Accept cross-table inconsistency as expected or under investigation
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, cross_table_consistency, accepted_columns]
-        operation: append
         guidance: |
           A cross-table validation check failed. Show the user the specific
           check that failed, the severity, and what it means (e.g., 'trial

@@ -254,9 +254,9 @@ class DetectorRegistry:
 
         Delegates to the YAML fix schema loader.
 
-        When multiple detectors share the same action name (e.g.
-        ``accept_finding``), *dimension_path* disambiguates by matching
-        the detector's ``dimension_path`` property.
+        Each action name is now unique (e.g. ``document_accepted_null_ratio``).
+        *dimension_path* can still be used to scope the search to a specific
+        detector.
 
         Args:
             action_name: The action to look up.

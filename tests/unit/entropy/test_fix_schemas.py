@@ -43,7 +43,11 @@ class TestLoaderBasics:
         schemas = get_schemas_for_detector("type_fidelity", config_path=_FIXES_YAML)
         assert len(schemas) == 3
         actions = {s.action for s in schemas}
-        assert actions == {"accept_finding", "set_column_type", "add_type_pattern"}
+        assert actions == {
+            "document_accepted_type_fidelity",
+            "document_type_override",
+            "document_type_pattern",
+        }
 
     def test_get_schemas_for_unknown_detector(self) -> None:
         schemas = get_schemas_for_detector("nonexistent", config_path=_FIXES_YAML)
@@ -51,19 +55,20 @@ class TestLoaderBasics:
 
     def test_get_fix_schema_by_action_and_dimension(self) -> None:
         schema = get_fix_schema(
-            "accept_finding",
+            "document_accepted_null_ratio",
             dimension_path="value.nulls.null_ratio",
             config_path=_FIXES_YAML,
         )
         assert schema is not None
-        assert schema.action == "accept_finding"
-        assert schema.config_path == "entropy/thresholds.yaml"
-        assert schema.key_path == ["detectors", "null_ratio", "accepted_columns"]
+        assert schema.action == "document_accepted_null_ratio"
+        assert schema.target == "metadata"
+        assert schema.config_path is None
+        assert schema.key_path is None
 
     def test_get_fix_schema_without_dimension_returns_first_match(self) -> None:
-        schema = get_fix_schema("accept_finding", config_path=_FIXES_YAML)
+        schema = get_fix_schema("document_accepted_type_fidelity", config_path=_FIXES_YAML)
         assert schema is not None
-        assert schema.action == "accept_finding"
+        assert schema.action == "document_accepted_type_fidelity"
 
     def test_get_fix_schema_not_found(self) -> None:
         schema = get_fix_schema("nonexistent_action", config_path=_FIXES_YAML)
@@ -71,8 +76,8 @@ class TestLoaderBasics:
 
     def test_get_triage_guidance(self) -> None:
         guidance = get_triage_guidance("type_fidelity", config_path=_FIXES_YAML)
-        assert "add_type_pattern" in guidance
-        assert "set_column_type" in guidance
+        assert "document_type_pattern" in guidance
+        assert "document_type_override" in guidance
 
     def test_get_triage_guidance_empty(self) -> None:
         guidance = get_triage_guidance("null_ratio", config_path=_FIXES_YAML)
@@ -100,7 +105,7 @@ class TestSchemaFields:
 
     def test_config_target_schema(self) -> None:
         schema = get_fix_schema(
-            "set_column_type",
+            "document_type_override",
             dimension_path="structural.types.type_fidelity",
             config_path=_FIXES_YAML,
         )
@@ -117,9 +122,7 @@ class TestSchemaFields:
         assert field.type == "enum"
         assert field.required is True
         assert field.default == "VARCHAR"
-        assert field.enum_values == [
-            "VARCHAR", "BIGINT", "DOUBLE", "DATE", "TIMESTAMP", "BOOLEAN"
-        ]
+        assert field.enum_values == ["VARCHAR", "BIGINT", "DOUBLE", "DATE", "TIMESTAMP", "BOOLEAN"]
 
     def test_data_target_schema(self) -> None:
         schema = get_fix_schema(
@@ -133,20 +136,23 @@ class TestSchemaFields:
         assert schema.requires_rerun == "correlations"
         assert schema.routing == "preprocess"
 
-    def test_postprocess_routing(self) -> None:
+    def test_metadata_acceptance_schema(self) -> None:
         schema = get_fix_schema(
-            "accept_finding",
+            "document_accepted_null_ratio",
             dimension_path="value.nulls.null_ratio",
             config_path=_FIXES_YAML,
         )
         assert schema is not None
+        assert schema.target == "metadata"
         assert schema.routing == "postprocess"
         assert schema.gate == "quality_review"
         assert schema.requires_rerun is None
+        assert schema.config_path is None
+        assert schema.dimension_path == "value.nulls.null_ratio"
 
     def test_key_template(self) -> None:
         schema = get_fix_schema(
-            "confirm_relationship",
+            "document_relationship",
             config_path=_FIXES_YAML,
         )
         assert schema is not None
@@ -210,11 +216,20 @@ class TestDetectorSchemaInventory:
     def test_all_expected_detectors_have_schemas(self) -> None:
         """Every detector that previously had Python fix_schemas has a YAML entry."""
         expected = {
-            "type_fidelity", "join_path_determinism", "relationship_entropy",
-            "null_ratio", "outlier_rate", "benford", "temporal_drift",
-            "unit_entropy", "temporal_entropy", "business_meaning",
-            "dimensional_entropy", "business_cycle_health",
-            "derived_value", "cross_table_consistency",
+            "type_fidelity",
+            "join_path_determinism",
+            "relationship_entropy",
+            "null_ratio",
+            "outlier_rate",
+            "benford",
+            "temporal_drift",
+            "unit_entropy",
+            "temporal_entropy",
+            "business_meaning",
+            "dimensional_entropy",
+            "business_cycle_health",
+            "derived_value",
+            "cross_table_consistency",
         }
         all_schemas = get_all_schemas(config_path=_FIXES_YAML)
         assert set(all_schemas.keys()) == expected

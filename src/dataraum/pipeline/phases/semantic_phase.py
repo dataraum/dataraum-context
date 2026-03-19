@@ -286,7 +286,7 @@ class SemanticPhase(BasePhase):
 
         enrichment = enrich_result.unwrap()
 
-        # Apply config overrides (e.g. set_timestamp_role fix).
+        # Apply config overrides (e.g. document_timestamp_role fix).
         # Delegates to overrides module — same functions also run at gate time
         # for postprocess fixes that skip the full semantic re-run.
         from dataraum.pipeline.overrides import (

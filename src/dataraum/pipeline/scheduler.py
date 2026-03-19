@@ -202,6 +202,7 @@ class PipelineScheduler:
                 view_details: dict[str, dict[str, float]] = {}
                 column_evidence: dict[str, dict[str, dict[str, Any]]] = {}
                 resolution_actions: dict[str, set[str]] = {}
+                accepted_targets: dict[str, set[str]] = {}
                 wave_skipped: list[dict[str, str]] = []
                 last_gate_phase: str = ""
 
@@ -220,6 +221,8 @@ class PipelineScheduler:
                         table_details.update(gate_result.table_details)
                         view_details.update(gate_result.view_details)
                         column_evidence.update(gate_result.column_evidence)
+                        for dim, targets in gate_result.accepted_targets.items():
+                            accepted_targets.setdefault(dim, set()).update(targets)
                         for path, acts in gate_result.resolution_actions.items():
                             resolution_actions.setdefault(path, set()).update(acts)
                         # Collect skipped detectors (deduplicate by detector_id)
@@ -255,7 +258,7 @@ class PipelineScheduler:
                         column_details,
                         last_gate_phase,
                         resolution_actions=resolution_actions,
-                        column_evidence=column_evidence,
+                        accepted_targets=accepted_targets,
                     )
                     pending_issues.extend(issues)
 
@@ -275,6 +278,7 @@ class PipelineScheduler:
                         table_details=dict(table_details),
                         view_details=dict(view_details),
                         column_evidence=dict(column_evidence),
+                        accepted_targets=accepted_targets,
                         available_fixes=fixes,
                     )
                     if resolution is not None:
@@ -607,7 +611,7 @@ class PipelineScheduler:
                 for ref in (fix_input.affected_columns or [fix_input.action_name])
             ]
             table_name, column_name = parsed[0]
-            dimension = schema.requires_rerun or schema.gate or ""
+            dimension = schema.dimension_path or fix_input.dimension or ""
 
             documents = build_fix_documents(schema, fix_input, table_name, column_name, dimension)
 

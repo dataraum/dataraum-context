@@ -356,7 +356,7 @@ def create_server(output_dir: Path | None = None) -> Server:
                 description=(
                     "Apply fix documents and re-run affected pipeline phases. "
                     "Returns before/after score deltas. Source path is auto-resolved. "
-                    "Note: accept_finding marks an issue as acknowledged but does NOT "
+                    "Note: document_accepted_* actions mark an issue as acknowledged but do NOT "
                     "lower the entropy score — the data issue remains, only the gate "
                     "stops flagging it. Prefer corrective actions when possible."
                 ),
@@ -384,7 +384,10 @@ def create_server(output_dir: Path | None = None) -> Server:
                                     },
                                     "action": {
                                         "type": "string",
-                                        "description": "Fix action name (e.g. accept_finding, set_column_type)",
+                                        "description": (
+                                            "Fix action name (e.g. document_accepted_outlier_rate, "
+                                            "document_type_override)"
+                                        ),
                                     },
                                     "table_name": {
                                         "type": "string",
@@ -824,13 +827,14 @@ def _build_pipeline_status(session: Any, source_id: str) -> str | None:
         n_violations = 0
         if contract:
             column_details = gate_log.outputs.get("gate_column_details", {})
-            col_evidence = gate_log.outputs.get("gate_column_evidence", {})
+            accepted_raw = gate_log.outputs.get("accepted_targets", {})
+            accepted = {k: set(v) for k, v in accepted_raw.items()}
             issues = assess_contracts(
                 scores,
                 contract.dimension_thresholds,
                 column_details,
                 gate_phase,
-                column_evidence=col_evidence,
+                accepted_targets=accepted,
             )
             n_violations = len(issues)
 
@@ -1672,13 +1676,14 @@ def _get_zone_status(
             thresholds = contract.dimension_thresholds
 
             # Assess violations (accepted targets excluded via contract overrule)
-            col_evidence = outputs.get("gate_column_evidence", {})
+            accepted_raw = outputs.get("accepted_targets", {})
+            accepted = {k: set(v) for k, v in accepted_raw.items()}
             issues = assess_contracts(
                 scores,
                 thresholds,
                 column_details,
                 gate_phase,
-                column_evidence=col_evidence,
+                accepted_targets=accepted,
             )
 
             # Build violation entries with fix actions from detector registry
@@ -1836,8 +1841,9 @@ def _build_mcp_gate_context(
         f"Affected columns: {', '.join(affected_targets)}",
         "",
         "Choose the BEST action for each violating target.",
-        "Prefer corrective actions (recalculate, override, add pattern) over accept_finding.",
-        "accept_finding acknowledges an issue but does NOT lower the entropy score.",
+        "Prefer corrective actions (recalculate, override, add pattern) "
+        "over document_accepted_* actions.",
+        "document_accepted_* actions acknowledge an issue but do NOT lower the entropy score.",
         "",
     ]
     from dataraum.entropy.fix_schemas import get_schemas_for_detector as _get_schemas

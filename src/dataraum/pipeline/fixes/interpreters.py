@@ -81,6 +81,9 @@ class MetadataInterpreter:
     def apply(self, doc: FixDocument, session: Session) -> None:
         """Apply a metadata fix to an ORM model.
 
+        For acceptance markers (no ``model`` in payload), the DataFix
+        record itself is the fix — nothing to patch on an ORM model.
+
         Args:
             doc: Fix document with metadata payload.
             session: SQLAlchemy session for the metadata DB.
@@ -89,6 +92,17 @@ class MetadataInterpreter:
             KeyError: If required payload fields are missing.
             ValueError: If the model is unknown or the target row is not found.
         """
+        if "model" not in doc.payload:
+            # Acceptance marker — the persisted DataFix record is the fix.
+            # Gate queries DataFix directly to skip accepted targets.
+            logger.info(
+                "metadata_acceptance_recorded",
+                action=doc.action,
+                table=doc.table_name,
+                column=doc.column_name,
+            )
+            return
+
         model_name = doc.payload["model"]
         field_updates = doc.payload["field_updates"]
 

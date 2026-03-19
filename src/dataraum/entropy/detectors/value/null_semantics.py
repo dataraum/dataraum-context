@@ -56,9 +56,6 @@ class NullRatioDetector(EntropyDetector):
         impact_significant = detector_config.get("impact_significant", 0.50)
         suggest_declare = detector_config.get("suggest_declare_threshold", 0.1)
         suggest_filter = detector_config.get("suggest_filter_threshold", 0.4)
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
         stats = context.get_analysis("statistics", {})
 
         # Extract null ratio
@@ -143,7 +140,7 @@ class NullRatioDetector(EntropyDetector):
             # Accept: nulls are structurally expected (tree FK, optional dim)
             resolution_options.append(
                 ResolutionOption(
-                    action="accept_finding",
+                    action="document_accepted_null_ratio",
                     parameters={
                         "column": context.column_name,
                         "detector_id": self.detector_id,
@@ -152,11 +149,6 @@ class NullRatioDetector(EntropyDetector):
                     description="Accept nulls as structurally expected for this column",
                 )
             )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

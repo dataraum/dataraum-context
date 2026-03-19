@@ -92,10 +92,6 @@ class BenfordDetector(EntropyDetector):
         chi_sq_escalation_threshold = detector_config.get("chi_sq_escalation_threshold", 0.01)
         v_max = detector_config.get("cramers_v_max", 0.5)
         min_sample_size = detector_config.get("min_sample_size", 100)
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
-
         stats = context.get_analysis("statistics", {})
         n_values = stats.get("total_count", 0) or 0
         quality = stats.get("quality", stats)
@@ -201,7 +197,7 @@ class BenfordDetector(EntropyDetector):
             )
             resolution_options.append(
                 ResolutionOption(
-                    action="accept_finding",
+                    action="document_accepted_benford",
                     parameters={
                         "column": context.column_name,
                         "detector_id": self.detector_id,
@@ -210,11 +206,6 @@ class BenfordDetector(EntropyDetector):
                     description="Accept Benford deviation as expected for this data",
                 )
             )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

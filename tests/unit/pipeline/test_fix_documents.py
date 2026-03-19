@@ -10,7 +10,7 @@ from dataraum.pipeline.fixes.models import FixDocument, FixSchema, FixSchemaFiel
 def _append_schema() -> FixSchema:
     """Accept-finding style: append column refs to a list."""
     return FixSchema(
-        action="accept_finding",
+        action="document_accepted_outlier_rate",
         target="config",
         config_path="entropy/thresholds.yaml",
         key_path=["detectors", "test", "accepted_columns"],
@@ -22,7 +22,7 @@ def _append_schema() -> FixSchema:
 def _per_column_schema() -> FixSchema:
     """Business-meaning style: merge dict per affected column."""
     return FixSchema(
-        action="document_business_meaning",
+        action="document_business_name",
         target="config",
         config_path="phases/semantic.yaml",
         key_path=["overrides", "business_meaning"],
@@ -39,7 +39,7 @@ def _per_column_schema() -> FixSchema:
 def _keyed_schema() -> FixSchema:
     """Confirm-relationship style: merge dict under template-derived key."""
     return FixSchema(
-        action="confirm_relationship",
+        action="document_relationship",
         target="config",
         config_path="phases/relationships.yaml",
         key_path=["overrides", "confirmed_relationships"],
@@ -65,7 +65,7 @@ class TestBridgeRouting:
     def test_append_route(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=["t.a"]),
+            FixInput(action_name="document_accepted_outlier_rate", affected_columns=["t.a"]),
             "t",
             "a",
             "quality_review",
@@ -77,7 +77,7 @@ class TestBridgeRouting:
         docs = build_fix_documents(
             _per_column_schema(),
             FixInput(
-                action_name="document_business_meaning",
+                action_name="document_business_name",
                 affected_columns=["t.a"],
                 parameters={"business_name": "Amount"},
             ),
@@ -93,7 +93,7 @@ class TestBridgeRouting:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={"from_table": "orders", "to_table": "products"},
             ),
@@ -104,8 +104,22 @@ class TestBridgeRouting:
         assert len(docs) == 1
         assert docs[0].payload["key_path"][-1] == "orders->products"
 
-    def test_non_config_target_returns_empty(self) -> None:
+    def test_metadata_target_builds_documents(self) -> None:
         schema = FixSchema(action="foo", target="metadata")
+        docs = build_fix_documents(
+            schema,
+            FixInput(action_name="foo", affected_columns=["t.a"]),
+            "t",
+            "a",
+            "dim",
+        )
+        assert len(docs) == 1
+        assert docs[0].target == "metadata"
+        assert docs[0].action == "foo"
+        assert "reason" in docs[0].payload
+
+    def test_unknown_target_returns_empty(self) -> None:
+        schema = FixSchema(action="foo", target="unknown")
         docs = build_fix_documents(
             schema,
             FixInput(action_name="foo", affected_columns=["t.a"]),
@@ -125,7 +139,7 @@ class TestAppendDocuments:
     def test_empty_columns(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=[]),
+            FixInput(action_name="document_accepted_outlier_rate", affected_columns=[]),
             "t",
             "a",
             "quality_review",
@@ -135,7 +149,9 @@ class TestAppendDocuments:
     def test_ordinals_sequential(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=["t.a", "t.b", "t.c"]),
+            FixInput(
+                action_name="document_accepted_outlier_rate", affected_columns=["t.a", "t.b", "t.c"]
+            ),
             "t",
             "a",
             "quality_review",
@@ -146,7 +162,7 @@ class TestAppendDocuments:
         docs = build_fix_documents(
             _append_schema(),
             FixInput(
-                action_name="accept_finding",
+                action_name="document_accepted_outlier_rate",
                 affected_columns=["t.a"],
                 interpretation="User reviewed",
             ),
@@ -159,7 +175,7 @@ class TestAppendDocuments:
     def test_default_reason_when_no_interpretation(self) -> None:
         docs = build_fix_documents(
             _append_schema(),
-            FixInput(action_name="accept_finding", affected_columns=["t.a"]),
+            FixInput(action_name="document_accepted_outlier_rate", affected_columns=["t.a"]),
             "t",
             "a",
             "quality_review",
@@ -177,7 +193,7 @@ class TestPerColumnDocuments:
         docs = build_fix_documents(
             _per_column_schema(),
             FixInput(
-                action_name="document_business_meaning",
+                action_name="document_business_name",
                 affected_columns=["t.a"],
                 parameters={
                     "business_name": "Amount",
@@ -196,7 +212,7 @@ class TestPerColumnDocuments:
         docs = build_fix_documents(
             _per_column_schema(),
             FixInput(
-                action_name="document_business_meaning",
+                action_name="document_business_name",
                 affected_columns=["t.a", "t.b"],
                 parameters={"business_name": "Test"},
             ),
@@ -220,7 +236,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={
                     "from_table": "orders",
@@ -242,7 +258,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={"relationship_type": "foreign_key"},  # missing from_table, to_table
             ),
@@ -257,7 +273,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a", "t.b", "t.c"],
                 parameters={"from_table": "a", "to_table": "b"},
             ),
@@ -271,7 +287,7 @@ class TestKeyedDocuments:
         docs = build_fix_documents(
             _keyed_schema(),
             FixInput(
-                action_name="confirm_relationship",
+                action_name="document_relationship",
                 affected_columns=["t.a"],
                 parameters={"from_table": "x", "to_table": "y"},
             ),
@@ -281,7 +297,7 @@ class TestKeyedDocuments:
         )
         doc = docs[0]
         assert doc.target == "config"
-        assert doc.action == "confirm_relationship"
+        assert doc.action == "document_relationship"
         assert doc.table_name == "x"
         assert doc.dimension == "relationships"
         assert doc.ordinal == 0

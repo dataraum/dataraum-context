@@ -73,11 +73,6 @@ class RelationshipEntropyDetector(EntropyDetector):
         config = get_entropy_config()
         detector_config = config.detector("relationship_entropy")
 
-        # Accepted columns
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
-
         # Configurable scores for unknown values
         score_unknown_ri = detector_config.get("score_unknown_ri", 0.5)
         score_unverified_cardinality = detector_config.get("score_unverified_cardinality", 0.4)
@@ -186,7 +181,7 @@ class RelationshipEntropyDetector(EntropyDetector):
                 if not is_confirmed:
                     resolution_options.append(
                         ResolutionOption(
-                            action="confirm_relationship",
+                            action="document_relationship",
                             parameters={
                                 "from_table": from_table,
                                 "to_table": to_table,
@@ -214,7 +209,7 @@ class RelationshipEntropyDetector(EntropyDetector):
             if score > 0:
                 resolution_options.append(
                     ResolutionOption(
-                        action="accept_finding",
+                        action="document_accepted_relationship_quality",
                         parameters={
                             "column": context.column_name,
                             "detector_id": self.detector_id,
@@ -223,11 +218,6 @@ class RelationshipEntropyDetector(EntropyDetector):
                         description="Accept relationship quality findings as expected",
                     )
                 )
-
-            # Mark as accepted (score stays honest, contract overrule handles gate)
-            target_key = f"{context.table_name}.{context.column_name}"
-            if target_key in accepted_columns:
-                rel_evidence["accepted"] = True
 
             objects.append(
                 self.create_entropy_object(

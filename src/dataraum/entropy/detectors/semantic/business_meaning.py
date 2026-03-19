@@ -176,7 +176,7 @@ class BusinessMeaningDetector(EntropyDetector):
         if missing_fields:
             resolution_options.append(
                 ResolutionOption(
-                    action="document_business_meaning",
+                    action="document_business_name",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,

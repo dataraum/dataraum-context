@@ -81,9 +81,6 @@ class DerivedValueDetector(EntropyDetector):
         match_exact = detector_config.get("match_exact", 0.99)
         match_near_exact = detector_config.get("match_near_exact", 0.95)
         match_approximate = detector_config.get("match_approximate", 0.80)
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
         correlation = context.get_analysis("correlation", {})
 
         # Extract derived column information
@@ -174,7 +171,7 @@ class DerivedValueDetector(EntropyDetector):
         if score > 0:
             resolution_options.append(
                 ResolutionOption(
-                    action="accept_finding",
+                    action="document_accepted_formula_match",
                     parameters={
                         "column": context.column_name,
                         "detector_id": self.detector_id,
@@ -183,11 +180,6 @@ class DerivedValueDetector(EntropyDetector):
                     description="Accept formula deviation as expected (manual adjustments, rounding)",
                 )
             )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

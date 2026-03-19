@@ -85,10 +85,6 @@ class TypeFidelityDetector(EntropyDetector):
         suggest_override = detector_config.get("suggest_override_threshold", 0.3)
         suggest_quarantine = detector_config.get("suggest_quarantine_threshold", 0.1)
         score_fallback = detector_config.get("score_fallback", 0.5)
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
-
         typing_result = context.get_analysis("typing", {})
 
         # Extract parse success rate and decision metadata
@@ -140,7 +136,7 @@ class TypeFidelityDetector(EntropyDetector):
         if score > suggest_override:
             resolution_options.append(
                 ResolutionOption(
-                    action="add_type_pattern",
+                    action="document_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": "VARCHAR",
@@ -154,7 +150,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Fallback columns always need type review
             resolution_options.append(
                 ResolutionOption(
-                    action="add_type_pattern",
+                    action="document_type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": str(detected_type) if detected_type else "VARCHAR",
@@ -181,7 +177,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Force a different type (e.g. VARCHAR) to avoid quarantine
             resolution_options.append(
                 ResolutionOption(
-                    action="set_column_type",
+                    action="document_type_override",
                     parameters={
                         "column": context.column_name,
                         "detected_type": str(detected_type) if detected_type else "VARCHAR",
@@ -195,7 +191,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Accept finding: user reviewed, type fidelity issue is expected
             resolution_options.append(
                 ResolutionOption(
-                    action="accept_finding",
+                    action="document_accepted_type_fidelity",
                     parameters={
                         "column": context.column_name,
                         "detector_id": self.detector_id,
@@ -204,11 +200,6 @@ class TypeFidelityDetector(EntropyDetector):
                     description="Accept type fidelity findings as expected for this column",
                 )
             )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
 
         return [
             self.create_entropy_object(

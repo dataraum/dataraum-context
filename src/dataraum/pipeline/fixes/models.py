@@ -38,7 +38,7 @@ class FixDocument:
 
     Args:
         target: Which interpreter handles this: "config", "metadata", or "data".
-        action: Human-readable action name, e.g. "declare_unit".
+        action: Human-readable action name, e.g. "document_unit".
         table_name: Scoping — which table this fix applies to.
         column_name: Scoping — which column (None for table-scoped fixes).
         dimension: Which entropy dimension this addresses.
@@ -125,6 +125,7 @@ class FixSchema:
     key_template: str | None = None
     routing: str | None = None  # "preprocess" or "postprocess"
     gate: str | None = None  # gate where this fix is offered
+    dimension_path: str = ""  # full path, e.g. "value.nulls.null_ratio"
 
     def _build_pydantic_model(self) -> type[BaseModel] | None:
         """Build a dynamic Pydantic model from self.fields.

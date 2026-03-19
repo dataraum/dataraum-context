@@ -7,7 +7,7 @@ no longer define them in Python.
 Usage:
     from dataraum.entropy.fix_schemas import get_fix_schema, get_schemas_for_detector
 
-    schema = get_fix_schema("accept_finding", dimension_path="value.nulls.null_ratio")
+    schema = get_fix_schema("document_accepted_null_ratio", dimension_path="value.nulls.null_ratio")
     schemas = get_schemas_for_detector("type_fidelity")
 """
 
@@ -78,6 +78,7 @@ def _parse_schema(
         key_template=raw.get("key_template"),
         routing=raw.get("routing"),
         gate=raw.get("gate"),
+        dimension_path=dimension_path,
     )
 
 
@@ -122,8 +123,8 @@ def get_fix_schema(
 ) -> FixSchema | None:
     """Find a FixSchema by action name, optionally scoped by dimension.
 
-    When multiple detectors share the same action name (e.g. accept_finding),
-    dimension_path disambiguates by matching the detector's dimension_path.
+    Each action name is now unique (e.g. document_accepted_null_ratio).
+    dimension_path can still be used to scope the search to a specific detector.
 
     Args:
         action_name: The action to look up.
