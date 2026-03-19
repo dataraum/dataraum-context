@@ -1188,7 +1188,28 @@ def _get_quality(
             if "actions" in sections_to_include:
                 sections["actions"] = _build_actions_section(session, source, priority, table_name)
 
-            return format_quality_report(sections)
+            result = format_quality_report(sections)
+
+            # When sections are unavailable, explain the zone-by-zone model.
+            # The overall report (entropy + contract + actions) requires a
+            # complete pipeline run. During zone-by-zone execution, agents
+            # should use the gate parameter instead.
+            any_unavailable = any(
+                isinstance(v, dict) and v.get("status") == "unavailable"
+                for v in sections.values()
+            )
+            if any_unavailable:
+                result["hint"] = (
+                    "The overall quality report requires a complete pipeline run. "
+                    "The pipeline runs zone-by-zone: Gate 1 (quality_review) checks "
+                    "foundation quality, Gate 2 (analysis_review) checks enrichment, "
+                    "Gate 3 (computation_review) checks interpretation. "
+                    "Use get_quality(gate=...) to see violations and fix actions at "
+                    "the current gate. Use get_context to see pipeline status and "
+                    "which gate to inspect next."
+                )
+
+            return result
     finally:
         manager.close()
 
@@ -1206,7 +1227,7 @@ def _build_entropy_section(
     from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
 
     if not network_context or network_context.total_columns == 0:
-        return {"status": "unavailable", "message": "No entropy data. Run entropy phase first."}
+        return {"status": "unavailable"}
 
     interp_query = select(EntropyInterpretationRecord).where(
         EntropyInterpretationRecord.source_id == source.source_id,
@@ -1253,7 +1274,7 @@ def _build_contract_section(
     from dataraum.entropy.contracts import evaluate_contract, get_contract, list_contracts
 
     if not column_summaries:
-        return {"status": "unavailable", "message": "No data available for contract evaluation."}
+        return {"status": "unavailable"}
 
     # Auto-detect contract if not specified
     resolved_name = contract_name
@@ -2135,6 +2156,10 @@ def _apply_fix(
                 )
     if deltas:
         output["score_deltas"] = deltas
+
+    # Include post-fix gate status so the agent can decide immediately
+    # whether to fix more or advance the pipeline.
+    output["gate_status"] = _get_zone_status(output_dir, gate=target_phase)
 
     return output
 
