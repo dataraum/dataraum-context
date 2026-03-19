@@ -417,17 +417,28 @@ class QueryAgent(LLMFeature):
         for graph in graphs:
             for snippet in graph.snippets:
                 step_id = snippet.standard_field or snippet.snippet_id[:8]
-                results.append(
-                    {
-                        "step_id": step_id,
-                        "sql": snippet.sql,
-                        "description": snippet.description,
-                        "snippet_id": snippet.snippet_id,
-                        "snippet_type": snippet.snippet_type,
-                        "source": snippet.source,
-                        "graph_id": graph.graph_id,
-                    }
-                )
+                entry: dict[str, Any] = {
+                    "step_id": step_id,
+                    "sql": snippet.sql,
+                    "description": snippet.description,
+                    "snippet_id": snippet.snippet_id,
+                    "snippet_type": snippet.snippet_type,
+                    "source": snippet.source,
+                    "graph_id": graph.graph_id,
+                }
+                # Expose structured metadata so the LLM can match snippets
+                # to business concepts without parsing raw SQL
+                if snippet.statement:
+                    entry["statement"] = snippet.statement
+                if snippet.aggregation:
+                    entry["aggregation"] = snippet.aggregation
+                if snippet.parameter_value is not None:
+                    entry["parameter_value"] = snippet.parameter_value
+                if snippet.column_mappings:
+                    entry["column_mappings"] = snippet.column_mappings
+                if snippet.input_fields:
+                    entry["input_fields"] = snippet.input_fields
+                results.append(entry)
         return results
 
     @staticmethod
@@ -443,35 +454,48 @@ class QueryAgent(LLMFeature):
         - Neither: empty string (no knowledge base available)
         """
         if discovered_snippets:
-            snippets_json = json.dumps(
-                [
-                    {
-                        "step_id": s["step_id"],
-                        "snippet_id": s.get("snippet_id", ""),
-                        "sql": s["sql"],
-                        "description": s["description"],
-                        "type": s.get("snippet_type", "unknown"),
-                        "source": s.get("source", "unknown"),
-                        "graph_id": s.get("graph_id", ""),
-                    }
-                    for s in discovered_snippets
-                ],
-                indent=2,
-            )
+            rendered: list[dict[str, Any]] = []
+            for s in discovered_snippets:
+                entry: dict[str, Any] = {
+                    "step_id": s["step_id"],
+                    "snippet_id": s.get("snippet_id", ""),
+                    "sql": s["sql"],
+                    "description": s["description"],
+                    "type": s.get("snippet_type", "unknown"),
+                    "source": s.get("source", "unknown"),
+                    "graph_id": s.get("graph_id", ""),
+                }
+                # Include structured metadata when available
+                if s.get("statement"):
+                    entry["statement"] = s["statement"]
+                if s.get("aggregation"):
+                    entry["aggregation"] = s["aggregation"]
+                if s.get("parameter_value") is not None:
+                    entry["parameter_value"] = s["parameter_value"]
+                if s.get("column_mappings"):
+                    entry["column_mappings"] = s["column_mappings"]
+                if s.get("input_fields"):
+                    entry["input_fields"] = s["input_fields"]
+                rendered.append(entry)
+
+            snippets_json = json.dumps(rendered, indent=2)
             return (
                 "<validated_snippets>\n"
                 f"{snippets_json}\n"
                 "</validated_snippets>\n\n"
                 "SQL KNOWLEDGE BASE:\n"
-                "The <validated_snippets> above contains SQL building blocks from the "
-                "knowledge base, grouped by source graph. Each has: step_id, snippet_id, "
-                "sql, description, type, source, graph_id.\n\n"
-                "- `snippet_id`: unique identifier — reference this in your output step "
-                "to declare reuse\n"
-                '- `source`: provenance — "graph:..." = verified calculation graph, '
-                '"query:..." = previous ad-hoc query\n'
-                "- `graph_id`: which calculation graph this snippet belongs to\n"
-                "- Snippets sharing a graph_id form a complete calculation chain"
+                "The <validated_snippets> above contains reusable SQL building blocks.\n"
+                "Snippets sharing a graph_id form a complete calculation chain "
+                "(e.g., all components of DSO).\n\n"
+                "Key fields:\n"
+                "- `snippet_id`: reference this in your step to declare reuse\n"
+                "- `type`: extract (data pull), constant (parameter), "
+                "formula (calculation), query (ad-hoc)\n"
+                "- `statement` + `aggregation`: what data source and how it's aggregated\n"
+                "- `column_mappings`: which concrete columns the snippet uses\n"
+                "- `input_fields`: dependencies for formula snippets\n"
+                '- `source`: "graph:..." = verified calculation graph, '
+                '"query:..." = previous ad-hoc query'
             )
 
         if search_vocabulary:
