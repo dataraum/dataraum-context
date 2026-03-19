@@ -1795,7 +1795,6 @@ def _build_mcp_gate_context(
     """
     from dataraum.cli.gate_handler import _build_data_profile
     from dataraum.entropy.contracts import get_contracts
-    from dataraum.entropy.detectors.base import get_default_registry
     from dataraum.entropy.gate import match_threshold
 
     contracts = get_contracts()
@@ -1815,11 +1814,9 @@ def _build_mcp_gate_context(
         t for t, s in sorted(all_scores.items(), key=lambda x: -x[1]) if s > threshold
     ]
 
-    # Get fix actions from detector registry
+    # Resolve detector_id from pipeline outputs or dimension path
     id_map = outputs.get("detector_id_map", {})
     detector_id = id_map.get(dimension, dimension.rsplit(".", 1)[-1])
-    registry = get_default_registry()
-    detector = registry.detectors.get(detector_id)
 
     sections: list[str] = []
 

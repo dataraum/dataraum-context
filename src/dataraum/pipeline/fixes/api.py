@@ -1,9 +1,9 @@
 """Public API for applying fixes and re-running the pipeline.
 
-Thin wrapper around existing components: ``apply_and_persist()`` creates
-DataFix records, ``cleanup_phase_cascade()`` clears affected phases,
-``pipeline_run()`` re-executes through quality_review, and
-``persist_gate_result()`` writes scores to PhaseLog.
+Routes fixes by schema routing field:
+- preprocess: ``cleanup_phase_cascade()`` + ``pipeline_run()``
+- postprocess: ``apply_postprocess_overrides()`` + ``measure_at_gate()``
+  (skips cascade-clean and pipeline re-run)
 """
 
 from __future__ import annotations

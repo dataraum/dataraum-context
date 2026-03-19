@@ -675,8 +675,8 @@ class PipelineScheduler:
     ) -> dict[str, list[dict[str, str]]]:
         """Gather available fixes for EXIT_CHECK event display.
 
-        Consults the detector registry's fix_schemas, filtered to only
-        actions that appear in the entropy objects' resolution options.
+        Consults the YAML fix schema loader, filtered to only actions
+        that appear in the entropy objects' resolution options.
 
         Returns:
             dim_path -> [{"action_name": str, "phase_name": str, ...}]

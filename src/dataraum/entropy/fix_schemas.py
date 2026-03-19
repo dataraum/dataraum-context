@@ -183,6 +183,27 @@ def get_triage_guidance(
     return _triage_cache.get(detector_id, "")
 
 
+def get_detector_id_for_dimension(
+    dimension_path: str,
+    config_path: Path | None = None,
+) -> str | None:
+    """Resolve a dimension_path to its detector_id.
+
+    Args:
+        dimension_path: Full dimension path (e.g. "structural.relations.relationship_quality").
+        config_path: Optional override for testing.
+
+    Returns:
+        Detector ID (e.g. "relationship_entropy"), or None if not found.
+    """
+    _ensure_loaded(config_path)
+    assert _dimension_map_cache is not None
+    for detector_id, dim_path in _dimension_map_cache.items():
+        if dim_path == dimension_path:
+            return detector_id
+    return None
+
+
 def get_all_schemas(
     config_path: Path | None = None,
 ) -> dict[str, list[FixSchema]]:
