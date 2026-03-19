@@ -588,6 +588,7 @@ class PipelineScheduler:
         config_root = _get_config_root()
         detector_registry = get_default_registry()
         phases_to_rerun: set[str] = set()
+        has_postprocess = False
 
         for fix_input in fix_inputs:
             schema = detector_registry.get_fix_schema(
@@ -622,6 +623,8 @@ class PipelineScheduler:
             # Only preprocess fixes trigger cascade-clean + phase re-run
             if schema.routing == "preprocess" and schema.requires_rerun:
                 phases_to_rerun.add(schema.requires_rerun)
+            elif schema.routing == "postprocess":
+                has_postprocess = True
 
             # Log to fix ledger
             for t_name, c_name in parsed:
@@ -648,6 +651,15 @@ class PipelineScheduler:
         from dataraum.entropy.config import clear_entropy_config_cache
 
         clear_entropy_config_cache()
+
+        # Postprocess fixes write to YAML but also need their values
+        # propagated to DB rows (SemanticAnnotation, Relationship) so
+        # detectors read fresh data at the next gate measurement.
+        if has_postprocess:
+            from dataraum.pipeline.overrides import apply_postprocess_overrides
+
+            apply_postprocess_overrides(self.session, self.source_id, config_root)
+
         for phase_name in phases_to_rerun:
             self._phase_configs[phase_name] = load_phase_config(phase_name)
 
@@ -701,7 +713,7 @@ class PipelineScheduler:
                         continue
                     action_dict: dict[str, str] = {
                         "action_name": schema.action,
-                        "phase_name": schema.requires_rerun or "",
+                        "phase_name": schema.requires_rerun or schema.gate or "",
                     }
                     if schema.guidance:
                         action_dict["guidance"] = schema.guidance

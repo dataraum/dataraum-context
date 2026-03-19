@@ -7,6 +7,7 @@ before every gate measurement (idempotent).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -22,7 +23,7 @@ logger = get_logger(__name__)
 def apply_postprocess_overrides(
     session: Session,
     source_id: str,
-    config_root: object,
+    config_root: Path | str,
 ) -> None:
     """Apply all pending config overrides before gate measurement.
 
@@ -35,8 +36,6 @@ def apply_postprocess_overrides(
         source_id: Source being processed.
         config_root: Path to config root directory.
     """
-    from pathlib import Path
-
     from dataraum.core.config import load_phase_config
     from dataraum.entropy.config import clear_entropy_config_cache
     from dataraum.storage import Table
