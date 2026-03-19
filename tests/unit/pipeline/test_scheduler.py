@@ -1334,9 +1334,6 @@ class TestPostprocessFixRouting:
                 "dataraum.pipeline.fixes.interpreters.apply_and_persist",
                 return_value=[],
             ) as mock_apply,
-            patch(
-                "dataraum.pipeline.overrides.apply_postprocess_overrides",
-            ) as mock_overrides,
         ):
             events, result = _drive(
                 scheduler.run(),
@@ -1348,11 +1345,8 @@ class TestPostprocessFixRouting:
                 },
             )
 
-        # Fix was applied
+        # Fix was applied (MetadataInterpreter patches DB directly)
         mock_apply.assert_called_once()
-
-        # Postprocess overrides were applied to propagate YAML → DB
-        mock_overrides.assert_called_once()
 
         # cleanup_phase was NOT called (postprocess skips cascade-clean)
         mock_cleanup.assert_not_called()

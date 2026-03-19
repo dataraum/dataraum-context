@@ -212,17 +212,42 @@ def _build_metadata_documents(
     column_name: str | None,
     dimension: str,
 ) -> list[FixDocument]:
-    """Build metadata fix documents — one per affected column.
+    """Build metadata fix documents.
 
-    Metadata fixes are persisted as DataFix records. For acceptance
-    actions, the DataFix record itself is the fix — the gate queries
-    DataFix directly to determine accepted targets.
+    Three flavours:
+    - **model-based**: Schema has ``model`` — builds payload with
+      ``model`` + ``field_updates`` so MetadataInterpreter patches
+      an ORM row directly (SemanticAnnotation, Relationship).
+    - **marker**: No ``model`` but has structured fields — stores
+      parameters in the DataFix payload for detector queries
+      (e.g. document_join_path, document_business_rule).
+    - **acceptance**: No ``model``, no structured fields — the
+      DataFix record itself is the fix; the gate queries it.
     """
-    docs: list[FixDocument] = []
     reason = fix_input.interpretation or f"{schema.action} for {table_name}"
 
+    if schema.model:
+        return _build_metadata_model_documents(
+            schema, fix_input, table_name, column_name, dimension, reason
+        )
+    return _build_metadata_marker_documents(
+        schema, fix_input, table_name, column_name, dimension, reason
+    )
+
+
+def _build_metadata_model_documents(
+    schema: FixSchema,
+    fix_input: FixInput,
+    table_name: str,
+    column_name: str | None,
+    dimension: str,
+    reason: str,
+) -> list[FixDocument]:
+    """Build metadata documents that patch an ORM model."""
+    field_updates = _extract_value(schema, fix_input)
+    docs: list[FixDocument] = []
+
     for i, col_ref in enumerate(fix_input.affected_columns):
-        # Parse column from col_ref (e.g. "orders.amount" -> "amount")
         parts = col_ref.split(".", 1)
         col_name = parts[1] if len(parts) > 1 else col_ref
 
@@ -235,7 +260,52 @@ def _build_metadata_documents(
                 dimension=dimension,
                 ordinal=i,
                 description=f"{schema.action}: {col_ref}",
-                payload={"reason": reason},
+                payload={
+                    "model": schema.model,
+                    "field_updates": dict(field_updates),
+                    "reason": reason,
+                },
+            )
+        )
+
+    return docs
+
+
+def _build_metadata_marker_documents(
+    schema: FixSchema,
+    fix_input: FixInput,
+    table_name: str,
+    column_name: str | None,
+    dimension: str,
+    reason: str,
+) -> list[FixDocument]:
+    """Build metadata marker documents — DataFix record is the fix.
+
+    For acceptance markers the payload is just ``{reason}``.
+    For DataFix-only fixes (e.g. document_join_path) the payload
+    also includes ``parameters`` so detectors can query them later.
+    """
+    params = _extract_value(schema, fix_input) if schema.fields else {}
+    docs: list[FixDocument] = []
+
+    for i, col_ref in enumerate(fix_input.affected_columns):
+        parts = col_ref.split(".", 1)
+        col_name = parts[1] if len(parts) > 1 else col_ref
+
+        payload: dict[str, object] = {"reason": reason}
+        if params:
+            payload["parameters"] = params
+
+        docs.append(
+            FixDocument(
+                target="metadata",
+                action=schema.action,
+                table_name=table_name,
+                column_name=col_name,
+                dimension=dimension,
+                ordinal=i,
+                description=f"{schema.action}: {col_ref}",
+                payload=payload,
             )
         )
 

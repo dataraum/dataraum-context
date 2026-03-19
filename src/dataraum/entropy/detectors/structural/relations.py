@@ -14,6 +14,36 @@ from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimens
 from dataraum.entropy.models import EntropyObject, ResolutionOption
 
 
+def _get_preferred_joins(context: DetectorContext) -> dict[str, object]:
+    """Load preferred join paths from applied DataFix records."""
+    if not context.session or not context.source_id:
+        return {}
+
+    from sqlalchemy import select
+
+    from dataraum.pipeline.fixes.models import DataFix
+
+    fixes = (
+        context.session.execute(
+            select(DataFix).where(
+                DataFix.source_id == context.source_id,
+                DataFix.action == "document_join_path",
+                DataFix.status == "applied",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    result: dict[str, object] = {}
+    for fix in fixes:
+        params = fix.payload.get("parameters", {})
+        table = params.get("table", "")
+        target_table = params.get("target_table", "")
+        if table and target_table:
+            result[f"{table}->{target_table}"] = params
+    return result
+
+
 class JoinPathDeterminismDetector(EntropyDetector):
     """Detector for join path determinism.
 
@@ -96,8 +126,8 @@ class JoinPathDeterminismDetector(EntropyDetector):
         total_connections = len(paths_to_table)  # Number of distinct tables connected
         ambiguous_tables = [t for t, paths in paths_to_table.items() if len(paths) > 1]
 
-        # Filter out tables with a declared preferred join (same pattern as accepted_columns)
-        preferred_joins: dict[str, object] = detector_config.get("preferred_joins", {})
+        # Filter out tables with a declared preferred join (from DataFix records)
+        preferred_joins = _get_preferred_joins(context)
         if preferred_joins and ambiguous_tables:
             resolved = set()
             for target in ambiguous_tables:

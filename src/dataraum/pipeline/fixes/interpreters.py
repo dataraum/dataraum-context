@@ -81,8 +81,13 @@ class MetadataInterpreter:
     def apply(self, doc: FixDocument, session: Session) -> None:
         """Apply a metadata fix to an ORM model.
 
-        For acceptance markers (no ``model`` in payload), the DataFix
-        record itself is the fix — nothing to patch on an ORM model.
+        For markers (no ``model`` in payload), the DataFix record itself
+        is the fix — nothing to patch on an ORM model.  This covers
+        acceptance markers and DataFix-only fixes (e.g. document_join_path).
+
+        For model-based fixes, resolves the target row, applies field
+        updates, and runs model-specific side effects (e.g. setting
+        ``is_confirmed`` on Relationship records).
 
         Args:
             doc: Fix document with metadata payload.
@@ -93,10 +98,11 @@ class MetadataInterpreter:
             ValueError: If the model is unknown or the target row is not found.
         """
         if "model" not in doc.payload:
-            # Acceptance marker — the persisted DataFix record is the fix.
-            # Gate queries DataFix directly to skip accepted targets.
+            # Marker — the persisted DataFix record is the fix.
+            # Gate queries DataFix for acceptance; detectors query
+            # DataFix for join preferences and documented patterns.
             logger.info(
-                "metadata_acceptance_recorded",
+                "metadata_marker_recorded",
                 action=doc.action,
                 table=doc.table_name,
                 column=doc.column_name,
@@ -112,10 +118,27 @@ class MetadataInterpreter:
         if instance is None:
             raise ValueError(f"No {model_name} found for {doc.table_name}.{doc.column_name}")
 
+        applied_fields: list[str] = []
         for field_name, value in field_updates.items():
             if not hasattr(instance, field_name):
-                raise ValueError(f"{model_name} has no field '{field_name}'")
+                # Skip resolution hints (e.g. from_table, to_table) that
+                # are schema fields but not model attributes.
+                continue
             setattr(instance, field_name, value)
+            applied_fields.append(field_name)
+
+        if not applied_fields:
+            logger.warning(
+                "metadata_fix_no_fields_applied",
+                action=doc.action,
+                model=model_name,
+                table=doc.table_name,
+                column=doc.column_name,
+                skipped_keys=list(field_updates),
+            )
+
+        # Model-specific side effects
+        _apply_model_defaults(model_name, instance)
 
         session.flush()
         logger.info(
@@ -124,7 +147,7 @@ class MetadataInterpreter:
             model=model_name,
             table=doc.table_name,
             column=doc.column_name,
-            fields=list(field_updates.keys()),
+            fields=applied_fields,
         )
 
     def _get_resolver(self, model_name: str) -> Any:
@@ -292,6 +315,19 @@ _MODEL_RESOLVERS: dict[str, Any] = {
     "SemanticAnnotation": _resolve_semantic_annotation,
     "Relationship": _resolve_relationship,
 }
+
+
+def _apply_model_defaults(model_name: str, instance: Any) -> None:
+    """Apply standard side-effect fields after user-provided updates.
+
+    Always unconditional so that replayed fixes update the audit trail.
+    """
+    if model_name == "SemanticAnnotation":
+        instance.annotation_source = "fix_system"
+    elif model_name == "Relationship":
+        instance.is_confirmed = True
+        instance.confirmed_at = datetime.now(UTC)
+        instance.confirmed_by = "fix_system"
 
 
 # ---------------------------------------------------------------------------

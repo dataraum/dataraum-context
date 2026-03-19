@@ -112,6 +112,8 @@ class DataFixesPhase(BasePhase):
             summary_parts.append(f"{failed} failed")
 
         summary = f"Fixes: {', '.join(summary_parts)}" if summary_parts else "No fixes"
+        if failed:
+            return PhaseResult.failed(summary)
         return PhaseResult.success(summary=summary)
 
     def cleanup(
@@ -124,6 +126,9 @@ class DataFixesPhase(BasePhase):
         """Reset fix statuses to pending so they replay on next run.
 
         Does NOT delete fixes — they are durable records.
+        Marker fixes (target=metadata, no model) replay as no-ops — the
+        DataFix record itself is the fix. Their status is still reset so
+        the replay loop processes them and sets applied_at freshly.
         """
         from sqlalchemy import update
 

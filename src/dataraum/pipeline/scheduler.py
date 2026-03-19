@@ -580,8 +580,8 @@ class PipelineScheduler:
 
         Routing:
         - preprocess: cascade-clean + phase re-run (existing behaviour)
-        - postprocess: apply fix document only, skip cascade-clean.
-          The next gate measurement (with overrides applied) picks up the change.
+        - postprocess: MetadataInterpreter patches DB directly, skip
+          cascade-clean. The next gate measurement picks up the change.
         """
         from dataraum.core.config import _get_config_root
         from dataraum.documentation.ledger import log_fix
@@ -592,7 +592,6 @@ class PipelineScheduler:
         config_root = _get_config_root()
         detector_registry = get_default_registry()
         phases_to_rerun: set[str] = set()
-        has_postprocess = False
 
         for fix_input in fix_inputs:
             schema = detector_registry.get_fix_schema(
@@ -627,8 +626,6 @@ class PipelineScheduler:
             # Only preprocess fixes trigger cascade-clean + phase re-run
             if schema.routing == "preprocess" and schema.requires_rerun:
                 phases_to_rerun.add(schema.requires_rerun)
-            elif schema.routing == "postprocess":
-                has_postprocess = True
 
             # Log to fix ledger
             for t_name, c_name in parsed:
@@ -650,19 +647,13 @@ class PipelineScheduler:
                 rerun=schema.requires_rerun,
             )
 
-        # Reload configs from disk so re-runs pick up the patches
+        # Reload configs from disk so re-runs pick up the patches.
+        # Postprocess metadata fixes are applied directly to DB by
+        # MetadataInterpreter — no config YAML intermediary needed.
         from dataraum.core.config import load_phase_config
         from dataraum.entropy.config import clear_entropy_config_cache
 
         clear_entropy_config_cache()
-
-        # Postprocess fixes write to YAML but also need their values
-        # propagated to DB rows (SemanticAnnotation, Relationship) so
-        # detectors read fresh data at the next gate measurement.
-        if has_postprocess:
-            from dataraum.pipeline.overrides import apply_postprocess_overrides
-
-            apply_postprocess_overrides(self.session, self.source_id, config_root)
 
         for phase_name in phases_to_rerun:
             self._phase_configs[phase_name] = load_phase_config(phase_name)

@@ -2,8 +2,7 @@
 
 Routes fixes by schema routing field:
 - preprocess: ``cleanup_phase_cascade()`` + ``pipeline_run()``
-- postprocess: ``apply_postprocess_overrides()`` + ``measure_at_gate()``
-  (skips cascade-clean and pipeline re-run)
+- postprocess: MetadataInterpreter patches DB directly, measured at next gate
 """
 
 from __future__ import annotations
@@ -193,17 +192,14 @@ def apply_fixes(
                         session,
                         manager._duckdb_conn,
                     )
-            else:
-                # Postprocess-only: apply overrides and re-measure at gate
-                from dataraum.pipeline.overrides import apply_postprocess_overrides
-
-                apply_postprocess_overrides(session, source.source_id, config_root)
+            # Postprocess-only: MetadataInterpreter already patched
+            # DB rows directly — no config intermediary needed.
 
             session.commit()
 
-        if has_preprocess:
-            manager.close()
+        manager.close()
 
+        if has_preprocess:
             # 2. Re-run pipeline — scheduler picks up PENDING phases,
             #    DataFixesPhase replays metadata fixes, gate re-measures
             reset_config_root()

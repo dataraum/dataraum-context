@@ -152,11 +152,28 @@ class TestSchemaFields:
 
     def test_key_template(self) -> None:
         schema = get_fix_schema(
+            "document_type_pattern",
+            dimension_path="structural.types.type_fidelity",
+            config_path=_FIXES_YAML,
+        )
+        assert schema is not None
+        assert schema.key_template == "{pattern_name}"
+
+    def test_metadata_model_schema(self) -> None:
+        schema = get_fix_schema(
             "document_relationship",
             config_path=_FIXES_YAML,
         )
         assert schema is not None
-        assert schema.key_template == "{from_table}->{to_table}"
+        assert schema.target == "metadata"
+        assert schema.model == "Relationship"
+        assert schema.routing == "postprocess"
+        assert schema.gate == "quality_review"
+        assert schema.config_path is None
+        assert schema.key_path is None
+        assert schema.operation is None
+        assert "from_table" in schema.fields
+        assert "to_table" in schema.fields
 
     def test_all_schemas_are_fixschema_instances(self) -> None:
         all_schemas = get_all_schemas(config_path=_FIXES_YAML)

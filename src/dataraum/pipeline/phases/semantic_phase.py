@@ -286,16 +286,9 @@ class SemanticPhase(BasePhase):
 
         enrichment = enrich_result.unwrap()
 
-        # Apply config overrides (e.g. document_timestamp_role fix).
-        # Delegates to overrides module — same functions also run at gate time
-        # for postprocess fixes that skip the full semantic re-run.
-        from dataraum.pipeline.overrides import (
-            apply_relationship_confirmations,
-            apply_semantic_overrides,
-        )
-
-        apply_semantic_overrides(ctx.session, ctx.config, table_ids)
-        apply_relationship_confirmations(ctx.session, ctx.config, table_ids)
+        # Metadata fixes (e.g. document_timestamp_role, document_relationship)
+        # are replayed by DataFixesPhase which runs after semantic.
+        # No config-YAML intermediary needed.
 
         annotations_count = len(enrichment.annotations)
         entities_count = len(enrichment.entity_detections)

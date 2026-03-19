@@ -31,6 +31,31 @@ from dataraum.entropy.models import EntropyObject, ResolutionOption
 logger = get_logger(__name__)
 
 
+def _get_documented_patterns(context: DetectorContext) -> list[dict[str, Any]]:
+    """Load documented business rule patterns from applied DataFix records.
+
+    Scoped to the current table to avoid false matches across tables.
+    """
+    if not context.session or not context.source_id:
+        return []
+
+    from dataraum.pipeline.fixes.models import DataFix
+
+    fixes = (
+        context.session.execute(
+            select(DataFix).where(
+                DataFix.source_id == context.source_id,
+                DataFix.action == "document_business_rule",
+                DataFix.table_name == context.table_name,
+                DataFix.status == "applied",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [fix.payload.get("parameters", {}) for fix in fixes if fix.payload.get("parameters")]
+
+
 @dataclass
 class ColumnVariancePattern:
     """Detected variance pattern for a column."""
@@ -451,9 +476,8 @@ class DimensionalEntropyDetector(EntropyDetector):
         )
         # Documented patterns: list of {"table", "columns", "pattern_type"} dicts.
         # Patterns matching a documented entry are excluded from scoring.
-        documented_patterns: list[dict[str, Any]] = self.config.get(
-            "documented_patterns"
-        ) or detector_config.get("documented_patterns", [])
+        # Loaded from applied DataFix records (document_business_rule action).
+        documented_patterns: list[dict[str, Any]] = _get_documented_patterns(context)
 
         slice_variance = context.get_analysis("slice_variance", {})
         columns_data = slice_variance.get("columns", {})

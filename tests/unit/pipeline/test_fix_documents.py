@@ -305,6 +305,154 @@ class TestKeyedDocuments:
 
 
 # ---------------------------------------------------------------------------
+# Metadata model documents
+# ---------------------------------------------------------------------------
+
+
+def _model_schema() -> FixSchema:
+    """SemanticAnnotation-style: metadata target with model field."""
+    return FixSchema(
+        action="document_business_name",
+        target="metadata",
+        model="SemanticAnnotation",
+        routing="postprocess",
+        gate="quality_review",
+        fields={
+            "business_name": FixSchemaField(type="string", required=False),
+            "entity_type": FixSchemaField(type="string", required=False),
+        },
+    )
+
+
+def _marker_schema() -> FixSchema:
+    """DataFix-only style: metadata target without model (e.g. join_path)."""
+    return FixSchema(
+        action="document_join_path",
+        target="metadata",
+        routing="postprocess",
+        gate="quality_review",
+        fields={
+            "table": FixSchemaField(type="string", required=True),
+            "target_table": FixSchemaField(type="string", required=True),
+            "preferred_column": FixSchemaField(type="string", required=True),
+        },
+    )
+
+
+class TestMetadataModelDocuments:
+    def test_payload_contains_model_and_field_updates(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["t.a"],
+                parameters={"business_name": "Revenue"},
+            ),
+            "t",
+            "a",
+            "semantic.business_meaning.naming_clarity",
+        )
+        assert len(docs) == 1
+        assert docs[0].target == "metadata"
+        assert docs[0].payload["model"] == "SemanticAnnotation"
+        assert docs[0].payload["field_updates"] == {"business_name": "Revenue"}
+        assert "reason" in docs[0].payload
+
+    def test_extra_params_filtered_by_schema_fields(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["t.a"],
+                parameters={"business_name": "Revenue", "extra": "ignored"},
+            ),
+            "t",
+            "a",
+            "dim",
+        )
+        assert "extra" not in docs[0].payload["field_updates"]
+
+    def test_multiple_columns(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["t.a", "t.b"],
+                parameters={"business_name": "Revenue"},
+            ),
+            "t",
+            "a",
+            "dim",
+        )
+        assert len(docs) == 2
+        assert docs[0].column_name == "a"
+        assert docs[1].column_name == "b"
+
+    def test_column_parsed_from_ref(self) -> None:
+        docs = build_fix_documents(
+            _model_schema(),
+            FixInput(
+                action_name="document_business_name",
+                affected_columns=["orders.amount"],
+                parameters={},
+            ),
+            "orders",
+            "amount",
+            "dim",
+        )
+        assert docs[0].column_name == "amount"
+
+
+class TestMetadataMarkerDocuments:
+    def test_marker_stores_parameters(self) -> None:
+        docs = build_fix_documents(
+            _marker_schema(),
+            FixInput(
+                action_name="document_join_path",
+                affected_columns=["t.a"],
+                parameters={
+                    "table": "orders",
+                    "target_table": "products",
+                    "preferred_column": "product_id",
+                },
+            ),
+            "orders",
+            "a",
+            "structural.relations.join_path_determinism",
+        )
+        assert len(docs) == 1
+        assert docs[0].target == "metadata"
+        assert "model" not in docs[0].payload
+        assert docs[0].payload["parameters"] == {
+            "table": "orders",
+            "target_table": "products",
+            "preferred_column": "product_id",
+        }
+        assert "reason" in docs[0].payload
+
+    def test_acceptance_marker_no_parameters(self) -> None:
+        """Acceptance schemas have no structured fields beyond reason."""
+        schema = FixSchema(
+            action="document_accepted_null_ratio",
+            target="metadata",
+            fields={"reason": FixSchemaField(type="string", required=False)},
+        )
+        docs = build_fix_documents(
+            schema,
+            FixInput(
+                action_name="document_accepted_null_ratio",
+                affected_columns=["t.a"],
+            ),
+            "t",
+            "a",
+            "value.nulls.null_ratio",
+        )
+        assert len(docs) == 1
+        assert "parameters" not in docs[0].payload
+        assert "reason" in docs[0].payload
+
+
+# ---------------------------------------------------------------------------
 # Template extraction
 # ---------------------------------------------------------------------------
 

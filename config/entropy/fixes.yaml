@@ -108,14 +108,10 @@ schemas:
     triage_guidance: ""
     actions:
       document_join_path:
-        target: config
+        target: metadata
         routing: postprocess
         gate: quality_review
         description: Set preferred join path for ambiguous table connections
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, join_path, preferred_joins]
-        operation: merge
-        key_template: "{table}->{target_table}"
         guidance: |
           Resolves ambiguity when multiple join paths exist between tables.
           Ask which join path is the correct one for analytics queries.
@@ -163,14 +159,11 @@ schemas:
             required: false
             description: Why the finding was accepted
       document_relationship:
-        target: config
+        target: metadata
+        model: Relationship
         routing: postprocess
         gate: quality_review
         description: Confirm a detected relationship between tables
-        config_path: phases/semantic.yaml
-        key_path: [overrides, confirmed_relationships]
-        operation: merge
-        key_template: "{from_table}->{to_table}"
         guidance: |
           Confirms or rejects a detected relationship between tables.
           Ask whether the relationship is a real foreign key, shared
@@ -321,13 +314,11 @@ schemas:
             required: true
             description: "Unit of measure (e.g. USD, EUR, kg, dimensionless)"
       document_unit_source:
-        target: config
+        target: metadata
+        model: SemanticAnnotation
         routing: postprocess
         gate: quality_review
         description: Specify which column provides the unit per row
-        config_path: phases/semantic.yaml
-        key_path: [overrides, units]
-        operation: merge
         guidance: |
           The unit varies per row and comes from another column
           (e.g. a 'currency' column in the same or a related
@@ -355,13 +346,11 @@ schemas:
         column is already correctly typed.
     actions:
       document_timestamp_role:
-        target: config
+        target: metadata
+        model: SemanticAnnotation
         routing: postprocess
         gate: quality_review
         description: Mark a date column as a timestamp
-        config_path: phases/semantic.yaml
-        key_path: [overrides, semantic_roles]
-        operation: merge
         guidance: |
           Confirms that a date/time column should have
           semantic_role='timestamp'. The column has a date type from
@@ -413,13 +402,11 @@ schemas:
     triage_guidance: ""
     actions:
       document_business_name:
-        target: config
+        target: metadata
+        model: SemanticAnnotation
         routing: postprocess
         gate: quality_review
         description: Record business meaning overrides for columns
-        config_path: phases/semantic.yaml
-        key_path: [overrides, business_meaning]
-        operation: merge
         guidance: |
           Records business meaning for columns that lack clear semantic
           annotations. Ask what the column represents in business terms,
@@ -443,13 +430,10 @@ schemas:
     triage_guidance: ""
     actions:
       document_business_rule:
-        target: config
+        target: metadata
         routing: postprocess
         gate: analysis_review
         description: Document a detected cross-column pattern as a known business rule
-        config_path: entropy/thresholds.yaml
-        key_path: [detectors, dimensional_entropy, documented_patterns]
-        operation: append
         guidance: |
           The detector found undocumented cross-column patterns.
           Read the table name from the affected targets in <entropy_evidence>
