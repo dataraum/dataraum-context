@@ -198,7 +198,7 @@ def _snippet_key_for_step(
     """
     for rs in raw_steps:
         if rs.get("step_id") == step.step_id and "_snippet_key" in rs:
-            return rs["_snippet_key"]
+            return str(rs["_snippet_key"])
     return step.step_id
 
 
