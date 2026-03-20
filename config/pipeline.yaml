@@ -23,7 +23,7 @@ phases:
     description: Statistical profiling of typed tables
     dependencies: [typing]
     produces: [statistics]
-    detectors: [null_ratio, outlier_rate, benford]
+    detectors: [null_ratio]
 
   column_eligibility:
     description: Column eligibility evaluation
@@ -37,7 +37,6 @@ phases:
     description: Cross-table relationship detection
     dependencies: [column_eligibility]
     produces: [relationships]
-    detectors: [join_path_determinism, relationship_entropy]
 
   temporal:
     description: Temporal pattern and trend analysis
@@ -47,7 +46,9 @@ phases:
     description: LLM-powered semantic analysis
     dependencies: [relationships]
     produces: [semantic]
-    detectors: [business_meaning, unit_entropy, temporal_entropy]
+    detectors: [business_meaning, unit_entropy, temporal_entropy,
+                outlier_rate, benford,
+                join_path_determinism, relationship_entropy]
 
   data_fixes:
     description: Apply stored metadata fixes
@@ -79,7 +80,7 @@ phases:
     description: Execute slice SQL and analyze slice tables
     dependencies: [slicing_view]
     produces: [slice_variance]
-    detectors: [dimensional_entropy, slice_variance]
+    detectors: [slice_variance]
 
   temporal_slice_analysis:
     description: Distribution drift analysis on slices
@@ -95,9 +96,9 @@ phases:
 
   quality_summary:
     description: LLM quality report generation
-    dependencies: [slice_analysis, temporal_slice_analysis, entropy]
+    dependencies: [slice_analysis, temporal_slice_analysis]
     produces: [column_quality_reports]
-    detectors: [column_quality]
+    detectors: [dimensional_entropy, column_quality]
 
   analysis_review:
     description: Quality checkpoint after enrichment — runs Zone 2 entropy detectors
@@ -107,17 +108,13 @@ phases:
   # =========================================================================
   # Zone 3: Interpretation
   # =========================================================================
-  entropy:
-    description: Entropy detection across all dimensions
-    dependencies: [typing, column_eligibility, semantic, relationships, slice_analysis]
-
   entropy_interpretation:
     description: LLM interpretation of entropy
-    dependencies: [entropy, computation_review]
+    dependencies: [computation_review]
 
   business_cycles:
     description: Expert LLM cycle detection
-    dependencies: [analysis_review, semantic, relationships, temporal]
+    dependencies: [analysis_review, semantic, relationships, temporal, enriched_views, slicing, quality_summary]
     produces: [business_cycles]
     detectors: [business_cycle_health]
 

@@ -79,3 +79,4 @@ Index("idx_entropy_layer_dimension", EntropyObjectRecord.layer, EntropyObjectRec
 Index("idx_entropy_table", EntropyObjectRecord.table_id)
 Index("idx_entropy_column", EntropyObjectRecord.column_id)
 Index("idx_entropy_score", EntropyObjectRecord.score)
+Index("idx_entropy_source_detector", EntropyObjectRecord.source_id, EntropyObjectRecord.detector_id)

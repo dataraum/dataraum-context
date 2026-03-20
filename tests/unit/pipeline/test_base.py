@@ -34,12 +34,6 @@ class TestPhaseRegistry:
         declarations = load_phase_declarations()
         assert "import" in declarations["typing"].dependencies
 
-    def test_entropy_phase_exists(self):
-        declarations = load_phase_declarations()
-        assert "entropy" in declarations
-        assert "semantic" in declarations["entropy"].dependencies
-        assert "slice_analysis" in declarations["entropy"].dependencies
-
     def test_graph_execution_phase_exists(self):
         cls = get_phase_class("graph_execution")
         assert cls is not None
@@ -96,14 +90,12 @@ class TestDependencyResolution:
         assert "import" in deps
         assert "typing" in deps
 
-    def test_get_all_dependencies_for_entropy(self):
-        deps = get_all_dependencies("entropy")
+    def test_get_all_dependencies_for_entropy_interpretation(self):
+        deps = get_all_dependencies("entropy_interpretation")
         assert "import" in deps
         assert "typing" in deps
-        assert "statistics" in deps
         assert "semantic" in deps
-        assert "relationships" in deps
-        assert "slice_analysis" in deps
+        assert "computation_review" in deps
 
     def test_unknown_phase_returns_empty(self):
         deps = get_all_dependencies("nonexistent")

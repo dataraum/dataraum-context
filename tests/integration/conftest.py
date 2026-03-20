@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from dataraum.pipeline.base import Phase, PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.phases.correlations_phase import CorrelationsPhase
-from dataraum.pipeline.phases.entropy_phase import EntropyPhase
 from dataraum.pipeline.phases.import_phase import ImportPhase
 from dataraum.pipeline.phases.relationships_phase import RelationshipsPhase
 from dataraum.pipeline.phases.statistical_quality_phase import StatisticalQualityPhase
@@ -261,7 +260,6 @@ def agent_phases() -> dict[str, Phase]:
         RelationshipsPhase(),
         CorrelationsPhase(),
         TemporalPhase(),
-        EntropyPhase(),
     )
 
 
@@ -309,7 +307,6 @@ def analyzed_small_finance(
         "relationships",
         "correlations",
         "temporal",
-        "entropy",
     ]:
         result = agent_harness.run_phase(phase_name)
         assert result.status == PhaseStatus.COMPLETED, f"{phase_name} failed: {result.error}"

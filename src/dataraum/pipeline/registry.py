@@ -135,6 +135,10 @@ class YAMLAwarePhase:
     def is_quality_gate(self) -> bool:
         return self._decl.gate
 
+    @property
+    def detectors(self) -> list[str]:
+        return self._decl.detectors
+
     # --- Delegated to inner phase ---
 
     @property

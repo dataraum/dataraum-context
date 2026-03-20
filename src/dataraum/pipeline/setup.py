@@ -25,7 +25,6 @@ from dataraum.core.config import (
 )
 from dataraum.core.connections import ConnectionConfig, ConnectionManager
 from dataraum.core.logging import get_logger
-from dataraum.pipeline.base import Phase
 from dataraum.pipeline.db_models import PipelineRun
 from dataraum.pipeline.pipeline_config import (
     get_all_dependencies_from_declarations,
@@ -130,7 +129,7 @@ def setup_pipeline(
         }
 
     # 8. Load phases from YAML declarations + registry
-    phases: dict[str, Phase] = build_yaml_aware_phases(pipeline_yaml_config)  # type: ignore[assignment]
+    phases = build_yaml_aware_phases(pipeline_yaml_config)
 
     # 9. Filter phases if --phase set
     if target_phase:
