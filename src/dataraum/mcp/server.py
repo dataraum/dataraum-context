@@ -1529,6 +1529,7 @@ def _run_sql(
                 return run_sql(
                     cursor,
                     session=session,
+                    source_id=source.source_id if source else None,
                     table_ids=table_ids,
                     steps=steps,
                     sql=sql,

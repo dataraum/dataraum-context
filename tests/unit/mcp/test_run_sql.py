@@ -333,3 +333,166 @@ class TestQualityGracefulOnNoPipeline:
         result = run_sql(cursor, sql="SELECT 42 AS x")
         assert "column_quality" not in result
         assert "quality_caveat" not in result
+
+
+# --- Phase 2c: Snippet integration ---
+
+
+def _make_snippet(
+    session: Session,
+    source_id: str,
+    step_id: str,
+    sql_text: str,
+) -> str:
+    """Helper: insert a snippet record and return its ID."""
+    from dataraum.query.snippet_library import SnippetLibrary
+
+    library = SnippetLibrary(session)
+    record = library.save_snippet(
+        snippet_type="query",
+        sql=sql_text,
+        description=f"test snippet for {step_id}",
+        schema_mapping_id=source_id,
+        source="test",
+        standard_field=step_id,
+    )
+    session.flush()
+    return record.snippet_id
+
+
+class TestSnippetReuseDetected:
+    def test_exact_reuse(
+        self, cursor: duckdb.DuckDBPyConnection, session: Session
+    ) -> None:
+        source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+        sql_text = "SELECT 42 AS x"
+        snippet_id = _make_snippet(session, source_id, "query", sql_text)
+
+        result = run_sql(
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            sql=sql_text,
+        )
+        assert "error" not in result
+        step = result["steps_executed"][0]
+        assert step["snippet_status"] == "exact_reuse"
+        assert step["snippet_id"] == snippet_id
+
+    def test_adapted_reuse(
+        self, cursor: duckdb.DuckDBPyConnection, session: Session
+    ) -> None:
+        source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+        _make_snippet(session, source_id, "query", "SELECT 1 AS old_query")
+
+        result = run_sql(
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            sql="SELECT 42 AS x",
+        )
+        assert "error" not in result
+        step = result["steps_executed"][0]
+        assert step["snippet_status"] == "adapted"
+
+
+class TestSnippetSavedAfterSuccess:
+    def test_novel_step_saved(
+        self, cursor: duckdb.DuckDBPyConnection, session: Session
+    ) -> None:
+        from dataraum.query.snippet_library import SnippetLibrary
+
+        source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+
+        result = run_sql(
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            sql="SELECT 42 AS x",
+        )
+        assert "error" not in result
+        assert result["snippet_summary"]["saved"] == 1
+        assert result["snippet_summary"]["session_source"].startswith("mcp:session_")
+
+        # Verify snippet was actually saved
+        library = SnippetLibrary(session)
+        match = library.find_by_key(
+            snippet_type="query",
+            schema_mapping_id=source_id,
+            standard_field="query",
+        )
+        assert match is not None
+        assert match.snippet.sql == "SELECT 42 AS x"
+
+
+class TestSnippetNotSavedOnFailure:
+    def test_bad_sql_no_snippet(
+        self, cursor: duckdb.DuckDBPyConnection, session: Session
+    ) -> None:
+        from dataraum.query.snippet_library import SnippetLibrary
+
+        source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+
+        result = run_sql(
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            sql="SELECT * FROM nonexistent_table",
+        )
+        assert "error" in result
+
+        library = SnippetLibrary(session)
+        match = library.find_by_key(
+            snippet_type="query",
+            schema_mapping_id=source_id,
+            standard_field="query",
+        )
+        assert match is None
+
+
+class TestSnippetSummaryAccurate:
+    def test_reused_and_saved_counts(
+        self, cursor: duckdb.DuckDBPyConnection, session: Session
+    ) -> None:
+        source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+        # Pre-save a snippet for step "step_a"
+        _make_snippet(session, source_id, "step_a", "SELECT 1 AS a")
+
+        steps = [
+            {"step_id": "step_a", "sql": "SELECT 1 AS a"},
+            {"step_id": "step_b", "sql": "SELECT a + 1 AS b FROM step_a"},
+        ]
+        result = run_sql(
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            steps=steps,
+        )
+        assert "error" not in result
+        summary = result["snippet_summary"]
+        assert summary["reused"] == 1
+        assert summary["saved"] == 1
+
+
+class TestSnippetIntegrationWithRawSql:
+    def test_raw_sql_creates_snippet(
+        self, cursor: duckdb.DuckDBPyConnection, session: Session
+    ) -> None:
+        source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+
+        result = run_sql(
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            sql="SELECT 99 AS val",
+        )
+        assert "error" not in result
+        assert result["snippet_summary"]["saved"] == 1
+        # step_id for raw sql mode is "query"
+        assert result["steps_executed"][0]["step_id"] == "query"

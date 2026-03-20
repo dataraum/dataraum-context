@@ -8,6 +8,8 @@ per-column quality metadata, and integrates with the snippet library.
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
+
 from typing import TYPE_CHECKING, Any
 
 from dataraum.query.execution import ExecutionResult, SQLStep, execute_sql_steps
@@ -27,6 +29,7 @@ def run_sql(
     cursor: duckdb.DuckDBPyConnection,
     *,
     session: Session | None = None,
+    source_id: str | None = None,
     table_ids: list[str] | None = None,
     steps: list[dict[str, Any]] | None = None,
     sql: str | None = None,
@@ -36,7 +39,8 @@ def run_sql(
 
     Args:
         cursor: DuckDB connection.
-        session: SQLAlchemy session (needed for quality metadata).
+        session: SQLAlchemy session (needed for quality metadata and snippets).
+        source_id: Pipeline source ID (needed for snippet integration).
         table_ids: Typed table IDs (needed for quality metadata).
         steps: Structured SQL steps (list of dicts with step_id, sql, description,
             optional column_mappings).
@@ -59,11 +63,13 @@ def run_sql(
     # --- Build SQLStep list + final_sql ---
     sql_steps: list[SQLStep]
     final_sql: str
+    raw_steps = steps  # preserve original dicts for column_mappings
 
     if sql is not None:
         # Convenience mode: wrap raw SQL as single step
         sql_steps = [SQLStep(step_id="query", sql=sql, description="Raw SQL query")]
         final_sql = "SELECT * FROM query"
+        raw_steps = [{"step_id": "query", "sql": sql, "description": "Raw SQL query"}]
     else:
         assert steps is not None
         sql_steps = [
@@ -78,6 +84,12 @@ def run_sql(
         last_step_id = sql_steps[-1].step_id
         final_sql = f"SELECT * FROM {last_step_id}"
 
+    # --- Snippet lookup (before execution) ---
+    session_source = f"mcp:session_{uuid4().hex[:8]}"
+    snippet_matches: dict[str, tuple[str, str]] = {}  # step_id → (status, snippet_id)
+    if session is not None and source_id:
+        snippet_matches = _lookup_snippets(session, source_id, sql_steps)
+
     # --- Execute ---
     result = execute_sql_steps(
         steps=sql_steps,
@@ -87,7 +99,30 @@ def run_sql(
         return_table=True,
     )
 
-    if not result.success or not result.value:
+    is_error = not result.success or not result.value
+
+    # --- Snippet save/failure (after execution) ---
+    snippet_summary: dict[str, Any] | None = None
+    if session is not None and source_id:
+        if is_error:
+            # Record failures for matched snippets
+            failed_ids = [sid for _, (_, sid) in snippet_matches.items() if sid]
+            if failed_ids:
+                try:
+                    from dataraum.query.snippet_library import SnippetLibrary
+
+                    library = SnippetLibrary(session)
+                    library.record_failure(failed_ids)
+                except Exception:
+                    _log.debug("Snippet failure recording failed", exc_info=True)
+        else:
+            # Save novel steps as snippets
+            snippet_summary = _save_snippets(
+                session, source_id, sql_steps, raw_steps or [],
+                snippet_matches, session_source,
+            )
+
+    if is_error:
         return {"error": str(result.error)}
 
     exec_result: ExecutionResult = result.value
@@ -105,8 +140,8 @@ def run_sql(
     if session is not None and table_ids:
         # Merge column_mappings from all steps
         merged_mappings: dict[str, str] = {}
-        if steps is not None:
-            for s in steps:
+        if raw_steps is not None:
+            for s in raw_steps:
                 mappings = s.get("column_mappings")
                 if mappings:
                     merged_mappings.update(mappings)
@@ -118,6 +153,16 @@ def run_sql(
         except Exception:
             _log.debug("Quality metadata lookup failed", exc_info=True)
 
+    # --- Build step execution info with snippet status ---
+    step_info: list[dict[str, Any]] = []
+    for sr in exec_result.step_results:
+        entry: dict[str, Any] = {"step_id": sr.step_id, "sql": sr.sql_executed}
+        match = snippet_matches.get(sr.step_id)
+        if match:
+            entry["snippet_status"] = match[0]
+            entry["snippet_id"] = match[1]
+        step_info.append(entry)
+
     from dataraum.mcp.formatters import format_run_sql_result
 
     return format_run_sql_result(
@@ -128,7 +173,92 @@ def run_sql(
         total_rows=total_rows,
         column_quality=column_quality,
         quality_caveat=quality_caveat,
+        step_info=step_info,
+        snippet_summary=snippet_summary,
     )
+
+
+def _lookup_snippets(
+    session: Session,
+    source_id: str,
+    sql_steps: list[SQLStep],
+) -> dict[str, tuple[str, str]]:
+    """Look up snippets for each step before execution.
+
+    Returns:
+        Dict mapping step_id → (match_status, snippet_id).
+        match_status is "exact_reuse" or "adapted".
+    """
+    from dataraum.query.snippet_library import SnippetLibrary
+
+    library = SnippetLibrary(session)
+    matches: dict[str, tuple[str, str]] = {}
+
+    for step in sql_steps:
+        try:
+            match = library.find_by_key(
+                snippet_type="query",
+                schema_mapping_id=source_id,
+                standard_field=step.step_id,
+            )
+            if match:
+                status = "exact_reuse" if match.snippet.sql == step.sql else "adapted"
+                matches[step.step_id] = (status, match.snippet.snippet_id)
+        except Exception:
+            _log.debug("Snippet lookup failed for step %s", step.step_id, exc_info=True)
+
+    return matches
+
+
+def _save_snippets(
+    session: Session,
+    source_id: str,
+    sql_steps: list[SQLStep],
+    raw_steps: list[dict[str, Any]],
+    snippet_matches: dict[str, tuple[str, str]],
+    session_source: str,
+) -> dict[str, Any]:
+    """Save novel steps as snippets and return summary.
+
+    Returns:
+        Dict with reused, saved counts and session_source.
+    """
+    from dataraum.query.snippet_library import SnippetLibrary
+
+    library = SnippetLibrary(session)
+    reused = len(snippet_matches)
+    saved = 0
+
+    # Build column_mappings lookup from raw steps
+    mappings_by_step: dict[str, dict[str, str]] = {}
+    for s in raw_steps:
+        cm = s.get("column_mappings")
+        if cm:
+            mappings_by_step[s["step_id"]] = cm
+
+    for step in sql_steps:
+        if step.step_id in snippet_matches:
+            continue  # Already matched — don't re-save
+        try:
+            library.save_snippet(
+                snippet_type="query",
+                sql=step.sql,
+                description=step.description or f"MCP run_sql step: {step.step_id}",
+                schema_mapping_id=source_id,
+                source=session_source,
+                standard_field=step.step_id,
+                column_mappings=mappings_by_step.get(step.step_id),
+            )
+            saved += 1
+        except Exception:
+            _log.debug("Snippet save failed for step %s", step.step_id, exc_info=True)
+
+    summary: dict[str, Any] = {
+        "reused": reused,
+        "saved": saved,
+        "session_source": session_source,
+    }
+    return summary
 
 
 def _build_column_quality(
@@ -202,10 +332,10 @@ def _build_column_quality(
     caveat: str | None = None
     try:
         source_ids = {t.source_id for t in tables}
-        for source_id in source_ids:
+        for sid in source_ids:
             entropy_log = session.execute(
                 select(PhaseLog).where(
-                    PhaseLog.source_id == source_id,
+                    PhaseLog.source_id == sid,
                     PhaseLog.phase_name == "entropy",
                     PhaseLog.status == "completed",
                 ).limit(1)

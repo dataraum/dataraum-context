@@ -329,6 +329,8 @@ def format_run_sql_result(
     total_rows: int,
     column_quality: dict[str, Any] | None = None,
     quality_caveat: str | None = None,
+    step_info: list[dict[str, Any]] | None = None,
+    snippet_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Format run_sql result as structured dict.
 
@@ -340,18 +342,29 @@ def format_run_sql_result(
         total_rows: Total rows before truncation.
         column_quality: Per-column quality metadata (Phase 2b).
         quality_caveat: Warning when quality data is incomplete.
+        step_info: Per-step execution info including snippet status (Phase 2c).
+            When provided, used instead of step_results for steps_executed.
+        snippet_summary: Snippet reuse/save summary (Phase 2c).
     """
+    # Use step_info (with snippet data) when available, otherwise basic step_results
+    if step_info is not None:
+        steps_executed = step_info
+    else:
+        steps_executed = [
+            {"step_id": sr.step_id, "sql": sr.sql_executed} for sr in step_results
+        ]
+
     result: dict[str, Any] = {
         "columns": columns,
         "row_count": len(rows),
         "rows": rows,
         "truncated": total_rows > limit,
-        "steps_executed": [
-            {"step_id": sr.step_id, "sql": sr.sql_executed} for sr in step_results
-        ],
+        "steps_executed": steps_executed,
     }
     if column_quality is not None:
         result["column_quality"] = column_quality
     if quality_caveat:
         result["quality_caveat"] = quality_caveat
+    if snippet_summary is not None:
+        result["snippet_summary"] = snippet_summary
     return result
