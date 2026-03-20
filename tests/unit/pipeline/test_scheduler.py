@@ -910,9 +910,7 @@ class TestAggregateAtGate:
             "dataraum.entropy.detectors.base.get_default_registry",
             return_value=registry,
         ):
-            gate_result = aggregate_at_gate(
-                session, "src-1", ["stub_col", "stub_tbl"]
-            )
+            gate_result = aggregate_at_gate(session, "src-1", ["stub_col", "stub_tbl"])
 
         assert "structural.types.type_fidelity" in gate_result.scores
         assert "semantic.dimensional.cross_column_patterns" in gate_result.scores
@@ -1523,7 +1521,6 @@ class TestExitCheckAvailableFixes:
         exit_checks = [e for e in events if e.event_type == EventType.EXIT_CHECK]
         assert len(exit_checks) == 1
         assert exit_checks[0].available_fixes == {}
-
 
 
 class TestAnalysisCoverageValidation:

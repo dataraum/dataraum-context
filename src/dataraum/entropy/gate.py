@@ -35,6 +35,8 @@ class GateResult:
     column_evidence: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
     # dim_path -> {target, ...} — targets accepted via DataFix records
     accepted_targets: dict[str, set[str]] = field(default_factory=dict)
+    # target -> filter_confidence — records discounted by business pattern filter
+    filter_applied: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -151,12 +153,18 @@ def aggregate_at_gate(
     if not records:
         return GateResult()
 
+    # Apply business pattern filter before aggregation
+    from dataraum.entropy.pattern_filter import CONFIDENCE_THRESHOLD, apply_pattern_filter
+
+    records = apply_pattern_filter(session, source_id, records)
+
     scores_by_dim: dict[str, list[float]] = defaultdict(list)
     column_scores: dict[str, dict[str, float]] = defaultdict(dict)
     table_scores: dict[str, dict[str, float]] = defaultdict(dict)
     view_scores: dict[str, dict[str, float]] = defaultdict(dict)
     actions_by_dim: dict[str, set[str]] = defaultdict(set)
     evidence_by_dim: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    filter_applied: dict[str, float] = {}
 
     for record in records:
         sub_dim = record.sub_dimension
@@ -164,6 +172,13 @@ def aggregate_at_gate(
         scope = scope_by_detector.get(record.detector_id, "column")
 
         scores_by_dim[sub_dim].append(record.score)
+
+        # Track filtered records
+        if (
+            record.filter_confidence is not None
+            and record.filter_confidence >= CONFIDENCE_THRESHOLD
+        ):
+            filter_applied[target] = record.filter_confidence
 
         # Route to column/table/view details by scope
         if scope == "table":
@@ -228,6 +243,7 @@ def aggregate_at_gate(
         resolution_actions=result_actions,
         column_evidence=result_evidence,
         accepted_targets=accepted,
+        filter_applied=filter_applied,
     )
 
 
@@ -394,5 +410,7 @@ def persist_gate_result(
         existing_outputs["accepted_targets"] = {
             k: sorted(v) for k, v in gate_result.accepted_targets.items()
         }
+    if gate_result.filter_applied:
+        existing_outputs["filter_applied"] = gate_result.filter_applied
     log.outputs = existing_outputs
     session.commit()
