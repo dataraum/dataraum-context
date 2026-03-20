@@ -373,9 +373,9 @@ def _build_column_quality(
         )
         for r in reports:
             if sv_col_ids:
-                key = sv_col_to_typed.get(r.source_column_id)
-                if key:
-                    quality_by_col[key] = r
+                sv_key = sv_col_to_typed.get(r.source_column_id)
+                if sv_key:
+                    quality_by_col[sv_key] = r
             else:
                 # Fallback: resolve typed column_id to (table_name, col_name)
                 for (tn, cn), cid in col_id_map.items():
