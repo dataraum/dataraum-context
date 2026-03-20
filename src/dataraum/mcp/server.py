@@ -1501,8 +1501,11 @@ def _run_sql(
         sql: Raw SQL string.
         limit: Max rows to return.
     """
+    from sqlalchemy import select
+
     from dataraum.core.connections import get_manager_for_directory
     from dataraum.mcp.sql_executor import run_sql
+    from dataraum.storage import Table
 
     try:
         manager = get_manager_for_directory(output_dir)
@@ -1510,8 +1513,27 @@ def _run_sql(
         return _no_data_error(output_dir)
 
     try:
-        with manager.duckdb_cursor() as cursor:
-            return run_sql(cursor, steps=steps, sql=sql, limit=limit)
+        with manager.session_scope() as session:
+            source = _get_pipeline_source(session)
+            table_ids: list[str] = []
+            if source:
+                tables = session.execute(
+                    select(Table).where(
+                        Table.source_id == source.source_id,
+                        Table.layer == "typed",
+                    )
+                ).scalars().all()
+                table_ids = [t.table_id for t in tables]
+
+            with manager.duckdb_cursor() as cursor:
+                return run_sql(
+                    cursor,
+                    session=session,
+                    table_ids=table_ids,
+                    steps=steps,
+                    sql=sql,
+                    limit=limit,
+                )
     finally:
         manager.close()
 

@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from uuid import uuid4
+
 import duckdb
 import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session, sessionmaker
 
 from dataraum.mcp.formatters import format_run_sql_result
-from dataraum.mcp.sql_executor import run_sql
+from dataraum.mcp.sql_executor import _build_column_quality, run_sql
 from dataraum.query.execution import StepExecutionResult
+from dataraum.storage import init_database
+
+
+def _id() -> str:
+    return str(uuid4())
 
 
 @pytest.fixture
@@ -20,6 +30,61 @@ def cursor() -> duckdb.DuckDBPyConnection:
         "(1, 100.0, 'US'), (2, 200.0, 'EU'), (3, 150.0, 'US')"
     )
     return conn
+
+
+@pytest.fixture
+def session() -> Generator[Session, None, None]:
+    """In-memory SQLite session with all tables created."""
+    engine = create_engine("sqlite:///:memory:", echo=False)
+
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):
+        c = dbapi_conn.cursor()
+        c.execute("PRAGMA foreign_keys=OFF")
+        c.close()
+
+    init_database(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as s:
+        yield s
+
+
+def _insert_source_and_table(
+    session: Session,
+    table_name: str = "orders",
+    column_names: list[str] | None = None,
+) -> tuple[str, str, list[str]]:
+    """Insert Source, Table, and Columns. Returns (source_id, table_id, [column_ids])."""
+    from dataraum.storage import Column, Source, Table
+
+    source_id = _id()
+    table_id = _id()
+    cols = column_names or ["amount", "region"]
+
+    session.add(Source(source_id=source_id, name="test_source", source_type="csv"))
+    session.add(
+        Table(
+            table_id=table_id,
+            source_id=source_id,
+            table_name=table_name,
+            layer="typed",
+            duckdb_path=f"typed_{table_name}",
+        )
+    )
+    col_ids = []
+    for i, col_name in enumerate(cols):
+        col_id = _id()
+        col_ids.append(col_id)
+        session.add(
+            Column(
+                column_id=col_id,
+                table_id=table_id,
+                column_name=col_name,
+                column_position=i,
+            )
+        )
+    session.flush()
+    return source_id, table_id, col_ids
 
 
 # --- Phase 2a: Basic execution ---
@@ -148,3 +213,123 @@ class TestFormatRunSqlResult:
         )
         assert result["column_quality"] == quality
         assert result["quality_caveat"] == "entropy phase not run"
+
+
+# --- Phase 2b: Quality metadata ---
+
+
+class TestQualityMetadataForMappedColumns:
+    def test_quality_attached_via_mapping(self, session: Session) -> None:
+        from dataraum.analysis.quality_summary.db_models import ColumnQualityReport
+
+        source_id, table_id, col_ids = _insert_source_and_table(
+            session, "orders", ["Betrag", "Region"]
+        )
+        # Add quality report for Betrag
+        session.add(
+            ColumnQualityReport(
+                report_id=_id(),
+                source_column_id=col_ids[0],
+                slice_column_id=col_ids[0],
+                column_name="Betrag",
+                source_table_name="orders",
+                slice_column_name="Betrag",
+                slice_count=1,
+                overall_quality_score=0.72,
+                quality_grade="B",
+                summary="Moderate quality",
+                report_data={},
+                investigation_views=[],
+            )
+        )
+        session.flush()
+
+        quality, caveat = _build_column_quality(
+            session,
+            table_ids=[table_id],
+            output_columns=["revenue", "region"],
+            column_mappings={"revenue": "Betrag"},
+        )
+
+        assert quality["revenue"] is not None
+        assert quality["revenue"]["source_column"] == "orders.Betrag"
+        assert quality["revenue"]["quality_grade"] == "B"
+        assert quality["revenue"]["quality_score"] == 0.72
+
+
+class TestUnmappedColumnsGetNull:
+    def test_computed_column_returns_null(self, session: Session) -> None:
+        _, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+
+        quality, _ = _build_column_quality(
+            session,
+            table_ids=[table_id],
+            output_columns=["total_revenue"],
+            column_mappings={},
+        )
+        assert quality["total_revenue"] is None
+
+
+class TestQualityCaveatWhenIncomplete:
+    def test_caveat_when_entropy_not_run(self, session: Session) -> None:
+        _, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+
+        _, caveat = _build_column_quality(
+            session,
+            table_ids=[table_id],
+            output_columns=["amount"],
+            column_mappings={},
+        )
+        assert caveat is not None
+        assert "entropy phase has not run" in caveat
+
+    def test_no_caveat_when_entropy_completed(self, session: Session) -> None:
+        from datetime import UTC, datetime
+
+        from dataraum.pipeline.db_models import PhaseLog, PipelineRun
+
+        source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
+
+        # Create pipeline run + phase log for entropy
+        run_id = _id()
+        now = datetime.now(UTC)
+        session.add(
+            PipelineRun(
+                run_id=run_id,
+                source_id=source_id,
+                status="completed",
+                started_at=now,
+                completed_at=now,
+            )
+        )
+        session.add(
+            PhaseLog(
+                log_id=_id(),
+                run_id=run_id,
+                source_id=source_id,
+                phase_name="entropy",
+                status="completed",
+                started_at=now,
+                completed_at=now,
+                duration_seconds=1.0,
+            )
+        )
+        session.flush()
+
+        _, caveat = _build_column_quality(
+            session,
+            table_ids=[table_id],
+            output_columns=["amount"],
+            column_mappings={},
+        )
+        assert caveat is None
+
+
+class TestQualityGracefulOnNoPipeline:
+    def test_no_session_returns_no_quality(
+        self, cursor: duckdb.DuckDBPyConnection
+    ) -> None:
+        """Without session/table_ids, quality fields are absent."""
+        result = run_sql(cursor, sql="SELECT 42 AS x")
+        assert "column_quality" not in result
+        assert "quality_caveat" not in result
