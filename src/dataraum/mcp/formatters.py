@@ -323,13 +323,13 @@ def format_zone_status(
 def format_run_sql_result(
     columns: list[str],
     rows: list[dict[str, Any]],
-    step_results: list[Any],
     *,
     limit: int,
     total_rows: int,
+    step_info: list[dict[str, Any]] | None = None,
+    step_results: list[Any] | None = None,
     column_quality: dict[str, Any] | None = None,
     quality_caveat: str | None = None,
-    step_info: list[dict[str, Any]] | None = None,
     snippet_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Format run_sql result as structured dict.
@@ -337,22 +337,22 @@ def format_run_sql_result(
     Args:
         columns: Output column names.
         rows: Result rows as list of dicts.
-        step_results: StepExecutionResult list from execute_sql_steps.
         limit: Applied row limit.
         total_rows: Total rows before truncation.
-        column_quality: Per-column quality metadata (Phase 2b).
+        step_info: Per-step execution info (with snippet status). Preferred.
+        step_results: StepExecutionResult list — fallback when step_info is absent.
+        column_quality: Per-column quality metadata.
         quality_caveat: Warning when quality data is incomplete.
-        step_info: Per-step execution info including snippet status (Phase 2c).
-            When provided, used instead of step_results for steps_executed.
-        snippet_summary: Snippet reuse/save summary (Phase 2c).
+        snippet_summary: Snippet reuse/save summary.
     """
-    # Use step_info (with snippet data) when available, otherwise basic step_results
     if step_info is not None:
         steps_executed = step_info
-    else:
+    elif step_results is not None:
         steps_executed = [
             {"step_id": sr.step_id, "sql": sr.sql_executed} for sr in step_results
         ]
+    else:
+        steps_executed = []
 
     result: dict[str, Any] = {
         "columns": columns,

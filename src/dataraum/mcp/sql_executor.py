@@ -178,12 +178,11 @@ def run_sql(
     return format_run_sql_result(
         columns=columns,
         rows=rows_as_dicts,
-        step_results=exec_result.step_results,
         limit=effective_limit,
         total_rows=total_rows,
+        step_info=step_info,
         column_quality=column_quality,
         quality_caveat=quality_caveat,
-        step_info=step_info,
         snippet_summary=snippet_summary,
     )
 
