@@ -348,9 +348,7 @@ def format_run_sql_result(
     if step_info is not None:
         steps_executed = step_info
     elif step_results is not None:
-        steps_executed = [
-            {"step_id": sr.step_id, "sql": sr.sql_executed} for sr in step_results
-        ]
+        steps_executed = [{"step_id": sr.step_id, "sql": sr.sql_executed} for sr in step_results]
     else:
         steps_executed = []
 

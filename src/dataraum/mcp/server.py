@@ -991,7 +991,6 @@ def _build_pipeline_status(session: Any, source_id: str) -> dict[str, Any] | Non
     return result
 
 
-
 def _analyze(
     output_dir: Path,
     path: str | None = None,
@@ -1517,12 +1516,16 @@ def _run_sql(
             source = _get_pipeline_source(session)
             table_ids: list[str] = []
             if source:
-                tables = session.execute(
-                    select(Table).where(
-                        Table.source_id == source.source_id,
-                        Table.layer == "typed",
+                tables = (
+                    session.execute(
+                        select(Table).where(
+                            Table.source_id == source.source_id,
+                            Table.layer == "typed",
+                        )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 table_ids = [t.table_id for t in tables]
 
             with manager.duckdb_cursor() as cursor:

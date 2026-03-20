@@ -25,10 +25,7 @@ def cursor() -> duckdb.DuckDBPyConnection:
     """In-memory DuckDB connection."""
     conn = duckdb.connect(":memory:")
     conn.execute("CREATE TABLE orders (id INT, amount DOUBLE, region VARCHAR)")
-    conn.execute(
-        "INSERT INTO orders VALUES "
-        "(1, 100.0, 'US'), (2, 200.0, 'EU'), (3, 150.0, 'US')"
-    )
+    conn.execute("INSERT INTO orders VALUES (1, 100.0, 'US'), (2, 200.0, 'EU'), (3, 150.0, 'US')")
     return conn
 
 
@@ -139,9 +136,7 @@ class TestInputValidation:
 class TestRowLimit:
     def test_default_limit_applied(self, cursor: duckdb.DuckDBPyConnection) -> None:
         # Insert enough rows to exceed default limit (100)
-        cursor.execute(
-            "CREATE TABLE big AS SELECT i AS id FROM generate_series(1, 200) t(i)"
-        )
+        cursor.execute("CREATE TABLE big AS SELECT i AS id FROM generate_series(1, 200) t(i)")
         result = run_sql(cursor, sql="SELECT * FROM big")
         assert result["row_count"] == 100
         assert result["truncated"] is True
@@ -326,9 +321,7 @@ class TestQualityCaveatWhenIncomplete:
 
 
 class TestQualityGracefulOnNoPipeline:
-    def test_no_session_returns_no_quality(
-        self, cursor: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_no_session_returns_no_quality(self, cursor: duckdb.DuckDBPyConnection) -> None:
         """Without session/table_ids, quality fields are absent."""
         result = run_sql(cursor, sql="SELECT 42 AS x")
         assert "column_quality" not in result
@@ -361,15 +354,19 @@ def _make_snippet(
 
 
 class TestSnippetReuseDetected:
-    def test_exact_reuse(
-        self, cursor: duckdb.DuckDBPyConnection, session: Session
-    ) -> None:
+    def test_exact_reuse(self, cursor: duckdb.DuckDBPyConnection, session: Session) -> None:
         source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
         sql_text = "SELECT 42 AS x"
         # Use content-hash key (matches what run_sql generates for raw SQL)
         step = SQLStep(step_id="query", sql=sql_text, description="")
         key = _snippet_key_for_step(
-            step, [{"step_id": "query", "_snippet_key": f"query_{__import__('hashlib').sha256(sql_text.encode()).hexdigest()[:12]}"}]
+            step,
+            [
+                {
+                    "step_id": "query",
+                    "_snippet_key": f"query_{__import__('hashlib').sha256(sql_text.encode()).hexdigest()[:12]}",
+                }
+            ],
         )
         snippet_id = _make_snippet(session, source_id, key, sql_text)
 
@@ -405,9 +402,7 @@ class TestSnippetReuseDetected:
 
 
 class TestSnippetSavedAfterSuccess:
-    def test_novel_step_saved(
-        self, cursor: duckdb.DuckDBPyConnection, session: Session
-    ) -> None:
+    def test_novel_step_saved(self, cursor: duckdb.DuckDBPyConnection, session: Session) -> None:
         import hashlib as _hashlib
 
         from dataraum.query.snippet_library import SnippetLibrary
@@ -439,9 +434,7 @@ class TestSnippetSavedAfterSuccess:
 
 
 class TestSnippetNotSavedOnFailure:
-    def test_bad_sql_no_snippet(
-        self, cursor: duckdb.DuckDBPyConnection, session: Session
-    ) -> None:
+    def test_bad_sql_no_snippet(self, cursor: duckdb.DuckDBPyConnection, session: Session) -> None:
         import hashlib as _hashlib
 
         from dataraum.query.snippet_library import SnippetLibrary
@@ -518,12 +511,18 @@ class TestSnippetIntegrationWithRawSql:
         source_id, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
 
         r1 = run_sql(
-            cursor, session=session, source_id=source_id,
-            table_ids=[table_id], sql="SELECT 1 AS a",
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            sql="SELECT 1 AS a",
         )
         r2 = run_sql(
-            cursor, session=session, source_id=source_id,
-            table_ids=[table_id], sql="SELECT 2 AS b",
+            cursor,
+            session=session,
+            source_id=source_id,
+            table_ids=[table_id],
+            sql="SELECT 2 AS b",
         )
         assert r1["snippet_summary"]["saved"] == 1
         assert r2["snippet_summary"]["saved"] == 1

@@ -73,8 +73,12 @@ def run_sql(
         final_sql = "SELECT * FROM query"
         snippet_key = f"query_{hashlib.sha256(sql.encode()).hexdigest()[:12]}"
         raw_steps = [
-            {"step_id": "query", "sql": sql, "description": "Raw SQL query",
-             "_snippet_key": snippet_key},
+            {
+                "step_id": "query",
+                "sql": sql,
+                "description": "Raw SQL query",
+                "_snippet_key": snippet_key,
+            },
         ]
     else:
         assert steps is not None
@@ -126,8 +130,12 @@ def run_sql(
             # Save novel steps as snippets
             assert session_source is not None  # set inside the same guard
             snippet_summary = _save_snippets(
-                session, source_id, sql_steps, raw_steps or [],
-                snippet_matches, session_source,
+                session,
+                source_id,
+                sql_steps,
+                raw_steps or [],
+                snippet_matches,
+                session_source,
             )
 
     if is_error:
@@ -187,9 +195,7 @@ def run_sql(
     )
 
 
-def _snippet_key_for_step(
-    step: SQLStep, raw_steps: list[dict[str, Any]]
-) -> str:
+def _snippet_key_for_step(step: SQLStep, raw_steps: list[dict[str, Any]]) -> str:
     """Get the snippet standard_field key for a step.
 
     For structured steps, uses step_id directly.
@@ -313,15 +319,15 @@ def _build_column_quality(
 
     # Build lookup: (table_name, column_name) → quality info
     # First load all quality reports for these tables
-    tables = session.execute(
-        select(Table).where(Table.table_id.in_(table_ids))
-    ).scalars().all()
+    tables = session.execute(select(Table).where(Table.table_id.in_(table_ids))).scalars().all()
     table_names = {t.table_id: t.table_name for t in tables}
 
     # Get all column IDs for these tables
-    all_columns = session.execute(
-        select(ColumnModel).where(ColumnModel.table_id.in_(table_ids))
-    ).scalars().all()
+    all_columns = (
+        session.execute(select(ColumnModel).where(ColumnModel.table_id.in_(table_ids)))
+        .scalars()
+        .all()
+    )
 
     # Map (table_name, column_name) → column_id
     col_id_map: dict[tuple[str, str], str] = {}
@@ -333,11 +339,13 @@ def _build_column_quality(
     quality_by_col_id: dict[str, ColumnQualityReport] = {}
     col_ids = list(col_id_map.values())
     if col_ids:
-        reports = session.execute(
-            select(ColumnQualityReport).where(
-                ColumnQualityReport.source_column_id.in_(col_ids)
+        reports = (
+            session.execute(
+                select(ColumnQualityReport).where(ColumnQualityReport.source_column_id.in_(col_ids))
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for r in reports:
             quality_by_col_id[r.source_column_id] = r
 
@@ -361,11 +369,13 @@ def _build_column_quality(
         source_ids = {t.source_id for t in tables}
         for sid in source_ids:
             entropy_log = session.execute(
-                select(PhaseLog).where(
+                select(PhaseLog)
+                .where(
                     PhaseLog.source_id == sid,
                     PhaseLog.phase_name == "entropy",
                     PhaseLog.status == "completed",
-                ).limit(1)
+                )
+                .limit(1)
             ).scalar_one_or_none()
             if not entropy_log:
                 caveat = "Quality metadata incomplete: entropy phase has not run yet"
