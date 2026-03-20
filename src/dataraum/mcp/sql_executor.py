@@ -124,6 +124,7 @@ def run_sql(
     if is_error:
         return {"error": str(result.error)}
 
+    assert result.value is not None  # guarded by is_error check above
     exec_result: ExecutionResult = result.value
     columns = exec_result.columns or []
     all_rows = exec_result.rows or []
