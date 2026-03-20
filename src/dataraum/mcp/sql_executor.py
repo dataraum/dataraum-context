@@ -423,15 +423,22 @@ def _build_column_quality(
     column_quality: dict[str, Any | None] = {}
     for out_col in output_columns:
         # Resolve source column via mappings or direct match
-        source_col = column_mappings.get(out_col, out_col)
+        mapping = column_mappings.get(out_col, out_col)
 
-        # Try to find the source column across all tables
-        found = False
-        for tname in table_names.values():
-            col_id = col_id_map.get((tname, source_col))
-            if col_id is None:
-                continue
+        # Support qualified "table.column" in column_mappings
+        if "." in mapping:
+            qual_table, qual_col = mapping.split(".", 1)
+            matches = [(qual_table, qual_col)] if col_id_map.get((qual_table, qual_col)) else []
+        else:
+            # Unqualified: collect all tables that have this column
+            matches = [
+                (tname, mapping)
+                for tname in table_names.values()
+                if col_id_map.get((tname, mapping)) is not None
+            ]
 
+        if len(matches) == 1:
+            tname, source_col = matches[0]
             entry: dict[str, Any] = {"source_column": f"{tname}.{source_col}"}
 
             report = quality_by_col.get((tname, source_col))
@@ -444,10 +451,13 @@ def _build_column_quality(
                 entry["readiness"] = readiness_by_col[readiness_key]
 
             column_quality[out_col] = entry
-            found = True
-            break
-
-        if not found:
+        elif len(matches) > 1:
+            # Ambiguous — column exists in multiple tables, skip to avoid wrong metadata
+            column_quality[out_col] = {
+                "ambiguous": True,
+                "candidates": [f"{t}.{c}" for t, c in matches],
+            }
+        else:
             column_quality[out_col] = None
 
     return column_quality, caveat

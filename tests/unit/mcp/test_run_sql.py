@@ -331,6 +331,96 @@ class TestQualityViaSlicingView:
         assert quality["amount"]["quality_score"] == 0.85
 
 
+class TestQualifiedColumnMappings:
+    def test_qualified_mapping_resolves_correctly(self, session: Session) -> None:
+        """column_mappings with 'table.column' format should resolve directly."""
+        source_id, table_id, col_ids = _insert_source_and_table(
+            session, "orders", ["Betrag", "Region"]
+        )
+
+        quality, _ = _build_column_quality(
+            session,
+            table_ids=[table_id],
+            output_columns=["revenue"],
+            column_mappings={"revenue": "orders.Betrag"},
+        )
+        assert quality["revenue"] is not None
+        assert quality["revenue"]["source_column"] == "orders.Betrag"
+
+    def test_ambiguous_column_returns_candidates(self, session: Session) -> None:
+        """Same column in multiple tables should return ambiguous marker."""
+        from dataraum.storage import Column, Source, Table
+
+        source_id = _id()
+        session.add(Source(source_id=source_id, name="test", source_type="csv"))
+
+        # Two typed tables both with "date" column
+        t1_id = _id()
+        session.add(
+            Table(
+                table_id=t1_id, source_id=source_id, table_name="orders",
+                layer="typed", duckdb_path="typed_orders",
+            )
+        )
+        session.add(Column(column_id=_id(), table_id=t1_id, column_name="date", column_position=0))
+
+        t2_id = _id()
+        session.add(
+            Table(
+                table_id=t2_id, source_id=source_id, table_name="invoices",
+                layer="typed", duckdb_path="typed_invoices",
+            )
+        )
+        session.add(Column(column_id=_id(), table_id=t2_id, column_name="date", column_position=0))
+        session.flush()
+
+        quality, _ = _build_column_quality(
+            session,
+            table_ids=[t1_id, t2_id],
+            output_columns=["date"],
+            column_mappings={},
+        )
+        assert quality["date"] is not None
+        assert quality["date"]["ambiguous"] is True
+        assert len(quality["date"]["candidates"]) == 2
+
+    def test_ambiguous_resolved_by_qualified_mapping(self, session: Session) -> None:
+        """Qualified mapping disambiguates when column exists in multiple tables."""
+        from dataraum.storage import Column, Source, Table
+
+        source_id = _id()
+        session.add(Source(source_id=source_id, name="test", source_type="csv"))
+
+        t1_id = _id()
+        session.add(
+            Table(
+                table_id=t1_id, source_id=source_id, table_name="orders",
+                layer="typed", duckdb_path="typed_orders",
+            )
+        )
+        session.add(Column(column_id=_id(), table_id=t1_id, column_name="date", column_position=0))
+
+        t2_id = _id()
+        session.add(
+            Table(
+                table_id=t2_id, source_id=source_id, table_name="invoices",
+                layer="typed", duckdb_path="typed_invoices",
+            )
+        )
+        session.add(Column(column_id=_id(), table_id=t2_id, column_name="date", column_position=0))
+        session.flush()
+
+        quality, _ = _build_column_quality(
+            session,
+            table_ids=[t1_id, t2_id],
+            output_columns=["invoice_date"],
+            column_mappings={"invoice_date": "invoices.date"},
+        )
+        assert quality["invoice_date"] is not None
+        assert quality["invoice_date"]["source_column"] == "invoices.date"
+        assert "ambiguous" not in quality["invoice_date"]
+
+
 class TestUnmappedColumnsGetNull:
     def test_computed_column_returns_null(self, session: Session) -> None:
         _, table_id, _ = _insert_source_and_table(session, "orders", ["amount"])
