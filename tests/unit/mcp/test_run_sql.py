@@ -208,7 +208,8 @@ class TestFormatRunSqlResult:
             quality_caveat="entropy phase not run",
         )
         assert result["column_quality"] == quality
-        assert result["quality_caveat"] == "entropy phase not run"
+        assert "warnings" in result
+        assert "entropy phase not run" in result["warnings"]
 
 
 # --- Phase 2b: Quality metadata ---
