@@ -221,7 +221,6 @@ class Context:
         from dataraum.entropy.actions import merge_actions
         from dataraum.entropy.contracts import evaluate_all_contracts
         from dataraum.entropy.db_models import EntropyObjectRecord
-        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.entropy.views.network_context import build_for_network
         from dataraum.entropy.views.query_context import network_to_column_summaries
         from dataraum.storage import Column, Source, Table
@@ -259,17 +258,8 @@ class Context:
             network_context = build_for_network(session, table_ids)
             column_summaries = network_to_column_summaries(network_context)
 
-            # Get LLM interpretations
-            interp_result = session.execute(
-                select(EntropyInterpretationRecord).where(
-                    EntropyInterpretationRecord.source_id == source.source_id,
-                    EntropyInterpretationRecord.column_name.isnot(None),
-                )
-            )
+            # Interpretation records removed; pass empty dict
             interp_by_col: dict[str, Any] = {}
-            for interp in interp_result.scalars().all():
-                col_key = f"{interp.table_name}.{interp.column_name}"
-                interp_by_col[col_key] = interp
 
             # Get entropy objects by column
             entropy_objects_by_col: dict[str, list[Any]] = defaultdict(list)
@@ -357,7 +347,6 @@ class EntropyAccessor:
         from sqlalchemy import select
 
         from dataraum.entropy.engine import compute_network
-        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.entropy.views.query_context import network_to_column_summaries
         from dataraum.storage import Source
 
@@ -375,23 +364,8 @@ class EntropyAccessor:
             if network_ctx is None:
                 return EntropyResultWrapper({"error": "No entropy data"})
 
-            # Get interpretations (column-level only; table-level have column_id=NULL)
-            interp_query = select(EntropyInterpretationRecord).where(
-                EntropyInterpretationRecord.source_id == source.source_id,
-                EntropyInterpretationRecord.column_id.isnot(None),
-            )
-
-            if table_name:
-                interp_query = interp_query.where(
-                    EntropyInterpretationRecord.table_name == table_name
-                )
-
-            interp_query = interp_query.order_by(
-                EntropyInterpretationRecord.table_name,
-                EntropyInterpretationRecord.column_name,
-            )
-            interp_result = session.execute(interp_query)
-            interpretations = interp_result.scalars().all()
+            # Interpretation records removed; use empty list
+            interpretations: list[Any] = []
 
             # Build dimension scores from network + direct signals
             dimension_scores: dict[str, float] = {}

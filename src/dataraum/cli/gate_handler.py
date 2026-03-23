@@ -567,7 +567,7 @@ def build_gate_context(
     """Build context for BatchPlanAgent at a quality gate.
 
     Lighter than _build_agent_context() in fix.py — works at Gate 1
-    where EntropyInterpretationRecord doesn't yet exist. Uses detector
+    where interpretation data is unavailable. Uses detector
     evidence from the event, data profiles, and semantic annotations.
 
     Includes ALL available fix actions for the dimension so the LLM can

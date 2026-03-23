@@ -237,9 +237,7 @@ class TestBuildQualitySection:
     def test_entropy_data(self) -> None:
         col = _make_column(
             entropy_scores={"readiness": "investigate", "composite": 0.3},
-            entropy_explanation="High null ratio detected",
-            entropy_assumptions=[{"assumption_text": "nulls are MCAR", "confidence": "high"}],
-            entropy_resolution_actions=[{"action": "impute", "effort": "low"}],
+            resolution_hints=[{"action": "impute", "effort": "low"}],
         )
         table = _make_table(columns=[col])
         ctx = _make_context(tables=[table])
@@ -247,8 +245,6 @@ class TestBuildQualitySection:
 
         c = result["tables"][0]["columns"][0]
         assert c["entropy_scores"]["readiness"] == "investigate"
-        assert c["explanation"] == "High null ratio detected"
-        assert len(c["assumptions"]) == 1
         assert len(c["resolution_actions"]) == 1
 
     def test_assumptions_in_effect(self) -> None:
@@ -264,7 +260,6 @@ class TestBuildQualitySection:
         result = build_quality_section(ctx)
 
         assert "entropy_scores" in result["availability"]
-        assert "entropy_interpretation" in result["availability"]
         assert "hint" in result
 
 

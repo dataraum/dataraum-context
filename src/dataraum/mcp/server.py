@@ -749,7 +749,6 @@ _PHASE_LABELS: dict[str, str] = {
     "enriched_views": "Creating enriched views",
     "column_eligibility": "Evaluating column eligibility",
     "entropy": "Measuring data uncertainty",
-    "entropy_interpretation": "Writing quality summaries (AI step)",
     "business_cycles": "Detecting business cycles (AI step)",
     "validation": "Running validation checks (AI step)",
     "computation_review": "Reviewing computation quality (Gate 3)",
@@ -1384,24 +1383,11 @@ def _build_entropy_section(
     table_name: str | None,
 ) -> dict[str, Any]:
     """Build entropy section for quality report."""
-    from sqlalchemy import select
-
-    from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
 
     if not network_context or network_context.total_columns == 0:
         return {"status": "unavailable"}
 
-    interp_query = select(EntropyInterpretationRecord).where(
-        EntropyInterpretationRecord.source_id == source.source_id,
-        EntropyInterpretationRecord.column_id.isnot(None),
-    )
-    if table_name:
-        interp_query = interp_query.where(EntropyInterpretationRecord.table_name == table_name)
-    interp_query = interp_query.order_by(
-        EntropyInterpretationRecord.table_name,
-        EntropyInterpretationRecord.column_name,
-    )
-    interpretations = session.execute(interp_query).scalars().all()
+    interpretations: list[Any] = []
 
     # Compute per-dimension averages
     dimension_scores: dict[str, float] | None = None
@@ -1929,31 +1915,7 @@ def _get_zone_status(
             # Keyed by dimension_path → target → evidence dict.
             gate_evidence = outputs.get("gate_column_evidence", {})
 
-            # Load interpretation records scoped to violated targets only
-            from dataraum.entropy.interpretation_db_models import (
-                EntropyInterpretationRecord,
-            )
-
-            violated_tables = set()
-            for issue in issues:
-                for t in issue.affected_targets:
-                    ref = t.replace("column:", "").replace("table:", "")
-                    violated_tables.add(ref.split(".", 1)[0])
-
             interp_by_col: dict[tuple[str, str | None], Any] = {}
-            if violated_tables:
-                interp_records = (
-                    session.execute(
-                        select(EntropyInterpretationRecord).where(
-                            EntropyInterpretationRecord.source_id == source.source_id,
-                            EntropyInterpretationRecord.table_name.in_(violated_tables),
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                for rec in interp_records:
-                    interp_by_col[(rec.table_name, rec.column_name)] = rec
 
             violations = []
             for issue in issues:

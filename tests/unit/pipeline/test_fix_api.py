@@ -25,7 +25,7 @@ class TestDetectorIdsForGate:
         # Includes zone 2 detectors
         assert "dimension_coverage" in ids
         assert "derived_value" in ids
-        assert "column_quality" in ids
+        assert "temporal_drift" in ids
         # Zone 3 detectors not included
         assert "cross_table_consistency" not in ids
 

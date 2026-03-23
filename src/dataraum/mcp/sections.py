@@ -190,18 +190,13 @@ def build_semantics_section(context: GraphExecutionContext) -> dict[str, Any]:
 
 
 def build_quality_section(context: GraphExecutionContext) -> dict[str, Any]:
-    """Build quality section: grades, entropy, interpretations, assumptions."""
+    """Build quality section: grades, entropy, assumptions."""
     # Check what's available
     has_entropy = any(col.entropy_scores for table in context.tables for col in table.columns)
-    has_interpretation = any(
-        col.entropy_explanation for table in context.tables for col in table.columns
-    )
 
     availability: dict[str, Any] = {}
     if not has_entropy:
         availability["entropy_scores"] = "not_yet_available"
-    if not has_interpretation:
-        availability["entropy_interpretation"] = "not_yet_available"
 
     tables = []
     for table in context.tables:
@@ -209,8 +204,6 @@ def build_quality_section(context: GraphExecutionContext) -> dict[str, Any]:
 
         if table.readiness_for_use:
             t["readiness"] = table.readiness_for_use
-        if table.table_entropy_explanation:
-            t["explanation"] = table.table_entropy_explanation
 
         columns = []
         for col in table.columns:
@@ -218,7 +211,6 @@ def build_quality_section(context: GraphExecutionContext) -> dict[str, Any]:
             if not any(
                 [
                     col.entropy_scores,
-                    col.entropy_explanation,
                     col.flags,
                 ]
             ):
@@ -227,14 +219,10 @@ def build_quality_section(context: GraphExecutionContext) -> dict[str, Any]:
             c: dict[str, Any] = {"name": col.column_name}
             if col.entropy_scores:
                 c["entropy_scores"] = col.entropy_scores
-            if col.entropy_explanation:
-                c["explanation"] = col.entropy_explanation
             if col.flags:
                 c["flags"] = col.flags
-            if col.entropy_assumptions:
-                c["assumptions"] = col.entropy_assumptions
-            if col.entropy_resolution_actions:
-                c["resolution_actions"] = col.entropy_resolution_actions
+            if col.resolution_hints:
+                c["resolution_actions"] = col.resolution_hints
             columns.append(c)
 
         if columns:

@@ -149,7 +149,6 @@ class EntropyScreen(Screen[None]):
             EntropyObjectRecord,
         )
         from dataraum.entropy.engine import compute_network
-        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.storage import Column, Source, Table
 
         manager = get_manager(self.output_dir)
@@ -172,22 +171,8 @@ class EntropyScreen(Screen[None]):
                     self._show_error("No entropy data. Run entropy phase first.")
                     return
 
-                # Get interpretations
-                interp_query = select(EntropyInterpretationRecord).where(
-                    EntropyInterpretationRecord.source_id == source.source_id
-                )
-
-                if self.table_filter:
-                    interp_query = interp_query.where(
-                        EntropyInterpretationRecord.table_name == self.table_filter
-                    )
-
-                interp_query = interp_query.order_by(
-                    EntropyInterpretationRecord.table_name,
-                    EntropyInterpretationRecord.column_name,
-                )
-                interp_result = session.execute(interp_query)
-                interpretations = interp_result.scalars().all()
+                # Interpretation records removed; use empty list
+                interpretations: list[Any] = []
 
                 # Build lookup map and collect column_ids
                 column_ids: list[str] = []

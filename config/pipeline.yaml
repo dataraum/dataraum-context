@@ -102,10 +102,6 @@ phases:
   # =========================================================================
   # Zone 3: Interpretation
   # =========================================================================
-  entropy_interpretation:
-    description: LLM interpretation of entropy
-    dependencies: [computation_review]
-
   business_cycles:
     description: Expert LLM cycle detection
     dependencies: [analysis_review, semantic, relationships, temporal, enriched_views, slicing]
@@ -125,7 +121,7 @@ phases:
 
   graph_execution:
     description: Execute metric graphs
-    dependencies: [semantic, column_eligibility, statistical_quality, temporal, relationships, correlations, slicing, entropy_interpretation]
+    dependencies: [semantic, column_eligibility, statistical_quality, temporal, relationships, correlations, slicing, computation_review]
 
 # Limits
 limits:

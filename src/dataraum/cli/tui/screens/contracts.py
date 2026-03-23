@@ -97,7 +97,6 @@ class ContractsScreen(Screen[None]):
             get_contract,
         )
         from dataraum.entropy.db_models import EntropyObjectRecord
-        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.entropy.views.network_context import build_for_network
         from dataraum.entropy.views.query_context import network_to_column_summaries
         from dataraum.storage import Column, Source, Table
@@ -161,16 +160,7 @@ class ContractsScreen(Screen[None]):
                             dim_key = (contract_dim, col_key)
                             self._entropy_by_dim_col.setdefault(dim_key, []).append(obj)
 
-                # Load interpretations keyed by column key for action data
-                interp_result = session.execute(
-                    select(EntropyInterpretationRecord).where(
-                        EntropyInterpretationRecord.source_id == source.source_id,
-                        EntropyInterpretationRecord.column_name.isnot(None),
-                    )
-                )
-                for interp in interp_result.scalars().all():
-                    col_key = f"{interp.table_name}.{interp.column_name}"
-                    self._interp_by_col[col_key] = interp
+                # Interpretation records removed; _interp_by_col stays empty
 
                 # Evaluate all contracts and store
                 self._evaluations = evaluate_all_contracts(column_summaries)

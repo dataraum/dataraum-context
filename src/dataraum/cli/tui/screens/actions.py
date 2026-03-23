@@ -110,7 +110,6 @@ class ActionsScreen(Screen[None]):
         from dataraum.entropy.db_models import (
             EntropyObjectRecord,
         )
-        from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
         from dataraum.entropy.views.network_context import build_for_network
         from dataraum.entropy.views.query_context import network_to_column_summaries
         from dataraum.storage import Column, Source, Table
@@ -154,17 +153,8 @@ class ActionsScreen(Screen[None]):
                 network_ctx = build_for_network(session, table_ids)
                 column_summaries: dict[str, Any] = network_to_column_summaries(network_ctx)
 
-                # Source 2: LLM resolution_actions_json from interpretations
-                interp_result = session.execute(
-                    select(EntropyInterpretationRecord).where(
-                        EntropyInterpretationRecord.source_id == source.source_id,
-                        EntropyInterpretationRecord.column_name.isnot(None),
-                    )
-                )
+                # Interpretation records removed; pass empty dict
                 interp_by_col: dict[str, Any] = {}
-                for interp in interp_result.scalars().all():
-                    col_key = f"{interp.table_name}.{interp.column_name}"
-                    interp_by_col[col_key] = interp
 
                 # Source 3: Raw entropy objects for evidence
                 entropy_objects_by_col: dict[str, list[Any]] = {}

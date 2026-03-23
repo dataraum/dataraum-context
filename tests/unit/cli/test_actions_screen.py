@@ -10,7 +10,7 @@ from dataraum.cli.tui.screens.actions import ActionsScreen, MergedAction
 
 @dataclass
 class FakeInterp:
-    """Minimal stub for EntropyInterpretationRecord."""
+    """Minimal stub for interpretation record (resolution actions)."""
 
     table_name: str = "orders"
     column_name: str = "amount"

@@ -79,12 +79,6 @@ class ColumnContext:
     entropy_scores: dict[str, Any] | None = None  # Layer scores and composite
     resolution_hints: list[dict[str, Any]] = field(default_factory=list)  # Top fixes
 
-    # Entropy interpretation (from EntropyInterpretationRecord)
-    entropy_explanation: str | None = None
-    entropy_assumptions: list[dict[str, Any]] = field(default_factory=list)
-    # Each: {dimension, assumption_text, confidence, impact, basis}
-    entropy_resolution_actions: list[dict[str, Any]] = field(default_factory=list)
-    # Each: {action, description, effort, expected_impact, parameters}
 
 
 @dataclass
@@ -116,10 +110,6 @@ class TableContext:
     # Entropy (from entropy layer)
     table_entropy: dict[str, Any] | None = None  # Aggregated entropy scores
     readiness_for_use: str | None = None  # ready, investigate, blocked
-
-    # Table-level entropy interpretation
-    table_entropy_explanation: str | None = None
-    table_entropy_assumptions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -647,22 +637,6 @@ def build_execution_context(
         network_ctx.avg_entropy_score if network_ctx.total_columns > 0 else None
     )
 
-    # 18. Load entropy interpretations
-    from dataraum.entropy.interpretation_db_models import EntropyInterpretationRecord
-
-    entropy_interps: dict[str, EntropyInterpretationRecord] = {}
-    table_interps: dict[str, EntropyInterpretationRecord] = {}
-
-    if _source_id:
-        interp_stmt = select(EntropyInterpretationRecord).where(
-            EntropyInterpretationRecord.source_id == _source_id
-        )
-        for interp in session.execute(interp_stmt).scalars().all():
-            if interp.column_id:
-                entropy_interps[interp.column_id] = interp
-            elif interp.table_id:
-                table_interps[interp.table_id] = interp
-
     # 17. Build table contexts
     table_contexts: list[TableContext] = []
     quality_issues_by_severity: dict[str, int] = {}
@@ -738,9 +712,6 @@ def build_execution_context(
             entropy_key = f"{table.table_name}.{col.column_name}"
             col_entropy = column_entropy_lookup.get(entropy_key)
 
-            # Get entropy interpretation for this column
-            col_interp = entropy_interps.get(col.column_id)
-
             column_contexts.append(
                 ColumnContext(
                     column_id=col.column_id,
@@ -773,11 +744,6 @@ def build_execution_context(
                     flags=flags,
                     entropy_scores=col_entropy,
                     resolution_hints=col_entropy.get("resolution_hints", []) if col_entropy else [],
-                    entropy_explanation=col_interp.explanation if col_interp else None,
-                    entropy_assumptions=col_interp.assumptions_json or [] if col_interp else [],
-                    entropy_resolution_actions=col_interp.resolution_actions_json or []
-                    if col_interp
-                    else [],
                 )
             )
 
@@ -794,9 +760,6 @@ def build_execution_context(
 
         # Get table entropy data
         tbl_entropy = table_entropy_lookup.get(table.table_name)
-
-        # Get table-level entropy interpretation
-        table_interp = table_interps.get(table_id)
 
         # Extract grain_columns: stored as JSON (may be list of column IDs or names)
         grain_cols: list[str] = []
@@ -825,26 +788,10 @@ def build_execution_context(
                 flags=table_flags,
                 table_entropy=tbl_entropy,
                 readiness_for_use=tbl_entropy.get("readiness") if tbl_entropy else None,
-                table_entropy_explanation=table_interp.explanation if table_interp else None,
-                table_entropy_assumptions=table_interp.assumptions_json or []
-                if table_interp
-                else [],
             )
         )
 
     # Aggregate active assumptions across all columns
-    active_assumptions: list[dict[str, Any]] = []
-    for tctx in table_contexts:
-        for cctx in tctx.columns:
-            for assumption in cctx.entropy_assumptions:
-                active_assumptions.append(
-                    {
-                        "table": tctx.table_name,
-                        "column": cctx.column_name,
-                        **assumption,
-                    }
-                )
-
     return GraphExecutionContext(
         tables=table_contexts,
         relationships=relationships,
@@ -867,7 +814,6 @@ def build_execution_context(
         validations=validation_contexts,
         enriched_views=enriched_view_contexts,
         field_mappings=field_mappings,
-        active_assumptions=active_assumptions,
     )
 
 
@@ -1156,24 +1102,6 @@ def format_metadata_document(
         lines.append("## Business Processes")
         _append_business_processes(lines, context)
 
-    # --- Assumptions in Effect ---
-    if context.active_assumptions:
-        lines.append("")
-        lines.append("## Assumptions in Effect")
-        lines.append("")
-        lines.append("Pre-computed from entropy analysis. Apply unless user specifies otherwise:")
-        lines.append("")
-        for assumption in context.active_assumptions:
-            text = assumption.get("assumption_text", "")
-            conf = assumption.get("confidence", "")
-            basis = assumption.get("basis", "")
-            impact = assumption.get("impact", "")
-            tbl = assumption.get("table", "")
-            col_name = assumption.get("column", "")
-            lines.append(f"- **{tbl}.{col_name}**: {text} (confidence: {conf})")
-            if basis:
-                lines.append(f"  Basis: {basis}. Impact: {impact}.")
-
     # --- Validation Results ---
     if context.validations:
         lines.append("")
@@ -1239,7 +1167,7 @@ def _build_readiness_summary(context: GraphExecutionContext) -> str | None:
 
     summary = context.entropy_summary
     readiness = summary.get("overall_readiness", "unknown")
-    columns_with_assumptions = len({(a["table"], a["column"]) for a in context.active_assumptions})
+    columns_with_assumptions = 0
     blocked_count = summary.get("critical_entropy_count", 0)
 
     return (
@@ -1291,47 +1219,7 @@ def _append_table_quality(lines: list[str], table: TableContext) -> None:
 
 
 def _append_data_quality_notes(lines: list[str], table: TableContext) -> None:
-    """Append data quality notes from entropy interpretations."""
-    has_notes = False
-
-    # Table-level entropy interpretation
-    if table.table_entropy_explanation:
-        lines.append("")
-        lines.append("**Data Quality Notes**:")
-        lines.append(f"- Table: {table.table_entropy_explanation}")
-        for assumption in table.table_entropy_assumptions:
-            text = assumption.get("assumption_text", "")
-            conf = assumption.get("confidence", "")
-            basis = assumption.get("basis", "")
-            lines.append(f"  Assumption: {text} (confidence: {conf}, basis: {basis})")
-        has_notes = True
-
-    # Column-level entropy interpretations (non-ready columns)
-    notes_cols = [
-        col
-        for col in table.columns
-        if col.entropy_explanation
-        and col.entropy_scores
-        and col.entropy_scores.get("readiness", "ready") != "ready"
-    ]
-    if not notes_cols:
-        return
-
-    if not has_notes:
-        lines.append("")
-        lines.append("**Data Quality Notes**:")
-    for col in notes_cols:
-        lines.append(f"- {col.column_name}: {col.entropy_explanation}")
-        for assumption in col.entropy_assumptions:
-            text = assumption.get("assumption_text", "")
-            conf = assumption.get("confidence", "")
-            basis = assumption.get("basis", "")
-            lines.append(f"  Assumption: {text} (confidence: {conf}, basis: {basis})")
-        for action in col.entropy_resolution_actions:
-            desc = action.get("description", "")
-            effort = action.get("effort", "")
-            impact = action.get("expected_impact", "")
-            lines.append(f"  Action: {desc} (effort: {effort}, impact: {impact})")
+    """Append data quality notes (placeholder for BBN readiness in v0.2)."""
 
 
 def _append_business_processes(lines: list[str], context: GraphExecutionContext) -> None:
