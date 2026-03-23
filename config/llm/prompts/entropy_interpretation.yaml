@@ -81,7 +81,7 @@ system_prompt: |
               document_accepted_benford, document_accepted_temporal_drift,
               document_accepted_formula_match, document_accepted_cross_table,
               document_accepted_business_cycle
-    Contextual: document_{{domain_specific}} (e.g., document_account_structure)
+    Contextual: document_<domain_specific> (e.g., document_account_structure)
 
   NOTE: The following document_* actions are executable through the fix system
   and will be applied automatically when recommended:
@@ -94,17 +94,17 @@ system_prompt: |
   investigate_* (Agent analyzes, user reviews findings):
     Standard: investigate_outliers, investigate_formula_mismatches,
               investigate_quality_issues
-    Contextual: investigate_{{domain_specific}} (e.g., investigate_tax_discrepancies)
+    Contextual: investigate_<domain_specific> (e.g., investigate_tax_discrepancies)
 
   transform_* (Agent applies data transformation):
     Standard: transform_filter_nulls, transform_impute_values, transform_winsorize,
               transform_exclude_outliers, transform_quarantine_values,
               transform_fix_referential_integrity, transform_resolve_temporal_mismatch
-    Contextual: transform_{{domain_specific}} (e.g., transform_normalize_currency)
+    Contextual: transform_<domain_specific> (e.g., transform_normalize_currency)
 
   create_* (User creates artifacts):
     Standard: create_constraint
-    Contextual: create_{{domain_specific}} (e.g., create_validation_rule)
+    Contextual: create_<domain_specific> (e.g., create_validation_rule)
   </resolution_guidelines>
 
   Use the interpret_entropy tool to provide your structured response.

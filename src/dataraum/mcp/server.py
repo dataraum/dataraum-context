@@ -132,6 +132,27 @@ def create_server(output_dir: Path | None = None) -> Server:
                 execution=ToolExecution(taskSupport="optional"),
             ),
             Tool(
+                name="get_schema",
+                description=(
+                    "Get a lightweight schema orientation: tables, columns, roles, "
+                    "known categorical values, field mappings, and business processes. "
+                    "Call this at the start of an analysis session to understand what "
+                    "data is available. Response is under 50 lines — suitable for "
+                    "fast orientation without burning context window. "
+                    "Does NOT include quality grades, entropy, or actions — use "
+                    "get_quality for those."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "table": {
+                            "type": "string",
+                            "description": "Filter to a specific table (optional). Omit for all tables.",
+                        },
+                    },
+                },
+            ),
+            Tool(
                 name="get_context",
                 description=(
                     "Get the data context document for AI analysis. "
@@ -140,7 +161,8 @@ def create_server(output_dir: Path | None = None) -> Server:
                     "structured data for one or more sections, reducing response size. "
                     "Use section='quality' for quality overview (entropy, grades, "
                     "interpretations). Use get_quality(gate=...) for zone-specific "
-                    "violations and fix actions."
+                    "violations and fix actions. "
+                    "DEPRECATED: prefer get_schema for lightweight orientation."
                 ),
                 inputSchema={
                     "type": "object",
@@ -188,8 +210,10 @@ def create_server(output_dir: Path | None = None) -> Server:
                 description=(
                     "Get data quality information. Without gate: returns unified report "
                     "(entropy scores, contract compliance, resolution actions). "
-                    "With gate: returns zone-specific status — violations, fix actions, "
-                    "and skipped detectors for a quality gate."
+                    "With gate: returns zone-specific status — violations, fix actions "
+                    "(inline, ready for apply_fix), and passing dimensions. "
+                    "Use columns to filter to only the columns used in a computation. "
+                    "Use contract to get a single pass/fail assessment for a specific use case."
                 ),
                 inputSchema={
                     "type": "object",
@@ -199,9 +223,26 @@ def create_server(output_dir: Path | None = None) -> Server:
                             "enum": ["quality_review", "analysis_review", "computation_review"],
                             "description": "When set, returns zone-specific gate status instead of overall report. quality_review = Gate 1. analysis_review = Gate 2. computation_review = Gate 3.",
                         },
+                        "contract": {
+                            "type": "string",
+                            "enum": [
+                                "exploratory_analysis",
+                                "data_science",
+                                "operational_analytics",
+                                "aggregation_safe",
+                                "executive_dashboard",
+                                "regulatory_reporting",
+                            ],
+                            "description": "When set (without gate), returns single pass/fail assessment for this use case.",
+                        },
+                        "columns": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Filter quality info to only these columns. Omit for all columns.",
+                        },
                         "contract_name": {
                             "type": "string",
-                            "description": "Contract to evaluate (e.g., 'aggregation_safe', 'executive_dashboard'). Auto-detects if omitted.",
+                            "description": "Contract to evaluate (e.g., 'aggregation_safe', 'executive_dashboard'). Auto-detects if omitted. Prefer 'contract' parameter.",
                         },
                         "table_name": {
                             "type": "string",
@@ -224,6 +265,39 @@ def create_server(output_dir: Path | None = None) -> Server:
                 },
             ),
             Tool(
+                name="get_actions",
+                description=(
+                    "Get prioritized remediation actions for data quality issues. "
+                    "Actions are sorted by impact (highest first). "
+                    "Use after get_quality reveals issues, or when the user asks "
+                    "'how do I improve data quality?'. "
+                    "Parameters are directly usable in apply_fix."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "column": {
+                            "type": "string",
+                            "description": "Filter to a specific column (e.g. 'amount' or 'orders.amount').",
+                        },
+                        "gate": {
+                            "type": "string",
+                            "enum": ["quality_review", "analysis_review", "computation_review"],
+                            "description": "Filter to a specific gate's violations.",
+                        },
+                        "min_impact": {
+                            "type": "number",
+                            "description": "Only return actions above this impact_delta threshold (0.0–1.0).",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Limit number of returned actions. Default: 5.",
+                            "default": 5,
+                        },
+                    },
+                },
+            ),
+            Tool(
                 name="query",
                 description=(
                     "Answer an analytical question using AI reasoning. "
@@ -234,11 +308,10 @@ def create_server(output_dir: Path | None = None) -> Server:
                     "It tracks assumptions explicitly and evaluates confidence "
                     "against the active contract. Each SQL step becomes a "
                     "reusable snippet in the knowledge base. "
-                    "Prerequisites: call get_context first so the agent has "
-                    "metadata to reason over. Use get_quality to understand "
-                    "data quality issues before asking analytical questions. "
-                    "Returns: answer, confidence level, assumptions, SQL steps, "
-                    "and result data."
+                    "Returns: answer, decisions_made (auto-applied assumptions), "
+                    "open_questions (ambiguous decisions needing user input), "
+                    "confidence, and result data. "
+                    "Use get_schema first for schema orientation."
                 ),
                 inputSchema={
                     "type": "object",
@@ -469,9 +542,11 @@ def create_server(output_dir: Path | None = None) -> Server:
                 name="apply_fix",
                 description=(
                     "Apply fixes and re-run affected pipeline phases. "
-                    "Provide action name + target from get_quality output. "
+                    "Provide action name + target from get_quality or get_actions output. "
                     "The system resolves the schema and builds documents internally. "
                     "Returns before/after score deltas. "
+                    "Special action 'user_decision': persists a user's choice from an "
+                    "open_question so future query calls auto-apply it instead of re-asking. "
                     "Note: document_accepted_* actions acknowledge an issue but do NOT "
                     "lower the entropy score. Prefer corrective actions when possible."
                 ),
@@ -595,16 +670,27 @@ def create_server(output_dir: Path | None = None) -> Server:
                     ),
                     "hint": "Call get_context every ~2 minutes to check progress.",
                 }
+        elif name == "get_schema":
+            result = _get_schema(output_dir, table=arguments.get("table"))
         elif name == "get_context":
             result = _get_context(output_dir, section=arguments.get("section"))
         elif name == "get_quality":
             result = _get_quality(
                 output_dir,
                 gate=arguments.get("gate"),
-                contract_name=arguments.get("contract_name"),
+                contract_name=arguments.get("contract") or arguments.get("contract_name"),
+                columns=arguments.get("columns"),
                 table_name=arguments.get("table_name"),
                 priority=arguments.get("priority"),
                 include=arguments.get("include"),
+            )
+        elif name == "get_actions":
+            result = _get_actions(
+                output_dir,
+                column=arguments.get("column"),
+                gate=arguments.get("gate"),
+                min_impact=arguments.get("min_impact"),
+                max_results=arguments.get("max_results", 5),
             )
         elif name == "query":
             question = arguments["question"]
@@ -1272,10 +1358,304 @@ def _get_context_full(
     return result
 
 
+def _get_schema(
+    output_dir: Path,
+    table: str | None = None,
+) -> dict[str, Any]:
+    """Get lightweight schema orientation for the get_schema tool.
+
+    Returns tables, columns with roles, known categorical values,
+    field mappings, and compact business process summaries.
+    Does NOT include quality or entropy data.
+    """
+    from sqlalchemy import select
+
+    from dataraum.core.connections import get_manager_for_directory
+    from dataraum.mcp.sections import build_schema_tool_section
+    from dataraum.storage import Table
+
+    try:
+        manager = get_manager_for_directory(output_dir)
+    except FileNotFoundError:
+        return _no_data_error(output_dir)
+
+    try:
+        with manager.session_scope() as session:
+            source = _get_pipeline_source(session)
+            if not source:
+                return {"error": "No sources found in database"}
+
+            tables_result = session.execute(
+                select(Table).where(
+                    Table.source_id == source.source_id,
+                    Table.layer == "typed",
+                )
+            )
+            tables = tables_result.scalars().all()
+            if not tables:
+                return {"error": "No tables found. Run pipeline first."}
+
+            table_ids = [t.table_id for t in tables]
+
+            from dataraum.graphs.context import build_execution_context
+
+            with manager.duckdb_cursor() as cursor:
+                context = build_execution_context(
+                    session=session,
+                    table_ids=table_ids,
+                    duckdb_conn=cursor,
+                )
+
+            result = build_schema_tool_section(context)
+
+            # Apply table filter if requested
+            if table and "tables" in result:
+                result["tables"] = [
+                    t
+                    for t in result["tables"]
+                    if t.get("name") == table or t.get("source_name") == table
+                ]
+                if not result["tables"]:
+                    return {
+                        "error": f"Table '{table}' not found.",
+                        "available_tables": [
+                            t.get("name")
+                            for t in build_schema_tool_section(context).get("tables", [])
+                        ],
+                    }
+
+            return result
+    finally:
+        manager.close()
+
+
+def _get_actions(
+    output_dir: Path,
+    column: str | None = None,
+    gate: str | None = None,
+    min_impact: float | None = None,
+    max_results: int = 5,
+) -> dict[str, Any]:
+    """Get prioritized remediation actions for data quality issues.
+
+    Actions are sorted by impact_delta descending. Filters by column, gate,
+    and min_impact. Returns estimated_entropy_after_fixes.
+    """
+    from sqlalchemy import select
+
+    from dataraum.core.connections import get_manager_for_directory
+    from dataraum.entropy.actions import load_actions
+    from dataraum.storage import Table
+
+    try:
+        manager = get_manager_for_directory(output_dir)
+    except FileNotFoundError:
+        return _no_data_error(output_dir)
+
+    try:
+        with manager.session_scope() as session:
+            source = _get_pipeline_source(session)
+            if not source:
+                return {"error": "No sources found"}
+
+            actions = load_actions(session, source)
+
+            if not actions:
+                return {
+                    "actions": [],
+                    "total_available": 0,
+                    "estimated_entropy_after_fixes": None,
+                }
+
+            # Filter by column
+            if column:
+                col_filter = column.lower()
+                actions = [
+                    a
+                    for a in actions
+                    if any(
+                        col_filter == c.lower() or col_filter == c.lower().rsplit(".", 1)[-1]
+                        for c in a.get("affected_columns", [])
+                    )
+                ]
+
+            # Filter by gate: gate violations reference dimension paths scoped to gate phases
+            if gate:
+                tables_result = session.execute(
+                    select(Table).where(
+                        Table.source_id == source.source_id,
+                        Table.layer == "typed",
+                    )
+                )
+                table_ids = [t.table_id for t in tables_result.scalars().all()]
+                gate_dims = _get_gate_dimension_paths(output_dir, gate, table_ids)
+                if gate_dims is not None:
+                    actions = [
+                        a
+                        for a in actions
+                        if any(v in gate_dims for v in a.get("fixes_violations", []))
+                    ]
+
+            # Sort by network impact then priority_score
+            actions = sorted(
+                actions,
+                key=lambda a: (
+                    a.get("network_impact", 0.0)
+                    if isinstance(a.get("network_impact"), float)
+                    else a.get("network_impact", {}).get("delta", 0.0)
+                    if isinstance(a.get("network_impact"), dict)
+                    else 0.0,
+                    a.get("priority_score", 0.0),
+                ),
+                reverse=True,
+            )
+
+            # Filter by min_impact
+            if min_impact is not None:
+                actions = [
+                    a
+                    for a in actions
+                    if (
+                        a.get("network_impact", 0.0)
+                        if isinstance(a.get("network_impact"), float)
+                        else a.get("network_impact", {}).get("delta", 0.0)
+                        if isinstance(a.get("network_impact"), dict)
+                        else 0.0
+                    )
+                    >= min_impact
+                ]
+
+            total_available = len(actions)
+            actions = actions[:max_results]
+
+            # Estimate entropy after all returned actions
+            try:
+                from dataraum.entropy.views.network_context import build_for_network
+
+                table_ids_for_network = []
+                tables_r = session.execute(
+                    select(Table).where(
+                        Table.source_id == source.source_id,
+                        Table.layer == "typed",
+                    )
+                )
+                table_ids_for_network = [t.table_id for t in tables_r.scalars().all()]
+
+                network_context = build_for_network(session, table_ids_for_network)
+                current_entropy = (
+                    round(network_context.avg_entropy_score, 3)
+                    if network_context and network_context.avg_entropy_score is not None
+                    else None
+                )
+
+                total_delta = sum(
+                    (
+                        a.get("network_impact", 0.0)
+                        if isinstance(a.get("network_impact"), float)
+                        else a.get("network_impact", {}).get("delta", 0.0)
+                        if isinstance(a.get("network_impact"), dict)
+                        else 0.0
+                    )
+                    for a in actions
+                )
+                estimated_after = (
+                    round(max(0.0, current_entropy - total_delta), 3)
+                    if current_entropy is not None
+                    else None
+                )
+            except Exception:
+                estimated_after = None
+
+            # Format output matching spec shape
+            formatted = []
+            for i, action in enumerate(actions, start=1):
+                ni = action.get("network_impact", {})
+                if isinstance(ni, float):
+                    impact_delta = ni
+                    columns_affected = 1
+                elif isinstance(ni, dict):
+                    impact_delta = ni.get("delta", 0.0)
+                    columns_affected = ni.get("columns_affected", 0)
+                else:
+                    impact_delta = 0.0
+                    columns_affected = 0
+
+                entry: dict[str, Any] = {
+                    "priority": i,
+                    "action": action["action"],
+                    "parameters": action.get("parameters", {}),
+                    "effort": action.get("effort", "medium"),
+                    "impact_delta": round(impact_delta, 3),
+                    "columns_affected": columns_affected,
+                }
+                if action.get("description"):
+                    entry["description"] = action["description"]
+                if action.get("affected_columns"):
+                    entry["affected_targets"] = [
+                        f"column:{c}" if "." in c else c for c in action["affected_columns"][:5]
+                    ]
+                formatted.append(entry)
+
+            result: dict[str, Any] = {
+                "actions": formatted,
+                "total_available": total_available,
+            }
+            if estimated_after is not None:
+                result["estimated_entropy_after_fixes"] = estimated_after
+            return result
+    finally:
+        manager.close()
+
+
+def _get_gate_dimension_paths(
+    output_dir: Path,
+    gate: str,
+    table_ids: list[str],
+) -> set[str] | None:
+    """Get dimension paths that have violations at a specific gate.
+
+    Returns None if gate data is unavailable.
+    """
+    from sqlalchemy import select
+
+    from dataraum.core.connections import get_manager_for_directory
+    from dataraum.pipeline.db_models import PhaseLog
+
+    try:
+        manager = get_manager_for_directory(output_dir)
+    except FileNotFoundError:
+        return None
+
+    try:
+        with manager.session_scope() as session:
+            source = _get_pipeline_source(session)
+            if not source:
+                return None
+
+            log = session.execute(
+                select(PhaseLog)
+                .where(
+                    PhaseLog.source_id == source.source_id,
+                    PhaseLog.phase_name == gate,
+                    PhaseLog.status == "completed",
+                )
+                .order_by(PhaseLog.completed_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            if not log or not log.entropy_scores:
+                return None
+
+            return set(log.entropy_scores.keys())
+    finally:
+        manager.close()
+
+
 def _get_quality(
     output_dir: Path,
     gate: str | None = None,
     contract_name: str | None = None,
+    columns: list[str] | None = None,
     table_name: str | None = None,
     priority: str | None = None,
     include: list[str] | None = None,
@@ -1336,17 +1716,37 @@ def _get_quality(
                 except Exception:
                     _log.debug("Network context unavailable", exc_info=True)
 
+            # Apply column filter to column_summaries if requested
+            filtered_summaries = column_summaries
+            if columns and column_summaries:
+                col_filter_set = {c.lower() for c in columns}
+                filtered_summaries = {
+                    k: v
+                    for k, v in column_summaries.items()
+                    if any(
+                        part.lower() in col_filter_set
+                        for part in k.replace("column:", "").split(".", 1)
+                    )
+                }
+
             sections: dict[str, Any] = {}
 
             # --- Entropy section ---
             if "entropy" in sections_to_include:
                 sections["entropy"] = _build_entropy_section(
-                    session, source, network_context, column_summaries, table_name
+                    session,
+                    source,
+                    network_context,
+                    filtered_summaries,
+                    table_name,
+                    column_filter=columns,
                 )
 
             # --- Contract section ---
             if "contract" in sections_to_include:
-                sections["contract"] = _build_contract_section(column_summaries, resolved_contract)
+                sections["contract"] = _build_contract_section(
+                    filtered_summaries, resolved_contract
+                )
 
             # --- Actions section ---
             if "actions" in sections_to_include:
@@ -1383,6 +1783,7 @@ def _build_entropy_section(
     network_context: Any,
     column_summaries: Any,
     table_name: str | None,
+    column_filter: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build entropy section for quality report."""
     from sqlalchemy import select
@@ -1398,6 +1799,9 @@ def _build_entropy_section(
     )
     if table_name:
         interp_query = interp_query.where(EntropyInterpretationRecord.table_name == table_name)
+    if column_filter:
+        col_names = [c.rsplit(".", 1)[-1] for c in column_filter]
+        interp_query = interp_query.where(EntropyInterpretationRecord.column_name.in_(col_names))
     interp_query = interp_query.order_by(
         EntropyInterpretationRecord.table_name,
         EntropyInterpretationRecord.column_name,
@@ -2272,6 +2676,57 @@ def _validate_fix_expressions(
     return None
 
 
+def _apply_user_decision(output_dir: Path, fix: dict[str, Any]) -> dict[str, Any]:
+    """Persist a user_decision fix so future query calls auto-apply it.
+
+    The decision is stored in the fix ledger scoped to a 'scope' key.
+    Future query responses will include it in decisions_made instead of
+    re-surfacing it as an open_question.
+
+    Parameters expected:
+        scope: string key for the decision (e.g., "mrr_calculation")
+        rule: the decision rule to apply (e.g., "Use new plan rate for upgrades")
+    """
+    parameters = fix.get("parameters", {})
+    scope = parameters.get("scope", "general")
+    rule = parameters.get("rule", "")
+    reason = fix.get("reason", "")
+
+    if not rule:
+        return {"error": "user_decision requires parameters.rule"}
+
+    try:
+        from dataraum.core.connections import get_manager_for_directory
+        from dataraum.documentation.ledger import log_fix
+
+        manager = get_manager_for_directory(output_dir)
+        try:
+            with manager.session_scope() as session:
+                source = _get_pipeline_source(session)
+                if source:
+                    log_fix(
+                        session=session,
+                        source_id=source.source_id,
+                        action_name="user_decision",
+                        table_name=scope,
+                        column_name=None,
+                        user_input=rule,
+                        interpretation=reason or f"User decision for scope: {scope}",
+                    )
+        finally:
+            manager.close()
+    except Exception as e:
+        _log.debug("Failed to persist user_decision: %s", e, exc_info=True)
+
+    return {
+        "action": "user_decision",
+        "scope": scope,
+        "rule": rule,
+        "status": "persisted",
+        "message": f"Decision persisted for scope '{scope}'. Future queries will auto-apply: {rule}",
+    }
+
+
 def _apply_fix(
     output_dir: Path,
     fixes: list[dict[str, Any]],
@@ -2300,6 +2755,26 @@ def _apply_fix(
     all_documents = []
     # Track fix metadata for ledger logging
     fix_meta: list[dict[str, Any]] = []
+
+    # Handle user_decision fixes separately — they persist query decisions
+    # so future query calls auto-apply them instead of re-surfacing as open_questions.
+    user_decision_results: list[dict[str, Any]] = []
+    regular_fixes = []
+    for f in fixes:
+        if f.get("action") == "user_decision":
+            user_decision_results.append(_apply_user_decision(output_dir, f))
+        else:
+            regular_fixes.append(f)
+
+    if not regular_fixes:
+        if user_decision_results:
+            return {
+                "applied": user_decision_results,
+                "message": "User decisions persisted. Future query calls will auto-apply them.",
+            }
+        return {"error": "No fixes provided."}
+
+    fixes = regular_fixes
 
     for f in fixes:
         action = f["action"]

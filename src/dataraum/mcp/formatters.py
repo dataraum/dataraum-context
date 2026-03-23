@@ -135,24 +135,100 @@ def format_contract_evaluation(
 
 
 def format_query_result(result: QueryResult) -> dict[str, Any]:
-    """Format query result as structured dict."""
-    output: dict[str, Any] = {
-        "confidence": {
-            "label": result.confidence_level.label,
-            "emoji": result.confidence_level.emoji,
-        },
-        "answer": result.answer,
+    """Format query result as structured dict per spec.
+
+    Produces:
+    - answer: { summary, data, sql }
+    - decisions_made: auto-applied high-confidence assumptions (single-line strings)
+    - open_questions: medium-confidence ambiguous decisions (max 3)
+    - confidence: { level, factors }
+    """
+    from dataraum.graphs.models import AssumptionBasis
+
+    # Split assumptions into auto-applied vs open questions
+    decisions_made: list[str] = []
+    open_questions: list[dict[str, Any]] = []
+
+    for assumption in result.assumptions:
+        if assumption.confidence >= 0.8 or assumption.basis == AssumptionBasis.USER_SPECIFIED:
+            # High confidence or user-specified: auto-applied, surface as decision
+            decisions_made.append(assumption.assumption)
+        elif assumption.confidence >= 0.5:
+            # Medium confidence: surface as open question
+            open_questions.append(
+                {
+                    "issue": assumption.assumption,
+                    "options": ["Keep as-is", "Provide clarification"],
+                    "impact": f"Affects {assumption.target}"
+                    if assumption.target
+                    else "Unknown impact",
+                }
+            )
+        # Low confidence (<0.5) assumptions are suppressed
+
+    # Cap open questions at 3, highest confidence first
+    open_questions = sorted(
+        open_questions,
+        key=lambda q: next(
+            (a.confidence for a in result.assumptions if a.assumption == q["issue"]),
+            0.0,
+        ),
+        reverse=True,
+    )[:3]
+
+    # Also extract decisions from validation_notes (high-signal decisions from LLM)
+    for note in result.validation_notes:
+        if note and note not in decisions_made:
+            decisions_made.append(note)
+
+    # Build answer block
+    answer: dict[str, Any] = {}
+    if result.answer:
+        answer["summary"] = result.answer
+    if result.data and result.columns:
+        answer["data"] = result.data[:50]
+    if result.sql:
+        answer["sql"] = result.sql
+
+    # Confidence block: level + factors from risk_assessment or entropy
+    confidence_label = (
+        result.confidence_level.label.lower() if result.confidence_level else "medium"
+    )
+    # Map label to spec level
+    level_map = {
+        "high": "high",
+        "✅ high": "high",
+        "medium": "medium",
+        "⚠️ medium": "medium",
+        "low": "low",
+        "❌ low": "low",
     }
+    confidence_level = level_map.get(confidence_label, "medium")
+
+    confidence_factors: list[str] = []
+    if result.risk_assessment:
+        # Extract concise factors from risk_assessment (which may be a long string)
+        lines = [ln.strip() for ln in result.risk_assessment.splitlines() if ln.strip()]
+        confidence_factors = lines[:3]
+    elif result.entropy_score is not None:
+        confidence_factors.append(f"Entropy score: {round(result.entropy_score, 3)}")
+
+    confidence: dict[str, Any] = {"level": confidence_level}
+    if confidence_factors:
+        confidence["factors"] = confidence_factors
+
+    output: dict[str, Any] = {"answer": answer}
+
+    if decisions_made:
+        output["decisions_made"] = decisions_made
+
+    if open_questions:
+        output["open_questions"] = open_questions
+
+    output["confidence"] = confidence
 
     if result.contract:
         output["contract"] = result.contract
-
-    if result.data and result.columns:
-        output["data"] = {
-            "columns": result.columns,
-            "row_count": len(result.data),
-            "rows": result.data[:50],
-        }
 
     if result.execution_steps:
         output["execution_steps"] = [
@@ -163,16 +239,6 @@ def format_query_result(result: QueryResult) -> dict[str, Any]:
                 "from_snippet": bool(step.snippet_id),
             }
             for step in result.execution_steps
-        ]
-
-    if result.sql:
-        output["sql"] = result.sql
-
-    if result.risk_assessment:
-        output["risk_assessment"] = result.risk_assessment
-    elif result.assumptions:
-        output["assumptions"] = [
-            {"assumption": a.assumption, "basis": a.basis.value} for a in result.assumptions
         ]
 
     return output
@@ -327,6 +393,8 @@ def format_run_sql_result(
     column_quality: dict[str, Any] | None = None,
     quality_caveat: str | None = None,
     snippet_summary: dict[str, Any] | None = None,
+    assumptions_applied: list[str] | None = None,
+    sql_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     """Format run_sql result as structured dict.
 
@@ -340,6 +408,8 @@ def format_run_sql_result(
         column_quality: Per-column quality metadata.
         quality_caveat: Warning when quality data is incomplete.
         snippet_summary: Snippet reuse/save summary.
+        assumptions_applied: General facts about the data auto-applied (e.g. units).
+        sql_warnings: Heuristic warnings about the submitted SQL (non-blocking).
     """
     if step_info is not None:
         steps_executed = step_info
@@ -355,8 +425,14 @@ def format_run_sql_result(
         "truncated": total_rows > limit,
         "steps_executed": steps_executed,
     }
+
+    if assumptions_applied:
+        result["assumptions_applied"] = assumptions_applied
+
     # Surface quality warnings prominently for columns grade C or worse
     warnings: list[str] = []
+    if sql_warnings:
+        warnings.extend(sql_warnings)
     if quality_caveat:
         warnings.append(quality_caveat)
     if column_quality is not None:

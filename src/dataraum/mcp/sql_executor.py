@@ -203,6 +203,15 @@ def run_sql(
             entry["snippet_id"] = match[1]
         step_info.append(entry)
 
+    # --- Assumptions and SQL warnings ---
+    assumptions_applied: list[str] | None = None
+    sql_warnings: list[str] | None = None
+    submitted_sql = sql or (steps[-1]["sql"] if steps else "")
+    if submitted_sql and session is not None and table_ids:
+        assumptions_applied, sql_warnings = _extract_assumptions_and_warnings(
+            submitted_sql, column_quality
+        )
+
     from dataraum.mcp.formatters import format_run_sql_result
 
     return format_run_sql_result(
@@ -214,6 +223,8 @@ def run_sql(
         column_quality=column_quality,
         quality_caveat=quality_caveat,
         snippet_summary=snippet_summary,
+        assumptions_applied=assumptions_applied or None,
+        sql_warnings=sql_warnings or None,
     )
 
 
@@ -476,3 +487,82 @@ def _build_column_quality(
             column_quality[out_col] = None
 
     return column_quality, caveat
+
+
+def _extract_assumptions_and_warnings(
+    sql: str,
+    column_quality: dict[str, Any] | None,
+) -> tuple[list[str], list[str]]:
+    """Extract assumptions_applied and SQL-level warnings for a submitted query.
+
+    Assumptions are general facts about the data derived from column quality metadata
+    (e.g. units). Warnings are heuristic checks on the SQL itself (non-blocking).
+
+    Args:
+        sql: The submitted SQL string.
+        column_quality: Per-column quality metadata from _build_column_quality.
+
+    Returns:
+        (assumptions_applied, warnings) — both may be empty.
+    """
+    import re
+
+    assumptions: list[str] = []
+    warnings: list[str] = []
+
+    sql_lower = sql.lower()
+
+    # --- Extract assumptions from column quality metadata ---
+    if column_quality:
+        for col_name, meta in column_quality.items():
+            if not isinstance(meta, dict):
+                continue
+            source = meta.get("source_column", col_name)
+            # Unit assumptions: if the column name suggests a monetary/amount column
+            # and is used without /100, flag the units assumption
+            if any(
+                tok in col_name.lower()
+                for tok in ("amount", "price", "total", "cost", "fee", "tax")
+            ):
+                assumptions.append(f"{source} — check unit convention (cents vs. currency units)")
+
+    # --- Heuristic SQL warnings ---
+
+    # 1. SUM of monetary columns without currency grouping/filtering
+    sum_amount = bool(
+        re.search(r"\bsum\s*\(\s*\w*(amount|revenue|price|total|cost)\w*\s*\)", sql_lower)
+    )
+    has_currency_ref = bool(re.search(r"\bcurrency\b", sql_lower))
+    if sum_amount and not has_currency_ref:
+        warnings.append(
+            "Query aggregates a monetary column without grouping or filtering by currency — "
+            "result may mix EUR, USD, and other currencies"
+        )
+
+    # 2. Missing status filter (including uncollectable/cancelled invoices)
+    uses_invoice_table = bool(re.search(r"\binvoice\w*\b", sql_lower))
+    has_status_filter = bool(re.search(r"\bstatus\b", sql_lower))
+    if uses_invoice_table and not has_status_filter:
+        warnings.append(
+            "Query uses an invoice table without filtering by status — "
+            "result may include uncollectable or cancelled invoices"
+        )
+
+    # 3. SUM of amount without dividing by 100 (Stripe/payment processor cents convention)
+    sum_without_div = bool(re.search(r"\bsum\s*\(\s*\w*amount\w*\s*\)", sql_lower)) and not bool(
+        re.search(r"/\s*100", sql_lower)
+    )
+    if sum_without_div:
+        warnings.append(
+            "Query sums 'amount' without dividing by 100 — "
+            "if amounts are stored in cents (Stripe convention), divide by 100 for currency units"
+        )
+
+    # 4. Cross-currency aggregation (SUM without per-currency normalization)
+    if sum_amount and has_currency_ref and "group by" not in sql_lower:
+        warnings.append(
+            "Query references currency but does not GROUP BY currency — "
+            "amounts from different currencies will be summed together"
+        )
+
+    return assumptions, warnings

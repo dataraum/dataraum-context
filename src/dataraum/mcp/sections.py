@@ -461,6 +461,82 @@ def build_snippets_section(session: Session, source_id: str) -> dict[str, Any]:
     return result
 
 
+def build_schema_tool_section(context: GraphExecutionContext) -> dict[str, Any]:
+    """Build schema response for the get_schema tool.
+
+    Focused, agent-oriented orientation: column roles, known values, field mappings,
+    and compact business process summaries. Under 50 lines of JSON per table.
+    Does NOT include quality grades, entropy scores, assumptions, or actions.
+    """
+    tables = []
+    for table in context.tables:
+        t: dict[str, Any] = {"name": table.duckdb_name or table.table_name}
+        if table.table_name != t["name"]:
+            t["source_name"] = table.table_name
+        if table.is_fact_table:
+            t["type"] = "fact"
+        elif table.is_dimension_table:
+            t["type"] = "dimension"
+        if table.entity_type:
+            t["entity_type"] = table.entity_type
+        if table.row_count is not None:
+            t["rows"] = table.row_count
+        if table.grain_columns:
+            t["grain"] = (
+                table.grain_columns[0] if len(table.grain_columns) == 1 else table.grain_columns
+            )
+        if table.time_column:
+            t["time_range"] = {"column": table.time_column}
+
+        columns = []
+        for col in table.columns:
+            c: dict[str, Any] = {"name": col.column_name}
+            if col.data_type:
+                c["type"] = col.data_type
+            if col.semantic_role:
+                c["role"] = col.semantic_role
+            if col.business_description:
+                c["description"] = col.business_description
+            elif col.business_name and col.business_name != col.column_name:
+                c["description"] = col.business_name
+            if col.unit_source_column:
+                c["unit"] = col.unit_source_column
+            columns.append(c)
+
+        t["columns"] = columns
+        tables.append(t)
+
+    # Field mappings: business concept -> column name (best match)
+    field_mappings: dict[str, str] = {}
+    if context.field_mappings:
+        fm = context.field_mappings
+        for concept, candidates in (fm.mappings or {}).items():
+            best = max(candidates, key=lambda c: c.confidence) if candidates else None
+            if best:
+                field_mappings[concept] = best.column_name
+
+    # Compact business process summaries
+    business_processes = []
+    for cycle in context.business_cycles:
+        bp: dict[str, Any] = {
+            "name": cycle.cycle_name,
+            "type": cycle.cycle_type,
+        }
+        if cycle.completion_rate is not None:
+            bp["completion_rate"] = round(cycle.completion_rate, 3)
+        if cycle.stages:
+            bp["stages"] = [s.stage_name for s in cycle.stages]
+        business_processes.append(bp)
+
+    result: dict[str, Any] = {"tables": tables}
+    if field_mappings:
+        result["field_mappings"] = field_mappings
+    if business_processes:
+        result["business_processes"] = business_processes
+
+    return result
+
+
 def build_contracts_section(
     session: Session,
     table_ids: list[str],
