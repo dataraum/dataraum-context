@@ -15,7 +15,7 @@ class TestGetDownstreamPhases:
 
     def test_leaf_phase_has_no_downstream(self) -> None:
         """A leaf phase (nothing depends on it) returns empty set."""
-        downstream = get_downstream_phases("computation_review")
+        downstream = get_downstream_phases("validation")
         assert downstream == set()
 
     def test_unknown_phase_returns_empty(self) -> None:

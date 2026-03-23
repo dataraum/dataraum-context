@@ -43,12 +43,6 @@ class TestPhaseProducesAnalyses:
         decl = load_phase_declarations()["import"]
         assert decl.produces == set()
 
-    def test_quality_review_is_quality_gate(self):
-        decl = load_phase_declarations()["quality_review"]
-        assert decl.gate is True
-        assert decl.produces == set()
-
-
 class TestAutoDeriveMappingCompleteness:
     """Every AnalysisKey is produced by exactly one phase in YAML."""
 
