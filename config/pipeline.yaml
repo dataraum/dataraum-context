@@ -94,7 +94,7 @@ phases:
   # =========================================================================
   business_cycles:
     description: Expert LLM cycle detection
-    dependencies: [semantic, relationships, temporal, enriched_views, slicing, temporal_slice_analysis]
+    dependencies: [semantic, relationships, temporal, enriched_views, slicing]
     produces: [business_cycles]
     detectors: [business_cycle_health]
 
