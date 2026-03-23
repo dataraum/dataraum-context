@@ -80,7 +80,6 @@ class ColumnContext:
     resolution_hints: list[dict[str, Any]] = field(default_factory=list)  # Top fixes
 
 
-
 @dataclass
 class TableContext:
     """Context for a single table."""

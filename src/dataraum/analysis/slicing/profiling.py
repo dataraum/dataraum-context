@@ -41,9 +41,7 @@ def build_slice_profiles(
     """
     # Get typed tables
     typed_tables = list(
-        session.execute(
-            select(Table).where(Table.layer == "typed", Table.source_id == source_id)
-        )
+        session.execute(select(Table).where(Table.layer == "typed", Table.source_id == source_id))
         .scalars()
         .all()
     )
@@ -117,13 +115,17 @@ def build_slice_profiles(
             .scalars()
             .all()
         )
-        slice_def_col_names = set(
-            session.execute(
-                select(Column.column_name).where(Column.column_id.in_(slice_def_col_ids))
+        slice_def_col_names = (
+            set(
+                session.execute(
+                    select(Column.column_name).where(Column.column_id.in_(slice_def_col_ids))
+                )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        ) if slice_def_col_ids else set()
+            if slice_def_col_ids
+            else set()
+        )
 
         # Get effective table columns (excluding slice definition columns)
         effective_cols = [
@@ -156,9 +158,7 @@ def build_slice_profiles(
 
             # Get statistical profiles for this slice table's columns
             slice_cols = list(
-                session.execute(
-                    select(Column).where(Column.table_id == slice_table.table_id)
-                )
+                session.execute(select(Column).where(Column.table_id == slice_table.table_id))
                 .scalars()
                 .all()
             )

@@ -84,7 +84,6 @@ class TestDriveBasicPipeline:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
-
         )
 
         rendered = output.getvalue()
@@ -119,7 +118,6 @@ class TestDriveWithSkip:
                 events, _ok_result(phases_skipped=["semantic"], phases_completed=[])
             ),
             console=console,
-
         )
 
         rendered = output.getvalue()
@@ -157,7 +155,6 @@ class TestDriveWithFailure:
                 ),
             ),
             console=console,
-
         )
 
         rendered = output.getvalue()
@@ -188,7 +185,6 @@ class TestQuietMode:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
-
             quiet=True,
         )
 
@@ -242,7 +238,6 @@ class TestSummaryDisplay:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
-
         )
         _print_summary(console, result, stats)
 
@@ -273,7 +268,6 @@ class TestSummaryDisplay:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
-
         )
         _print_summary(
             console,
@@ -310,7 +304,6 @@ class TestSummaryDisplay:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, result_data),
             console=console,
-
         )
         _print_summary(
             console,
@@ -367,7 +360,6 @@ class TestParallelSpinner:
         result, stats = _drive_pipeline(
             gen=_mock_generator(events, _ok_result()),
             console=console,
-
         )
 
         assert result.success

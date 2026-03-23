@@ -43,6 +43,7 @@ class TestPhaseProducesAnalyses:
         decl = load_phase_declarations()["import"]
         assert decl.produces == set()
 
+
 class TestAutoDeriveMappingCompleteness:
     """Every AnalysisKey is produced by exactly one phase in YAML."""
 

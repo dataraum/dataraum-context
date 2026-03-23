@@ -34,6 +34,7 @@ class TestPhaseRegistry:
         declarations = load_phase_declarations()
         assert "import" in declarations["typing"].dependencies
 
+
 class TestBasePhaseProperties:
     """Tests for BasePhase runtime behavior."""
 
