@@ -545,12 +545,16 @@ class ValidationAgent(LLMFeature):
             if "difference" in row or "diff" in row:
                 diff = abs(float(row.get("difference", row.get("diff", 0)) or 0))
                 passed = diff <= tolerance
+                # Promote magnitude into flat details so the scorer can
+                # read it directly (it expects details["magnitude"]).
+                mag = abs(float(row.get("magnitude") or 0)) or abs(diff) or 1
                 return (
                     passed,
                     f"Balance difference: {diff:.2f} (tolerance: {tolerance})",
                     {
                         "check_type": check_type,
                         "difference": diff,
+                        "magnitude": mag,
                         "tolerance": tolerance,
                         "row": row,
                     },
