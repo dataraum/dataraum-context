@@ -1,0 +1,46 @@
+# GL-Invoice Reconciliation
+# Checks if invoice amounts match journal line totals
+
+validation_id: gl_invoice_match
+name: GL-Invoice Amount Reconciliation
+description: >
+  Validates that invoice amounts reconcile with corresponding journal line
+  entries. For each invoice, the total of related journal lines (matched via
+  shared account or reference) should approximate the invoice amount.
+
+category: financial
+severity: warning
+version: "1.0"
+
+tags:
+  - reconciliation
+  - invoices
+  - journal-lines
+
+relevant_cycles:
+  - accounts_payable
+  - accounts_receivable
+
+check_type: aggregate
+
+parameters:
+  tolerance: 0.05
+
+sql_hints: >
+  Compare invoice amounts with journal line totals. Look for:
+  - An invoices table with amount/total columns
+  - A journal_lines table with debit/credit columns
+  - A relationship between them (shared invoice_id, reference, or account_id)
+
+  Check semantic annotations and relationships to find the join path.
+
+  Calculate the orphan rate: what percentage of invoices have no matching
+  journal lines (or vice versa)? Return: total_invoices, matched_invoices,
+  unmatched_invoices, orphan_rate.
+
+  If no clear join path exists between invoices and journal lines, return
+  orphan_rate = NULL to indicate the check could not be performed.
+
+expected_outcome: >
+  Most invoices should have corresponding journal entries. An orphan_rate
+  above 5% suggests missing postings or data integrity issues.
