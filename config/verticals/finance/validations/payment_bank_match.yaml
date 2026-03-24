@@ -1,0 +1,46 @@
+# Payment-Bank Reconciliation
+# Checks if payment amounts match bank transaction amounts
+
+validation_id: payment_bank_match
+name: Payment-Bank Amount Reconciliation
+description: >
+  Validates that payment amounts reconcile with corresponding bank
+  transactions. Each payment should have a matching bank transaction
+  with the same or similar amount.
+
+category: financial
+severity: warning
+version: "1.0"
+
+tags:
+  - reconciliation
+  - payments
+  - bank-transactions
+
+relevant_cycles:
+  - accounts_payable
+  - cash_management
+
+check_type: aggregate
+
+parameters:
+  tolerance: 0.05
+
+sql_hints: >
+  Compare payment amounts with bank transaction amounts. Look for:
+  - A payments table with amount columns
+  - A bank_transactions table with amount columns
+  - A relationship between them (shared reference, date+amount match, or FK)
+
+  Check semantic annotations and relationships to find the join path.
+
+  Calculate the orphan rate: what percentage of payments have no matching
+  bank transaction (or vice versa)? Return: total_payments, matched_payments,
+  unmatched_payments, orphan_rate.
+
+  If no clear join path exists, try matching on amount + date proximity.
+  If that also fails, return orphan_rate = NULL.
+
+expected_outcome: >
+  Most payments should have corresponding bank transactions. An orphan_rate
+  above 5% suggests missing bank entries or reconciliation issues.

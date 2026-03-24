@@ -103,16 +103,23 @@ class TemporalDriftDetector(EntropyDetector):
             return []
 
         max_js = col_summary.max_js_divergence
+        mean_js = col_summary.mean_js_divergence
+
+        # Use mean JS divergence for scoring. Mean reflects the average
+        # drift across all periods, which distinguishes natural temporal
+        # change (low mean, high max — one bad period) from genuine
+        # distribution shift (high mean — consistent change).
+        js = mean_js
 
         # Score mapping: piecewise linear
-        if max_js <= 0.0:
+        if js <= 0.0:
             score = 0.0
-        elif max_js <= 0.1:
-            score = max_js * 3.0  # 0->0, 0.1->0.3
-        elif max_js <= 0.3:
-            score = 0.3 + (max_js - 0.1) * 2.0  # 0.1->0.3, 0.3->0.7
-        elif max_js <= 0.5:
-            score = 0.7 + (max_js - 0.3) * 1.5  # 0.3->0.7, 0.5->1.0
+        elif js <= 0.1:
+            score = js * 3.0  # 0->0, 0.1->0.3
+        elif js <= 0.3:
+            score = 0.3 + (js - 0.1) * 2.0  # 0.1->0.3, 0.3->0.7
+        elif js <= 0.5:
+            score = 0.7 + (js - 0.3) * 1.5  # 0.3->0.7, 0.5->1.0
         else:
             score = 1.0
 

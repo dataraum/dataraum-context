@@ -485,8 +485,8 @@ class TestTemporalDriftDetector:
         assert results[0].score == pytest.approx(0.0, abs=0.01)
 
     def test_mild_drift(self, detector: TemporalDriftDetector):
-        """Score ~0.3 for 0.1 JS divergence."""
-        summary = _MockDriftSummary("status", 0.1, 0.05, 5, 1)
+        """Score ~0.3 for mean JS 0.1 (scoring uses mean, not max)."""
+        summary = _MockDriftSummary("status", 0.2, 0.1, 5, 1)
         context = DetectorContext(
             table_name="orders",
             column_name="status",
@@ -497,8 +497,8 @@ class TestTemporalDriftDetector:
         assert results[0].score == pytest.approx(0.3, abs=0.01)
 
     def test_moderate_drift(self, detector: TemporalDriftDetector):
-        """Score ~0.7 for 0.3 JS divergence."""
-        summary = _MockDriftSummary("status", 0.3, 0.15, 5, 2)
+        """Score ~0.7 for mean JS 0.3."""
+        summary = _MockDriftSummary("status", 0.5, 0.3, 5, 2)
         context = DetectorContext(
             table_name="orders",
             column_name="status",
@@ -509,8 +509,8 @@ class TestTemporalDriftDetector:
         assert results[0].score == pytest.approx(0.7, abs=0.01)
 
     def test_severe_drift(self, detector: TemporalDriftDetector):
-        """Score 1.0 for 0.5+ JS divergence."""
-        summary = _MockDriftSummary("status", 0.6, 0.3, 5, 4)
+        """Score 1.0 for mean JS 0.5+."""
+        summary = _MockDriftSummary("status", 0.7, 0.6, 5, 4)
         context = DetectorContext(
             table_name="orders",
             column_name="status",
