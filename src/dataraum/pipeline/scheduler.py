@@ -133,7 +133,7 @@ class PipelineScheduler:
                 continue
 
             # 2. Execute phases
-            use_parallel = len(to_run) > 1 and self.session_factory is not None
+            use_parallel = len(to_run) > 1 and bool(self.session_factory and self.manager)
             if use_parallel:
                 yield from self._run_parallel(to_run, total)
             else:
@@ -312,10 +312,13 @@ class PipelineScheduler:
         config.update(self._runtime_config)
 
         if self.session_factory and self.manager:
-            with self.session_factory() as skip_session:
+            with (
+                self.session_factory() as skip_session,
+                self.manager.duckdb_cursor() as skip_cursor,
+            ):
                 ctx = PhaseContext(
                     session=skip_session,
-                    duckdb_conn=self.duckdb_conn,
+                    duckdb_conn=skip_cursor,
                     source_id=self.source_id,
                     config=config,
                     session_factory=self.session_factory,
@@ -379,9 +382,7 @@ class PipelineScheduler:
         if self.session_factory and self.manager:
             with self.session_factory() as log_session:
                 log_session.add(log)
-                # Explicit commit — don't rely on session_scope auto-commit
-                # convention, since other factories may not auto-commit.
-                log_session.commit()
+                # session_scope auto-commits on clean exit
         else:
             self.session.add(log)
             self.session.commit()
