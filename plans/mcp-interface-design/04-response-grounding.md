@@ -308,7 +308,7 @@ LLM agent. Receives full context, generates SQL, executes, formats.
 | `teachable_decisions[].suggested_teaching.type` | LLM decision | Valid teach type |
 | `teachable_decisions[].suggested_teaching.params` | LLM decision | Teach params |
 
-**New fields needed:**
+**Phase 5 fields (DAT-193)** — not yet implemented, blocked on teach (Phase 2):
 - `decisions_made`: restructured from `QueryResult.assumptions` — the query agent already
   tracks assumptions with `basis` (system_default, inferred, user_specified) and `confidence`.
   `decisions_made` is the user-facing framing of non-user assumptions.
@@ -316,6 +316,10 @@ LLM agent. Receives full context, generates SQL, executes, formats.
   them as actionable questions with `options` and `impact`.
 - `teachable_decisions`: new LLM output field — identifies assumptions that are general rules
   (not data-specific) and should be promoted via `teach(type="assumption")`.
+
+**Contract threading:** `contract_name` removed from `query` inputSchema. The active contract
+is threaded from server state (`_active_contract`, set by `begin_session`). The query agent
+uses it for confidence evaluation.
 
 **Execution flow:**
 1. `query/agent.py` receives question + `GraphExecutionContext` + `QueryEntropyContext`
@@ -329,15 +333,27 @@ LLM agent. Receives full context, generates SQL, executes, formats.
 
 ## 6. run_sql
 
-### `run_sql(sql="SELECT ...")`
+### `run_sql(sql="SELECT ...")` or `run_sql(steps=[...])`
 
 | Response field | Source | Assembly |
 |---|---|---|
 | `columns` | DuckDB result | Column names from query result metadata |
 | `rows` | DuckDB result | Row data as list of lists |
+| `row_count` | DuckDB result | Length of rows array |
+| `truncated` | Limit check | `true` if rows were capped by limit |
+| `steps_executed` | Step metadata | For structured steps: `[{step_id, description, row_count}]` |
+| `column_quality` | `EntropyObjectRecord` + BBN | Per-column readiness + dimension scores for referenced source columns |
+| `snippet_summary` | `SnippetLibrary` | `{reused: N, saved: N}` — tracks knowledge base growth |
+| `warnings` | Validation | SQL parse errors, CTE decomposition fallbacks, etc. |
 
-**Implementation:** Direct `cursor.execute(sql)` on `data.duckdb`. Read-only connection.
-Currently handled by `execute_sql_steps()` in `query/execution.py` (shared infrastructure).
+**Design rationale:** run_sql returns results + existing metadata. It does NOT compute new
+analysis. `column_quality` surfaces pre-computed readiness inline so the agent sees quality
+context without a separate `measure` call. `snippet_summary` tracks reuse for the knowledge
+base loop. `steps_executed` provides provenance for structured multi-step queries.
+
+**Implementation:** `sql_executor.py:run_sql()` handles both raw SQL and structured steps.
+CTE queries are auto-decomposed into individual snippets. Each step becomes a temp view
+and is saved to the snippet library for future reuse.
 
 **Table naming convention:** Typed tables are named `typed_{table_name}` in DuckDB.
 The agent must use these names in SQL. `look` returns the mapping.
@@ -398,30 +414,36 @@ These link to `InvestigationStep.step_id` in the session trace (DAT-184).
 
 ## 8. begin_session
 
-### `begin_session(contract="executive_dashboard", intent="Monthly recurring revenue analysis")`
+### `begin_session(intent="Monthly recurring revenue analysis", contract="executive_dashboard")`
 
 | Response field | Source | Assembly |
 |---|---|---|
-| `session_id` | Generated | UUID, stored as `InvestigationSession.session_id` |
-| `sources` | `Source` records | `sources` table — all non-archived sources |
-| `cached_scores` | `measure_entropy()` | Aggregate scores from `EntropyObjectRecord` if pipeline has run |
-| `cached_scores.{table}.structural` | Aggregation | Mean of structural-layer entropy records for table |
-| `cached_scores.{table}.semantic` | Aggregation | Mean of semantic-layer records |
-| `cached_scores.{table}.value` | Aggregation | Mean of value-layer records |
-| `cached_scores.{table}.computational` | Aggregation | Mean of computational-layer records |
-| `known_issues` | `EntropyObjectRecord` | Records with `score > threshold` and `readiness != 'ready'` |
-| `known_issues[].target` | `EntropyObjectRecord.target` | e.g. `"column:description"` |
-| `known_issues[].dimension` | dimension_path | From record |
-| `known_issues[].status` | BBN readiness | `"unresolved"` if readiness is investigate/blocked |
-| `feasibility` | Contract check | `check_contracts()` → if no blocking violations: `"feasible"` |
+| `sources` | `Source` records | `sources` table — all non-archived sources. Names only. |
+| `contract.name` | Input or default | Validated via `get_contract()`. Defaults to `exploratory_analysis`. |
+| `contract.display_name` | `ContractProfile` | From `config/entropy/contracts.yaml` |
+| `contract.description` | `ContractProfile` | From same config |
+| `has_pipeline_data` | `EntropyObjectRecord` | Existence check: any entropy records for source? |
+| `hint` | Computed | Guides agent: "use look/measure" or "call measure to trigger pipeline" |
 
-**Write side:**
+**Not returned** (by design):
+- `session_id` — server-side only, never surfaced to agent
+- `cached_scores` — agent calls `measure` for this
+- `known_issues`, `feasibility` — agent calls `why` (Phase 3) for contract-aware analysis
+
+**Server-side state:**
 - Creates `InvestigationSession` record: `session_id`, `source_id`, `status='active'`,
   `intent`, `contract`, `started_at`
-- All subsequent tool calls within the session create `InvestigationStep` records
+- Sets `_active_session_id` and `_active_contract` in server closure
+- All subsequent tool calls automatically recorded as `InvestigationStep` records
 
-**Contract lookup:** `config/entropy/contracts.yaml` defines profiles. `"executive_dashboard"`
-has `overall_threshold: 0.15`, strict `dimension_thresholds`, and blocking conditions.
+**Flow enforcement:**
+- `add_source` blocked while session active
+- `look`, `measure`, `query`, `run_sql` blocked without active session
+- `begin_session` blocked if session already active or no sources registered
+
+**Contract validation:** `config/entropy/contracts.yaml` defines 6 profiles. `begin_session`
+validates the contract name and returns an error with available contracts if invalid.
+Tool description lists all contracts to nudge the agent to ask the user.
 
 ---
 
