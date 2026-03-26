@@ -58,11 +58,3 @@ class TestAddSourceTool:
         assert isinstance(result, dict)
         assert result["source"]["status"] == "needs_credentials"
         assert "credential_instructions" in result
-
-
-class TestResolveSourcePath:
-    def test_nonexistent_dir_returns_none(self, tmp_path: Path) -> None:
-        from dataraum.mcp.server import _resolve_source_path
-
-        result = _resolve_source_path(tmp_path / "nonexistent")
-        assert result is None

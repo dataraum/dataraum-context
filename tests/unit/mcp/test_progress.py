@@ -138,11 +138,7 @@ class TestRunPipeline:
         mock_result.value = None
         mock_result.error = "something broke"
 
-        with (
-            patch("dataraum.pipeline.runner.run", return_value=mock_result),
-            patch("dataraum.mcp.server._resolve_source_path", return_value=None),
-            patch("dataraum.mcp.server._get_cached_contract", return_value=None),
-        ):
+        with patch("dataraum.pipeline.runner.run", return_value=mock_result):
             result = _run_pipeline(output_dir=tmp_path)
 
         assert isinstance(result, dict)
@@ -155,14 +151,23 @@ class TestRunPipeline:
         mock_result.value = MagicMock()
         mock_result.value.phases_completed = 17
 
-        with (
-            patch("dataraum.pipeline.runner.run", return_value=mock_result),
-            patch("dataraum.mcp.server._resolve_source_path", return_value=None),
-            patch("dataraum.mcp.server._get_cached_contract", return_value=None),
-        ):
+        with patch("dataraum.pipeline.runner.run", return_value=mock_result):
             result = _run_pipeline(output_dir=tmp_path)
 
         assert result["status"] == "complete"
+
+    def test_always_multi_source_mode(self, tmp_path):
+        """Pipeline always runs in multi-source mode (source_path=None)."""
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.value = MagicMock()
+        mock_result.value.phases_completed = 17
+
+        with patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run:
+            _run_pipeline(output_dir=tmp_path)
+
+        run_config = mock_run.call_args[0][0]
+        assert run_config.source_path is None
 
     def test_event_callback_forwarded(self, tmp_path):
         """Event callback is passed through to RunConfig."""
@@ -173,55 +178,24 @@ class TestRunPipeline:
 
         cb = MagicMock()
 
-        with (
-            patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run,
-            patch("dataraum.mcp.server._resolve_source_path", return_value=None),
-            patch("dataraum.mcp.server._get_cached_contract", return_value=None),
-        ):
+        with patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run:
             _run_pipeline(output_dir=tmp_path, event_callback=cb)
 
         run_config = mock_run.call_args[0][0]
         assert run_config.event_callback is cb
 
-    def test_reads_contract_from_cache(self, tmp_path):
-        """Contract is read from pipeline config cache."""
+    def test_contract_passed_through(self, tmp_path):
+        """Contract from session is passed to RunConfig."""
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.value = MagicMock()
         mock_result.value.phases_completed = 17
 
-        with (
-            patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run,
-            patch("dataraum.mcp.server._resolve_source_path", return_value=None),
-            patch(
-                "dataraum.mcp.server._get_cached_contract",
-                return_value="executive_dashboard",
-            ),
-        ):
-            _run_pipeline(output_dir=tmp_path)
+        with patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run:
+            _run_pipeline(output_dir=tmp_path, contract="executive_dashboard")
 
         run_config = mock_run.call_args[0][0]
         assert run_config.contract == "executive_dashboard"
-
-    def test_reads_source_path_from_db(self, tmp_path):
-        """Source path is resolved from the database."""
-        mock_result = MagicMock()
-        mock_result.success = True
-        mock_result.value = MagicMock()
-        mock_result.value.phases_completed = 17
-
-        with (
-            patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run,
-            patch(
-                "dataraum.mcp.server._resolve_source_path",
-                return_value="/data/invoices.csv",
-            ),
-            patch("dataraum.mcp.server._get_cached_contract", return_value=None),
-        ):
-            _run_pipeline(output_dir=tmp_path)
-
-        run_config = mock_run.call_args[0][0]
-        assert run_config.source_path == Path("/data/invoices.csv")
 
 
 class TestCreateServer:

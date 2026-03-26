@@ -400,7 +400,9 @@ def create_server(output_dir: Path | None = None) -> Server:
 
                     async def _measure_work(task: ServerTaskContext) -> CallToolResult:
                         callback = _make_task_event_callback(task, loop)
-                        await asyncio.to_thread(_run_pipeline, output_dir, callback)
+                        await asyncio.to_thread(
+                            _run_pipeline, output_dir, callback, _active_contract
+                        )
                         with _get_manager().session_scope() as post_session:
                             measure_result = _measure(post_session, target=measure_target)
                         return CallToolResult(
@@ -422,7 +424,7 @@ def create_server(output_dir: Path | None = None) -> Server:
                     )
                 else:
                     # No task API: fire-and-forget
-                    bg = asyncio.create_task(_run_pipeline_background(output_dir))
+                    bg = asyncio.create_task(_run_pipeline_background(output_dir, _active_contract))
                     _background_tasks.add(bg)
                     bg.add_done_callback(_background_tasks.discard)
                     result = {
@@ -543,27 +545,25 @@ def _get_phase_labels() -> dict[str, str]:
 def _run_pipeline(
     output_dir: Path,
     event_callback: EventCallback | None = None,
+    contract: str | None = None,
 ) -> dict[str, Any]:
-    """Run the pipeline on registered sources.
+    """Run the pipeline on registered sources (multi-source mode).
 
-    Reads source path and contract from the database. Used by the measure
-    trigger when no entropy data exists yet.
+    Always runs in multi-source mode (source_path=None) — sources are
+    registered via add_source and read from the database by the import phase.
 
     Args:
         output_dir: Pipeline output directory.
         event_callback: Optional callback for pipeline events.
+        contract: Active contract name from the session.
 
     Returns:
         Dict with pipeline result.
     """
     from dataraum.pipeline.runner import RunConfig, run
 
-    source_path_str = _resolve_source_path(output_dir)
-    source_path = Path(source_path_str) if source_path_str else None
-    contract = _get_cached_contract(output_dir)
-
     config = RunConfig(
-        source_path=source_path,
+        source_path=None,
         output_dir=output_dir,
         event_callback=event_callback,
         contract=contract,
@@ -577,10 +577,10 @@ def _run_pipeline(
     return {"status": "complete", "phases_completed": result.value.phases_completed}
 
 
-async def _run_pipeline_background(output_dir: Path) -> None:
+async def _run_pipeline_background(output_dir: Path, contract: str | None = None) -> None:
     """Run _run_pipeline in a background thread, logging errors."""
     try:
-        await asyncio.to_thread(_run_pipeline, output_dir)
+        await asyncio.to_thread(_run_pipeline, output_dir, None, contract)
     except Exception:
         _log.exception("Background pipeline failed for %s", output_dir)
 
@@ -671,59 +671,6 @@ def _run_sql(
         column_mappings=column_mappings,
         limit=limit,
     )
-
-
-def _get_cached_contract(output_dir: Path) -> str | None:
-    """Get the contract name from the latest pipeline run config.
-
-    Returns None if no runs exist or no contract was specified.
-    """
-    from sqlalchemy import select
-
-    from dataraum.core.connections import get_manager_for_directory
-    from dataraum.pipeline.db_models import PipelineRun
-
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return None
-
-    try:
-        with manager.session_scope() as session:
-            run = session.execute(
-                select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(1)
-            ).scalar_one_or_none()
-            if run and run.config:
-                return run.config.get("contract")
-    finally:
-        manager.close()
-
-    return None
-
-
-def _resolve_source_path(output_dir: Path) -> str | None:
-    """Resolve the source_path from the database if available.
-
-    Queries the first registered Source and returns its connection_config path.
-    Returns None if no source or no path is found.
-    """
-    from dataraum.core.connections import get_manager_for_directory
-
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return None
-
-    try:
-        with manager.session_scope() as session:
-            source = _get_pipeline_source(session)
-            if source and source.connection_config:
-                path: str | None = source.connection_config.get("path")
-                return path
-    finally:
-        manager.close()
-
-    return None
 
 
 def _begin_session(
