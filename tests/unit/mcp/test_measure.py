@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -16,17 +15,6 @@ from dataraum.storage import Column, Source, Table
 
 def _id() -> str:
     return str(uuid4())
-
-
-@contextmanager
-def _mock_manager(session: Session):
-    """Mock get_manager_for_directory with test session."""
-    manager = MagicMock()
-    manager.session_scope.return_value.__enter__ = lambda _: session
-    manager.session_scope.return_value.__exit__ = lambda *_: None
-
-    with patch("dataraum.core.connections.get_manager_for_directory", return_value=manager):
-        yield manager
 
 
 def _setup_source_and_table(
@@ -91,12 +79,11 @@ def _measurement_with_scores() -> MeasurementResult:
 
 
 class TestMeasureComplete:
-    def test_returns_points_and_scores(self, session: Session, tmp_path) -> None:
+    def test_returns_points_and_scores(self, session: Session) -> None:
         """Complete measurement returns points, layer scores, and readiness."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -108,19 +95,18 @@ class TestMeasureComplete:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path)
+            result = _measure(session)
 
         assert result["status"] == "complete"
         assert "points" in result
         assert "scores" in result
         assert "readiness" in result
 
-    def test_points_shape(self, session: Session, tmp_path) -> None:
+    def test_points_shape(self, session: Session) -> None:
         """Each point has target, dimension, score."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -132,7 +118,7 @@ class TestMeasureComplete:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path)
+            result = _measure(session)
 
         points = result["points"]
         assert len(points) > 0
@@ -150,12 +136,11 @@ class TestMeasureComplete:
         table_targets = [p["target"] for p in points if p["target"].startswith("table:")]
         assert "table:orders" in table_targets
 
-    def test_scores_aggregated_by_layer(self, session: Session, tmp_path) -> None:
+    def test_scores_aggregated_by_layer(self, session: Session) -> None:
         """Scores are aggregated as mean per top-level layer."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -167,7 +152,7 @@ class TestMeasureComplete:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path)
+            result = _measure(session)
 
         scores = result["scores"]
         assert "semantic" in scores
@@ -176,7 +161,7 @@ class TestMeasureComplete:
         assert scores["semantic"] == 0.4  # single dimension
         assert scores["structural"] == 0.1  # single dimension
 
-    def test_includes_bbn_readiness(self, session: Session, tmp_path) -> None:
+    def test_includes_bbn_readiness(self, session: Session) -> None:
         """Readiness per column from BBN inference."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
@@ -187,7 +172,6 @@ class TestMeasureComplete:
         mock_network.columns = {"orders.amount": col_result}
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -203,18 +187,17 @@ class TestMeasureComplete:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path)
+            result = _measure(session)
 
         assert result["readiness"]["orders.amount"] == "investigate"
 
 
 class TestMeasureNoData:
-    def test_returns_no_data_without_pipeline(self, session: Session, tmp_path) -> None:
+    def test_returns_no_data_without_pipeline(self, session: Session) -> None:
         """When no entropy records and no pipeline, returns no_data."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -226,11 +209,11 @@ class TestMeasureNoData:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path)
+            result = _measure(session)
 
         assert result["status"] == "no_data"
 
-    def test_returns_running_when_pipeline_active(self, session: Session, tmp_path) -> None:
+    def test_returns_running_when_pipeline_active(self, session: Session) -> None:
         """When no entropy records but pipeline is running, returns running."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
@@ -270,7 +253,6 @@ class TestMeasureNoData:
         session.flush()
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -282,7 +264,7 @@ class TestMeasureNoData:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path)
+            result = _measure(session)
 
         assert result["status"] == "running"
         assert "import" in result["phases_completed"]
@@ -290,12 +272,11 @@ class TestMeasureNoData:
 
 
 class TestMeasureTargetFilter:
-    def test_filter_by_table(self, session: Session, tmp_path) -> None:
+    def test_filter_by_table(self, session: Session) -> None:
         """Target='orders' filters points to that table's columns."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -307,18 +288,17 @@ class TestMeasureTargetFilter:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path, target="orders")
+            result = _measure(session, target="orders")
 
         # All points should be for orders table or its columns
         for p in result["points"]:
             assert "orders" in p["target"]
 
-    def test_filter_by_column(self, session: Session, tmp_path) -> None:
+    def test_filter_by_column(self, session: Session) -> None:
         """Target='orders.amount' filters points to that column only."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         with (
-            _mock_manager(session),
             patch(
                 "dataraum.mcp.server._get_pipeline_source",
                 return_value=session.get(Source, source_id),
@@ -330,7 +310,7 @@ class TestMeasureTargetFilter:
         ):
             from dataraum.mcp.server import _measure
 
-            result = _measure(tmp_path, target="orders.amount")
+            result = _measure(session, target="orders.amount")
 
         # Only amount column points
         for p in result["points"]:

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import duckdb
@@ -18,20 +17,6 @@ from dataraum.storage import Column, Source, Table
 
 def _id() -> str:
     return str(uuid4())
-
-
-@contextmanager
-def _mock_manager(session: Session, duckdb_conn=None):
-    """Mock get_manager_for_directory with test session and optional DuckDB cursor."""
-    manager = MagicMock()
-    manager.session_scope.return_value.__enter__ = lambda _: session
-    manager.session_scope.return_value.__exit__ = lambda *_: None
-    if duckdb_conn is not None:
-        manager.duckdb_cursor.return_value.__enter__ = lambda _: duckdb_conn
-        manager.duckdb_cursor.return_value.__exit__ = lambda *_: None
-
-    with patch("dataraum.core.connections.get_manager_for_directory", return_value=manager):
-        yield manager
 
 
 def _setup_source_and_table(
@@ -76,19 +61,16 @@ def _setup_source_and_table(
 
 
 class TestLookDataset:
-    def test_returns_tables_with_columns(self, session: Session, tmp_path) -> None:
+    def test_returns_tables_with_columns(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path)
+            result = _look(session)
 
         assert "tables" in result
         assert len(result["tables"]) == 1
@@ -99,7 +81,7 @@ class TestLookDataset:
         col_names = [c["name"] for c in tbl["columns"]]
         assert "amount" in col_names
 
-    def test_includes_semantic_annotations(self, session: Session, tmp_path) -> None:
+    def test_includes_semantic_annotations(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
         amount_id = col_ids[1][0]  # "amount"
 
@@ -114,16 +96,13 @@ class TestLookDataset:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path)
+            result = _look(session)
 
         amount_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "amount")
         assert amount_col["semantic_role"] == "measure"
@@ -131,7 +110,7 @@ class TestLookDataset:
         assert amount_col["business_concept"] == "revenue"
         assert amount_col["temporal_behavior"] == "additive"
 
-    def test_includes_table_entity(self, session: Session, tmp_path) -> None:
+    def test_includes_table_entity(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         session.add(
@@ -145,16 +124,13 @@ class TestLookDataset:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path)
+            result = _look(session)
 
         tbl = result["tables"][0]
         assert tbl["entity_type"] == "transaction"
@@ -162,7 +138,7 @@ class TestLookDataset:
         assert tbl["description"] == "Customer orders"
         assert tbl["time_column"] == "created_at"
 
-    def test_only_llm_relationships(self, session: Session, tmp_path) -> None:
+    def test_only_llm_relationships(self, session: Session) -> None:
         """Only LLM-confirmed relationships are included, not candidates."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
         # Create a second table for relationships
@@ -217,23 +193,20 @@ class TestLookDataset:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path)
+            result = _look(session)
 
         assert len(result["relationships"]) == 1
         rel = result["relationships"][0]
         assert rel["type"] == "foreign_key"
         assert rel["confidence"] == 0.95
 
-    def test_includes_unit_source_column(self, session: Session, tmp_path) -> None:
+    def test_includes_unit_source_column(self, session: Session) -> None:
         """unit_source_column from SemanticAnnotation is included at dataset level."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
         amount_id = col_ids[1][0]  # "amount"
@@ -247,34 +220,28 @@ class TestLookDataset:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path)
+            result = _look(session)
 
         amount_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "amount")
         assert amount_col["unit_source_column"] == "currency"
 
-    def test_no_entropy_in_response(self, session: Session, tmp_path) -> None:
+    def test_no_entropy_in_response(self, session: Session) -> None:
         """look never returns entropy scores or readiness."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path)
+            result = _look(session)
 
         result_str = str(result)
         assert "entropy" not in result_str.lower()
@@ -282,7 +249,7 @@ class TestLookDataset:
 
 
 class TestLookTable:
-    def test_includes_column_stats(self, session: Session, tmp_path) -> None:
+    def test_includes_column_stats(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
         amount_id = col_ids[1][0]
 
@@ -305,16 +272,13 @@ class TestLookTable:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="orders")
+            result = _look(session, target="orders")
 
         assert result["name"] == "orders"
         amount_col = next(c for c in result["columns"] if c["name"] == "amount")
@@ -324,7 +288,7 @@ class TestLookTable:
         assert "numeric" in amount_col["stats"]
         assert amount_col["stats"]["numeric"]["mean"] == 250.5
 
-    def test_includes_nullable_from_profile(self, session: Session, tmp_path) -> None:
+    def test_includes_nullable_from_profile(self, session: Session) -> None:
         """nullable derived from StatisticalProfile.null_count > 0."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
         amount_id = col_ids[1][0]
@@ -356,23 +320,20 @@ class TestLookTable:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="orders")
+            result = _look(session, target="orders")
 
         amount_col = next(c for c in result["columns"] if c["name"] == "amount")
         region_col = next(c for c in result["columns"] if c["name"] == "region")
         assert amount_col["nullable"] is True
         assert region_col["nullable"] is False
 
-    def test_includes_unit_source_column(self, session: Session, tmp_path) -> None:
+    def test_includes_unit_source_column(self, session: Session) -> None:
         """unit_source_column included at table level."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
         amount_id = col_ids[1][0]
@@ -386,23 +347,20 @@ class TestLookTable:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="orders")
+            result = _look(session, target="orders")
 
         amount_col = next(c for c in result["columns"] if c["name"] == "amount")
         assert amount_col["unit_source_column"] == "currency"
 
 
 class TestLookColumn:
-    def test_includes_type_candidates(self, session: Session, tmp_path) -> None:
+    def test_includes_type_candidates(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
         amount_id = col_ids[1][0]
 
@@ -425,16 +383,13 @@ class TestLookColumn:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="orders.amount")
+            result = _look(session, target="orders.amount")
 
         assert result["name"] == "amount"
         assert result["table"] == "orders"
@@ -444,7 +399,7 @@ class TestLookColumn:
         assert result["type_decision"]["type"] == "BIGINT"
         assert result["type_decision"]["source"] == "automatic"
 
-    def test_includes_semantic_and_quality(self, session: Session, tmp_path) -> None:
+    def test_includes_semantic_and_quality(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
         amount_id = col_ids[1][0]
 
@@ -457,39 +412,33 @@ class TestLookColumn:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="orders.amount")
+            result = _look(session, target="orders.amount")
 
         assert result["semantic"]["role"] == "measure"
         assert result["semantic"]["business_name"] == "Amount"
 
 
 class TestLookSample:
-    def test_returns_rows(self, session: Session, tmp_path) -> None:
+    def test_returns_rows(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         conn = duckdb.connect(":memory:")
         conn.execute("CREATE TABLE typed_orders (id INT, amount DOUBLE, region VARCHAR)")
         conn.execute("INSERT INTO typed_orders VALUES (1, 100.0, 'US'), (2, 200.0, 'EU')")
 
-        with (
-            _mock_manager(session, duckdb_conn=conn),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="orders", sample=10)
+            result = _look(session, target="orders", sample=10, cursor=conn)
 
         assert result["table"] == "orders"
         assert result["row_count"] == 2
@@ -499,82 +448,70 @@ class TestLookSample:
 
 
 class TestLookErrors:
-    def test_unknown_table(self, session: Session, tmp_path) -> None:
+    def test_unknown_table(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="nonexistent")
+            result = _look(session, target="nonexistent")
 
         assert "error" in result
         assert "nonexistent" in result["error"]
         assert "orders" in str(result["error"])  # Shows available tables
 
-    def test_unknown_column(self, session: Session, tmp_path) -> None:
+    def test_unknown_column(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, target="orders.nonexistent")
+            result = _look(session, target="orders.nonexistent")
 
         assert "error" in result
 
-    def test_sample_without_table(self, session: Session, tmp_path) -> None:
+    def test_sample_without_table(self, session: Session) -> None:
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
-            result = _look(tmp_path, sample=10)
+            result = _look(session, sample=10)
 
         assert "error" in result
 
-    def test_target_parsing(self, session: Session, tmp_path) -> None:
+    def test_target_parsing(self, session: Session) -> None:
         """No target = dataset, 'table' = table, 'table.col' = column."""
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _look
 
             # Dataset level
-            dataset = _look(tmp_path)
+            dataset = _look(session)
             assert "tables" in dataset
             assert "relationships" in dataset
 
             # Table level
-            table = _look(tmp_path, target="orders")
+            table = _look(session, target="orders")
             assert "columns" in table
             assert table.get("name") == "orders"
             assert "tables" not in table  # Not dataset shape
 
             # Column level
-            column = _look(tmp_path, target="orders.amount")
+            column = _look(session, target="orders.amount")
             assert column.get("name") == "amount"
             assert column.get("table") == "orders"
             assert "tables" not in column

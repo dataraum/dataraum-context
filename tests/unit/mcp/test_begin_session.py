@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -25,32 +24,18 @@ def _insert_source(session: Session, name: str = "test_source") -> str:
     return source_id
 
 
-@contextmanager
-def _mock_manager(session: Session):
-    """Mock get_manager_for_directory to return a manager using the test session."""
-    manager = MagicMock()
-    manager.session_scope.return_value.__enter__ = lambda _: session
-    manager.session_scope.return_value.__exit__ = lambda *_: None
-
-    with patch("dataraum.core.connections.get_manager_for_directory", return_value=manager):
-        yield manager
-
-
 class TestBeginSession:
-    def test_creates_session(self, session: Session, tmp_path) -> None:
+    def test_creates_session(self, session: Session) -> None:
         """begin_session creates an InvestigationSession and returns orientation."""
         source_id = _insert_source(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _begin_session
 
-            result = _begin_session(tmp_path, intent="test investigation")
+            result = _begin_session(session, intent="test investigation")
 
         assert "error" not in result
         assert "_session_id" in result
@@ -64,20 +49,17 @@ class TestBeginSession:
         assert inv.intent == "test investigation"
         assert inv.status == "active"
 
-    def test_default_contract_is_exploratory(self, session: Session, tmp_path) -> None:
+    def test_default_contract_is_exploratory(self, session: Session) -> None:
         """Without explicit contract, defaults to exploratory_analysis."""
         source_id = _insert_source(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _begin_session
 
-            result = _begin_session(tmp_path, intent="test")
+            result = _begin_session(session, intent="test")
 
         assert result["contract"]["name"] == "exploratory_analysis"
         assert result["contract"]["display_name"] == "Exploratory Analysis"
@@ -87,21 +69,18 @@ class TestBeginSession:
         assert inv is not None
         assert inv.contract == "exploratory_analysis"
 
-    def test_explicit_contract(self, session: Session, tmp_path) -> None:
+    def test_explicit_contract(self, session: Session) -> None:
         """Explicit contract is validated and stored."""
         source_id = _insert_source(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _begin_session
 
             result = _begin_session(
-                tmp_path, intent="compliance check", contract="executive_dashboard"
+                session, intent="compliance check", contract="executive_dashboard"
             )
 
         assert "error" not in result
@@ -112,19 +91,19 @@ class TestBeginSession:
         assert inv is not None
         assert inv.contract == "executive_dashboard"
 
-    def test_unknown_contract_returns_error(self, session: Session, tmp_path) -> None:
+    def test_unknown_contract_returns_error(self, session: Session) -> None:
         """Invalid contract name returns error with available contracts."""
         _insert_source(session)
 
         from dataraum.mcp.server import _begin_session
 
-        result = _begin_session(tmp_path, intent="test", contract="nonexistent_contract")
+        result = _begin_session(session, intent="test", contract="nonexistent_contract")
 
         assert "error" in result
         assert "nonexistent_contract" in result["error"]
         assert "exploratory_analysis" in result["error"]
 
-    def test_has_pipeline_data_when_entropy_exists(self, session: Session, tmp_path) -> None:
+    def test_has_pipeline_data_when_entropy_exists(self, session: Session) -> None:
         """has_pipeline_data is True when entropy records exist."""
         from dataraum.entropy.db_models import EntropyObjectRecord
 
@@ -142,65 +121,55 @@ class TestBeginSession:
         )
         session.flush()
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _begin_session
 
-            result = _begin_session(tmp_path, intent="check quality")
+            result = _begin_session(session, intent="check quality")
 
         assert result["has_pipeline_data"] is True
         # Hint should guide toward exploration, not pipeline trigger
         assert "pipeline" not in result["hint"].lower()
 
-    def test_no_source_returns_error(self, session: Session, tmp_path) -> None:
+    def test_no_source_returns_error(self, session: Session) -> None:
         """When no sources are registered, returns error."""
-        with _mock_manager(session):
-            from dataraum.mcp.server import _begin_session
+        from dataraum.mcp.server import _begin_session
 
-            result = _begin_session(tmp_path, intent="test")
+        result = _begin_session(session, intent="test")
 
         assert "error" in result
         assert "add_source" in result["error"]
 
-    def test_multiple_sources_listed(self, session: Session, tmp_path) -> None:
+    def test_multiple_sources_listed(self, session: Session) -> None:
         """All registered sources are returned."""
         source_id = _insert_source(session, name="source_a")
         _insert_source(session, name="source_b")
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _begin_session
 
-            result = _begin_session(tmp_path, intent="test")
+            result = _begin_session(session, intent="test")
 
         assert len(result["sources"]) == 2
         assert "source_a" in result["sources"]
         assert "source_b" in result["sources"]
 
-    def test_session_id_not_surfaced(self, session: Session, tmp_path) -> None:
+    def test_session_id_not_surfaced(self, session: Session) -> None:
         """_session_id is internal, no 'session_id' key in response."""
         source_id = _insert_source(session)
 
-        with (
-            _mock_manager(session),
-            patch(
-                "dataraum.mcp.server._get_pipeline_source",
-                return_value=session.get(Source, source_id),
-            ),
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
         ):
             from dataraum.mcp.server import _begin_session
 
-            result = _begin_session(tmp_path, intent="test")
+            result = _begin_session(session, intent="test")
 
         assert "session_id" not in result
         assert "_session_id" in result
@@ -260,8 +229,6 @@ class TestFlowEnforcement:
         from dataraum.mcp.server import create_server
 
         server = create_server(output_dir=tmp_path)
-        # begin_session itself is allowed (no active session), but _begin_session
-        # will fail because no sources exist — the DB doesn't even exist yet.
         result = await self._call(server, "begin_session", {"intent": "test"})
         assert "error" in result
 
@@ -278,25 +245,28 @@ class TestFlowEnforcement:
 
 
 class TestRecordToolStep:
-    def test_records_step_on_success(self, session: Session, tmp_path) -> None:
+    def test_records_step_on_success(self, session: Session) -> None:
         """_record_tool_step writes an InvestigationStep to the DB."""
         from dataraum.investigation.recorder import begin_session as create_session
+        from dataraum.mcp.server import _record_tool_step
 
         source_id = _insert_source(session)
         inv = create_session(session, source_id, intent="test")
         session.flush()
 
-        with _mock_manager(session):
-            from dataraum.mcp.server import _record_tool_step
+        # Create a mock manager whose session_scope yields our test session
+        manager = MagicMock()
+        manager.session_scope.return_value.__enter__ = lambda _: session
+        manager.session_scope.return_value.__exit__ = lambda *_: None
 
-            _record_tool_step(
-                tmp_path,
-                session_id=inv.session_id,
-                tool_name="look",
-                arguments={"target": "orders"},
-                result={"tables": []},
-                started_at=datetime.now(UTC),
-            )
+        _record_tool_step(
+            manager,
+            session_id=inv.session_id,
+            tool_name="look",
+            arguments={"target": "orders"},
+            result={"tables": []},
+            started_at=datetime.now(UTC),
+        )
 
         steps = session.query(InvestigationStep).filter_by(session_id=inv.session_id).all()
         assert len(steps) == 1
@@ -304,37 +274,43 @@ class TestRecordToolStep:
         assert steps[0].status == "success"
         assert steps[0].target == "orders"
 
-    def test_records_error_status(self, session: Session, tmp_path) -> None:
+    def test_records_error_status(self, session: Session) -> None:
         """Error results are recorded with status='error'."""
         from dataraum.investigation.recorder import begin_session as create_session
+        from dataraum.mcp.server import _record_tool_step
 
         source_id = _insert_source(session)
         inv = create_session(session, source_id, intent="test")
         session.flush()
 
-        with _mock_manager(session):
-            from dataraum.mcp.server import _record_tool_step
+        manager = MagicMock()
+        manager.session_scope.return_value.__enter__ = lambda _: session
+        manager.session_scope.return_value.__exit__ = lambda *_: None
 
-            _record_tool_step(
-                tmp_path,
-                session_id=inv.session_id,
-                tool_name="look",
-                arguments={"target": "nonexistent"},
-                result={"error": "Table not found"},
-                started_at=datetime.now(UTC),
-            )
+        _record_tool_step(
+            manager,
+            session_id=inv.session_id,
+            tool_name="look",
+            arguments={"target": "nonexistent"},
+            result={"error": "Table not found"},
+            started_at=datetime.now(UTC),
+        )
 
         steps = session.query(InvestigationStep).filter_by(session_id=inv.session_id).all()
         assert len(steps) == 1
         assert steps[0].status == "error"
         assert steps[0].error == "Table not found"
 
-    def test_recording_failure_does_not_raise(self, tmp_path) -> None:
-        """_record_tool_step never raises, even with bad session_id."""
+    def test_recording_failure_does_not_raise(self) -> None:
+        """_record_tool_step never raises, even with a broken manager."""
         from dataraum.mcp.server import _record_tool_step
 
+        # Manager that raises on session_scope
+        manager = MagicMock()
+        manager.session_scope.side_effect = RuntimeError("broken")
+
         _record_tool_step(
-            tmp_path / "nonexistent",
+            manager,
             session_id="bad-session-id",
             tool_name="look",
             arguments={},

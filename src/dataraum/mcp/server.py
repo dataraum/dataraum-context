@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session as SASession
 
+    from dataraum.core.connections import ConnectionManager
     from dataraum.storage import Column as ColumnModel
     from dataraum.storage import Table as TableModel
 
@@ -89,10 +90,31 @@ def create_server(output_dir: Path | None = None) -> Server:
     if output_dir is None:
         output_dir = Path(os.environ.get("DATARAUM_OUTPUT_DIR", "./pipeline_output"))
 
+    # Server-level ConnectionManager — lazy-initialized on first tool call.
+    # Stays alive for the server lifetime. call_tool opens session/cursor
+    # scopes from this manager and passes them to handlers.
+    # Not shared across threads: all call_tool invocations run on the asyncio
+    # event loop (single-threaded). The pipeline runs in its own thread with
+    # its own manager — no cross-thread sharing of connections.
+    _manager: ConnectionManager | None = None
+
+    def _get_manager() -> ConnectionManager:
+        """Get or create the server-level ConnectionManager."""
+        nonlocal _manager
+        if _manager is None:
+            from dataraum.core.connections import ConnectionConfig
+            from dataraum.core.connections import ConnectionManager as CM
+
+            config = ConnectionConfig.for_directory(output_dir)
+            config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+            _manager = CM(config)
+            _manager.initialize()
+        return _manager
+
     # Server-side session state — agent never sees session_id.
     # Set by begin_session, used by call_tool for recording and contract threading.
     # TODO: session teardown (deliver/end_session) not yet implemented —
-    # currently permanent until process restart. Planned for later phase.
+    # currently permanent until process restart. Planned for DAT-196.
     _active_session_id: str | None = None
     _active_contract: str | None = None
 
@@ -353,16 +375,22 @@ def create_server(output_dir: Path | None = None) -> Server:
             if _active_session_id is None:
                 return _json_text_content({"error": "No active session. Call begin_session first."})
 
-        # --- Dispatch ---
+        # --- Dispatch (each tool gets its own session/cursor scope) ---
+        mgr = _get_manager()
+        result: dict[str, Any]
+
         if name == "look":
-            result = _look(
-                output_dir,
-                target=arguments.get("target"),
-                sample=arguments.get("sample"),
-            )
+            with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
+                result = _look(
+                    session,
+                    target=arguments.get("target"),
+                    sample=arguments.get("sample"),
+                    cursor=cursor,
+                )
         elif name == "measure":
             measure_target = arguments.get("target")
-            result = _measure(output_dir, target=measure_target)
+            with mgr.session_scope() as session:
+                result = _measure(session, target=measure_target)
             # Pipeline trigger: when no entropy data exists, start a pipeline run
             if result.get("status") == "no_data":
                 ctx = server.request_context
@@ -373,7 +401,8 @@ def create_server(output_dir: Path | None = None) -> Server:
                     async def _measure_work(task: ServerTaskContext) -> CallToolResult:
                         callback = _make_task_event_callback(task, loop)
                         await asyncio.to_thread(_run_pipeline, output_dir, callback)
-                        measure_result = _measure(output_dir, target=measure_target)
+                        with _get_manager().session_scope() as post_session:
+                            measure_result = _measure(post_session, target=measure_target)
                         return CallToolResult(
                             content=[
                                 TextContent(
@@ -401,11 +430,12 @@ def create_server(output_dir: Path | None = None) -> Server:
                         "hint": "Pipeline started. Call measure() again to poll for results.",
                     }
         elif name == "begin_session":
-            raw = _begin_session(
-                output_dir,
-                intent=arguments["intent"],
-                contract=arguments.get("contract"),
-            )
+            with mgr.session_scope() as session:
+                raw = _begin_session(
+                    session,
+                    intent=arguments["intent"],
+                    contract=arguments.get("contract"),
+                )
             # Separate internal state from agent-facing response
             session_id_internal = raw.pop("_session_id", None)
             result = raw
@@ -413,25 +443,29 @@ def create_server(output_dir: Path | None = None) -> Server:
                 _active_session_id = session_id_internal
                 _active_contract = result["contract"]["name"]
         elif name == "query":
-            result = _query(output_dir, arguments["question"], _active_contract)
+            with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
+                result = _query(session, cursor, arguments["question"], _active_contract)
         elif name == "run_sql":
-            result = _run_sql(
-                output_dir,
-                steps=arguments.get("steps"),
-                sql=arguments.get("sql"),
-                column_mappings=arguments.get("column_mappings"),
-                limit=arguments.get("limit", 100),
-            )
+            with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
+                result = _run_sql(
+                    session,
+                    cursor,
+                    steps=arguments.get("steps"),
+                    sql=arguments.get("sql"),
+                    column_mappings=arguments.get("column_mappings"),
+                    limit=arguments.get("limit", 100),
+                )
         elif name == "add_source":
-            result = _add_source(output_dir, arguments)
+            with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
+                result = _add_source(session, cursor, arguments)
         else:
             result = {"error": f"Unknown tool: {name}"}
 
-        # Record step in investigation trace. begin_session is excluded because
-        # the session record itself (InvestigationSession) captures intent + contract.
+        # Record step in investigation trace (separate session scope for isolation).
+        # begin_session is excluded — the InvestigationSession record captures intent.
         if _active_session_id is not None and name != "begin_session":
             _record_tool_step(
-                output_dir,
+                mgr,
                 session_id=_active_session_id,
                 tool_name=name,
                 arguments=arguments,
@@ -464,18 +498,8 @@ def _get_pipeline_source(session: Any) -> Any | None:
     return session.execute(select(Source).order_by(Source.created_at).limit(1)).scalar_one_or_none()
 
 
-def _no_data_error(path: Path) -> dict[str, Any]:
-    """Build error dict for missing pipeline output."""
-    return {
-        "error": f"No analyzed data found at {path}.",
-        "hint": (
-            "Use add_source to register your data, then call measure to trigger the pipeline."
-        ),
-    }
-
-
 def _record_tool_step(
-    output_dir: Path,
+    manager: ConnectionManager,
     session_id: str,
     tool_name: str,
     arguments: dict[str, Any],
@@ -484,32 +508,26 @@ def _record_tool_step(
 ) -> None:
     """Record a tool invocation in the investigation session trace.
 
-    Never raises — recording failure must not break tool execution.
+    Uses its own session scope from the server-level manager for isolation —
+    recording failures must not affect tool execution or its transaction.
     """
     from dataraum.investigation.recorder import record_step
 
     try:
-        from dataraum.core.connections import get_manager_for_directory
-
-        manager = get_manager_for_directory(output_dir)
-        try:
-            with manager.session_scope() as db_session:
-                duration = (datetime.now(UTC) - started_at).total_seconds()
-                status = "error" if "error" in result else "success"
-                record_step(
-                    db_session,
-                    session_id,
-                    tool_name,
-                    arguments,
-                    status=status,
-                    result=result,
-                    error=result.get("error") if status == "error" else None,
-                    started_at=started_at,
-                    duration_seconds=duration,
-                )
-                db_session.commit()
-        finally:
-            manager.close()
+        with manager.session_scope() as db_session:
+            duration = (datetime.now(UTC) - started_at).total_seconds()
+            status = "error" if "error" in result else "success"
+            record_step(
+                db_session,
+                session_id,
+                tool_name,
+                arguments,
+                status=status,
+                result=result,
+                error=result.get("error") if status == "error" else None,
+                started_at=started_at,
+                duration_seconds=duration,
+            )
     except Exception:
         _log.debug("Failed to record step for session %s", session_id, exc_info=True)
 
@@ -568,49 +586,46 @@ async def _run_pipeline_background(output_dir: Path) -> None:
 
 
 def _query(
-    output_dir: Path,
+    session: SASession,
+    cursor: Any,
     question: str,
     contract_name: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a natural language query."""
-    from dataraum.core.connections import get_manager_for_directory
+    """Execute a natural language query.
+
+    Args:
+        session: SQLAlchemy session from server-level manager.
+        cursor: DuckDB cursor from server-level manager.
+        question: Natural language question.
+        contract_name: Active contract name for confidence evaluation.
+    """
     from dataraum.query import answer_question
 
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return _no_data_error(output_dir)
+    source = _get_pipeline_source(session)
+    if not source:
+        return {"error": "No sources found"}
 
-    try:
-        with manager.session_scope() as session:
-            source = _get_pipeline_source(session)
+    result = answer_question(
+        question=question,
+        session=session,
+        duckdb_conn=cursor,
+        source_id=source.source_id,
+        contract=contract_name,
+    )
 
-            if not source:
-                return {"error": "No sources found"}
+    if not result.success or not result.value:
+        return {"error": str(result.error)}
 
-            with manager.duckdb_cursor() as cursor:
-                result = answer_question(
-                    question=question,
-                    session=session,
-                    duckdb_conn=cursor,
-                    source_id=source.source_id,
-                    contract=contract_name,
-                )
+    qr = result.value
+    if not qr.success:
+        return {"error": qr.error or "Query generation failed"}
 
-            if not result.success or not result.value:
-                return {"error": str(result.error)}
-
-            qr = result.value
-            if not qr.success:
-                return {"error": qr.error or "Query generation failed"}
-
-            return format_query_result(qr)
-    finally:
-        manager.close()
+    return format_query_result(qr)
 
 
 def _run_sql(
-    output_dir: Path,
+    session: SASession,
+    cursor: Any,
     steps: list[dict[str, Any]] | None = None,
     sql: str | None = None,
     column_mappings: dict[str, str] | None = None,
@@ -619,7 +634,8 @@ def _run_sql(
     """Execute SQL directly against analyzed data.
 
     Args:
-        output_dir: Pipeline output directory.
+        session: SQLAlchemy session from server-level manager.
+        cursor: DuckDB cursor from server-level manager.
         steps: Structured SQL steps.
         sql: Raw SQL string.
         column_mappings: Maps output column names to source columns (raw SQL mode).
@@ -627,45 +643,34 @@ def _run_sql(
     """
     from sqlalchemy import select
 
-    from dataraum.core.connections import get_manager_for_directory
     from dataraum.mcp.sql_executor import run_sql
     from dataraum.storage import Table
 
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return _no_data_error(output_dir)
-
-    try:
-        with manager.session_scope() as session:
-            source = _get_pipeline_source(session)
-            table_ids: list[str] = []
-            if source:
-                tables = (
-                    session.execute(
-                        select(Table).where(
-                            Table.source_id == source.source_id,
-                            Table.layer == "typed",
-                        )
-                    )
-                    .scalars()
-                    .all()
+    source = _get_pipeline_source(session)
+    table_ids: list[str] = []
+    if source:
+        tables = (
+            session.execute(
+                select(Table).where(
+                    Table.source_id == source.source_id,
+                    Table.layer == "typed",
                 )
-                table_ids = [t.table_id for t in tables]
+            )
+            .scalars()
+            .all()
+        )
+        table_ids = [t.table_id for t in tables]
 
-            with manager.duckdb_cursor() as cursor:
-                return run_sql(
-                    cursor,
-                    session=session,
-                    source_id=source.source_id if source else None,
-                    table_ids=table_ids,
-                    steps=steps,
-                    sql=sql,
-                    column_mappings=column_mappings,
-                    limit=limit,
-                )
-    finally:
-        manager.close()
+    return run_sql(
+        cursor,
+        session=session,
+        source_id=source.source_id if source else None,
+        table_ids=table_ids,
+        steps=steps,
+        sql=sql,
+        column_mappings=column_mappings,
+        limit=limit,
+    )
 
 
 def _get_cached_contract(output_dir: Path) -> str | None:
@@ -721,19 +726,8 @@ def _resolve_source_path(output_dir: Path) -> str | None:
     return None
 
 
-def _get_or_create_manager(output_dir: Path) -> Any:
-    """Get a ConnectionManager, creating the database if it doesn't exist yet."""
-    from dataraum.core.connections import ConnectionConfig, ConnectionManager
-
-    config = ConnectionConfig.for_directory(output_dir)
-    config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-    manager = ConnectionManager(config)
-    manager.initialize()
-    return manager
-
-
 def _begin_session(
-    output_dir: Path,
+    session: SASession,
     intent: str,
     contract: str | None = None,
 ) -> dict[str, Any]:
@@ -744,7 +738,7 @@ def _begin_session(
     it is never surfaced to the agent.
 
     Args:
-        output_dir: Pipeline output directory.
+        session: SQLAlchemy session from server-level manager.
         intent: What the agent is investigating.
         contract: Contract name. Defaults to ``exploratory_analysis``.
 
@@ -753,7 +747,6 @@ def _begin_session(
     """
     from sqlalchemy import select
 
-    from dataraum.core.connections import get_manager_for_directory
     from dataraum.entropy.contracts import get_contract
     from dataraum.entropy.db_models import EntropyObjectRecord
     from dataraum.investigation.recorder import begin_session
@@ -768,57 +761,48 @@ def _begin_session(
         available = [c["name"] for c in list_contracts()]
         return {"error": f"Unknown contract '{contract_name}'. Available: {available}"}
 
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return _no_data_error(output_dir)
+    # Require at least one registered source
+    all_sources = list(
+        session.execute(
+            select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
+        )
+        .scalars()
+        .all()
+    )
+    if not all_sources:
+        return {"error": "No sources registered. Use add_source first."}
 
-    try:
-        with manager.session_scope() as session:
-            # Require at least one registered source
-            all_sources = list(
-                session.execute(
-                    select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
-                )
-                .scalars()
-                .all()
-            )
-            if not all_sources:
-                return {"error": "No sources registered. Use add_source first."}
+    source = _get_pipeline_source(session)
+    source_id = source.source_id if source else all_sources[0].source_id
 
-            source = _get_pipeline_source(session)
-            source_id = source.source_id if source else all_sources[0].source_id
+    # Create investigation session
+    inv = begin_session(session, source_id, intent, contract=contract_name)
 
-            # Create investigation session
-            inv = begin_session(session, source_id, intent, contract=contract_name)
+    # Check if pipeline has run (quick existence check, not full measurement)
+    has_data = (
+        session.execute(
+            select(EntropyObjectRecord.object_id)
+            .where(EntropyObjectRecord.source_id == source_id)
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
 
-            # Check if pipeline has run (quick existence check, not full measurement)
-            has_data = (
-                session.execute(
-                    select(EntropyObjectRecord.object_id)
-                    .where(EntropyObjectRecord.source_id == source_id)
-                    .limit(1)
-                ).scalar_one_or_none()
-                is not None
-            )
-
-            return {
-                "_session_id": inv.session_id,
-                "sources": [s.name for s in all_sources],
-                "contract": {
-                    "name": contract_profile.name,
-                    "display_name": contract_profile.display_name,
-                    "description": contract_profile.description,
-                },
-                "has_pipeline_data": has_data,
-                "hint": (
-                    "Use look to explore the schema, measure to check entropy scores."
-                    if has_data
-                    else "No pipeline data yet. Call measure to trigger the pipeline."
-                ),
-            }
-    finally:
-        manager.close()
+    return {
+        "_session_id": inv.session_id,
+        "sources": [s.name for s in all_sources],
+        "contract": {
+            "name": contract_profile.name,
+            "display_name": contract_profile.display_name,
+            "description": contract_profile.description,
+        },
+        "has_pipeline_data": has_data,
+        "hint": (
+            "Use look to explore the schema, measure to check entropy scores."
+            if has_data
+            else "No pipeline data yet. Call measure to trigger the pipeline."
+        ),
+    }
 
 
 def _aggregate_layer_scores(scores: dict[str, float]) -> dict[str, float]:
@@ -831,101 +815,93 @@ def _aggregate_layer_scores(scores: dict[str, float]) -> dict[str, float]:
 
 
 def _look(
-    output_dir: Path,
+    session: SASession,
     target: str | None = None,
     sample: int | None = None,
+    *,
+    cursor: Any | None = None,
 ) -> dict[str, Any]:
     """Explore data schema and profiles at varying resolution.
 
     Args:
-        output_dir: Pipeline output directory.
+        session: SQLAlchemy session from server-level manager.
         target: None=dataset, "table"=table detail, "table.col"=column profile.
         sample: If set, return N sample rows from the table.
+        cursor: DuckDB cursor, required for sample mode.
 
     Returns:
         Schema/profile data at the requested resolution level.
     """
     from sqlalchemy import select
 
-    from dataraum.core.connections import get_manager_for_directory
     from dataraum.storage import Column, Table
 
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return _no_data_error(output_dir)
+    source = _get_pipeline_source(session)
+    if not source:
+        return {"error": "No sources found. Use add_source first."}
 
-    try:
-        with manager.session_scope() as session:
-            source = _get_pipeline_source(session)
-            if not source:
-                return {"error": "No sources found. Use add_source first."}
-
-            tables = list(
-                session.execute(
-                    select(Table).where(
-                        Table.source_id == source.source_id,
-                        Table.layer == "typed",
-                    )
-                )
-                .scalars()
-                .all()
+    tables = list(
+        session.execute(
+            select(Table).where(
+                Table.source_id == source.source_id,
+                Table.layer == "typed",
             )
-            if not tables:
-                return {"error": "No tables found. Run the pipeline first."}
+        )
+        .scalars()
+        .all()
+    )
+    if not tables:
+        return {"error": "No tables found. Run the pipeline first."}
 
-            # Parse target
-            table_name: str | None = None
-            column_name: str | None = None
-            if target:
-                parts = target.split(".", 1)
-                table_name = parts[0]
-                if len(parts) == 2:
-                    column_name = parts[1]
+    # Parse target
+    table_name: str | None = None
+    column_name: str | None = None
+    if target:
+        parts = target.split(".", 1)
+        table_name = parts[0]
+        if len(parts) == 2:
+            column_name = parts[1]
 
-            # Sample mode: return actual rows
-            if sample is not None:
-                if not table_name:
-                    return {
-                        "error": "sample requires a target table (e.g. look(target='orders', sample=10))"
-                    }
-                # Validate table exists
-                tbl = next((t for t in tables if t.table_name == table_name), None)
-                if not tbl:
-                    available = [t.table_name for t in tables]
-                    return {"error": f"Table '{table_name}' not found. Available: {available}"}
-                with manager.duckdb_cursor() as cursor:
-                    return _look_sample(cursor, table_name, min(sample, 1000))
+    # Sample mode: return actual rows
+    if sample is not None:
+        if not table_name:
+            return {
+                "error": "sample requires a target table (e.g. look(target='orders', sample=10))"
+            }
+        # Validate table exists
+        tbl = next((t for t in tables if t.table_name == table_name), None)
+        if not tbl:
+            available = [t.table_name for t in tables]
+            return {"error": f"Table '{table_name}' not found. Available: {available}"}
+        return _look_sample(cursor, table_name, min(sample, 1000))
 
-            # Column level
-            if column_name:
-                tbl = next((t for t in tables if t.table_name == table_name), None)
-                if not tbl:
-                    available = [t.table_name for t in tables]
-                    return {"error": f"Table '{table_name}' not found. Available: {available}"}
-                col = session.execute(
-                    select(Column).where(
-                        Column.table_id == tbl.table_id,
-                        Column.column_name == column_name,
-                    )
-                ).scalar_one_or_none()
-                if not col:
-                    return {"error": f"Column '{column_name}' not found in table '{table_name}'."}
-                assert table_name is not None  # Guaranteed by column_name being set
-                return _look_column(session, col, table_name)
+    # Column level
+    if column_name:
+        tbl = next((t for t in tables if t.table_name == table_name), None)
+        if not tbl:
+            available = [t.table_name for t in tables]
+            return {"error": f"Table '{table_name}' not found. Available: {available}"}
+        col = session.execute(
+            select(Column).where(
+                Column.table_id == tbl.table_id,
+                Column.column_name == column_name,
+            )
+        ).scalar_one_or_none()
+        if not col:
+            return {"error": f"Column '{column_name}' not found in table '{table_name}'."}
+        assert table_name is not None  # Guaranteed by column_name being set
+        return _look_column(session, col, table_name)
 
-            # Table level
-            if table_name:
-                tbl = next((t for t in tables if t.table_name == table_name), None)
-                if not tbl:
-                    available = [t.table_name for t in tables]
-                    return {"error": f"Table '{table_name}' not found. Available: {available}"}
-                return _look_table(session, tbl)
+    # Table level
+    if table_name:
+        tbl = next((t for t in tables if t.table_name == table_name), None)
+        if not tbl:
+            available = [t.table_name for t in tables]
+            return {"error": f"Table '{table_name}' not found. Available: {available}"}
+        return _look_table(session, tbl)
 
-            # Dataset level
-            return _look_dataset(session, tables)
-    finally:
-        manager.close()
+    # Dataset level
+    return _look_dataset(session, tables)
 
 
 def _look_dataset(session: SASession, tables: list[TableModel]) -> dict[str, Any]:
@@ -1317,13 +1293,13 @@ def _look_sample(cursor: Any, table_name: str, n: int) -> dict[str, Any]:
 
 
 def _measure(
-    output_dir: Path,
+    session: SASession,
     target: str | None = None,
 ) -> dict[str, Any]:
     """Measure entropy across detectors, returning points + readiness.
 
     Args:
-        output_dir: Pipeline output directory.
+        session: SQLAlchemy session from server-level manager.
         target: Optional filter — "table" or "table.column".
 
     Returns:
@@ -1331,145 +1307,141 @@ def _measure(
     """
     from sqlalchemy import select
 
-    from dataraum.core.connections import get_manager_for_directory
     from dataraum.entropy.detectors.base import get_default_registry
     from dataraum.entropy.measurement import measure_entropy
     from dataraum.pipeline.db_models import PhaseLog, PipelineRun
     from dataraum.storage import Table
 
-    try:
-        manager = get_manager_for_directory(output_dir)
-    except FileNotFoundError:
-        return _no_data_error(output_dir)
+    source = _get_pipeline_source(session)
+    if not source:
+        return {"error": "No sources found. Use add_source first."}
 
-    try:
-        with manager.session_scope() as session:
-            source = _get_pipeline_source(session)
-            if not source:
-                return {"error": "No sources found. Use add_source first."}
-
-            tables = list(
-                session.execute(
-                    select(Table).where(
-                        Table.source_id == source.source_id,
-                        Table.layer == "typed",
-                    )
-                )
-                .scalars()
-                .all()
+    tables = list(
+        session.execute(
+            select(Table).where(
+                Table.source_id == source.source_id,
+                Table.layer == "typed",
             )
-            table_ids = [t.table_id for t in tables]
+        )
+        .scalars()
+        .all()
+    )
+    table_ids = [t.table_id for t in tables]
 
-            # Get entropy measurements + pipeline status (single query for latest_run)
-            registry = get_default_registry()
-            detector_ids = [d.detector_id for d in registry.get_all_detectors()]
-            measurement = measure_entropy(session, source.source_id, detector_ids)
+    # Get entropy measurements + pipeline status (single query for latest_run)
+    registry = get_default_registry()
+    detector_ids = [d.detector_id for d in registry.get_all_detectors()]
+    measurement = measure_entropy(session, source.source_id, detector_ids)
 
-            latest_run = session.execute(
-                select(PipelineRun)
-                .where(PipelineRun.source_id == source.source_id)
-                .order_by(PipelineRun.started_at.desc())
-                .limit(1)
-            ).scalar_one_or_none()
+    latest_run = session.execute(
+        select(PipelineRun)
+        .where(PipelineRun.source_id == source.source_id)
+        .order_by(PipelineRun.started_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
 
-            if not measurement.scores:
-                if latest_run and latest_run.status == "running":
-                    completed_names = [
-                        row[0]
-                        for row in session.execute(
-                            select(PhaseLog.phase_name).where(
-                                PhaseLog.run_id == latest_run.run_id,
-                                PhaseLog.status == "completed",
-                            )
-                        ).all()
-                    ]
-                    return {
-                        "status": "running",
-                        "phases_completed": completed_names,
-                        "hint": "Pipeline is running. Call measure() again to poll.",
-                    }
-
-                return {
-                    "status": "no_data",
-                    "hint": "No entropy data. Pipeline will be triggered.",
-                }
-
-            # Build points from column_details + table_details
-            points: list[dict[str, Any]] = []
-            for dim_path, targets in measurement.column_details.items():
-                for tgt, score in targets.items():
-                    points.append({"target": tgt, "dimension": dim_path, "score": round(score, 4)})
-            for dim_path, targets in measurement.table_details.items():
-                for tgt, score in targets.items():
-                    points.append({"target": tgt, "dimension": dim_path, "score": round(score, 4)})
-
-            scores = _aggregate_layer_scores(measurement.scores)
-
-            # BBN readiness per column
-            readiness: dict[str, str] = {}
-            if table_ids:
-                try:
-                    from dataraum.entropy.views.network_context import build_for_network
-
-                    network = build_for_network(session, table_ids)
-                    if network and network.columns:
-                        readiness = {
-                            col_key: col_result.readiness
-                            for col_key, col_result in network.columns.items()
-                        }
-                except Exception:
-                    _log.debug("BBN readiness unavailable", exc_info=True)
-
-            status = "complete"
-            phases_completed: list[str] = []
-            if latest_run:
-                if latest_run.status == "running":
-                    status = "running"
-                phases_completed = [
-                    row[0]
-                    for row in session.execute(
-                        select(PhaseLog.phase_name).where(
-                            PhaseLog.run_id == latest_run.run_id,
-                            PhaseLog.status == "completed",
-                        )
-                    ).all()
-                ]
-
-            result: dict[str, Any] = {
-                "status": status,
-                "phases_completed": phases_completed,
-                "points": points,
-                "scores": scores,
-                "readiness": readiness,
+    if not measurement.scores:
+        if latest_run and latest_run.status == "running":
+            completed_names = [
+                row[0]
+                for row in session.execute(
+                    select(PhaseLog.phase_name).where(
+                        PhaseLog.run_id == latest_run.run_id,
+                        PhaseLog.status == "completed",
+                    )
+                ).all()
+            ]
+            return {
+                "status": "running",
+                "phases_completed": completed_names,
+                "hint": "Pipeline is running. Call measure() again to poll.",
             }
 
-            # Filter by target if provided
-            if target:
-                target_prefix = f"column:{target}" if "." in target else f"table:{target}"
-                # For table-level filter, also include its columns
-                if "." not in target:
-                    table_prefix = f"column:{target}."
-                    result["points"] = [
-                        p
-                        for p in points
-                        if p["target"].startswith(target_prefix)
-                        or p["target"].startswith(table_prefix)
-                    ]
-                    result["readiness"] = {
-                        k: v for k, v in readiness.items() if k.startswith(f"{target}.")
-                    }
-                else:
-                    result["points"] = [p for p in points if p["target"] == target_prefix]
-                    col_key = target  # "table.column"
-                    result["readiness"] = {k: v for k, v in readiness.items() if k == col_key}
+        return {
+            "status": "no_data",
+            "hint": "No entropy data. Pipeline will be triggered.",
+        }
 
-            return result
-    finally:
-        manager.close()
+    # Build points from column_details + table_details
+    points: list[dict[str, Any]] = []
+    for dim_path, targets in measurement.column_details.items():
+        for tgt, score in targets.items():
+            points.append({"target": tgt, "dimension": dim_path, "score": round(score, 4)})
+    for dim_path, targets in measurement.table_details.items():
+        for tgt, score in targets.items():
+            points.append({"target": tgt, "dimension": dim_path, "score": round(score, 4)})
+
+    scores = _aggregate_layer_scores(measurement.scores)
+
+    # BBN readiness per column
+    readiness: dict[str, str] = {}
+    if table_ids:
+        try:
+            from dataraum.entropy.views.network_context import build_for_network
+
+            network = build_for_network(session, table_ids)
+            if network and network.columns:
+                readiness = {
+                    col_key: col_result.readiness for col_key, col_result in network.columns.items()
+                }
+        except Exception:
+            _log.debug("BBN readiness unavailable", exc_info=True)
+
+    status = "complete"
+    phases_completed: list[str] = []
+    if latest_run:
+        if latest_run.status == "running":
+            status = "running"
+        phases_completed = [
+            row[0]
+            for row in session.execute(
+                select(PhaseLog.phase_name).where(
+                    PhaseLog.run_id == latest_run.run_id,
+                    PhaseLog.status == "completed",
+                )
+            ).all()
+        ]
+
+    result: dict[str, Any] = {
+        "status": status,
+        "phases_completed": phases_completed,
+        "points": points,
+        "scores": scores,
+        "readiness": readiness,
+    }
+
+    # Filter by target if provided
+    if target:
+        target_prefix = f"column:{target}" if "." in target else f"table:{target}"
+        # For table-level filter, also include its columns
+        if "." not in target:
+            table_prefix = f"column:{target}."
+            result["points"] = [
+                p
+                for p in points
+                if p["target"].startswith(target_prefix) or p["target"].startswith(table_prefix)
+            ]
+            result["readiness"] = {k: v for k, v in readiness.items() if k.startswith(f"{target}.")}
+        else:
+            result["points"] = [p for p in points if p["target"] == target_prefix]
+            col_key = target  # "table.column"
+            result["readiness"] = {k: v for k, v in readiness.items() if k == col_key}
+
+    return result
 
 
-def _add_source(output_dir: Path, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Register a new data source."""
+def _add_source(
+    session: SASession,
+    cursor: Any,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Register a new data source.
+
+    Args:
+        session: SQLAlchemy session from server-level manager.
+        cursor: DuckDB cursor (used for database backend sources).
+        arguments: Tool arguments (name, path or backend, etc.).
+    """
     from sqlalchemy import select
 
     from dataraum.core.credentials import CredentialChain
@@ -1485,79 +1457,65 @@ def _add_source(output_dir: Path, arguments: dict[str, Any]) -> dict[str, Any]:
     if path and backend:
         return {"error": "Provide 'path' or 'backend', not both."}
 
-    try:
-        manager = _get_or_create_manager(output_dir)
-    except Exception as e:
-        return {"error": f"Initializing database failed: {e}"}
+    credential_chain = CredentialChain()
 
-    try:
-        credential_chain = CredentialChain()
+    if backend:
+        src_mgr = SourceManager(
+            session=session,
+            credential_chain=credential_chain,
+            duckdb_conn=cursor,
+        )
+        tables_arg = arguments.get("tables")
+        credential_ref = arguments.get("credential_ref")
+        result = src_mgr.add_database_source(
+            name, backend, tables=tables_arg, credential_ref=credential_ref
+        )
+    else:
+        src_mgr = SourceManager(
+            session=session,
+            credential_chain=credential_chain,
+        )
+        assert path is not None  # guarded by validation above
+        result = src_mgr.add_file_source(name, path)
 
-        with manager.session_scope() as session:
-            if backend:
-                with manager.duckdb_cursor() as cursor:
-                    src_mgr = SourceManager(
-                        session=session,
-                        credential_chain=credential_chain,
-                        duckdb_conn=cursor,
-                    )
-                    tables_arg = arguments.get("tables")
-                    credential_ref = arguments.get("credential_ref")
-                    result = src_mgr.add_database_source(
-                        name, backend, tables=tables_arg, credential_ref=credential_ref
-                    )
-            else:
-                src_mgr = SourceManager(
-                    session=session,
-                    credential_chain=credential_chain,
-                )
-                assert path is not None  # guarded by validation above
-                result = src_mgr.add_file_source(name, path)
+    if not result.success:
+        return {"error": str(result.error)}
 
-            if not result.success:
-                return {"error": str(result.error)}
+    info = result.unwrap()
+    output: dict[str, Any] = {
+        "source": {
+            "name": info.name,
+            "type": info.source_type,
+            "status": info.status,
+        }
+    }
+    if info.path:
+        output["source"]["path"] = info.path
+    if info.columns:
+        output["source"]["preview"] = {
+            "columns": info.columns,
+            "row_count_estimate": info.row_count_estimate,
+        }
+    if info.credential_source:
+        output["source"]["credential_source"] = info.credential_source
+    if info.discovered_schema:
+        output["source"]["schema_discovered"] = info.discovered_schema
+    if info.credential_instructions:
+        output["credential_instructions"] = info.credential_instructions
 
-            session.commit()
+    # Include total source count for multi-source flow
+    all_sources = (
+        session.execute(select(Source.name).where(Source.archived_at.is_(None))).scalars().all()
+    )
+    output["registered_sources"] = {
+        "count": len(all_sources),
+        "names": list(all_sources),
+    }
+    output["next_steps"] = (
+        "Add more sources with add_source, or call measure to trigger the pipeline."
+    )
 
-            info = result.unwrap()
-            output: dict[str, Any] = {
-                "source": {
-                    "name": info.name,
-                    "type": info.source_type,
-                    "status": info.status,
-                }
-            }
-            if info.path:
-                output["source"]["path"] = info.path
-            if info.columns:
-                output["source"]["preview"] = {
-                    "columns": info.columns,
-                    "row_count_estimate": info.row_count_estimate,
-                }
-            if info.credential_source:
-                output["source"]["credential_source"] = info.credential_source
-            if info.discovered_schema:
-                output["source"]["schema_discovered"] = info.discovered_schema
-            if info.credential_instructions:
-                output["credential_instructions"] = info.credential_instructions
-
-            # Include total source count for multi-source flow
-            all_sources = (
-                session.execute(select(Source.name).where(Source.archived_at.is_(None)))
-                .scalars()
-                .all()
-            )
-            output["registered_sources"] = {
-                "count": len(all_sources),
-                "names": list(all_sources),
-            }
-            output["next_steps"] = (
-                "Add more sources with add_source, or call measure to trigger the pipeline."
-            )
-
-            return output
-    finally:
-        manager.close()
+    return output
 
 
 async def run_server() -> None:
