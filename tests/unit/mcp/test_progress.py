@@ -164,26 +164,19 @@ class TestAnalyzeFunction:
         assert isinstance(result, dict)
         assert "Pipeline failed" in result["error"]
 
-    def test_success_returns_formatted_result(self):
-        """Returns formatted dict on success."""
+    def test_success_returns_status_complete(self):
+        """Returns status=complete on success."""
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.value = MagicMock()
+        mock_result.value.phases_completed = 17
         mock_result.error = None
-
-        mock_formatted = {"status": "complete", "phases": {"completed": 18}}
 
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             tmp_path = f.name
 
         try:
-            with (
-                patch("dataraum.pipeline.runner.run", return_value=mock_result),
-                patch(
-                    "dataraum.mcp.server.format_pipeline_result",
-                    return_value=mock_formatted,
-                ),
-            ):
+            with patch("dataraum.pipeline.runner.run", return_value=mock_result):
                 result = _analyze(
                     output_dir=Path("/tmp/test_output"),
                     path=tmp_path,
@@ -192,13 +185,14 @@ class TestAnalyzeFunction:
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        assert result == mock_formatted
+        assert result["status"] == "complete"
 
     def test_event_callback_forwarded(self):
         """Event callback is passed through to RunConfig."""
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.value = MagicMock()
+        mock_result.value.phases_completed = 17
 
         cb = MagicMock()
 
@@ -206,10 +200,7 @@ class TestAnalyzeFunction:
             tmp_path = f.name
 
         try:
-            with (
-                patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run,
-                patch("dataraum.mcp.server.format_pipeline_result", return_value={"status": "ok"}),
-            ):
+            with patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run:
                 _analyze(
                     output_dir=Path("/tmp/test_output"),
                     path=tmp_path,
@@ -218,41 +209,31 @@ class TestAnalyzeFunction:
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-        # Verify the RunConfig was created with the callback
         run_config = mock_run.call_args[0][0]
         assert run_config.event_callback is cb
 
-    def test_target_gate_and_contract_forwarded(self):
-        """target_gate and contract are passed through to RunConfig."""
+    def test_contract_forwarded(self):
+        """Contract is passed through to RunConfig."""
         mock_result = MagicMock()
         mock_result.success = True
         mock_result.value = MagicMock()
-
-        mock_zone = {"zone": "foundation", "violations": []}
+        mock_result.value.phases_completed = 17
 
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
             tmp_path = f.name
 
         try:
-            with (
-                patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run,
-                patch("dataraum.mcp.server.format_pipeline_result", return_value={"status": "ok"}),
-                patch("dataraum.mcp.server._get_zone_status", return_value=mock_zone),
-            ):
-                result = _analyze(
+            with patch("dataraum.pipeline.runner.run", return_value=mock_result) as mock_run:
+                _analyze(
                     output_dir=Path("/tmp/test_output"),
                     path=tmp_path,
-                    target_gate="quality_review",
                     contract="executive_dashboard",
                 )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
         run_config = mock_run.call_args[0][0]
-        assert run_config.target_phase == "quality_review"
         assert run_config.contract == "executive_dashboard"
-        # Zone status should be included when target_gate is set
-        assert result["gate_status"] == mock_zone
 
 
 class TestCreateServer:

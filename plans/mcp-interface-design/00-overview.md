@@ -311,3 +311,8 @@ See:
 - [01-scenario-investigation.md](01-scenario-investigation.md) — Investigation flow (look, measure, why, run_sql, teach)
 - [02-scenario-business-question.md](02-scenario-business-question.md) — Business question → investigation bridge (begin_session, query, teach, run_sql)
 - [03-scenario-concept-mapping.md](03-scenario-concept-mapping.md) — Concept mapping with hypothesize (why, hypothesize, run_sql, teach, measure)
+
+## Response grounding
+
+Every response field in the scenarios is grounded in actual data models. See:
+- [04-response-grounding.md](04-response-grounding.md) — Field-by-field mapping to SQLAlchemy models, DuckDB queries, BBN inference, config YAML, and LLM outputs. Includes gap analysis (what exists vs. what needs implementation).
