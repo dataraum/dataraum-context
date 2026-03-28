@@ -11,13 +11,13 @@ Your job is NOT to plan. It is to **understand the problem space deeply enough t
 
 ## Input
 
-$ARGUMENTS is a Linear issue identifier (e.g., "DAT-175"), a topic description, or a file path to a design document.
+$ARGUMENTS is a Jira issue identifier (e.g., "DAT-175"), a topic description, or a file path to a design document.
 
-If the user has a rough idea that doesn't have a Linear issue or design doc yet, suggest `/ideate` first — that's where design documents and epic structure get created. `/refine` works on an existing, scoped work item.
+If the user has a rough idea that doesn't have a Jira issue or design doc yet, suggest `/ideate` first — that's where design documents and epic structure get created. `/refine` works on an existing, scoped work item.
 
 ## Step 1: Gather context
 
-- If a Linear issue: fetch the issue AND all linked documents via Linear MCP
+- If a Jira issue: fetch the issue AND linked Confluence pages via Jira MCP
 - Read the relevant source code — not headers, not skimming. Actually understand the current implementation
 - Check git log for related recent work on these files
 - Check if there are related issues, prior attempts, or partial implementations

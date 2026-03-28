@@ -105,8 +105,7 @@ class SourceManager:
         if source_type is None:
             supported = ", ".join(sorted(_EXTENSION_MAP.keys()))
             return Result.fail(
-                f"Unsupported file format: '{suffix}'. "
-                f"Supported extensions: {supported}"
+                f"Unsupported file format: '{suffix}'. Supported extensions: {supported}"
             )
 
         # Get column preview via DuckDB
@@ -166,8 +165,7 @@ class SourceManager:
         if total_files == 0:
             supported = ", ".join(sorted(_EXTENSION_MAP.keys()))
             return Result.fail(
-                f"No supported data files found in '{directory}'. "
-                f"Supported extensions: {supported}"
+                f"No supported data files found in '{directory}'. Supported extensions: {supported}"
             )
 
         # Determine dominant format for source_type
@@ -208,7 +206,11 @@ class SourceManager:
                 path=str(directory),
                 columns=columns,
                 row_count_estimate=row_count,
-                discovered_schema={"file_count": total_files, "formats": format_counts, "breakdown": breakdown},
+                discovered_schema={
+                    "file_count": total_files,
+                    "formats": format_counts,
+                    "breakdown": breakdown,
+                },
             )
         )
 

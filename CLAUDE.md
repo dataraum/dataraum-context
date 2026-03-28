@@ -26,7 +26,7 @@ Do not:
 - Label broken detectors as "design gaps" or "out of scope"
 - Write tests that assert against current (broken) behavior
 - Set weak thresholds (coverage >= 0.5) to make tests pass
-- Create Linear issues to defer bugs instead of fixing them
+- Create Jira issues to defer bugs instead of fixing them
 - Claim the system "works" when it finds 3 of 15 known problems
 
 When something doesn't work, say so plainly, then fix it or propose how to fix it.
@@ -114,7 +114,7 @@ This project uses skills to structure development work. Skills encode the checkp
 | User says | You do | Why |
 |-----------|--------|-----|
 | "What if we...", "I have an idea", "We need..." | `/ideate` | Explore before committing to a direction |
-| "Let's break this down", "Create the epic" | `/decompose` | Turn designs into Linear work items |
+| "Let's break this down", "Create the epic" | `/decompose` | Turn designs into Jira work items |
 | "Implement X", "Build X", "Work on DAT-nnn" | `/refine` first | Understand before committing — the model's "obvious" is often wrong |
 | "Is X feasible?", "How should we approach X?" | `/refine` | Stop after alignment, don't start coding |
 | Approved approach after `/refine` | `/implement` | Phased execution with checkpoints and review gate |
@@ -126,7 +126,7 @@ This project uses skills to structure development work. Skills encode the checkp
 
 **Product thinking:**
 - **`/ideate <topic>`** — Explore an idea: check existing work, read the codebase, think through feasibility, produce a design document. No issues, no code.
-- **`/decompose <doc or issue>`** — Turn a design into Linear artifacts: epic, phase issues, acceptance criteria, dependency relations. Follows the DAT-173 pattern.
+- **`/decompose <doc or issue>`** — Turn a design into Jira artifacts: epic, phase issues, acceptance criteria, dependency relations. Follows the DAT-173 pattern.
 
 **Execution:**
 - **`/refine <issue>`** — Pre-implementation: explore feasibility, surface spec vs. reality conflicts, align on approach. No code.
@@ -160,11 +160,11 @@ Before starting any work item, classify it:
 |------|-----------|----------|
 | **S** | 1-3 files, <50 lines changed | Feature branch, direct implementation, no plan needed |
 | **M** | 3-8 files, <200 lines changed | Feature branch, Plan Mode, single session |
-| **L** | 8+ files or 200+ lines | Feature branch, Linear document linked to issue, phased execution |
+| **L** | 8+ files or 200+ lines | Feature branch, Confluence document linked to issue, phased execution |
 | **XL** | Spans multiple modules or repos | Plan approval required, integration branch, phased PRs |
 
 ### For M/L/XL tasks: mandatory plan structure
-Plans live as Linear documents (linked to the relevant Linear issue) and must include:
+Plans live as Confluence documents (linked to the relevant Jira issue) and must include:
 1. **Scope**: What changes. What explicitly does NOT change.
 2. **Files affected**: List every file. Mark read-only/do-not-touch files.
 3. **Dependency order**: Which steps block which (e.g., A1a → A1b).
@@ -242,7 +242,7 @@ uv run pytest --testmon tests -q
 - The end-of-turn hook runs testmon automatically — don't duplicate its work
 
 ### Calibration Tests (separate repo: dataraum-eval)
-Calibration tests run the full pipeline against testdata with known injections. They are the ultimate measure of detector correctness. See DAT-133 / DAT-135 in Linear.
+Calibration tests run the full pipeline against testdata with known injections. They are the ultimate measure of detector correctness. See DAT-133 / DAT-135 in Jira.
 
 ```bash
 # Run calibration (from dataraum-eval repo)
@@ -314,7 +314,7 @@ User-facing documentation lives in `docs/` and is published via [Zensical](https
 
 - **New user-facing feature or behavior change** → update the relevant `docs/*.md` page
 - **Internal implementation detail** → use docstrings in source code
-- **Design decision or project plan** → create a Linear document
+- **Design decision or project plan** → create a Confluence document
 
 ### Docstring Convention
 
@@ -344,7 +344,7 @@ Rules:
 
 ## Current Work
 
-Check [Linear](https://linear.app/dataraum) for active issues, plans, and project documents. Linear MCP is available.
+Check [Jira](https://real-dataraum.atlassian.net/jira/software/projects/DAT/boards/35) for active issues, plans, and project documents. Jira MCP is available.
 
 ## Architecture
 

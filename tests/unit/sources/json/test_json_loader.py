@@ -104,9 +104,7 @@ class TestLoadSingleFile:
 
         conn.close()
 
-    def test_loads_jsonl(
-        self, loader: JsonLoader, jsonl_file: Path, session: Session
-    ) -> None:
+    def test_loads_jsonl(self, loader: JsonLoader, jsonl_file: Path, session: Session) -> None:
         conn = duckdb.connect(":memory:")
         result = loader._load_single_file(
             file_path=jsonl_file,
@@ -121,7 +119,9 @@ class TestLoadSingleFile:
         assert staged.table_name == "cities"
         conn.close()
 
-    def test_normalizes_column_names(self, loader: JsonLoader, tmp_path: Path, session: Session) -> None:
+    def test_normalizes_column_names(
+        self, loader: JsonLoader, tmp_path: Path, session: Session
+    ) -> None:
         data = [{"First Name": "Alice", "Last-Name": "Smith", "123bad": "x"}]
         path = tmp_path / "weird_cols.json"
         path.write_text(json.dumps(data))

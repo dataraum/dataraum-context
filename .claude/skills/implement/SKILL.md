@@ -9,7 +9,7 @@ You are implementing a feature or fix that has been refined and agreed upon with
 
 ## Input
 
-$ARGUMENTS is a Linear issue identifier, a description of the agreed approach, or "continue" to resume from the last checkpoint.
+$ARGUMENTS is a Jira issue identifier, a description of the agreed approach, or "continue" to resume from the last checkpoint.
 
 ## Before you start
 

@@ -10,13 +10,13 @@ allowed-tools:
   - AskUserQuestion
   - WebFetch
   - WebSearch
-  - mcp__linear__list_issues
-  - mcp__linear__list_documents
-  - mcp__linear__search_documentation
-  - mcp__linear__get_issue
-  - mcp__linear__get_document
-  - mcp__linear__create_document
-  - mcp__linear__list_projects
+  - mcp__jira__getJiraIssue
+  - mcp__jira__searchJiraIssuesUsingJql
+  - mcp__jira__getVisibleJiraProjects
+  - mcp__jira__getConfluencePage
+  - mcp__jira__getPagesInConfluenceSpace
+  - mcp__jira__searchConfluenceUsingCql
+  - mcp__jira__createConfluencePage
 ---
 
 # Ideate: $ARGUMENTS
@@ -40,8 +40,8 @@ Key questions to have in mind (ask only what's unclear):
 
 Before exploring further, check if this has already been thought about:
 
-- Search Linear issues for related work: `mcp__linear__list_issues` with relevant keywords
-- Search Linear documents: `mcp__linear__search_documentation` for design docs
+- Search Jira issues for related work: `mcp__jira__searchJiraIssuesUsingJql` with relevant keywords
+- Search Confluence pages: `mcp__jira__searchConfluenceUsingCql` for design docs
 - Check the codebase: grep for relevant patterns, read related modules
 
 If there's existing work:
@@ -112,12 +112,12 @@ When the direction is clear enough, draft a design document following the projec
 {Other approaches and why they were rejected. Brief.}
 ```
 
-### Creating in Linear
+### Creating in Confluence
 
-Ask the user: "Want me to create this as a Linear document?"
+Ask the user: "Want me to create this as a Confluence page?"
 
 If yes:
-- Use `mcp__linear__create_document` with the markdown content
+- Use `mcp__jira__createConfluencePage` with the markdown content
 - Suggest which project to attach it to (usually "Phase 1: Open Source Core" for current work)
 - If there's a related epic, note that the document should be linked
 
@@ -137,7 +137,7 @@ Based on what you explored, suggest the natural next step:
 ## Rules
 
 - This is EXPLORATION, not implementation. Do not write any production code.
-- Do not create Linear issues — that's `/decompose`'s job. Only create documents.
+- Do not create Jira issues — that's `/decompose`'s job. Only create Confluence pages.
 - The user is the product owner. You're helping them think, not deciding for them.
 - Check existing work before creating new artifacts. Duplication is waste.
 - If you don't understand the user's intent, ask. Don't assume and draft a spec for the wrong thing.

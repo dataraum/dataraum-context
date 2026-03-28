@@ -85,7 +85,6 @@ class TestAddFileSource:
         assert source.source_type == "csv"
         assert source.status == "configured"
 
-
     def test_register_json(self, manager: SourceManager, tmp_path: Path) -> None:
         import json
 
@@ -149,7 +148,9 @@ class TestAddFileSource:
         assert not result.success
         assert "No supported data files" in (result.error or "")
 
-    def test_directory_ignores_unsupported_files(self, manager: SourceManager, tmp_path: Path) -> None:
+    def test_directory_ignores_unsupported_files(
+        self, manager: SourceManager, tmp_path: Path
+    ) -> None:
         (tmp_path / "data.csv").write_text("id\n1\n")
         (tmp_path / "readme.txt").write_text("ignore me")
         (tmp_path / "image.png").write_bytes(b"\x89PNG")

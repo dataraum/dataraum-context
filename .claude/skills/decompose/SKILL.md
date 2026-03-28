@@ -1,6 +1,6 @@
 ---
 name: decompose
-description: Turn a design document into an executable Linear epic — phase issues, acceptance criteria, dependency relations, following project conventions
+description: Turn a design document into an executable Jira epic — phase issues, acceptance criteria, dependency relations, following project conventions
 allowed-tools:
   - Read
   - Glob
@@ -8,17 +8,19 @@ allowed-tools:
   - Bash
   - Agent
   - AskUserQuestion
-  - mcp__linear__get_document
-  - mcp__linear__get_issue
-  - mcp__linear__list_issues
-  - mcp__linear__list_projects
-  - mcp__linear__list_issue_labels
-  - mcp__linear__list_issue_statuses
-  - mcp__linear__save_issue
-  - mcp__linear__save_project
-  - mcp__linear__save_milestone
-  - mcp__linear__create_document
-  - mcp__linear__update_document
+  - mcp__jira__getJiraIssue
+  - mcp__jira__searchJiraIssuesUsingJql
+  - mcp__jira__getVisibleJiraProjects
+  - mcp__jira__getJiraProjectIssueTypesMetadata
+  - mcp__jira__getTransitionsForJiraIssue
+  - mcp__jira__createJiraIssue
+  - mcp__jira__editJiraIssue
+  - mcp__jira__createIssueLink
+  - mcp__jira__getIssueLinkTypes
+  - mcp__jira__getConfluencePage
+  - mcp__jira__createConfluencePage
+  - mcp__jira__updateConfluencePage
+  - mcp__jira__searchConfluenceUsingCql
 ---
 
 # Decompose: $ARGUMENTS
@@ -28,8 +30,8 @@ You are structuring a design into executable work items. The thinking is done �
 ## Input
 
 $ARGUMENTS is one of:
-- A Linear document URL or title (design doc from `/ideate`)
-- A Linear issue identifier (existing epic to refine)
+- A Confluence page URL or title (design doc from `/ideate`)
+- A Jira issue identifier (existing epic to refine)
 - A local file path (design doc in `plans/`)
 
 ## Step 1: Read the design
@@ -109,7 +111,7 @@ Also identify cross-repo work that should be tracked:
 - dataraum-eval items (calibration, tool surface validation)
 - dataraum-testdata items (new injections, ground truth)
 
-## Step 5: Create Linear artifacts
+## Step 5: Create Jira artifacts
 
 Ask the user for confirmation before creating anything. Show them:
 - The proposed epic title and description
@@ -129,7 +131,7 @@ Description:
   {1-2 sentences from the design doc}
 
   ## Specs & Design
-  - [{document title}]({linear url})
+  - [{document title}]({confluence url})
   - Design artifacts: `plans/{topic}/` on {branch}
 
   ## Execution
@@ -137,7 +139,7 @@ Description:
 ```
 
 ### 5b: Implementation plan document (if the design doc isn't already a plan)
-Create a Linear document with:
+Create a Confluence page with:
 - Phase breakdown table
 - Dependency graph
 - Key design decisions
