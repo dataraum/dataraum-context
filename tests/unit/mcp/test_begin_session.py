@@ -176,7 +176,9 @@ class TestBeginSession:
 
 
 class TestPrerequisiteChecks:
-    def test_missing_api_key_returns_error(self, session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_api_key_returns_error(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """begin_session fails with actionable error when API key is missing."""
         _insert_source(session)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -190,7 +192,9 @@ class TestPrerequisiteChecks:
         assert "export" in result["error"]
         assert ".env" in result["error"]
 
-    def test_api_key_present_passes(self, session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_api_key_present_passes(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """begin_session succeeds when API key is set."""
         source_id = _insert_source(session)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")

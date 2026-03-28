@@ -33,6 +33,24 @@ When something doesn't work, say so plainly, then fix it or propose how to fix i
 
 ## Critical Rules
 
+### Investigate Before Acting
+
+This is the most important rule. The codebase evolves fast — modules get deleted, APIs get renamed, entire subsystems get redesigned. **Your training data is stale. Your assumptions are wrong.** The only source of truth is the code on disk right now.
+
+Before proposing or implementing anything:
+1. **Read the actual code** involved — not just the file you plan to edit, but its callers and dependencies. Skim, don't assume.
+2. **Grep for the thing you're about to use** — does that function, class, config key, or CLI command actually exist? If you can't find it, it was probably deleted or renamed.
+3. **Check imports and call sites** — if you're changing a function signature, find every caller first. If you're adding an import, verify the module exists.
+4. **When in doubt, read more code, not less.** A 30-second grep saves a 30-minute wrong-direction detour.
+
+Do NOT:
+- Assume a module, function, or pattern exists because it "should" or because it "makes sense for this kind of project"
+- Propose using framework features without verifying they're actually in this codebase
+- Generate code that imports from modules you haven't confirmed exist
+- Suggest architectural patterns based on what's common in similar projects — check what THIS project actually does
+
+When you catch yourself thinking "this project probably has X" — stop and grep for X. If it's not there, it's not there.
+
 ### Never Claim "Done" Until:
 1. ALL tests pass (not just the file you changed)
 2. You have verified actual output matches expected behavior
@@ -67,11 +85,6 @@ A detector is "done" when its calibration tests pass. Unit tests in this repo ve
 4. If the detector fundamentally cannot find this injection type, redesign it
 
 ## Problem-Solving Standards
-
-### Before Writing Any Code
-- Understand the actual requirement, not what you assume it to be
-- If the requirement is ambiguous, ask for clarification
-- Consider edge cases upfront, not as an afterthought
 
 ### When Something Doesn't Work
 1. **Read the actual error message** — quote it in your response
