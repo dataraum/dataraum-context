@@ -109,7 +109,10 @@ class ImportPhase(BasePhase):
         if not path.exists():
             return PhaseResult.failed(f"Source path not found: {path}")
 
-        source_name = ctx.config.get("source_name", path.stem.lower())
+        import re
+
+        raw_name = ctx.config.get("source_name", path.stem.lower())
+        source_name = re.sub(r"[^a-z0-9_]", "_", raw_name).strip("_")
         source = self._get_or_create_source(ctx, source_name, path)
         source_type = self._detect_source_type(path, ctx.config)
 

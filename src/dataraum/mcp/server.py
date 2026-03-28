@@ -1638,7 +1638,7 @@ def _look_column(session: SASession, col: ColumnModel, table_name: str) -> dict[
 def _look_sample(cursor: Any, table_name: str, n: int) -> dict[str, Any]:
     """Return sample rows from a typed table."""
     try:
-        result = cursor.execute(f"SELECT * FROM typed_{table_name} LIMIT {int(n)}")
+        result = cursor.execute(f'SELECT * FROM "typed_{table_name}" LIMIT {int(n)}')
         columns = [desc[0] for desc in result.description]
         rows = result.fetchall()
         return {
