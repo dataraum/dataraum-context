@@ -894,6 +894,37 @@ def _run_sql(
     )
 
 
+def _check_prerequisites() -> str | None:
+    """Check hard prerequisites before starting a session.
+
+    Returns an error message if any check fails, None if all pass.
+    """
+    import os
+
+    errors: list[str] = []
+
+    # API key: load config to get the env var name, then probe
+    try:
+        from dataraum.llm.config import load_llm_config
+
+        llm_config = load_llm_config()
+        provider_config = llm_config.providers.get(llm_config.active_provider)
+        if provider_config:
+            env_var = provider_config.api_key_env
+            if not os.getenv(env_var):
+                errors.append(
+                    f"Missing {env_var}. The pipeline requires an LLM API key. "
+                    f"Set it via: export {env_var}=<your-api-key> "
+                    f"or add it to a .env file."
+                )
+    except Exception:
+        pass  # Config load failure is not a prereq error — pipeline will report it
+
+    if not errors:
+        return None
+    return " | ".join(errors)
+
+
 def _begin_session(
     session: SASession,
     intent: str,
@@ -919,6 +950,11 @@ def _begin_session(
     from dataraum.entropy.db_models import EntropyObjectRecord
     from dataraum.investigation.recorder import begin_session
     from dataraum.storage import Source
+
+    # --- Prerequisite checks (fail fast with actionable messages) ---
+    prereq_errors = _check_prerequisites()
+    if prereq_errors:
+        return {"error": prereq_errors}
 
     # Validate and default contract
     contract_name = contract or "exploratory_analysis"

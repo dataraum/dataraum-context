@@ -175,6 +175,57 @@ class TestBeginSession:
         assert "_session_id" in result
 
 
+class TestPrerequisiteChecks:
+    def test_missing_api_key_returns_error(self, session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+        """begin_session fails with actionable error when API key is missing."""
+        _insert_source(session)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        from dataraum.mcp.server import _begin_session
+
+        result = _begin_session(session, intent="test")
+
+        assert "error" in result
+        assert "ANTHROPIC_API_KEY" in result["error"]
+        assert "export" in result["error"]
+        assert ".env" in result["error"]
+
+    def test_api_key_present_passes(self, session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+        """begin_session succeeds when API key is set."""
+        source_id = _insert_source(session)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
+        ):
+            from dataraum.mcp.server import _begin_session
+
+            result = _begin_session(session, intent="test")
+
+        assert "error" not in result
+
+    def test_check_prerequisites_returns_none_when_ok(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_check_prerequisites returns None when all checks pass."""
+        from dataraum.mcp.server import _check_prerequisites
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+        assert _check_prerequisites() is None
+
+    def test_check_prerequisites_returns_error_when_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_check_prerequisites returns error string when API key is missing."""
+        from dataraum.mcp.server import _check_prerequisites
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        result = _check_prerequisites()
+        assert result is not None
+        assert "ANTHROPIC_API_KEY" in result
+
+
 class TestFlowEnforcement:
     """Tests for call_tool flow enforcement via the MCP server handler."""
 

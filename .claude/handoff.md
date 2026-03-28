@@ -64,11 +64,11 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 - **Suggestion**: Add JSON and JSONL fixtures alongside existing CSV testdata. Same data, different format — enables format matrix testing.
 - **Rationale**: DAT-216 (format matrix suite) needs multi-format fixtures to verify pipeline completion per source format.
 
-## 2026-03-28: Package C1 — Session lifecycle (DAT-205, DAT-207, DAT-211)
+## 2026-03-28: Package C — Session lifecycle + prerequisites (DAT-205, DAT-206, DAT-207, DAT-210, DAT-211, DAT-233)
 
 ### dataraum-eval
-- **Changed**: `src/dataraum/mcp/server.py` — new `end_session` tool, idempotent `begin_session` (resume), DB-derived session state, default output dir change
-- **Affects**: all MCP tools (session state is now DB-derived, not closure vars), new `end_session` tool
+- **Changed**: `src/dataraum/mcp/server.py` — new `end_session` tool, idempotent `begin_session` (resume), DB-derived session state, root dir refactor, API key prereq check
+- **Affects**: all MCP tools (session state is now DB-derived, not closure vars), new `end_session` tool, `begin_session` now checks API key
 - **Calibrate**: session lifecycle suite (DAT-208). Key flows:
   1. `begin_session → look → measure → end_session(delivered)` → workspace archived
   2. Server restart → `begin_session` resumes existing session (`resumed: true`)
@@ -80,6 +80,9 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - `end_session` archives workspace to `~/.dataraum/archive/{session_id}/`. Archive failure is non-fatal (warning in response).
   - `begin_session` response has new field `resumed: true` and `step_count` when resuming.
   - `recorder.end_session()` bug fixed: naive/aware datetime mismatch on SQLite round-trip.
+  - `begin_session` now checks `ANTHROPIC_API_KEY` (or configured provider's env var) and returns actionable error if missing.
+  - `add_source` during active session blocked with "sources are sealed" error (not a soft hint — intentional design decision).
+  - Root dir configurable via `DATARAUM_HOME` env var. `DATARAUM_OUTPUT_DIR` accepted as legacy fallback.
 - **Status**: pending
 
 <!--
