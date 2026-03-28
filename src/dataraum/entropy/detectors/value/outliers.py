@@ -233,6 +233,7 @@ class OutlierRateDetector(EntropyDetector):
                 # distribution is approximately normal. This correctly handles
                 # both pure right-skew (invoice amounts) and zero-inflated
                 # columns (debit/credit mutual exclusivity).
+                assert effective_q1 is not None  # guarded by needs_log_iqr
                 log_q1 = math.log(effective_q1)
                 log_q3 = math.log(p75)
                 log_iqr = log_q3 - log_q1
@@ -243,8 +244,8 @@ class OutlierRateDetector(EntropyDetector):
                 lower_threshold = math.exp(log_lower)
 
                 # Estimate outlier ratio from percentiles
-                p01 = percentiles.get("p01", min_val or 0)
-                p99 = percentiles.get("p99", max_val)
+                p01 = percentiles.get("p01") or min_val or 0.0
+                p99 = percentiles.get("p99") or max_val or 0.0
 
                 # Fraction below lower threshold (only among non-zero values)
                 lower_outliers = 0.0
