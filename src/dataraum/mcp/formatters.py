@@ -11,8 +11,16 @@ if TYPE_CHECKING:
     from dataraum.query.models import QueryResult
 
 
-def format_query_result(result: QueryResult) -> dict[str, Any]:
-    """Format query result as structured dict."""
+_QUERY_DISPLAY_ROWS = 50
+
+
+def format_query_result(result: QueryResult, *, limit: int = 10000) -> dict[str, Any]:
+    """Format query result as structured dict.
+
+    Args:
+        result: QueryResult from the query agent.
+        limit: Execution limit that was applied to the data.
+    """
     output: dict[str, Any] = {
         "confidence": {
             "label": result.confidence_level.label,
@@ -25,11 +33,21 @@ def format_query_result(result: QueryResult) -> dict[str, Any]:
         output["contract"] = result.contract
 
     if result.data and result.columns:
-        output["data"] = {
+        total = len(result.data)
+        displayed = result.data[:_QUERY_DISPLAY_ROWS]
+        data_block: dict[str, Any] = {
             "columns": result.columns,
-            "row_count": len(result.data),
-            "rows": result.data[:50],
+            "row_count": total,
+            "rows_returned": len(displayed),
+            "rows": displayed,
         }
+        if total > _QUERY_DISPLAY_ROWS:
+            data_block["truncated"] = True
+            data_block["hint"] = (
+                "Showing first 50 rows. Use run_sql with the SQL above for more, "
+                "or add export_format to export the full dataset."
+            )
+        output["data"] = data_block
 
     if result.execution_steps:
         output["execution_steps"] = [
@@ -87,13 +105,20 @@ def format_run_sql_result(
     else:
         steps_executed = []
 
+    truncated = total_rows > limit
     result: dict[str, Any] = {
         "columns": columns,
-        "row_count": len(rows),
+        "row_count": total_rows,
+        "rows_returned": len(rows),
         "rows": rows,
-        "truncated": total_rows > limit,
+        "truncated": truncated,
         "steps_executed": steps_executed,
     }
+    if truncated:
+        result["hint"] = (
+            f"Showing {len(rows)} of {total_rows} rows. "
+            f"Increase limit (max 10000) or use export_format for the full dataset."
+        )
     # Surface quality warnings prominently for columns grade C or worse
     warnings: list[str] = []
     if quality_caveat:

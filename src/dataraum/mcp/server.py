@@ -337,6 +337,11 @@ def create_server(output_dir: Path | None = None) -> Server:
                             "type": "string",
                             "description": "Filename stem for the export (e.g. 'revenue_by_month'). Auto-generated if omitted.",
                         },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Max rows to retrieve. Default: 10000. Displayed rows are capped at 50; use export_format for the full dataset.",
+                            "default": 10000,
+                        },
                     },
                     "required": ["question"],
                 },
@@ -583,27 +588,31 @@ def create_server(output_dir: Path | None = None) -> Server:
                     result["warning"] = archive_warning
         elif name == "query":
             with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
-                result = _query(session, cursor, arguments["question"], active_contract)
-            # Export if requested — query nests data under result["data"]
-            export_fmt = arguments.get("export_format")
-            if export_fmt and "error" not in result and "data" in result:
-                rows = result["data"].get("rows", [])
-                export_input = {
-                    "columns": result["data"].get("columns", []),
-                    "rows": rows,
-                    "steps_executed": result.get("execution_steps", []),
-                }
-                export_info = _export_tool_result(
-                    export_input, root_dir, export_fmt, arguments.get("export_name"), tool="query"
+                result, qr = _query(
+                    session,
+                    cursor,
+                    arguments["question"],
+                    active_contract,
+                    limit=arguments.get("limit", 10000),
                 )
-                if "export_path" in export_info:
-                    result["export_path"] = export_info["export_path"]
-                    # query display is truncated to 50 rows — warn if export hit ceiling
-                    if len(rows) >= 50:
-                        result["export_warning"] = (
-                            "Query export limited to 50 rows (display limit). "
-                            "Use run_sql with export_format for full dataset exports."
-                        )
+            # Export if requested — use full QueryResult, not truncated display
+            export_fmt = arguments.get("export_format")
+            if export_fmt and qr is not None and "error" not in result:
+                import re
+
+                from dataraum.export import export_query_result
+
+                raw_stem = (
+                    arguments.get("export_name")
+                    or f"query_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+                )
+                stem = re.sub(r"[^\w\-]", "_", raw_stem)[:128]
+                export_path = root_dir / "exports" / f"{stem}.{export_fmt}"
+                try:
+                    exported = export_query_result(qr, export_path, fmt=export_fmt)
+                    result["export_path"] = str(exported)
+                except Exception as e:
+                    result["export_error"] = str(e)
         elif name == "run_sql":
             with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
                 result = _run_sql(
@@ -864,7 +873,8 @@ def _query(
     cursor: Any,
     question: str,
     contract_name: str | None = None,
-) -> dict[str, Any]:
+    limit: int = 10000,
+) -> tuple[dict[str, Any], Any]:
     """Execute a natural language query.
 
     Args:
@@ -872,12 +882,17 @@ def _query(
         cursor: DuckDB cursor from server-level manager.
         question: Natural language question.
         contract_name: Active contract name for confidence evaluation.
+        limit: Max rows to retrieve from DuckDB. Default 10000.
+
+    Returns:
+        Tuple of (formatted_dict, QueryResult_or_None).
+        QueryResult is returned for export — it contains full data.
     """
     from dataraum.query import answer_question
 
     source = _get_pipeline_source(session)
     if not source:
-        return {"error": "No sources found"}
+        return {"error": "No sources found"}, None
 
     result = answer_question(
         question=question,
@@ -888,13 +903,17 @@ def _query(
     )
 
     if not result.success or not result.value:
-        return {"error": str(result.error)}
+        return {"error": str(result.error)}, None
 
     qr = result.value
     if not qr.success:
-        return {"error": qr.error or "Query generation failed"}
+        return {"error": qr.error or "Query generation failed"}, None
 
-    return format_query_result(qr)
+    # Apply execution limit — truncate data if over limit
+    if qr.data and len(qr.data) > limit:
+        qr.data = qr.data[:limit]
+
+    return format_query_result(qr, limit=limit), qr
 
 
 def _run_sql(
