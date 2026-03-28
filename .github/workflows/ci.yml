@@ -9,6 +9,10 @@ on:
 jobs:
     check:
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                python-version: ["3.12", "3.13", "3.14"]
         steps:
             - uses: actions/checkout@v6
 
@@ -18,11 +22,11 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v6
               with:
-                  python-version: "3.14"
+                  python-version: ${{ matrix.python-version }}
 
             - name: Install dependencies
               run: |
-                  echo "3.14" > .python-version
+                  echo "${{ matrix.python-version }}" > .python-version
                   uv sync --group dev
 
             - name: Ruff check
@@ -30,6 +34,9 @@ jobs:
 
             - name: Ruff format check
               run: uv run ruff format --check src/
+
+            - name: Type check
+              run: uv run mypy src/
 
             - name: Dead code check (vulture)
               run: |
@@ -47,7 +54,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@v7
               with:
-                  name: coverage-report
+                  name: coverage-report-${{ matrix.python-version }}
                   path: coverage.xml
 
     docs:
