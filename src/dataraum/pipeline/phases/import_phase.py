@@ -102,7 +102,8 @@ class ImportPhase(BasePhase):
         """Load data from a file path (single-source mode).
 
         Delegates to _load_file_source which handles all formats,
-        file caps, and mixed directories.
+        file caps, and mixed directories. Tables are prefixed with
+        source_name__ (consistent with multi-source mode).
         """
         path = Path(source_path)
         if not path.exists():

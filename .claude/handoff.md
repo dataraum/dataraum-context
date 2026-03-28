@@ -107,6 +107,14 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - `export_query_result()`, `export_data()`, `_export_tool_result()` all deleted. Net -300 lines.
 - **Status**: pending
 
+## 2026-03-28: Import path unification + source hardening
+
+### dataraum-eval
+- **Changed**: `src/dataraum/pipeline/phases/import_phase.py` — `_load_from_path` now delegates to `_load_file_source`. Dead methods deleted (-255 lines). Max 20 files per source. Mixed-format directories load all formats. UTF-8 encoding error surfaced clearly.
+- **Affects**: **BREAKING** — `RunConfig(source_path="/path/to/medium/")` now prefixes table names with `{source_name}__`. Tables become `typed_medium__invoices` instead of `typed_invoices`. Eval tests that hardcode unprefixed table names (e.g. `test_tool_chain.py:202`) need updating.
+- **Action**: Update all SQL in eval that references `typed_invoices`, `typed_journal_lines`, etc. to use the prefixed form. The `source_name` is `path.stem.lower()` — for testdata at `output/medium/`, prefix is `medium__`.
+- **Status**: pending
+
 <!--
 ## YYYY-MM-DD: brief description
 
