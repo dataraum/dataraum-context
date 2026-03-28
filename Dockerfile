@@ -14,21 +14,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Copy dependency manifest first (cache layer)
-COPY pyproject.toml uv.lock ./
-
-# Install production deps only
-RUN uv sync --no-dev --frozen
-
-# Copy source
+# Copy everything needed for the build
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ src/
 COPY config/ config/
 
-# Install the package itself
+# Install production deps + package in one layer
 RUN uv sync --no-dev --frozen
 
-# Disable GIL for free-threading (Python 3.14t compat, harmless on 3.13)
-ENV PYTHON_GIL=0
+# Note: PYTHON_GIL=0 is only for free-threaded builds (3.14t).
+# The slim image uses standard CPython, so we leave it unset.
 
 # Default workspace inside container — mount a volume to persist across runs
 ENV DATARAUM_HOME=/workspace
@@ -40,4 +35,4 @@ VOLUME /workspace
 VOLUME /sources
 
 # MCP server uses stdio transport
-ENTRYPOINT ["uv", "run", "dataraum-mcp"]
+ENTRYPOINT ["/app/.venv/bin/dataraum-mcp"]

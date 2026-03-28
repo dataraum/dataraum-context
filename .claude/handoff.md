@@ -1,6 +1,6 @@
 # Calibration Handoff
 
-Changes in dataraum-context that need attention in other repos.
+Changes in dataraum that need attention in other repos.
 
 Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 

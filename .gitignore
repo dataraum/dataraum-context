@@ -7,6 +7,8 @@ examples/*
 !examples/*.ipynb
 prototypes/
 plans/
+data_sources/
+.mcpregistry_*
 
 # AI assistants
 .claire/
