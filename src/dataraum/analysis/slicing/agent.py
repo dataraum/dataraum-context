@@ -5,6 +5,8 @@ to recommend the best categorical dimensions for slicing data into subsets.
 Uses tool-based output for structured responses.
 """
 
+from __future__ import annotations
+
 import json
 import re
 from typing import TYPE_CHECKING, Any

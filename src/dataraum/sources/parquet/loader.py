@@ -5,6 +5,8 @@ so loading is a simple CREATE TABLE AS SELECT. Type inference can be simplified
 since the source already provides reliable type information.
 """
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
 from uuid import uuid4

@@ -5,6 +5,8 @@ DuckDB's read_json_auto() infers structure, then we cast all columns to VARCHAR
 to preserve raw values and let the typing phase handle inference.
 """
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
 from uuid import uuid4

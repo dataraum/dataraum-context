@@ -1,5 +1,7 @@
 """CSV file loader - untyped source with VARCHAR-first approach."""
 
+from __future__ import annotations
+
 import time
 from pathlib import Path
 from uuid import uuid4
