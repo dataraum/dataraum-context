@@ -133,8 +133,8 @@ class TestLoadSingleFile:
 
         assert result.success
         cols = conn.execute(
-            f"SELECT column_name FROM information_schema.columns "
-            f"WHERE table_name = 'raw_weird_cols' ORDER BY column_name"
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'raw_weird_cols' ORDER BY column_name"
         ).fetchall()
         col_names = [c[0] for c in cols]
         assert "first_name" in col_names
