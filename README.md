@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/github/license/dataraum/dataraum)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/dataraum/dataraum/ci.yml?branch=main)](https://github.com/dataraum/dataraum/actions)
 
+<!-- mcp-name: io.github.dataraum/dataraum -->
+
 A rich metadata context engine for AI-driven data analytics.
 
 Traditional semantic layers tell BI tools "what things are called." DataRaum tells AI "what the data means, how it behaves, how it relates, and what you can compute from it."

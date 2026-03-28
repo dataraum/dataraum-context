@@ -1,44 +1,36 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.dataraum/dataraum",
-  "display_name": "DataRaum",
-  "description": "Rich metadata context engine for AI-driven data analytics. Pre-computes comprehensive metadata (types, statistics, entropy, relationships, semantic annotations) and serves it as structured context optimized for LLM consumption.",
+  "title": "DataRaum",
+  "description": "Pre-computed metadata context engine for AI-driven data analytics",
   "repository": {
     "url": "https://github.com/dataraum/dataraum",
     "source": "github"
   },
-  "version_detail": {
-    "version": "0.2.0",
-    "release_date": "2026-03-28"
-  },
+  "version": "0.2.0",
   "packages": [
     {
-      "registry_name": "pypi",
-      "name": "dataraum",
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "dataraum",
       "version": "0.2.0",
-      "runtime": "python",
-      "environment_variables": [
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
         {
           "name": "ANTHROPIC_API_KEY",
           "description": "Anthropic API key for LLM-powered semantic analysis",
-          "required": true
+          "isRequired": true,
+          "isSecret": true
         },
         {
           "name": "DATARAUM_HOME",
           "description": "Root directory for workspaces, sessions, and exports",
-          "required": false
+          "isRequired": false
         }
       ]
     }
-  ],
-  "tools": [
-    { "name": "look", "description": "Explore data schema, profiles, and statistics" },
-    { "name": "measure", "description": "Run entropy detectors and get data quality scores" },
-    { "name": "begin_session", "description": "Start an investigation session with intent and contract" },
-    { "name": "end_session", "description": "End session, archive workspace" },
-    { "name": "query", "description": "Natural language question answering over your data" },
-    { "name": "run_sql", "description": "Execute SQL with quality metadata and snippet reuse" },
-    { "name": "add_source", "description": "Register CSV, Parquet, JSON files or database connections" }
-  ],
-  "remotes": []
+  ]
 }
