@@ -2,8 +2,8 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/dataraum)](https://pypi.org/project/dataraum/)
 [![Python](https://img.shields.io/pypi/pyversions/dataraum)](https://pypi.org/project/dataraum/)
-[![License](https://img.shields.io/github/license/dataraum/dataraum-context)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/dataraum/dataraum-context/ci.yml?branch=main)](https://github.com/dataraum/dataraum-context/actions)
+[![License](https://img.shields.io/github/license/dataraum/dataraum)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/dataraum/dataraum/ci.yml?branch=main)](https://github.com/dataraum/dataraum/actions)
 
 A rich metadata context engine for AI-driven data analytics.
 
@@ -54,8 +54,8 @@ The server runs a 17-phase analysis pipeline and makes these tools available:
 ### Typical Workflow
 
 ```
-begin_session(contract="exploratory_analysis")
-  → add_source(name="accounting", path="/path/to/data")
+add_source(name="accounting", path="/path/to/data")
+  → begin_session(intent="explore data quality", contract="exploratory_analysis")
   → look()                    # Understand the data
   → measure()                 # Check quality scores and readiness
   → query("total revenue?")   # Ask questions
@@ -66,9 +66,14 @@ begin_session(contract="exploratory_analysis")
 ## Quick Start — CLI
 
 ```bash
-# Run analysis pipeline
+# Run analysis pipeline (writes metadata.db + data.duckdb to ./pipeline_output)
 dataraum run /path/to/data
+
+# Inspect what was produced
+dataraum dev context ./pipeline_output
 ```
+
+See [CLI Reference](docs/cli.md) for all options.
 
 ## What It Produces
 
@@ -95,8 +100,8 @@ Configure the LLM provider in `config/llm/config.yaml`. See [Configuration](docs
 ## Development
 
 ```bash
-git clone https://github.com/dataraum/dataraum-context
-cd dataraum-context
+git clone https://github.com/dataraum/dataraum
+cd dataraum
 
 # Install with dev dependencies (using uv)
 uv sync --group dev

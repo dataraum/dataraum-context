@@ -7,7 +7,7 @@ The `dataraum` CLI runs the metadata extraction pipeline and provides developer 
 The CLI is installed automatically when you install the package:
 
 ```bash
-uv pip install -e .
+pip install dataraum
 ```
 
 ## Commands

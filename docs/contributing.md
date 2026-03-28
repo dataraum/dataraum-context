@@ -4,8 +4,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/dataraum/dataraum-context.git
-cd dataraum-context
+git clone https://github.com/dataraum/dataraum.git
+cd dataraum
 
 # Install dependencies (requires uv and Python 3.12+)
 uv sync
@@ -54,14 +54,16 @@ uv run pytest --testmon tests -q
 
 ## Code Quality
 
-Automated quality checks run via hooks:
+Quality checks to run before submitting a PR:
 
-| Check | When | Tool |
-|-------|------|------|
-| Formatting | After every file edit | `ruff format` |
-| Linting | End of turn | `ruff check` |
-| Type checking | End of turn | `mypy` |
-| Affected tests | End of turn | `pytest --testmon` |
+| Check | Command | Tool |
+|-------|---------|------|
+| Formatting | `uv run ruff format src/ tests/` | ruff |
+| Linting | `uv run ruff check src/ tests/` | ruff |
+| Type checking | `uv run mypy src/` | mypy |
+| Affected tests | `uv run pytest --testmon tests/unit -q` | pytest |
+
+If you use Claude Code, these run automatically via hooks after each edit.
 
 ```bash
 # Manual runs

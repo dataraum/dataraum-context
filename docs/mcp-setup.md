@@ -4,16 +4,31 @@ How to connect DataRaum to Claude Code, Claude Desktop, and Claude for Work.
 
 ## Prerequisites
 
+Install via pip or Docker:
+
 ```bash
-# 1. Install
+# Option A: pip / uv
 pip install dataraum
 
-# 2. Set your Anthropic API key (required for semantic analysis)
-export ANTHROPIC_API_KEY="sk-ant-..."
+# Option B: Docker (no Python required)
+docker pull ghcr.io/dataraum/dataraum
+```
 
-# 3. Verify the MCP server starts
+Set your Anthropic API key (required for semantic analysis):
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+Verify the MCP server starts:
+
+```bash
+# pip install
 dataraum-mcp
 # Should hang waiting for stdio input — Ctrl+C to stop
+
+# Docker
+docker run -i --rm -e ANTHROPIC_API_KEY ghcr.io/dataraum/dataraum
 ```
 
 ---
@@ -38,7 +53,7 @@ If you need to customize, edit `.mcp.json`:
     "dataraum": {
       "command": "uv",
       "args": [
-        "run", "--project", "/absolute/path/to/dataraum-context", "dataraum-mcp"
+        "run", "--project", "/absolute/path/to/dataraum", "dataraum-mcp"
       ],
       "env": {
         "DATARAUM_HOME": "/absolute/path/to/workspace",
@@ -62,6 +77,73 @@ If you need to customize, edit `.mcp.json`:
 
 ---
 
+## Docker
+
+Use the Docker image when you don't want to manage a Python installation. The MCP server uses stdio transport — Docker keeps stdin open with `-i`, which is all it needs.
+
+### Volumes
+
+| Mount | Container path | Purpose |
+|-------|---------------|---------|
+| Your data | `/sources` (read-only) | CSV, Parquet, JSON files for analysis |
+| Workspace | `/workspace` | Sessions, database, exports — persists across runs |
+
+Both mounts are optional. Without them everything works but is ephemeral (lost when the container stops).
+
+### Claude Desktop config
+
+```json
+{
+  "mcpServers": {
+    "dataraum": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "/path/to/your/data:/sources:ro",
+        "-v", "dataraum-workspace:/workspace",
+        "-e", "ANTHROPIC_API_KEY=sk-ant-...",
+        "ghcr.io/dataraum/dataraum:latest"
+      ]
+    }
+  }
+}
+```
+
+### Claude Code config
+
+Add to `.mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "dataraum": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "./data:/sources:ro",
+        "-v", "dataraum-workspace:/workspace",
+        "-e", "ANTHROPIC_API_KEY",
+        "ghcr.io/dataraum/dataraum:latest"
+      ]
+    }
+  }
+}
+```
+
+Then tell Claude: "Add the data in /sources and analyze it."
+
+### Standalone
+
+```bash
+docker run -i --rm \
+  -v ./my-csvs:/sources:ro \
+  -v dataraum-workspace:/workspace \
+  -e ANTHROPIC_API_KEY \
+  ghcr.io/dataraum/dataraum
+```
+
+---
+
 ## Claude Desktop
 
 Add the server to your Claude Desktop config file:
@@ -80,7 +162,7 @@ Add this to the file (create it if it doesn't exist):
     "dataraum": {
       "command": "uv",
       "args": [
-        "run", "--project", "/absolute/path/to/dataraum-context", "dataraum-mcp"
+        "run", "--project", "/absolute/path/to/dataraum", "dataraum-mcp"
       ],
       "env": {
         "DATARAUM_HOME": "/absolute/path/to/workspace",
@@ -112,19 +194,19 @@ See the plugin repo's README for installation and configuration instructions. Th
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `begin_session` | `contract?` | Start an investigation session. Optionally pick a contract (default: `exploratory_analysis`). |
 | `add_source` | `name`, `path` | Register a data source (CSV, Parquet, JSON, or directory). Runs the analysis pipeline automatically. |
+| `begin_session` | `intent`, `contract?` | Start an investigation session. `intent` describes the goal. Contract defaults to `exploratory_analysis`. |
 | `look` | `target?`, `sample?` | Explore data structure, relationships, and semantic metadata. Target: omit for dataset, `table` for table, `table.col` for column. |
 | `measure` | `target?` | Measure entropy scores, readiness, and data quality. Triggers pipeline if no data exists. |
 | `query` | `question` | Natural language query with confidence level. Contract is threaded from the session. |
 | `run_sql` | `sql`, `limit?`, `export_format?`, `export_name?` | Execute SQL directly with optional export (CSV/Parquet). |
-| `end_session` | `outcome?` | Archive workspace and end the session. |
+| `end_session` | `outcome` | Archive workspace and end the session. Outcome: `delivered`, `refused`, `escalated`, or `abandoned`. |
 
 ### Typical workflow
 
 ```
-begin_session(contract="exploratory_analysis")
-  → add_source(name="accounting", path="/path/to/data")
+add_source(name="accounting", path="/path/to/data")
+  → begin_session(intent="explore data quality", contract="exploratory_analysis")
   → look()                    # Understand the data
   → measure()                 # Check quality scores and readiness
   → query("total revenue?")   # Ask questions
@@ -134,8 +216,8 @@ begin_session(contract="exploratory_analysis")
 
 ### Session flow
 
-1. **`begin_session`** — creates a workspace, picks a contract. The contract determines what entropy thresholds are acceptable for your use case.
-2. **`add_source`** — registers data and runs the 17-phase analysis pipeline. Source is "sealed" after this — no modifications during the session.
+1. **`add_source`** — registers data and runs the 17-phase analysis pipeline. Call this before starting a session.
+2. **`begin_session`** — creates a workspace, picks a contract. Sources are sealed — no new sources during a session.
 3. **`look` / `measure`** — explore structure and quality. `look` shows schema, relationships, semantic metadata. `measure` shows entropy scores and readiness.
 4. **`query` / `run_sql`** — ask questions or run SQL. `query` uses AI reasoning; `run_sql` executes SQL directly with export support.
 5. **`end_session`** — archives the workspace. Start a new session for new data.

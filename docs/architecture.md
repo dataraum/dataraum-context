@@ -120,7 +120,7 @@ AI doesn't discover metadata at runtime via tools. It receives a pre-assembled c
 
 ### Session-Based Tool Surface
 
-7 MCP tools organized around investigation sessions: `begin_session` → `add_source` → `look` / `measure` / `query` / `run_sql` → `end_session`. The session carries the contract (entropy threshold profile) so the agent doesn't need to pass it on every call.
+7 MCP tools organized around investigation sessions: `add_source` → `begin_session` → `look` / `measure` / `query` / `run_sql` → `end_session`. Sources are registered first, then the session seals them. The session carries the contract (entropy threshold profile) so the agent doesn't need to pass it on every call.
 
 ### Entropy Over Binary Quality
 
