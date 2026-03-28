@@ -31,6 +31,9 @@ _log = logging.getLogger(__name__)
 # Source name pattern: lowercase, starts with letter, 2-49 chars total.
 _NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,48}$")
 
+# Max files per directory source. Prevents accidental data lake ingestion.
+MAX_FILES_PER_SOURCE = 20
+
 # Supported file extensions → source type.
 _EXTENSION_MAP: dict[str, str] = {
     ".csv": "csv",
@@ -166,6 +169,12 @@ class SourceManager:
             supported = ", ".join(sorted(_EXTENSION_MAP.keys()))
             return Result.fail(
                 f"No supported data files found in '{directory}'. Supported extensions: {supported}"
+            )
+
+        if total_files > MAX_FILES_PER_SOURCE:
+            return Result.fail(
+                f"Directory contains {total_files} data files (max {MAX_FILES_PER_SOURCE}). "
+                f"Split into multiple sources or reduce the number of files."
             )
 
         # Determine dominant format for source_type

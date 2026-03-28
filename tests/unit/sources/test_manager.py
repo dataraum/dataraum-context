@@ -162,6 +162,17 @@ class TestAddFileSource:
         assert info.discovered_schema is not None
         assert info.discovered_schema["file_count"] == 1
 
+    def test_reject_too_many_files(self, manager: SourceManager, tmp_path: Path) -> None:
+        from dataraum.sources.manager import MAX_FILES_PER_SOURCE
+
+        for i in range(MAX_FILES_PER_SOURCE + 1):
+            (tmp_path / f"file_{i:03d}.csv").write_text("id\n1\n")
+
+        result = manager.add_file_source("big_dir", str(tmp_path))
+
+        assert not result.success
+        assert str(MAX_FILES_PER_SOURCE) in str(result.error)
+
 
 class TestAddDatabaseSource:
     def test_needs_credentials(self, session: Session, credential_chain: CredentialChain) -> None:

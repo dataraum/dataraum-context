@@ -524,20 +524,23 @@ class ImportPhase(BasePhase):
         warnings: list[str] = []
 
         if path.is_dir():
-            # Determine file type pattern
-            if source_type == "parquet":
-                patterns = ["*.parquet", "*.pq"]
-            elif source_type == "json":
-                patterns = ["*.json", "*.jsonl"]
-            else:
-                patterns = ["*.csv"]
+            # Load all supported file types (not just dominant format)
+            all_patterns = ["*.csv", "*.tsv", "*.parquet", "*.pq", "*.json", "*.jsonl"]
 
             files: list[Path] = []
-            for pat in patterns:
+            for pat in all_patterns:
                 files.extend(sorted(path.glob(pat)))
 
             if not files:
                 return PhaseResult.failed(f"No data files found in {path}")
+
+            from dataraum.sources.manager import MAX_FILES_PER_SOURCE
+
+            if len(files) > MAX_FILES_PER_SOURCE:
+                return PhaseResult.failed(
+                    f"Directory contains {len(files)} data files (max {MAX_FILES_PER_SOURCE}). "
+                    f"Split into multiple sources or reduce the number of files."
+                )
 
             for file_path in files:
                 result = self._load_single_file_with_prefix(
