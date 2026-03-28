@@ -35,14 +35,15 @@ def format_query_result(result: QueryResult, *, limit: int = 10000) -> dict[str,
     if result.data and result.columns:
         total = len(result.data)
         displayed = result.data[:_QUERY_DISPLAY_ROWS]
+        truncated = total > _QUERY_DISPLAY_ROWS
         data_block: dict[str, Any] = {
             "columns": result.columns,
             "row_count": total,
             "rows_returned": len(displayed),
             "rows": displayed,
+            "truncated": truncated,
         }
-        if total > _QUERY_DISPLAY_ROWS:
-            data_block["truncated"] = True
+        if truncated:
             data_block["hint"] = (
                 "Showing first 50 rows. Use run_sql with the SQL above for more, "
                 "or add export_format to export the full dataset."

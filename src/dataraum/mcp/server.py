@@ -598,21 +598,19 @@ def create_server(output_dir: Path | None = None) -> Server:
             # Export if requested — use full QueryResult, not truncated display
             export_fmt = arguments.get("export_format")
             if export_fmt and qr is not None and "error" not in result:
-                import re
-
                 from dataraum.export import export_query_result
 
-                raw_stem = (
-                    arguments.get("export_name")
-                    or f"query_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+                path_or_error = _safe_export_path(
+                    root_dir, arguments.get("export_name"), export_fmt, "query"
                 )
-                stem = re.sub(r"[^\w\-]", "_", raw_stem)[:128]
-                export_path = root_dir / "exports" / f"{stem}.{export_fmt}"
-                try:
-                    exported = export_query_result(qr, export_path, fmt=export_fmt)
-                    result["export_path"] = str(exported)
-                except Exception as e:
-                    result["export_error"] = str(e)
+                if isinstance(path_or_error, str):
+                    result["export_error"] = path_or_error
+                else:
+                    try:
+                        exported = export_query_result(qr, path_or_error, fmt=export_fmt)
+                        result["export_path"] = str(exported)
+                    except Exception as e:
+                        result["export_error"] = str(e)
         elif name == "run_sql":
             with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
                 result = _run_sql(
@@ -631,6 +629,8 @@ def create_server(output_dir: Path | None = None) -> Server:
                 )
                 if "export_path" in export_info:
                     result["export_path"] = export_info["export_path"]
+                elif "error" in export_info:
+                    result["export_error"] = export_info["error"]
         elif name == "add_source":
             with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
                 result = _add_source(session, cursor, arguments)
@@ -966,6 +966,30 @@ def _run_sql(
     )
 
 
+def _safe_export_path(
+    root_dir: Path,
+    name: str | None,
+    fmt: str,
+    tool: str = "export",
+) -> Path | str:
+    """Build a sanitized export path inside {root}/exports/.
+
+    Returns Path on success, error string on failure.
+    """
+    import re
+
+    raw_stem = name or f"{tool}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    stem = re.sub(r"[^\w\-]", "_", raw_stem)[:128]
+    export_dir = (root_dir / "exports").resolve()
+    output_path = export_dir / f"{stem}.{fmt}"
+
+    # Defense-in-depth: verify path stays inside exports dir
+    if not str(output_path.resolve()).startswith(str(export_dir)):
+        return "Invalid export name"
+
+    return output_path
+
+
 def _export_tool_result(
     result: dict[str, Any],
     root_dir: Path,
@@ -986,8 +1010,6 @@ def _export_tool_result(
     Returns:
         Dict with export_path, format, row_count.
     """
-    import re
-
     from dataraum.export import export_data
 
     columns = result.get("columns", [])
@@ -995,15 +1017,10 @@ def _export_tool_result(
     if not columns or not rows:
         return {"error": "No data to export"}
 
-    # Sanitize filename stem — strip path separators and special chars
-    raw_stem = name or f"{tool}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
-    stem = re.sub(r"[^\w\-]", "_", raw_stem)[:128]
-    export_dir = (root_dir / "exports").resolve()
-    output_path = export_dir / f"{stem}.{fmt}"
-
-    # Defense-in-depth: verify path stays inside exports dir
-    if not str(output_path.resolve()).startswith(str(export_dir)):
-        return {"error": "Invalid export name"}
+    path_or_error = _safe_export_path(root_dir, name, fmt, tool)
+    if isinstance(path_or_error, str):
+        return {"error": path_or_error}
+    output_path = path_or_error
 
     try:
         exported = export_data(
