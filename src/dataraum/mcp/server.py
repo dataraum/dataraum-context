@@ -595,12 +595,18 @@ def create_server(output_dir: Path | None = None) -> Server:
                     active_contract,
                     display_limit=arguments.get("limit", 10000),
                 )
-                # Export via DuckDB COPY �� full data, no Python materialization
+                # Export via DuckDB COPY — full data, no Python materialization.
+                # Build CTE-form SQL: temp views are dropped after execute_sql_steps,
+                # so we inline the step SQLs as CTEs for a self-contained query.
                 export_fmt = arguments.get("export_format")
                 if export_fmt and qr is not None and qr.sql and "error" not in result:
+                    export_sql_str = qr.sql
+                    if qr.execution_steps:
+                        ctes = ", ".join(f"{s.step_id} AS ({s.sql})" for s in qr.execution_steps)
+                        export_sql_str = f"WITH {ctes} {qr.sql}"
                     _do_export(
                         result,
-                        qr.sql,
+                        export_sql_str,
                         cursor,
                         root_dir,
                         export_fmt,
@@ -1013,6 +1019,10 @@ def _do_export(
     """
     from dataraum.export import export_sql
 
+    if fmt not in ("csv", "parquet"):
+        result["export_error"] = f"Unsupported format: {fmt}. Use csv or parquet."
+        return
+
     path_or_error = _safe_export_path(root_dir, name, fmt, tool)
     if isinstance(path_or_error, str):
         result["export_error"] = path_or_error
@@ -1024,7 +1034,7 @@ def _do_export(
         sidecar.pop(key, None)
 
     try:
-        exported = export_sql(sql, cursor, path_or_error, fmt=fmt, sidecar=sidecar)  # type: ignore[arg-type]
+        exported = export_sql(sql, cursor, path_or_error, fmt=fmt, sidecar=sidecar)  # type: ignore[arg-type]  # validated above
         result["export_path"] = str(exported)
     except Exception as e:
         result["export_error"] = str(e)
