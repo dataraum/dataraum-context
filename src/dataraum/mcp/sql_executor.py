@@ -121,13 +121,14 @@ def run_sql(
         session_source = f"mcp:session_{uuid4().hex[:8]}"
         snippet_matches = _lookup_snippets(session, source_id, sql_steps, raw_steps or [])
 
-    # --- Execute ---
+    # --- Execute (LIMIT pushed to DuckDB, not Python slice) ---
     result = execute_sql_steps(
         steps=sql_steps,
         final_sql=final_sql,
         duckdb_conn=cursor,
         repair_fn=None,
         return_table=True,
+        display_limit=effective_limit,
     )
 
     is_error = not result.success or not result.value
@@ -165,12 +166,11 @@ def run_sql(
     assert result.value is not None  # guarded by is_error check above
     exec_result: ExecutionResult = result.value
     columns = exec_result.columns or []
-    all_rows = exec_result.rows or []
-    total_rows = len(all_rows)
-    sliced_rows = all_rows[:effective_limit]
+    rows = exec_result.rows or []
+    total_rows = exec_result.total_count if exec_result.total_count is not None else len(rows)
 
-    # Convert to list-of-dicts
-    rows_as_dicts = [dict(zip(columns, row, strict=False)) for row in sliced_rows]
+    # Convert to list-of-dicts (rows already limited by DuckDB)
+    rows_as_dicts = [dict(zip(columns, row, strict=False)) for row in rows]
 
     # --- Quality metadata (best-effort) ---
     column_quality: dict[str, Any] | None = None

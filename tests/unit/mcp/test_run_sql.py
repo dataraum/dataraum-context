@@ -139,12 +139,14 @@ class TestRowLimit:
         # Insert enough rows to exceed default limit (100)
         cursor.execute("CREATE TABLE big AS SELECT i AS id FROM generate_series(1, 200) t(i)")
         result = run_sql(cursor, sql="SELECT * FROM big")
-        assert result["row_count"] == 100
+        assert result["row_count"] == 200  # total count from DuckDB
+        assert result["rows_returned"] == 100  # display limit
         assert result["truncated"] is True
 
     def test_custom_limit(self, cursor: duckdb.DuckDBPyConnection) -> None:
         result = run_sql(cursor, sql="SELECT * FROM orders", limit=2)
-        assert result["row_count"] == 2
+        assert result["row_count"] == 3  # total count
+        assert result["rows_returned"] == 2  # display limit
         assert result["truncated"] is True
 
     def test_max_limit_enforced(self, cursor: duckdb.DuckDBPyConnection) -> None:
@@ -153,6 +155,7 @@ class TestRowLimit:
         # With only 3 rows, truncated should be False — the cap is 10000
         assert result["truncated"] is False
         assert result["row_count"] == 3
+        assert result["rows_returned"] == 3
 
 
 class TestSqlError:
