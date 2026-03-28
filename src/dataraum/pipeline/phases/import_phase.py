@@ -20,12 +20,14 @@ from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
 from dataraum.sources.csv import CSVLoader
 from dataraum.sources.csv.null_values import load_null_value_config
+from dataraum.sources.json import JsonLoader
 from dataraum.sources.parquet import ParquetLoader
 from dataraum.storage import Column, Source, Table
 
 logger = get_logger(__name__)
 
 _PARQUET_EXTENSIONS = {".parquet", ".pq"}
+_JSON_EXTENSIONS = {".json", ".jsonl"}
 
 
 @analysis_phase
@@ -114,6 +116,8 @@ class ImportPhase(BasePhase):
 
         if source_type == "parquet":
             return self._load_parquet(ctx, source, path)
+        elif source_type == "json":
+            return self._load_json(ctx, source, path)
         else:
             # Default to CSV
             loader = CSVLoader()
@@ -148,19 +152,26 @@ class ImportPhase(BasePhase):
         if path.is_file():
             if path.suffix.lower() in _PARQUET_EXTENSIONS:
                 return "parquet"
+            if path.suffix.lower() in _JSON_EXTENSIONS:
+                return "json"
             return "csv"
 
         # Directory: check file_pattern config, then scan for files
         file_pattern = config.get("file_pattern", "")
         if "parquet" in file_pattern or ".pq" in file_pattern:
             return "parquet"
+        if "json" in file_pattern:
+            return "json"
 
         # Check what files exist in the directory
         parquet_files = list(path.glob("*.parquet")) + list(path.glob("*.pq"))
+        json_files = list(path.glob("*.json")) + list(path.glob("*.jsonl"))
         csv_files = list(path.glob("*.csv"))
 
-        if parquet_files and not csv_files:
+        if parquet_files and not csv_files and not json_files:
             return "parquet"
+        if json_files and not csv_files and not parquet_files:
+            return "json"
 
         return "csv"
 
@@ -272,6 +283,70 @@ class ImportPhase(BasePhase):
             warnings=result.warnings,
             summary=f"1 table, {staged_table.row_count:,} rows",
         )
+
+    def _load_json(
+        self,
+        ctx: PhaseContext,
+        source: Source,
+        path: Path,
+    ) -> PhaseResult:
+        """Load JSON/JSONL file(s) using JsonLoader."""
+        loader = JsonLoader()
+
+        if path.is_dir():
+            json_files = sorted(path.glob("*.json")) + sorted(path.glob("*.jsonl"))
+            if not json_files:
+                return PhaseResult.failed(f"No JSON files found in {path}")
+
+            warnings: list[str] = []
+            table_ids: list[str] = []
+            total_rows = 0
+
+            for json_file in json_files:
+                result = loader._load_single_file(
+                    file_path=json_file,
+                    source_id=source.source_id,
+                    duckdb_conn=ctx.duckdb_conn,
+                    session=ctx.session,
+                )
+                if not result.success:
+                    warnings.append(f"Failed to load {json_file.name}: {result.error}")
+                    continue
+
+                staged_table = result.unwrap()
+                table_ids.append(str(staged_table.table_id))
+                total_rows += staged_table.row_count
+
+            if not table_ids:
+                return PhaseResult.failed("No JSON files were successfully loaded")
+
+            return PhaseResult.success(
+                outputs={"raw_tables": table_ids},
+                records_processed=total_rows,
+                records_created=len(table_ids),
+                warnings=warnings,
+                summary=f"{len(table_ids)} tables, {total_rows:,} rows",
+            )
+        else:
+            result = loader._load_single_file(
+                file_path=path,
+                source_id=source.source_id,
+                duckdb_conn=ctx.duckdb_conn,
+                session=ctx.session,
+            )
+
+            if not result.success:
+                return PhaseResult.failed(result.error or "Failed to load JSON file")
+
+            staged_table = result.unwrap()
+
+            return PhaseResult.success(
+                outputs={"raw_tables": [str(staged_table.table_id)]},
+                records_processed=staged_table.row_count,
+                records_created=1,
+                warnings=result.warnings,
+                summary=f"1 table, {staged_table.row_count:,} rows",
+            )
 
     def _load_parquet(
         self,
@@ -403,7 +478,7 @@ class ImportPhase(BasePhase):
             src_type = src["source_type"]
             src_path = src.get("path")
 
-            if src_type in ("csv", "parquet", "file") and src_path:
+            if src_type in ("csv", "parquet", "json", "file") and src_path:
                 result = self._load_file_source(ctx, source, src_name, Path(src_path), src_type)
             elif src.get("backend"):
                 result = self._load_database_source(ctx, source, src_name, src)
@@ -452,6 +527,8 @@ class ImportPhase(BasePhase):
             # Determine file type pattern
             if source_type == "parquet":
                 patterns = ["*.parquet", "*.pq"]
+            elif source_type == "json":
+                patterns = ["*.json", "*.jsonl"]
             else:
                 patterns = ["*.csv"]
 
@@ -507,6 +584,14 @@ class ImportPhase(BasePhase):
         if suffix in _PARQUET_EXTENSIONS:
             pq_loader = ParquetLoader()
             result = pq_loader._load_single_file(
+                file_path=file_path,
+                source_id=source.source_id,
+                duckdb_conn=ctx.duckdb_conn,
+                session=ctx.session,
+            )
+        elif suffix in _JSON_EXTENSIONS:
+            json_loader = JsonLoader()
+            result = json_loader._load_single_file(
                 file_path=file_path,
                 source_id=source.source_id,
                 duckdb_conn=ctx.duckdb_conn,
