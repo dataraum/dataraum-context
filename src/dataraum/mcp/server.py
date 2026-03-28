@@ -625,11 +625,11 @@ def create_server(output_dir: Path | None = None) -> Server:
                 )
                 # Export via DuckDB COPY — full data, no Python materialization
                 export_fmt = arguments.get("export_format")
-                final_sql = result.pop("_final_sql", None)
-                if export_fmt and final_sql and "error" not in result:
+                export_sql_str = result.pop("_export_sql", None)
+                if export_fmt and export_sql_str and "error" not in result:
                     _do_export(
                         result,
-                        final_sql,
+                        export_sql_str,
                         cursor,
                         root_dir,
                         export_fmt,
