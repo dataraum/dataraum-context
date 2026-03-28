@@ -16,6 +16,18 @@ from dataraum.storage import Column, Source, Table
 
 logger = get_logger(__name__)
 
+_ENCODING_ERROR_MSG = (
+    "File is not UTF-8 encoded (likely Excel export with Latin-1/CP1252). "
+    "Re-save as UTF-8: in Excel use 'Save As → CSV UTF-8 (Comma delimited)'."
+)
+
+
+def _check_encoding_error(error: str) -> str:
+    """Return a clear message if the error is a DuckDB encoding failure."""
+    if "not utf-8 encoded" in error.lower() or "byte sequence mismatch" in error.lower():
+        return _ENCODING_ERROR_MSG
+    return error
+
 
 class CSVLoader(LoaderBase):
     """Loader for CSV files.
@@ -73,7 +85,7 @@ class CSVLoader(LoaderBase):
             return Result.ok(columns)
 
         except Exception as e:
-            return Result.fail(f"Failed to read CSV schema: {e}")
+            return Result.fail(f"Failed to read CSV schema: {_check_encoding_error(str(e))}")
 
     def load(
         self,
@@ -284,4 +296,4 @@ class CSVLoader(LoaderBase):
             )
 
         except Exception as e:
-            return Result.fail(f"Failed to load {file_path.name}: {e}")
+            return Result.fail(f"Failed to load {file_path.name}: {_check_encoding_error(str(e))}")

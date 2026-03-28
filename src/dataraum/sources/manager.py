@@ -410,7 +410,17 @@ def _read_file_preview(conn: duckdb.DuckDBPyConnection, path: Path) -> tuple[lis
     suffix = path.suffix.lower()
 
     if suffix in (".csv", ".tsv"):
-        result = conn.execute(f"SELECT * FROM read_csv_auto('{safe}') LIMIT 0")
+        try:
+            result = conn.execute(f"SELECT * FROM read_csv_auto('{safe}') LIMIT 0")
+        except Exception as e:
+            err = str(e).lower()
+            if "not utf-8 encoded" in err or "byte sequence mismatch" in err:
+                msg = (
+                    f"File is not UTF-8 encoded: {path.name}. "
+                    "Re-save as UTF-8 (in Excel: Save As → CSV UTF-8)."
+                )
+                raise ValueError(msg) from e
+            raise
         columns = [desc[0] for desc in result.description]
         try:
             count = conn.execute(f"SELECT count(*) FROM read_csv_auto('{safe}')").fetchone()
