@@ -115,6 +115,25 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 - **Action**: Update all SQL in eval that references `typed_invoices`, `typed_journal_lines`, etc. to use the prefixed form. The `source_name` is `path.stem.lower()` — for testdata at `output/medium/`, prefix is `medium__`.
 - **Status**: pending
 
+## 2026-04-06: DAT-254 — Snippet Search + Look Enrichment + run_sql Repair
+
+### dataraum-eval
+- **Changed**: `src/dataraum/mcp/server.py`, `src/dataraum/mcp/sql_executor.py`
+- **Affects**: `look`, `run_sql`, new `search_snippets` tool
+- **Calibrate**: MCP smoke tests. Key changes:
+  1. **New tool `search_snippets`**: returns snippet vocabulary (standard_fields, statements, aggregations, graph_ids) or matching snippet graphs with SQL. Needs basic smoke test.
+  2. **`look` (dataset-level)**: new `snippet_vocabulary` key when snippets exist (same shape as search_snippets vocabulary)
+  3. **`look` (column-level)**: two new keys:
+     - `detector_evidence`: list of `{detector, dimension, observations}` — detector observations, NOT scores. Dimension is `layer.dimension.sub_dimension` path.
+     - `relevant_snippets`: list of `{sql, description, source, standard_field}` — matched via `SemanticAnnotation.business_concept`. Only present when column has a business concept.
+  4. **`run_sql` LLM repair**: syntax errors now trigger LLM-based repair (up to 2 attempts). Repair only available when pipeline has run (table schema needed for prompt). When LLM unavailable, original error returned unchanged.
+- **Notes**:
+  - `search_snippets` requires active session (same flow enforcement as look/measure)
+  - `look` boundary clarified: detector evidence = context/observations, entropy scores = measure only
+  - `run_sql` repair is lazy-init — no LLM cost unless SQL actually fails
+  - Table layer validation (raw_ table blocking) was deferred — not implemented
+- **Status**: pending
+
 <!--
 ## YYYY-MM-DD: brief description
 

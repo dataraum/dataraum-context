@@ -190,13 +190,15 @@ def create_server(output_dir: Path | None = None) -> Server:
             Tool(
                 name="look",
                 description=(
-                    "Explore the data schema and profiles. Without target: dataset "
-                    "overview (tables, columns, types, semantic annotations, "
-                    "relationships). With target='table': column details + stats. "
-                    "With target='table.column': full column profile (type "
-                    "candidates, outliers, temporal, derived). With sample=N: "
-                    "actual rows from the table. No entropy scores — use measure "
-                    "for that."
+                    "Explore the data schema and profiles at progressive detail "
+                    "levels. Start with no target for a dataset overview (tables, "
+                    "columns, types, semantic annotations, relationships). Drill "
+                    "into target='table' for column stats. Drill into "
+                    "target='table.column' for the full column profile including "
+                    "type candidates, outliers, temporal patterns, derived "
+                    "relationships, and detector observations (what detectors "
+                    "noticed about this column). With sample=N: actual rows. "
+                    "No entropy scores — use measure for that."
                 ),
                 inputSchema={
                     "type": "object",
@@ -359,6 +361,8 @@ def create_server(output_dir: Path | None = None) -> Server:
                     "Snippets: previous queries are auto-saved as reusable "
                     "snippets in a knowledge base. The response includes a "
                     "snippet_summary showing how many were reused vs. newly saved. "
+                    "Use business concept names as step_ids (e.g. 'monthly_revenue', "
+                    "not 'step_1') — they become searchable via search_snippets. "
                     "Each step_id becomes both a temp view name (referenceable by "
                     "later steps) and a snippet key.\n\n"
                     "Column mappings: map output columns to source columns "
@@ -426,6 +430,39 @@ def create_server(output_dir: Path | None = None) -> Server:
                         "export_name": {
                             "type": "string",
                             "description": "Filename stem for the export (e.g. 'monthly_revenue'). Auto-generated if omitted.",
+                        },
+                    },
+                },
+            ),
+            # --- Discovery tools ---
+            Tool(
+                name="search_snippets",
+                description=(
+                    "Search the SQL snippet knowledge base. Without arguments: "
+                    "returns the vocabulary (available concepts, statements, "
+                    "graph IDs, aggregations). With concepts or graph_ids: "
+                    "returns matching snippet graphs with SQL and mappings. "
+                    "Both filters use union semantics (any match). "
+                    "Snippets are created by query and run_sql executions "
+                    "— they represent grounded, reusable SQL patterns."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "concepts": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Business concepts to search for "
+                                "(e.g. ['revenue', 'accounts_receivable'])."
+                            ),
+                        },
+                        "graph_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Specific graph IDs to retrieve (e.g. ['dso', 'gross_margin'])."
+                            ),
                         },
                     },
                 },
@@ -635,6 +672,13 @@ def create_server(output_dir: Path | None = None) -> Server:
                         arguments.get("export_name"),
                         "run_sql",
                     )
+        elif name == "search_snippets":
+            with mgr.session_scope() as session:
+                result = _search_snippets(
+                    session,
+                    concepts=arguments.get("concepts"),
+                    graph_ids=arguments.get("graph_ids"),
+                )
         elif name == "add_source":
             with mgr.session_scope() as session, mgr.duckdb_cursor() as cursor:
                 result = _add_source(session, cursor, arguments)
@@ -937,6 +981,204 @@ def _query(
     return format_query_result(qr), qr
 
 
+def _search_snippets(
+    session: SASession,
+    concepts: list[str] | None = None,
+    graph_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Search the SQL snippet knowledge base.
+
+    Without arguments: returns vocabulary (available search terms).
+    With concepts/graph_ids: returns matching snippet graphs.
+
+    Args:
+        session: SQLAlchemy session.
+        concepts: Business concepts to search for.
+        graph_ids: Specific graph IDs to retrieve.
+    """
+    from dataraum.query.snippet_library import SnippetLibrary
+
+    source = _get_pipeline_source(session)
+    if not source:
+        return {"error": "No sources found. Use add_source first."}
+
+    library = SnippetLibrary(session)
+    source_id = source.source_id
+    vocabulary = library.get_search_vocabulary(schema_mapping_id=source_id)
+
+    # If no search criteria: return vocabulary only
+    if not concepts and not graph_ids:
+        if not any(vocabulary.values()):
+            return {
+                "vocabulary": {},
+                "hint": "No snippets yet. Snippets are created by query runs "
+                "and the graph execution phase.",
+            }
+        return {"vocabulary": vocabulary}
+
+    # Search for matching graphs
+    graphs = library.find_graphs_by_keys(
+        schema_mapping_id=source_id,
+        standard_fields=concepts,
+        graph_ids=graph_ids,
+    )
+
+    if not graphs:
+        return {
+            "matches": [],
+            "vocabulary": vocabulary,
+            "hint": "No matching snippets found. Check vocabulary for available terms.",
+        }
+
+    formatted_graphs = []
+    for graph in graphs:
+        snippets = []
+        for s in graph.snippets:
+            entry: dict[str, Any] = {
+                "sql": s.sql,
+                "description": s.description,
+                "snippet_type": s.snippet_type,
+            }
+            if s.standard_field:
+                entry["standard_field"] = s.standard_field
+            if s.statement:
+                entry["statement"] = s.statement
+            if s.aggregation:
+                entry["aggregation"] = s.aggregation
+            if s.column_mappings:
+                entry["column_mappings"] = s.column_mappings
+            snippets.append(entry)
+
+        formatted_graphs.append(
+            {
+                "graph_id": graph.graph_id,
+                "source": graph.source,
+                "snippets": snippets,
+            }
+        )
+
+    return {
+        "matches": formatted_graphs,
+        "vocabulary": vocabulary,
+    }
+
+
+def _fetch_schema_tables(session: SASession, table_ids: list[str]) -> list[dict[str, Any]]:
+    """Pre-fetch table schema for SQL repair prompts.
+
+    Returns a plain list of dicts (no DB dependency) so the repair closure
+    doesn't need to hold a live session reference.
+    """
+    from sqlalchemy import select as sa_select
+
+    from dataraum.storage import Column, Table
+
+    schema_tables: list[dict[str, Any]] = []
+    for tid in table_ids:
+        tbl = session.execute(sa_select(Table).where(Table.table_id == tid)).scalar_one_or_none()
+        if not tbl:
+            continue
+        cols = list(
+            session.execute(
+                sa_select(Column).where(Column.table_id == tid).order_by(Column.column_position)
+            )
+            .scalars()
+            .all()
+        )
+        schema_tables.append(
+            {
+                "name": tbl.duckdb_path or f"typed_{tbl.table_name}",
+                "columns": [
+                    {"name": c.column_name, "data_type": c.resolved_type or c.raw_type}
+                    for c in cols
+                ],
+            }
+        )
+    return schema_tables
+
+
+def _build_repair_fn(
+    schema_tables: list[dict[str, Any]],
+) -> Any:
+    """Build an LLM-based SQL repair function for run_sql.
+
+    Args:
+        schema_tables: Pre-fetched table schema (from _fetch_schema_tables).
+
+    Returns a RepairFn closure. LLM components are lazy-initialized on
+    first call, so there's no cost when SQL succeeds.
+    """
+    from dataraum.core.models import Result
+
+    # Shared mutable state for lazy init
+    state: dict[str, Any] = {}
+
+    def _repair(failed_sql: str, error_message: str, description: str) -> Result[str]:
+        # Lazy-init LLM components on first repair attempt
+        if "provider" not in state:
+            try:
+                from dataraum.llm.config import load_llm_config
+                from dataraum.llm.prompts import PromptRenderer
+                from dataraum.llm.providers import create_provider
+
+                config = load_llm_config()
+                provider_config = config.providers.get(config.active_provider)
+                if not provider_config:
+                    return Result.fail("No LLM provider configured")
+
+                state["provider"] = create_provider(
+                    config.active_provider, provider_config.model_dump()
+                )
+                state["renderer"] = PromptRenderer()
+                state["max_tokens"] = config.limits.max_output_tokens_per_request
+            except Exception as e:
+                _log.debug("SQL repair LLM init failed: %s", e)
+                return Result.fail(f"LLM unavailable for repair: {e}")
+
+        # Render prompt and call LLM
+        try:
+            from dataraum.llm.providers.base import ConversationRequest, Message
+
+            system_prompt, user_prompt, temperature = state["renderer"].render_split(
+                "sql_repair",
+                {
+                    "error_message": error_message,
+                    "failed_sql": failed_sql,
+                    "table_schema": json.dumps({"tables": schema_tables}, indent=2),
+                    "step_description": description,
+                },
+            )
+
+            request = ConversationRequest(
+                messages=[Message(role="user", content=user_prompt)],
+                system=system_prompt,
+                max_tokens=state["max_tokens"],
+                temperature=temperature,
+            )
+
+            result = state["provider"].converse(request)
+            if not result.success or not result.value:
+                return Result.fail(result.error or "Repair LLM call failed")
+
+            repaired_sql = result.value.content.strip()
+
+            # Strip markdown code blocks if present
+            if repaired_sql.startswith("```"):
+                lines = repaired_sql.split("\n")
+                while lines and not lines[-1].strip():
+                    lines.pop()
+                if lines and lines[-1].strip() == "```":
+                    repaired_sql = "\n".join(lines[1:-1])
+                else:
+                    repaired_sql = "\n".join(lines[1:])
+
+            return Result.ok(repaired_sql)
+        except Exception as e:
+            return Result.fail(f"SQL repair failed: {e}")
+
+    return _repair
+
+
 def _run_sql(
     session: SASession,
     cursor: Any,
@@ -975,6 +1217,9 @@ def _run_sql(
         )
         table_ids = [t.table_id for t in tables]
 
+    schema_tables = _fetch_schema_tables(session, table_ids) if table_ids else []
+    repair_fn = _build_repair_fn(schema_tables) if schema_tables else None
+
     return run_sql(
         cursor,
         session=session,
@@ -984,6 +1229,7 @@ def _run_sql(
         sql=sql,
         column_mappings=column_mappings,
         limit=limit,
+        repair_fn=repair_fn,
     )
 
 
@@ -1275,7 +1521,7 @@ def _look(
         if not col:
             return {"error": f"Column '{column_name}' not found in table '{table_name}'."}
         assert table_name is not None  # guaranteed by column_name being set
-        return _look_column(session, col, table_name)
+        return _look_column(session, col, table_name, source_id=source.source_id)
 
     # Table level
     if table_name:
@@ -1512,7 +1758,9 @@ def _look_table(session: SASession, tbl: TableModel) -> dict[str, Any]:
     return result
 
 
-def _look_column(session: SASession, col: ColumnModel, table_name: str) -> dict[str, Any]:
+def _look_column(
+    session: SASession, col: ColumnModel, table_name: str, *, source_id: str
+) -> dict[str, Any]:
     """Full column profile: types, stats, outliers, temporal, derived."""
     from sqlalchemy import select
 
@@ -1654,6 +1902,58 @@ def _look_column(session: SASession, col: ColumnModel, table_name: str) -> dict[
             }
             for d in derived
         ]
+
+    # Detector evidence — what detectors observed (context, not scores)
+    from dataraum.entropy.db_models import EntropyObjectRecord
+
+    records = list(
+        session.execute(
+            select(EntropyObjectRecord)
+            .where(EntropyObjectRecord.column_id == col.column_id)
+            .order_by(EntropyObjectRecord.layer, EntropyObjectRecord.dimension)
+        )
+        .scalars()
+        .all()
+    )
+    if records:
+        evidence_list = []
+        for rec in records:
+            entry: dict[str, Any] = {
+                "detector": rec.detector_id,
+                "dimension": f"{rec.layer}.{rec.dimension}.{rec.sub_dimension}",
+            }
+            if rec.evidence:
+                # Evidence is stored as a list but typically has one entry per record.
+                # Flatten to a single dict for cleaner output.
+                if isinstance(rec.evidence, list) and len(rec.evidence) == 1:
+                    entry["observations"] = rec.evidence[0]
+                else:
+                    entry["observations"] = rec.evidence
+            evidence_list.append(entry)
+        result["detector_evidence"] = evidence_list
+
+    # Relevant snippets — via business_concept → snippet library
+    if ann and ann.business_concept:
+        from dataraum.query.snippet_library import SnippetLibrary
+
+        library = SnippetLibrary(session)
+        graphs = library.find_graphs_by_keys(
+            schema_mapping_id=source_id,
+            standard_fields=[ann.business_concept],
+        )
+        if graphs:
+            snippets_list = []
+            for graph in graphs:
+                for s in graph.snippets:
+                    snippet_entry: dict[str, Any] = {
+                        "sql": s.sql,
+                        "description": s.description,
+                        "source": graph.source,
+                    }
+                    if s.standard_field:
+                        snippet_entry["standard_field"] = s.standard_field
+                    snippets_list.append(snippet_entry)
+            result["relevant_snippets"] = snippets_list
 
     return result
 

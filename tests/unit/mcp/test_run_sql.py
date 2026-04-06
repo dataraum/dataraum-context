@@ -718,3 +718,65 @@ class TestCteDecomposition:
         result = run_sql(cursor, steps=[])
         assert "error" in result
         assert "empty" in result["error"]
+
+
+class TestRepairFn:
+    def test_repair_fn_called_on_error(self, cursor: duckdb.DuckDBPyConnection) -> None:
+        """When SQL fails and repair_fn is provided, it gets called."""
+        from dataraum.core.models import Result
+
+        repair_calls: list[tuple[str, str, str]] = []
+
+        def mock_repair(failed_sql: str, error_msg: str, desc: str) -> Result[str]:
+            repair_calls.append((failed_sql, error_msg, desc))
+            return Result.ok("SELECT 42 AS x")
+
+        result = run_sql(
+            cursor,
+            sql="SELCT BAD SYNTAX",
+            repair_fn=mock_repair,
+        )
+
+        assert len(repair_calls) == 1
+        assert "SELCT BAD SYNTAX" in repair_calls[0][0]
+        # Repair succeeded — result should have the repaired output
+        assert "error" not in result
+        assert result["rows"] == [{"x": 42}]
+
+    def test_repair_fn_not_called_on_success(self, cursor: duckdb.DuckDBPyConnection) -> None:
+        """repair_fn is never called when SQL succeeds."""
+        from dataraum.core.models import Result
+
+        repair_calls: list[str] = []
+
+        def mock_repair(failed_sql: str, error_msg: str, desc: str) -> Result[str]:
+            repair_calls.append(failed_sql)
+            return Result.ok(failed_sql)
+
+        result = run_sql(
+            cursor,
+            sql="SELECT 1 AS x",
+            repair_fn=mock_repair,
+        )
+
+        assert "error" not in result
+        assert len(repair_calls) == 0
+
+    def test_repair_fn_failure_returns_original_error(
+        self, cursor: duckdb.DuckDBPyConnection
+    ) -> None:
+        """When repair_fn itself fails, original error is returned."""
+        from dataraum.core.models import Result
+
+        def failing_repair(failed_sql: str, error_msg: str, desc: str) -> Result[str]:
+            return Result.fail("LLM unavailable")
+
+        result = run_sql(
+            cursor,
+            sql="SELCT BAD SYNTAX",
+            repair_fn=failing_repair,
+        )
+
+        assert "error" in result
+        # Original SQL error should be visible, not just a generic message
+        assert "repair" in result["error"].lower() or "syntax" in result["error"].lower()

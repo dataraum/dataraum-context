@@ -12,7 +12,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from dataraum.query.execution import ExecutionResult, SQLStep, execute_sql_steps
+from dataraum.query.execution import ExecutionResult, RepairFn, SQLStep, execute_sql_steps
 
 if TYPE_CHECKING:
     import duckdb
@@ -35,6 +35,7 @@ def run_sql(
     sql: str | None = None,
     column_mappings: dict[str, str] | None = None,
     limit: int = DEFAULT_ROW_LIMIT,
+    repair_fn: RepairFn | None = None,
 ) -> dict[str, Any]:
     """Execute SQL and return results as a structured dict.
 
@@ -126,7 +127,7 @@ def run_sql(
         steps=sql_steps,
         final_sql=final_sql,
         duckdb_conn=cursor,
-        repair_fn=None,
+        repair_fn=repair_fn,
         return_table=True,
         display_limit=effective_limit,
     )

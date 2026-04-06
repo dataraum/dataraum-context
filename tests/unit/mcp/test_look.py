@@ -231,8 +231,12 @@ class TestLookDataset:
         amount_col = next(c for c in result["tables"][0]["columns"] if c["name"] == "amount")
         assert amount_col["unit_source_column"] == "currency"
 
-    def test_no_entropy_in_response(self, session: Session) -> None:
-        """look never returns entropy scores or readiness."""
+    def test_no_entropy_scores_in_dataset_response(self, session: Session) -> None:
+        """Dataset-level look never returns entropy scores or readiness.
+
+        Detector evidence (with detector names that may contain 'entropy')
+        only appears at column level, not dataset level.
+        """
         source_id, table_id, col_ids = _setup_source_and_table(session)
 
         with patch(
@@ -243,9 +247,9 @@ class TestLookDataset:
 
             result = _look(session)
 
-        result_str = str(result)
-        assert "entropy" not in result_str.lower()
-        assert "readiness" not in result_str.lower()
+        # Dataset level should not have scores or readiness
+        assert "readiness" not in str(result).lower()
+        assert "score" not in result  # no top-level "score" key
 
 
 class TestLookTable:
@@ -422,6 +426,114 @@ class TestLookColumn:
 
         assert result["semantic"]["role"] == "measure"
         assert result["semantic"]["business_name"] == "Amount"
+
+    def test_includes_detector_evidence(self, session: Session) -> None:
+        """Column-level look includes detector observations (not scores)."""
+        from dataraum.entropy.db_models import EntropyObjectRecord
+
+        source_id, table_id, col_ids = _setup_source_and_table(session)
+        amount_id = col_ids[1][0]
+
+        session.add(
+            EntropyObjectRecord(
+                layer="value",
+                dimension="outliers",
+                sub_dimension="benford_compliance",
+                target="column:orders.amount",
+                source_id=source_id,
+                table_id=table_id,
+                column_id=amount_id,
+                score=0.35,
+                detector_id="benford",
+                evidence=[{"chi_squared": 15.2, "compliant": False}],
+            )
+        )
+        session.flush()
+
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
+        ):
+            from dataraum.mcp.server import _look
+
+            result = _look(session, target="orders.amount")
+
+        assert "detector_evidence" in result
+        ev = result["detector_evidence"][0]
+        assert ev["detector"] == "benford"
+        assert ev["dimension"] == "value.outliers.benford_compliance"
+        assert ev["observations"]["chi_squared"] == 15.2
+        # Score should NOT be in the evidence
+        assert "score" not in ev
+
+    def test_detector_evidence_omitted_when_empty(self, session: Session) -> None:
+        source_id, table_id, col_ids = _setup_source_and_table(session)
+
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
+        ):
+            from dataraum.mcp.server import _look
+
+            result = _look(session, target="orders.amount")
+
+        assert "detector_evidence" not in result
+
+    def test_includes_relevant_snippets(self, session: Session) -> None:
+        """Column-level look includes snippets matched via business_concept."""
+        from dataraum.query.snippet_models import SQLSnippetRecord
+
+        source_id, table_id, col_ids = _setup_source_and_table(session)
+        amount_id = col_ids[1][0]
+
+        # Set up semantic annotation with business_concept
+        session.add(
+            SemanticAnnotation(
+                column_id=amount_id,
+                semantic_role="measure",
+                business_concept="revenue",
+            )
+        )
+        # Add a snippet matching that concept
+        session.add(
+            SQLSnippetRecord(
+                snippet_type="extract",
+                standard_field="revenue",
+                schema_mapping_id=source_id,
+                source="graph:margin",
+                sql="SELECT SUM(amount) FROM typed_orders",
+                description="Revenue extraction",
+            )
+        )
+        session.flush()
+
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
+        ):
+            from dataraum.mcp.server import _look
+
+            result = _look(session, target="orders.amount")
+
+        assert "relevant_snippets" in result
+        snippet = result["relevant_snippets"][0]
+        assert snippet["sql"] == "SELECT SUM(amount) FROM typed_orders"
+        assert snippet["standard_field"] == "revenue"
+        assert snippet["source"] == "graph:margin"
+
+    def test_no_snippets_without_business_concept(self, session: Session) -> None:
+        """No snippets returned when column has no business_concept annotation."""
+        source_id, table_id, col_ids = _setup_source_and_table(session)
+
+        with patch(
+            "dataraum.mcp.server._get_pipeline_source",
+            return_value=session.get(Source, source_id),
+        ):
+            from dataraum.mcp.server import _look
+
+            result = _look(session, target="orders.amount")
+
+        assert "relevant_snippets" not in result
 
 
 class TestLookSample:
