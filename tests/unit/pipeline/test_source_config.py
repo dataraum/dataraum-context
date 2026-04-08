@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 
 from dataraum.core.config import _get_config_root, reset_config_root
-from dataraum.pipeline.setup import _ensure_source_config
+from dataraum.pipeline.setup import _ensure_adhoc_vertical, _ensure_source_config
 
 
 class TestEnsureSourceConfig:
@@ -86,3 +86,60 @@ class TestEnsureSourceConfig:
 
         source_config = output_dir / "config"
         assert (source_config / "verticals").is_dir()
+
+
+class TestEnsureAdhocVertical:
+    """Tests for _ensure_adhoc_vertical()."""
+
+    def test_creates_adhoc_directory(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "output"
+        verticals_dir = output_dir / "config" / "verticals"
+        verticals_dir.mkdir(parents=True)
+
+        _ensure_adhoc_vertical(output_dir)
+
+        adhoc = verticals_dir / "_adhoc"
+        assert adhoc.is_dir()
+
+    def test_creates_empty_ontology(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "output"
+        (output_dir / "config" / "verticals").mkdir(parents=True)
+
+        _ensure_adhoc_vertical(output_dir)
+
+        ontology_path = output_dir / "config" / "verticals" / "_adhoc" / "ontology.yaml"
+        assert ontology_path.exists()
+        data = yaml.safe_load(ontology_path.read_text())
+        assert data["name"] == "_adhoc"
+        assert data["concepts"] == []
+
+    def test_creates_empty_cycles(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "output"
+        (output_dir / "config" / "verticals").mkdir(parents=True)
+
+        _ensure_adhoc_vertical(output_dir)
+
+        cycles_path = output_dir / "config" / "verticals" / "_adhoc" / "cycles.yaml"
+        assert cycles_path.exists()
+        data = yaml.safe_load(cycles_path.read_text())
+        assert data["cycle_types"] == {}
+
+    def test_creates_empty_subdirs(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "output"
+        (output_dir / "config" / "verticals").mkdir(parents=True)
+
+        _ensure_adhoc_vertical(output_dir)
+
+        adhoc = output_dir / "config" / "verticals" / "_adhoc"
+        assert (adhoc / "validations").is_dir()
+        assert (adhoc / "metrics").is_dir()
+        assert (adhoc / "filters").is_dir()
+
+    def test_idempotent(self, tmp_path: Path) -> None:
+        output_dir = tmp_path / "output"
+        (output_dir / "config" / "verticals").mkdir(parents=True)
+
+        _ensure_adhoc_vertical(output_dir)
+        _ensure_adhoc_vertical(output_dir)  # Should not error
+
+        assert (output_dir / "config" / "verticals" / "_adhoc").is_dir()

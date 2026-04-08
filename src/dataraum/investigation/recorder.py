@@ -24,6 +24,7 @@ def begin_session(
     intent: str,
     *,
     contract: str | None = None,
+    vertical: str | None = None,
 ) -> InvestigationSession:
     """Create a new investigation session.
 
@@ -32,6 +33,7 @@ def begin_session(
         source_id: Data source being investigated.
         intent: Free-text description of what the agent is trying to do.
         contract: Active contract name.
+        vertical: Domain vertical (e.g. 'finance'). None for cold start.
 
     Returns:
         The created InvestigationSession.
@@ -40,6 +42,7 @@ def begin_session(
         source_id=source_id,
         intent=intent,
         contract=contract,
+        vertical=vertical,
         status="active",
     )
     session.add(investigation)

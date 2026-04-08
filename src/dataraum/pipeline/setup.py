@@ -58,6 +58,7 @@ def setup_pipeline(
     target_phase: str | None = None,
     force_phase: bool = False,
     contract: str | None = None,
+    vertical: str | None = None,
 ) -> PipelineSetup:
     """Initialize the pipeline: connections, source resolution, scheduler.
 
@@ -68,6 +69,7 @@ def setup_pipeline(
         target_phase: Run only this phase and its dependencies.
         force_phase: Force re-run of target phase.
         contract: Target contract name for gate evaluation.
+        vertical: Domain vertical (e.g. 'finance'). None → '_adhoc'.
 
     Returns:
         PipelineSetup with scheduler ready to run.
@@ -80,6 +82,9 @@ def setup_pipeline(
 
     # 2. Per-source config: copy global config to output_dir on first run
     _ensure_source_config(output_dir)
+
+    # 2b. Ensure _adhoc vertical scaffold exists (write target for induction + teach)
+    _ensure_adhoc_vertical(output_dir)
 
     # 3. Determine mode: single-path or multi-source
     multi_source_mode = source_path is None
@@ -112,20 +117,23 @@ def setup_pipeline(
     phase_configs = {name: load_phase_config(name) for name in active_phase_names}
 
     # 7. Build runtime config
+    effective_vertical = vertical or "_adhoc"
     runtime_config: dict[str, Any]
     if multi_source_mode and registered_sources:
         runtime_config = {
             "source_name": "multi_source",
             "registered_sources": registered_sources,
             "source_set_fingerprint": fingerprint,
+            "vertical": effective_vertical,
         }
     elif multi_source_mode:
-        runtime_config = {"source_name": "multi_source"}
+        runtime_config = {"source_name": "multi_source", "vertical": effective_vertical}
     else:
         assert source_path is not None
         runtime_config = {
             "source_path": str(source_path),
             "source_name": source_name or source_path.stem,
+            "vertical": effective_vertical,
         }
 
     # 8. Load phases from YAML declarations + registry
@@ -345,3 +353,46 @@ def _ensure_source_config(output_dir: Path) -> None:
 
     # Switch config root so all load_phase_config() etc. read from source copy
     set_config_root(source_config)
+
+
+def _ensure_adhoc_vertical(output_dir: Path) -> None:
+    """Create the _adhoc vertical scaffold for cold-start sessions.
+
+    The _adhoc vertical is the write target for induction agents (which
+    generate ontology, cycles, validations on cold start) and for teach
+    (which refines them later). Created idempotently on every pipeline setup.
+
+    Structure mirrors config/verticals/{name}/:
+        ontology.yaml, cycles.yaml, validations/, metrics/, filters/
+
+    Args:
+        output_dir: Pipeline output directory.
+    """
+    import yaml
+
+    adhoc_dir = output_dir / "config" / "verticals" / "_adhoc"
+    if adhoc_dir.exists():
+        return
+
+    adhoc_dir.mkdir(parents=True)
+
+    # Empty ontology — induction agent populates this
+    ontology = {
+        "name": "_adhoc",
+        "version": "1.0.0",
+        "description": "Auto-generated",
+        "concepts": [],
+    }
+    with open(adhoc_dir / "ontology.yaml", "w") as f:
+        yaml.dump(ontology, f, default_flow_style=False, sort_keys=False)
+
+    # Empty cycles vocabulary
+    with open(adhoc_dir / "cycles.yaml", "w") as f:
+        yaml.dump({"cycle_types": {}}, f, default_flow_style=False, sort_keys=False)
+
+    # Empty directories for validations, metrics, filters
+    (adhoc_dir / "validations").mkdir()
+    (adhoc_dir / "metrics").mkdir()
+    (adhoc_dir / "filters").mkdir()
+
+    logger.debug("adhoc_vertical_created", path=str(adhoc_dir))

@@ -41,6 +41,7 @@ class InvestigationSession(Base):
     # Intent (from begin_session)
     intent: Mapped[str] = mapped_column(String, nullable=False)
     contract: Mapped[str | None] = mapped_column(String)
+    vertical: Mapped[str | None] = mapped_column(String)
 
     # Outcome (from deliver/refuse/escalate)
     outcome_summary: Mapped[str | None] = mapped_column(String)

@@ -275,6 +275,14 @@ def create_server(output_dir: Path | None = None) -> Server:
                                 "Contract name. Defaults to 'exploratory_analysis' if not provided."
                             ),
                         },
+                        "vertical": {
+                            "type": "string",
+                            "description": (
+                                "Domain vertical for ontology and validation context. "
+                                "Use 'finance' for financial data. Omit for cold start "
+                                "— the pipeline auto-generates an ontology from your data."
+                            ),
+                        },
                     },
                 },
             ),
@@ -524,6 +532,7 @@ def create_server(output_dir: Path | None = None) -> Server:
             active_session = _get_active_session(session)
             active_session_id = active_session.session_id if active_session else None
             active_contract = active_session.contract if active_session else None
+            active_vertical = active_session.vertical if active_session else None
 
         # --- Flow enforcement ---
         if name == "add_source":
@@ -567,12 +576,15 @@ def create_server(output_dir: Path | None = None) -> Server:
                 measure_experimental: Experimental = ctx.experimental
                 if measure_experimental and measure_experimental.is_task:
                     loop = asyncio.get_running_loop()
-                    # Capture contract as local — session scope is closed
+                    # Capture contract/vertical as locals — session scope is closed
                     _contract = active_contract
+                    _vertical = active_vertical
 
                     async def _measure_work(task: ServerTaskContext) -> CallToolResult:
                         callback = _make_task_event_callback(task, loop)
-                        await asyncio.to_thread(_run_pipeline, output_dir, callback, _contract)
+                        await asyncio.to_thread(
+                            _run_pipeline, output_dir, callback, _contract, _vertical
+                        )
                         with _get_manager().session_scope() as post_session:
                             measure_result = _measure(post_session, target=measure_target)
                         return CallToolResult(
@@ -594,7 +606,9 @@ def create_server(output_dir: Path | None = None) -> Server:
                     )
                 else:
                     # No task API: fire-and-forget
-                    bg = asyncio.create_task(_run_pipeline_background(output_dir, active_contract))
+                    bg = asyncio.create_task(
+                        _run_pipeline_background(output_dir, active_contract, active_vertical)
+                    )
                     _background_tasks.add(bg)
                     bg.add_done_callback(_background_tasks.discard)
                     result = {
@@ -611,6 +625,7 @@ def create_server(output_dir: Path | None = None) -> Server:
                         session,
                         intent=arguments["intent"],
                         contract=arguments.get("contract"),
+                        vertical=arguments.get("vertical"),
                     )
                 # _session_id is internal bookkeeping — strip from agent response
                 result.pop("_session_id", None)
@@ -802,6 +817,7 @@ def _resume_session(
         "sources": [s.name for s in all_sources],
         "contract": contract_info,
         "has_pipeline_data": has_data,
+        "vertical": active_session.vertical or "_adhoc",
         "resumed": True,
         "step_count": active_session.step_count,
         "hint": (
@@ -896,6 +912,7 @@ def _run_pipeline(
     output_dir: Path,
     event_callback: EventCallback | None = None,
     contract: str | None = None,
+    vertical: str | None = None,
 ) -> dict[str, Any]:
     """Run the pipeline on registered sources (multi-source mode).
 
@@ -906,6 +923,7 @@ def _run_pipeline(
         output_dir: Pipeline output directory.
         event_callback: Optional callback for pipeline events.
         contract: Active contract name from the session.
+        vertical: Domain vertical (e.g. 'finance'). None → '_adhoc'.
 
     Returns:
         Dict with pipeline result.
@@ -917,6 +935,7 @@ def _run_pipeline(
         output_dir=output_dir,
         event_callback=event_callback,
         contract=contract,
+        vertical=vertical,
     )
 
     result = run(config)
@@ -927,10 +946,12 @@ def _run_pipeline(
     return {"status": "complete", "phases_completed": result.value.phases_completed}
 
 
-async def _run_pipeline_background(output_dir: Path, contract: str | None = None) -> None:
+async def _run_pipeline_background(
+    output_dir: Path, contract: str | None = None, vertical: str | None = None
+) -> None:
     """Run _run_pipeline in a background thread, logging errors."""
     try:
-        await asyncio.to_thread(_run_pipeline, output_dir, None, contract)
+        await asyncio.to_thread(_run_pipeline, output_dir, None, contract, vertical)
     except Exception:
         _log.exception("Background pipeline failed for %s", output_dir)
 
@@ -1339,6 +1360,7 @@ def _begin_session(
     session: SASession,
     intent: str,
     contract: str | None = None,
+    vertical: str | None = None,
 ) -> dict[str, Any]:
     """Start an investigation session.
 
@@ -1350,6 +1372,7 @@ def _begin_session(
         session: SQLAlchemy session from server-level manager.
         intent: What the agent is investigating.
         contract: Contract name. Defaults to ``exploratory_analysis``.
+        vertical: Domain vertical (e.g. ``finance``). None for cold start.
 
     Returns:
         Dict with _session_id (internal), sources, contract, has_pipeline_data, hint.
@@ -1375,6 +1398,14 @@ def _begin_session(
         available = [c["name"] for c in list_contracts()]
         return {"error": f"Unknown contract '{contract_name}'. Available: {available}"}
 
+    # Validate vertical if provided
+    if vertical is not None:
+        from dataraum.analysis.semantic.ontology import OntologyLoader
+
+        available = OntologyLoader().list_verticals()
+        if vertical not in available:
+            return {"error": f"Unknown vertical '{vertical}'. Available: {available}"}
+
     # Require at least one registered source
     all_sources = list(
         session.execute(
@@ -1390,7 +1421,7 @@ def _begin_session(
     source_id = source.source_id if source else all_sources[0].source_id
 
     # Create investigation session
-    inv = begin_session(session, source_id, intent, contract=contract_name)
+    inv = begin_session(session, source_id, intent, contract=contract_name, vertical=vertical)
 
     # Check if pipeline has run (quick existence check, not full measurement)
     has_data = (
@@ -1411,6 +1442,7 @@ def _begin_session(
             "description": contract_profile.description,
         },
         "has_pipeline_data": has_data,
+        "vertical": vertical or "_adhoc",
         "hint": (
             "Use look to explore the schema, measure to check entropy scores."
             if has_data

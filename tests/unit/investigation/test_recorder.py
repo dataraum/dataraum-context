@@ -43,6 +43,16 @@ class TestBeginSession:
         )
         assert inv.contract == "aggregation_safe"
 
+    def test_with_vertical(self, session: Session) -> None:
+        _ensure_source(session)
+        inv = begin_session(session, "src-1", intent="analyze financials", vertical="finance")
+        assert inv.vertical == "finance"
+
+    def test_without_vertical(self, session: Session) -> None:
+        _ensure_source(session)
+        inv = begin_session(session, "src-1", intent="explore data")
+        assert inv.vertical is None
+
 
 class TestRecordStep:
     def test_records_step_with_ordinal(self, session: Session) -> None:

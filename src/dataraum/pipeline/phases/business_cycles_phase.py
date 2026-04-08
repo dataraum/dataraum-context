@@ -122,8 +122,11 @@ class BusinessCyclesPhase(BasePhase):
 
         vertical = ctx.config.get("vertical")
         if not vertical:
-            return PhaseResult.failed(
-                "No vertical configured. Set 'vertical' in config/phases/business_cycles.yaml."
+            return PhaseResult.success(
+                outputs={"detected_cycles": 0, "skipped": "no vertical configured"},
+                records_processed=0,
+                records_created=0,
+                summary="No vertical configured — cycle detection skipped",
             )
 
         # Run analysis

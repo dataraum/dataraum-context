@@ -113,11 +113,13 @@ class ValidationPhase(BasePhase):
             prompt_renderer=renderer,
         )
 
-        # Vertical is required for loading validation specs
         vertical = ctx.config.get("vertical")
         if not vertical:
-            return PhaseResult.failed(
-                "No vertical configured. Set 'vertical' in config/phases/validation.yaml."
+            return PhaseResult.success(
+                outputs={"total_checks": 0, "skipped": "no vertical configured"},
+                records_processed=0,
+                records_created=0,
+                summary="No vertical configured — validation skipped",
             )
 
         # Get optional category filter from config

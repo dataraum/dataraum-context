@@ -196,6 +196,40 @@ class SemanticPhase(BasePhase):
                 "No vertical configured. Set 'vertical' in config/phases/semantic.yaml."
             )
 
+        # --- Ontology induction for cold start ---
+        # When using _adhoc vertical with no concepts, generate an ontology
+        # from table schemas so downstream annotation has concepts to map to.
+        if ontology == "_adhoc":
+            from dataraum.analysis.semantic.ontology import OntologyLoader
+
+            induction_loader = OntologyLoader()
+            existing_ontology = induction_loader.load(ontology)
+            if existing_ontology is None or not existing_ontology.concepts:
+                from dataraum.analysis.semantic.induction import (
+                    OntologyInductionAgent,
+                )
+
+                induction_agent = OntologyInductionAgent(
+                    config=config,
+                    provider=provider,
+                    prompt_renderer=renderer,
+                )
+                induction_result = induction_agent.induce(
+                    session=ctx.session,
+                    table_ids=table_ids,
+                )
+                if (
+                    induction_result.success
+                    and induction_result.value
+                    and induction_result.value.concepts
+                ):
+                    induction_loader.save("_adhoc", induction_result.value)
+                else:
+                    logger.warning(
+                        "ontology_induction_failed",
+                        error=induction_result.error,
+                    )
+
         # Load standard_fields required by metric graphs so the semantic phase
         # can prioritize mapping those concepts to actual dataset columns.
         from dataraum.graphs.loader import GraphLoader
