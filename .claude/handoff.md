@@ -134,6 +134,26 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - Table layer validation (raw_ table blocking) was deferred — not implemented
 - **Status**: pending
 
+## 2026-04-08: DAT-250 — Cold Start Vertical Bootstrap + Induction Agents
+
+### dataraum-eval
+- **Changed**: `src/dataraum/mcp/server.py` (begin_session vertical param, pipeline threading), `src/dataraum/pipeline/setup.py` (_adhoc scaffold, runtime_config vertical), `src/dataraum/pipeline/phases/semantic_phase.py` (ontology induction), `src/dataraum/pipeline/phases/business_cycles_phase.py` (cycle induction), `src/dataraum/pipeline/phases/validation_phase.py` (validation induction)
+- **New files**: `src/dataraum/analysis/semantic/induction.py`, `src/dataraum/analysis/cycles/induction.py`, `src/dataraum/analysis/validation/induction.py`, 3 prompt YAMLs in `config/llm/prompts/`
+- **Affects**: `begin_session` (new `vertical` param), `measure` (pipeline now threads vertical), all LLM-powered phases on cold start
+- **Calibrate**: Cold-start scenario (no vertical selected). Key behaviors:
+  1. `begin_session()` without `vertical` → `_adhoc` scaffold created, pipeline auto-generates ontology + cycles + validations via LLM
+  2. `begin_session(vertical="finance")` → identical to pre-change behavior
+  3. Three new LLM calls per cold-start run: ontology induction (semantic phase), cycle induction (business_cycles phase), validation induction (validation phase)
+  4. Induced config written to `{output_dir}/config/verticals/_adhoc/` — ontology.yaml, cycles.yaml, validations/*.yaml
+  5. `vertical: finance` removed from phase YAML defaults — vertical now comes from runtime_config
+- **Notes**:
+  - Cold start requires ANTHROPIC_API_KEY (3 extra LLM calls for induction)
+  - Existing workspace DBs missing `investigation_sessions.vertical` column will error — delete workspace and restart
+  - `_adhoc` vertical scaffold always created at pipeline setup (idempotent)
+  - Induction only fires when config is empty — re-runs with populated config skip induction
+  - Relationship filter in induction context: `detection_method != "candidate"` (LLM-confirmed only)
+- **Status**: pending
+
 <!--
 ## YYYY-MM-DD: brief description
 
