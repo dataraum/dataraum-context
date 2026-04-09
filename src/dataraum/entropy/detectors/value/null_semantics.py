@@ -55,7 +55,6 @@ class NullRatioDetector(EntropyDetector):
         impact_moderate = detector_config.get("impact_moderate", 0.20)
         impact_significant = detector_config.get("impact_significant", 0.50)
         suggest_declare = detector_config.get("suggest_declare_threshold", 0.1)
-        suggest_filter = detector_config.get("suggest_filter_threshold", 0.4)
         stats = context.get_analysis("statistics", {})
 
         # Extract null ratio
@@ -108,45 +107,6 @@ class NullRatioDetector(EntropyDetector):
                     },
                     effort="low",
                     description="Declare what null values mean in this context",
-                )
-            )
-
-        if score > suggest_filter:
-            # High nulls - suggest imputation or filtering
-            resolution_options.append(
-                ResolutionOption(
-                    action="transform_filter_nulls",
-                    parameters={
-                        "column": context.column_name,
-                        "strategy": "exclude",
-                    },
-                    effort="low",
-                    description="Exclude null values from aggregations",
-                )
-            )
-            resolution_options.append(
-                ResolutionOption(
-                    action="transform_impute_values",
-                    parameters={
-                        "column": context.column_name,
-                        "strategy": "mean",  # or median, mode, etc.
-                    },
-                    effort="medium",
-                    description="Impute missing values using statistical methods",
-                )
-            )
-
-        if score > 0:
-            # Accept: nulls are structurally expected (tree FK, optional dim)
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_accepted_null_ratio",
-                    parameters={
-                        "column": context.column_name,
-                        "detector_id": self.detector_id,
-                    },
-                    effort="low",
-                    description="Accept nulls as structurally expected for this column",
                 )
             )
 

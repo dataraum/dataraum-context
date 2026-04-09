@@ -151,21 +151,7 @@ class DerivedValueDetector(EntropyDetector):
             elif isinstance(current_derived, dict) and "derivation_type" in current_derived:
                 evidence[0]["derivation_type"] = current_derived["derivation_type"]
 
-        # Resolution options — only actions backed by fix_schemas
         resolution_options: list[ResolutionOption] = []
-
-        if score > 0:
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_accepted_formula_match",
-                    parameters={
-                        "column": context.column_name,
-                        "detector_id": self.detector_id,
-                    },
-                    effort="low",
-                    description="Accept formula deviation as expected (manual adjustments, rounding)",
-                )
-            )
 
         return [
             self.create_entropy_object(

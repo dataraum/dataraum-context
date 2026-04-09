@@ -121,7 +121,7 @@ class TestNetworkEnrichesExistingActions:
         interp = FakeInterp(
             resolution_actions_json=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "Add unit declaration",
                     "effort": "low",
                     "expected_impact": "Reduces semantic.units entropy",
@@ -129,14 +129,14 @@ class TestNetworkEnrichesExistingActions:
             ],
         )
 
-        # Network also sees unit_declaration node with resolution_option "document_unit"
+        # Network also sees unit_declaration node with resolution_option "concept_property"
         ne = _make_node_evidence(
             node_name="unit_declaration",
             state="high",
             impact_delta=0.25,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "Add unit declaration",
                     "effort": "low",
                     "parameters": {},
@@ -162,7 +162,7 @@ class TestNetworkEnrichesExistingActions:
 
         assert len(result) == 1
         action = result[0]
-        assert action["action"] == "document_unit"
+        assert action["action"] == "concept_property"
         assert action["from_llm"] is True
         assert action["network_impact"] == 0.25
         assert action["network_columns"] == 1
@@ -175,7 +175,7 @@ class TestNetworkEnrichesExistingActions:
             impact_delta=0.25,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -190,7 +190,7 @@ class TestNetworkEnrichesExistingActions:
             impact_delta=0.10,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -231,7 +231,7 @@ class TestNetworkEnrichesExistingActions:
             impact_delta=0.0,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -272,7 +272,7 @@ class TestNetworkCreatesNewActions:
             impact_delta=0.20,
             resolution_options=[
                 {
-                    "action": "transform_winsorize",
+                    "action": "investigate_outliers",
                     "description": "Cap extreme values at percentile boundaries",
                     "effort": "medium",
                     "parameters": {"percentile": 0.99},
@@ -296,7 +296,7 @@ class TestNetworkCreatesNewActions:
 
         assert len(result) == 1
         action = result[0]
-        assert action["action"] == "transform_winsorize"
+        assert action["action"] == "investigate_outliers"
         assert action["from_llm"] is False
         assert action["description"] == "Cap extreme values at percentile boundaries"
         assert action["effort"] == "medium"
@@ -341,7 +341,7 @@ class TestNetworkImpactPriorityScoring:
         interp = FakeInterp(
             resolution_actions_json=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "Add unit declaration",
                     "effort": "low",
                     "expected_impact": "Reduces semantic.units entropy",
@@ -363,7 +363,7 @@ class TestNetworkImpactPriorityScoring:
             impact_delta=0.50,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "",
                     "effort": "low",
                     "parameters": {},
@@ -659,7 +659,7 @@ class TestScoreDerivedPriority:
             impact_delta=2.0,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "Add unit",
                     "effort": "low",
                     "parameters": {},
@@ -693,7 +693,7 @@ class TestScoreDerivedPriority:
             impact_delta=0.50,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "Add unit",
                     "effort": "low",
                     "parameters": {},
@@ -727,7 +727,7 @@ class TestScoreDerivedPriority:
             impact_delta=0.10,
             resolution_options=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "Add unit",
                     "effort": "high",  # effort_factor = 4.0
                     "parameters": {},
@@ -759,7 +759,7 @@ class TestScoreDerivedPriority:
         interp = FakeInterp(
             resolution_actions_json=[
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "description": "Add unit declaration",
                     "priority": "high",  # This should be ignored
                     "effort": "high",

@@ -81,7 +81,6 @@ class TestNullRatioDetector:
         # Should have resolution options
         actions = [opt.action for opt in results[0].resolution_options]
         assert "document_null_semantics" in actions
-        assert "transform_filter_nulls" in actions
 
     def test_max_entropy_at_full_nulls(self, detector: NullRatioDetector):
         """Test entropy is 1.0 for fully null column."""
@@ -186,8 +185,7 @@ class TestOutlierRateDetector:
         assert results[0].evidence[0]["outlier_impact"] == "significant"
         # Should have resolution options
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "transform_winsorize" in actions
-        assert "document_accepted_outlier_rate" in actions
+        assert "investigate_outliers" in actions
 
     def test_high_outliers(self, detector: OutlierRateDetector):
         """Test high entropy for 20%+ outliers (piecewise scoring reaches 1.0)."""
@@ -568,8 +566,8 @@ class TestTemporalDriftDetector:
         assert ev["worst_period"] == "2024-Q3"
         assert len(ev["top_shifts"]) == 1
 
-    def test_resolution_options_for_high_drift(self, detector: TemporalDriftDetector):
-        """High drift produces document_accepted_temporal_drift resolution option."""
+    def test_no_resolution_options_for_drift(self, detector: TemporalDriftDetector):
+        """Temporal drift has no resolution options (acceptance retired)."""
         summary = _MockDriftSummary("amount", 0.8, 0.4, 5, 4)
         context = DetectorContext(
             table_name="orders",
@@ -580,8 +578,7 @@ class TestTemporalDriftDetector:
             },
         )
         results = detector.detect(context)
-        actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_accepted_temporal_drift" in actions
+        assert results[0].resolution_options == []
 
     def test_skip_key_column(self, detector: TemporalDriftDetector):
         """Drift detection is skipped for key columns."""

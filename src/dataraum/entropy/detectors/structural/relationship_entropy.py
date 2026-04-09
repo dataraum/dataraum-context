@@ -181,7 +181,7 @@ class RelationshipEntropyDetector(EntropyDetector):
                 if not is_confirmed:
                     resolution_options.append(
                         ResolutionOption(
-                            action="document_relationship",
+                            action="relationship",
                             parameters={
                                 "from_table": from_table,
                                 "to_table": to_table,
@@ -191,33 +191,6 @@ class RelationshipEntropyDetector(EntropyDetector):
                             description=f"Confirm relationship between {from_table} and {to_table}",
                         )
                     )
-
-                if ri_entropy > 0.3:
-                    resolution_options.append(
-                        ResolutionOption(
-                            action="transform_fix_referential_integrity",
-                            parameters={
-                                "from_table": from_table,
-                                "to_table": to_table,
-                                "orphan_count": orphan_count,
-                            },
-                            effort="high",
-                            description="Fix referential integrity issues (orphan records)",
-                        )
-                    )
-
-            if score > 0:
-                resolution_options.append(
-                    ResolutionOption(
-                        action="document_accepted_relationship_quality",
-                        parameters={
-                            "column": context.column_name,
-                            "detector_id": self.detector_id,
-                        },
-                        effort="low",
-                        description="Accept relationship quality findings as expected",
-                    )
-                )
 
             objects.append(
                 self.create_entropy_object(

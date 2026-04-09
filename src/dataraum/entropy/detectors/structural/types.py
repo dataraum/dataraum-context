@@ -136,7 +136,7 @@ class TypeFidelityDetector(EntropyDetector):
         if score > suggest_override:
             resolution_options.append(
                 ResolutionOption(
-                    action="document_type_pattern",
+                    action="type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": "VARCHAR",
@@ -150,7 +150,7 @@ class TypeFidelityDetector(EntropyDetector):
             # Fallback columns always need type review
             resolution_options.append(
                 ResolutionOption(
-                    action="document_type_pattern",
+                    action="type_pattern",
                     parameters={
                         "column": context.column_name,
                         "suggested_type": str(detected_type) if detected_type else "VARCHAR",
@@ -160,44 +160,17 @@ class TypeFidelityDetector(EntropyDetector):
                 )
             )
 
-        if score > suggest_quarantine and failed_examples:
-            resolution_options.append(
-                ResolutionOption(
-                    action="transform_quarantine_values",
-                    parameters={
-                        "column": context.column_name,
-                        "pattern": "non_parseable",
-                    },
-                    effort="medium",
-                    description="Move non-parseable values to quarantine table",
-                )
-            )
-
         if score > suggest_quarantine:
             # Force a different type (e.g. VARCHAR) to avoid quarantine
             resolution_options.append(
                 ResolutionOption(
-                    action="document_type_override",
+                    action="type_override",
                     parameters={
                         "column": context.column_name,
                         "detected_type": str(detected_type) if detected_type else "VARCHAR",
                     },
                     effort="low",
                     description="Force a specific type for this column, overriding type inference",
-                )
-            )
-
-        if score > 0:
-            # Accept finding: user reviewed, type fidelity issue is expected
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_accepted_type_fidelity",
-                    parameters={
-                        "column": context.column_name,
-                        "detector_id": self.detector_id,
-                    },
-                    effort="low",
-                    description="Accept type fidelity findings as expected for this column",
                 )
             )
 

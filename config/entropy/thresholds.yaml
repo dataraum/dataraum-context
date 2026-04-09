@@ -17,12 +17,8 @@ detectors:
   # --------------------------------------------------------------------------
   # Formula: entropy = 1.0 - parse_success_rate
   type_fidelity:
-    # Thresholds for resolution suggestions
     suggest_override_threshold: 0.3 # Score above which to suggest type override
     suggest_quarantine_threshold: 0.1 # Score above which to suggest quarantine
-    # Expected entropy reduction factors (multiplied by score)
-    reduction_override: 0.8
-    reduction_quarantine: 0.9
 
   # --------------------------------------------------------------------------
   # NULL RATIO DETECTOR (value.nulls.null_ratio)
@@ -34,13 +30,7 @@ detectors:
     impact_moderate: 0.20 # < 20% nulls = moderate impact
     impact_significant: 0.50 # < 50% nulls = significant impact
     # >= 50% = critical impact
-    # Resolution thresholds
     suggest_declare_threshold: 0.1 # Score above which to suggest null meaning declaration
-    suggest_filter_threshold: 0.4 # Score above which to suggest filtering
-    # Expected entropy reduction factors
-    reduction_declare: 0.3
-    reduction_filter: 0.8
-    reduction_impute: 0.6
 
   # --------------------------------------------------------------------------
   # OUTLIER RATE DETECTOR (value.outliers.outlier_rate)
@@ -61,13 +51,7 @@ detectors:
     # High-CV columns (e.g., FX rates spanning 0.7–150) have naturally wide
     # ranges — IQR "outliers" are legitimate values, not quality issues.
     cv_attenuation_threshold: 2.0  # CV above which to attenuate outlier score (proportional dampening)
-    # Resolution thresholds (based on score)
-    suggest_winsorize_threshold: 0.2 # Score above which to suggest winsorization
-    suggest_exclude_threshold: 0.5 # Score above which to suggest exclusion
-    # Expected entropy reduction factors
-    reduction_winsorize: 0.7
-    reduction_exclude: 0.9
-    reduction_investigate: 0.5
+    suggest_exclude_threshold: 0.5 # Score above which to suggest investigation
 
   # --------------------------------------------------------------------------
   # JOIN PATH DETERMINISM DETECTOR (structural.relations.join_path_determinism)
@@ -77,9 +61,6 @@ detectors:
     score_orphan: 0.9 # No relationships (isolated table)
     score_deterministic: 0.1 # Each connected table has exactly one path (star schema OK)
     score_ambiguous: 0.7 # Multiple paths to at least one table
-    # Expected entropy reduction
-    reduction_declare_relationship: 0.8
-    reduction_declare_preferred_path: 0.5
 
   # --------------------------------------------------------------------------
   # RELATIONSHIP ENTROPY DETECTOR (structural.relations.relationship_quality)
@@ -94,7 +75,6 @@ detectors:
       # just terminology is wrong (common with multi-tenant data)
     score_unconfirmed: 0.2 # Known type but not human-confirmed (LLM + good RI is strong signal)
     score_unknown_type: 0.6 # Unknown relationship type
-    reduction_verify_relationship: 0.6
     # Component weights for weighted average (replaces MAX aggregation)
     component_weights:
       referential_integrity: 0.5
@@ -111,10 +91,6 @@ detectors:
     match_near_exact: 0.95 # >= 95% = near exact
     match_approximate: 0.80 # >= 80% = approximate
     # < 80% = poor match
-    # Expected entropy reduction
-    reduction_declare_formula: 0.8
-    reduction_verify_formula: 0.7 # Multiplied by score
-    reduction_investigate: 0.5 # Multiplied by score
 
   # --------------------------------------------------------------------------
   # BUSINESS MEANING DETECTOR (semantic.business_meaning.naming_clarity)
@@ -130,10 +106,6 @@ detectors:
     # At 0.5, a confidence of 0.25 gives penalty = 0.375, crossing the 0.3 threshold.
     confidence_weight: 0.5
     ontology_bonus: 0.1 # Reduction if business_concept is present
-    # Expected entropy reduction
-    reduction_add_description: 0.8
-    reduction_add_business_name: 0.2
-    reduction_add_entity_type: 0.15
 
   # --------------------------------------------------------------------------
   # UNIT ENTROPY DETECTOR (semantic.units.unit_declaration)
@@ -144,7 +116,6 @@ detectors:
     score_low_confidence: 0.5 # Unit detected but low confidence
     score_declared: 0.1 # Unit declared with high confidence
     confidence_threshold: 0.5 # Below this = low confidence
-    reduction_document_unit: 0.8
 
   # --------------------------------------------------------------------------
   # BENFORD DETECTOR (value.distribution.benford_compliance)
@@ -155,7 +126,6 @@ detectors:
     score_non_compliant: 0.7   # Non-compliant = high entropy
     chi_sq_escalation_threshold: 0.01  # p-value below this → use chi-sq severity
     chi_sq_log_max: 3.0        # log10(chi_sq) at which score reaches 1.0 (chi_sq=1000)
-    reduction_investigate: 0.5
 
   # --------------------------------------------------------------------------
   # DIMENSIONAL ENTROPY DETECTOR (semantic.dimensional.cross_column_patterns)
@@ -182,7 +152,6 @@ detectors:
     score_unmarked: 0.6 # Date type but not marked as timestamp
     score_mismatch: 0.8 # Marked as timestamp but not date type
     score_aligned: 0.1 # Properly identified temporal column
-    reduction_mark_timestamp: 0.6
 
 # ============================================================================
 # DIMENSION DISPLAY LABELS

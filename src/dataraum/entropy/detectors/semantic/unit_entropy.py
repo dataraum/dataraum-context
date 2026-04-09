@@ -141,7 +141,7 @@ class UnitEntropyDetector(EntropyDetector):
         if score > 0.3:  # Only suggest resolution for high-entropy columns
             resolution_options.append(
                 ResolutionOption(
-                    action="document_unit",
+                    action="concept_property",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,
@@ -153,7 +153,7 @@ class UnitEntropyDetector(EntropyDetector):
             )
             resolution_options.append(
                 ResolutionOption(
-                    action="document_unit_source",
+                    action="concept_property",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,

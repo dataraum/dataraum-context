@@ -119,7 +119,6 @@ class OutlierRateDetector(EntropyDetector):
         score_at_minimal = detector_config.get("score_at_minimal", 0.15)
         score_at_moderate = detector_config.get("score_at_moderate", 0.40)
         score_at_significant = detector_config.get("score_at_significant", 0.65)
-        suggest_winsorize = detector_config.get("suggest_winsorize_threshold", 0.2)
         suggest_exclude = detector_config.get("suggest_exclude_threshold", 0.5)
         cv_attenuation_threshold = detector_config.get("cv_attenuation_threshold", 2.0)
         stats = context.get_analysis("statistics", {})
@@ -354,21 +353,6 @@ class OutlierRateDetector(EntropyDetector):
         # Build resolution options using configurable thresholds
         resolution_options: list[ResolutionOption] = []
 
-        if score > suggest_winsorize:
-            # Some outliers - suggest capping or exclusion
-            resolution_options.append(
-                ResolutionOption(
-                    action="transform_winsorize",
-                    parameters={
-                        "column": context.column_name,
-                        "lower_percentile": 1,
-                        "upper_percentile": 99,
-                    },
-                    effort="low",
-                    description="Cap extreme values at specified percentiles",
-                )
-            )
-
         if score > suggest_exclude:
             # High outliers - suggest review or removal
             resolution_options.append(
@@ -379,20 +363,6 @@ class OutlierRateDetector(EntropyDetector):
                     },
                     effort="high",
                     description="Manual review of outlier values for data quality issues",
-                )
-            )
-
-        if score > 0:
-            # Accept finding: user reviewed, outliers are expected for this column
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_accepted_outlier_rate",
-                    parameters={
-                        "column": context.column_name,
-                        "detector_id": self.detector_id,
-                    },
-                    effort="low",
-                    description="Accept outlier findings as expected for this column",
                 )
             )
 

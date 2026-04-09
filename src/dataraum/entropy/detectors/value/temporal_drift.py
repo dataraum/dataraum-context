@@ -6,7 +6,7 @@ Uses max Jensen-Shannon divergence from ColumnDriftSummary records.
 
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
-from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.entropy.models import EntropyObject
 
 
 class TemporalDriftDetector(EntropyDetector):
@@ -144,26 +144,11 @@ class TemporalDriftDetector(EntropyDetector):
 
         evidence = [evidence_data]
 
-        # Resolution options — only actions backed by fix_schemas
-        resolution_options: list[ResolutionOption] = []
-        if score > 0:
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_accepted_temporal_drift",
-                    parameters={
-                        "column": context.column_name,
-                        "detector_id": self.detector_id,
-                    },
-                    effort="low",
-                    description="Accept temporal drift as expected (seasonal, growth, etc.)",
-                )
-            )
-
         return [
             self.create_entropy_object(
                 context=context,
                 score=score,
                 evidence=evidence,
-                resolution_options=resolution_options,
+                resolution_options=[],
             )
         ]

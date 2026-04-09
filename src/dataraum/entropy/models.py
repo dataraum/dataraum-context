@@ -23,7 +23,7 @@ class ResolutionOption:
     Prioritization is done by the Bayesian network's impact_delta.
     """
 
-    action: str  # e.g., "document_unit", "document_description", "transform_filter_nulls"
+    action: str  # e.g., "concept_property", "type_pattern", "relationship"
     parameters: dict[str, Any]  # Action-specific parameters
     effort: str  # "low", "medium", "high"
     description: str = ""  # Human-readable description
@@ -57,11 +57,6 @@ class EntropyObject:
     computed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     source_analysis_ids: list[str] = field(default_factory=list)  # Links to source analyses
     detector_id: str = ""  # Which detector produced this
-
-    # Business pattern filter (set by pattern_filter at gate time)
-    expected_business_pattern: str | None = None
-    business_rule: str | None = None
-    filter_confidence: float | None = None
 
     @property
     def dimension_path(self) -> str:

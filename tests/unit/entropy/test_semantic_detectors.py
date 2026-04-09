@@ -198,7 +198,7 @@ class TestBusinessMeaningDetector:
         results = detector.detect(context)
 
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_business_name" in actions
+        assert "concept_property" in actions
         # All three fields should be listed as missing
         opt = results[0].resolution_options[0]
         assert set(opt.parameters["missing_fields"]) == {
@@ -224,7 +224,7 @@ class TestBusinessMeaningDetector:
         results = detector.detect(context)
 
         actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_business_name" in actions
+        assert "concept_property" in actions
         # Has description, so only business_name and entity_type are missing
         opt = results[0].resolution_options[0]
         assert "description" not in opt.parameters["missing_fields"]

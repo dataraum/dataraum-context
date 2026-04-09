@@ -75,7 +75,7 @@ class MetadataInterpreter:
 
         For markers (no ``model`` in payload), the DataFix record itself
         is the fix — nothing to patch on an ORM model.  This covers
-        acceptance markers and DataFix-only fixes (e.g. document_join_path).
+        explanation markers and DataFix-only teaches (e.g. relationship).
 
         For model-based fixes, resolves the target row, applies field
         updates, and runs model-specific side effects (e.g. setting
@@ -90,9 +90,9 @@ class MetadataInterpreter:
             ValueError: If the model is unknown or the target row is not found.
         """
         if "model" not in doc.payload:
-            # Marker — the persisted DataFix record is the fix.
-            # Gate queries DataFix for acceptance; detectors query
-            # DataFix for join preferences and documented patterns.
+            # Marker — the persisted DataFix record is the teaching.
+            # Detectors query DataFix for documented preferences
+            # (e.g. join path, relationship declarations).
             logger.info(
                 "metadata_marker_recorded",
                 action=doc.action,
@@ -244,11 +244,11 @@ def _apply_model_defaults(model_name: str, instance: Any) -> None:
     Always unconditional so that replayed fixes update the audit trail.
     """
     if model_name == "SemanticAnnotation":
-        instance.annotation_source = "fix_system"
+        instance.annotation_source = "teach"
     elif model_name == "Relationship":
         instance.is_confirmed = True
         instance.confirmed_at = datetime.now(UTC)
-        instance.confirmed_by = "fix_system"
+        instance.confirmed_by = "teach"
 
 
 # ---------------------------------------------------------------------------

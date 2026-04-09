@@ -154,6 +154,19 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - Relationship filter in induction context: `detection_method != "candidate"` (LLM-confirmed only)
 - **Status**: pending
 
+## 2026-04-09: DAT-256 — Fix System Retirement
+
+### dataraum-eval
+- **Changed**: entropy detectors, measurement.py, pipeline/fixes/
+- **Affects**: `measure` tool response (no more `accepted_targets` or `filter_applied` fields in MeasurementResult), `check_contracts` simplified (no acceptance exclusion parameter)
+- **Resolution option action names renamed**: `document_type_pattern` → `type_pattern`, `document_business_name` → `concept_property`, `document_unit`/`document_unit_source` → `concept_property`, `document_timestamp_role` → `concept_property`, `document_relationship` → `relationship`, `confirm_expected_pattern` → `explanation`. All `document_accepted_*` and `transform_*` options deleted.
+- **Deleted**: `fix_schemas.py`, `pattern_filter.py`, `fixes/api.py`, `fixes/bridge.py`, `FixSchema`, `FixSchemaField`, `FixInput`
+- **Kept (for teach DAT-251)**: `ConfigInterpreter`, `MetadataInterpreter`, `DataFix`, `FixDocument`, `DataFixesPhase`, `apply_config_yaml`
+- **EntropyObjectRecord schema change**: `filter_confidence`, `expected_business_pattern`, `business_rule` columns removed. Existing workspace DBs need recreation.
+- **Calibrate**: If eval reads `accepted_targets` or `filter_applied` from MeasurementResult, those fields are gone. If eval checks resolution option action names, update to new names.
+- **Notes**: `interpreters.py` now sets `annotation_source="teach"` and `confirmed_by="teach"` (was `"fix_system"`). `_get_preferred_joins` in relations detector queries `action == "relationship"` (was `"document_join_path"`).
+- **Status**: pending
+
 <!--
 ## YYYY-MM-DD: brief description
 

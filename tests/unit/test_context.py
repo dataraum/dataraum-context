@@ -106,7 +106,7 @@ class TestActionsResultWrapper:
         wrapper = ActionsResultWrapper(
             [
                 {
-                    "action": "document_unit",
+                    "action": "concept_property",
                     "priority_score": 0.8,
                     "effort": "low",
                     "affected_columns": ["a.b", "c.d"],
@@ -120,10 +120,10 @@ class TestActionsResultWrapper:
             ]
         )
         assert len(wrapper) == 2
-        assert wrapper[0]["action"] == "document_unit"
+        assert wrapper[0]["action"] == "concept_property"
 
         html = wrapper._repr_html_()
-        assert "document_unit" in html
+        assert "concept_property" in html
         assert "investigate_outliers" in html
         assert "2" in html  # count in header
 

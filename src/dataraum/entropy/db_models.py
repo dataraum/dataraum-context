@@ -67,11 +67,6 @@ class EntropyObjectRecord(Base):
         JSON_TYPE
     )  # Links to source analyses
 
-    # Business pattern filter (set by pattern_filter at gate time)
-    expected_business_pattern: Mapped[str | None] = mapped_column(String, nullable=True)
-    business_rule: Mapped[str | None] = mapped_column(String, nullable=True)
-    filter_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-
     # Timestamps
     computed_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)

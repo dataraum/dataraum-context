@@ -27,7 +27,7 @@ def _get_preferred_joins(context: DetectorContext) -> dict[str, object]:
         context.session.execute(
             select(DataFix).where(
                 DataFix.source_id == context.source_id,
-                DataFix.action == "document_join_path",
+                DataFix.action == "relationship",
                 DataFix.status == "applied",
             )
         )
@@ -170,7 +170,7 @@ class JoinPathDeterminismDetector(EntropyDetector):
         if path_status == "orphan":
             resolution_options.append(
                 ResolutionOption(
-                    action="document_relationship",
+                    action="relationship",
                     parameters={"table": context.table_name, "type": "foreign_key"},
                     effort="medium",
                     description="Declare a relationship to connect this table to the schema",
@@ -179,7 +179,7 @@ class JoinPathDeterminismDetector(EntropyDetector):
         elif path_status == "ambiguous":
             resolution_options.append(
                 ResolutionOption(
-                    action="document_join_path",
+                    action="relationship",
                     parameters={
                         "table": context.table_name,
                         "ambiguous_targets": ambiguous_tables,

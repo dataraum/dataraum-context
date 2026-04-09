@@ -33,10 +33,6 @@ class MeasurementResult:
     # Per-target component evidence: dim_path -> target -> {component_key: value}
     # Enables smart context: LLM sees which component drives each column's score
     column_evidence: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
-    # dim_path -> {target, ...} — targets accepted via DataFix records
-    accepted_targets: dict[str, set[str]] = field(default_factory=dict)
-    # target -> filter_confidence — records discounted by business pattern filter
-    filter_applied: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -49,40 +45,6 @@ class ContractViolation:
     producing_phase: str  # phase after which this was measured
     affected_targets: list[str] = field(default_factory=list)
     available_actions: list[str] = field(default_factory=list)
-
-
-def _get_accepted_targets(
-    session: Session,
-    source_id: str,
-) -> dict[str, set[str]]:
-    """Query DataFix for accepted targets grouped by dimension.
-
-    Returns a dict mapping dimension_path to a set of target strings
-    (e.g. ``"column:orders.amount"``, ``"table:orders"``).
-    Only considers applied ``document_accepted_*`` DataFix records.
-    """
-    from dataraum.pipeline.fixes.models import DataFix
-
-    fixes = (
-        session.execute(
-            select(DataFix).where(
-                DataFix.source_id == source_id,
-                DataFix.action.like("document_accepted_%"),
-                DataFix.status == "applied",
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    result: dict[str, set[str]] = defaultdict(set)
-    for fix in fixes:
-        if fix.column_name:
-            target = f"column:{fix.table_name}.{fix.column_name}"
-        else:
-            target = f"table:{fix.table_name}"
-        result[fix.dimension].add(target)
-    return dict(result)
 
 
 def _collect_evidence(
@@ -153,18 +115,12 @@ def measure_entropy(
     if not records:
         return MeasurementResult()
 
-    # Apply business pattern filter before aggregation
-    from dataraum.entropy.pattern_filter import CONFIDENCE_THRESHOLD, apply_pattern_filter
-
-    records = apply_pattern_filter(session, source_id, records)
-
     scores_by_dim: dict[str, list[float]] = defaultdict(list)
     column_scores: dict[str, dict[str, float]] = defaultdict(dict)
     table_scores: dict[str, dict[str, float]] = defaultdict(dict)
     view_scores: dict[str, dict[str, float]] = defaultdict(dict)
     actions_by_dim: dict[str, set[str]] = defaultdict(set)
     evidence_by_dim: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
-    filter_applied: dict[str, float] = {}
 
     for record in records:
         sub_dim = record.sub_dimension
@@ -172,13 +128,6 @@ def measure_entropy(
         scope = scope_by_detector.get(record.detector_id, "column")
 
         scores_by_dim[sub_dim].append(record.score)
-
-        # Track filtered records
-        if (
-            record.filter_confidence is not None
-            and record.filter_confidence >= CONFIDENCE_THRESHOLD
-        ):
-            filter_applied[target] = record.filter_confidence
 
         # Route to column/table/view details by scope
         if scope == "table":
@@ -232,9 +181,6 @@ def measure_entropy(
         path = sub_dim_to_path.get(sd, sd)
         result_evidence[path] = targets_ev
 
-    # Query DataFix for accepted targets
-    accepted = _get_accepted_targets(session, source_id)
-
     return MeasurementResult(
         scores=result_scores,
         column_details=result_column_details,
@@ -242,8 +188,6 @@ def measure_entropy(
         view_details=result_view_details,
         resolution_actions=result_actions,
         column_evidence=result_evidence,
-        accepted_targets=accepted,
-        filter_applied=filter_applied,
     )
 
 
@@ -282,15 +226,8 @@ def check_contracts(
     column_details: dict[str, dict[str, float]],
     producing_phase: str,
     resolution_actions: dict[str, set[str]] | None = None,
-    accepted_targets: dict[str, set[str]] | None = None,
 ) -> list[ContractViolation]:
     """Check scores against contract thresholds.
-
-    Accepted targets (from DataFix records) are excluded from violation
-    assessment.  The dimension score is still computed from all targets,
-    but only non-accepted targets above threshold count as affected.
-    If every above-threshold target is accepted, the dimension is not
-    reported as a violation (contract overrule).
 
     Args:
         scores: Dimension path -> score mapping.
@@ -298,10 +235,7 @@ def check_contracts(
         column_details: Per-column scores for affected target identification.
         producing_phase: Phase name where measurement occurred.
         resolution_actions: Dimension path -> action names from detector
-            resolution options. Used to filter fix schemas to only those
-            the detectors actually recommended.
-        accepted_targets: Dimension path -> set of accepted target strings
-            from DataFix records.
+            resolution options (teach type names).
 
     Returns:
         List of contract violations found.
@@ -309,25 +243,12 @@ def check_contracts(
     if not thresholds or not scores:
         return []
 
-    accepted = accepted_targets or {}
-
     issues: list[ContractViolation] = []
     for dimension_path, score in scores.items():
         threshold = match_threshold(dimension_path, thresholds)
         if threshold is not None and score > threshold:
             col_scores = column_details.get(dimension_path, {})
-            dim_accepted = accepted.get(dimension_path, set())
-
-            # Filter: only non-accepted targets above threshold are violations
-            above_threshold = [t for t, s in col_scores.items() if s > threshold]
-            affected = [t for t in above_threshold if t not in dim_accepted]
-
-            # Contract overrule: if all above-threshold targets are accepted,
-            # the dimension is acknowledged — don't report as violation.
-            # Only applies when we have column-level detail; if no column
-            # details exist, the dimension score alone triggers the violation.
-            if above_threshold and not affected:
-                continue
+            affected = [t for t, s in col_scores.items() if s > threshold]
 
             actions = resolution_actions.get(dimension_path, set()) if resolution_actions else set()
             issues.append(

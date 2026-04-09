@@ -112,14 +112,14 @@ class TestSerializeResolutionOptions:
 
     def test_preserves_all_fields(self):
         opt = make_resolution_option(
-            action="document_unit",
+            action="concept_property",
             effort="medium",
             description="Add unit annotation",
         )
         result = _serialize_resolution_options([opt])
         assert len(result) == 1
         d = result[0]
-        assert d["action"] == "document_unit"
+        assert d["action"] == "concept_property"
         assert d["effort"] == "medium"
         assert d["description"] == "Add unit annotation"
         assert d["parameters"] == {"key": "value"}
@@ -803,7 +803,7 @@ class TestFormatNetworkContext:
                 example_columns=["column:fx_rates.rate", "column:amounts.val"],
                 resolution_options=[
                     {
-                        "action": "document_unit",
+                        "action": "concept_property",
                         "description": "Add unit annotation",
                         "effort": "low",
                         "parameters": {},
@@ -816,7 +816,7 @@ class TestFormatNetworkContext:
         tf = result["top_fix"]
         assert tf["node"] == "unit_declaration"
         assert tf["columns_affected"] == 7
-        assert tf["best_action"]["action"] == "document_unit"
+        assert tf["best_action"]["action"] == "concept_property"
 
     def test_at_risk_columns_shown(self):
         ctx = EntropyForNetwork(

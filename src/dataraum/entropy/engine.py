@@ -261,9 +261,6 @@ def _make_record(
         evidence=entropy_obj.evidence,
         resolution_options=resolution_dicts if resolution_dicts else None,
         detector_id=entropy_obj.detector_id,
-        expected_business_pattern=entropy_obj.expected_business_pattern,
-        business_rule=entropy_obj.business_rule,
-        filter_confidence=entropy_obj.filter_confidence,
     )
 
 

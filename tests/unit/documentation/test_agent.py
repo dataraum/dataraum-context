@@ -30,7 +30,7 @@ Dimension: value.nulls.null_ratio
 Score: 0.70 (threshold: 0.30)
 Affected columns: column:orders.amount, column:orders.name
 
---- Action 1: document_accepted_null_ratio ---
+--- Action 1: concept_property ---
 Guidance: Accept null ratio as expected.
 </available_actions>"""
 
@@ -44,7 +44,7 @@ class TestGenerateBatchPlan:
             "items": [
                 {
                     "target": "column:orders.amount",
-                    "recommended_action": "document_accepted_null_ratio",
+                    "recommended_action": "concept_property",
                     "reason": "Optional field",
                     "parameters": {},
                 },
@@ -68,7 +68,7 @@ class TestGenerateBatchPlan:
         plan = result.unwrap()
         assert isinstance(plan, BatchActionPlan)
         assert len(plan.items) == 1
-        assert plan.items[0].recommended_action == "document_accepted_null_ratio"
+        assert plan.items[0].recommended_action == "concept_property"
 
     def test_llm_failure(self) -> None:
         agent, provider = _make_agent()

@@ -24,8 +24,6 @@ from dataraum.entropy.models import (
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-    from dataraum.pipeline.fixes.models import FixSchema
-
 
 @dataclass
 class DetectorContext:
@@ -246,29 +244,6 @@ class DetectorRegistry:
             List of detector IDs
         """
         return list(self.detectors.keys())
-
-    def get_fix_schema(
-        self, action_name: str, dimension_path: str | None = None
-    ) -> FixSchema | None:
-        """Find a FixSchema by action name, optionally scoped by dimension.
-
-        Delegates to the YAML fix schema loader.
-
-        Each action name is now unique (e.g. ``document_accepted_null_ratio``).
-        *dimension_path* can still be used to scope the search to a specific
-        detector.
-
-        Args:
-            action_name: The action to look up.
-            dimension_path: If provided, only consider detectors whose
-                dimension_path matches.
-
-        Returns:
-            The matching FixSchema, or None if not found.
-        """
-        from dataraum.entropy.fix_schemas import get_fix_schema as yaml_get_fix_schema
-
-        return yaml_get_fix_schema(action_name, dimension_path=dimension_path)
 
 
 # Global registry instance

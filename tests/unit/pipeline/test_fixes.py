@@ -1,37 +1,11 @@
-"""Tests for inline fix data models and config YAML utilities."""
+"""Tests for config YAML patch utilities."""
 
 from pathlib import Path
 
 import pytest
 import yaml
 
-from dataraum.pipeline.fixes import (
-    FixInput,
-    apply_config_yaml,
-)
-
-
-class TestFixInput:
-    """Tests for FixInput dataclass."""
-
-    def test_create_with_all_fields(self) -> None:
-        fix_input = FixInput(
-            action_name="document_accepted_outlier_rate",
-            parameters={"method": "iqr"},
-            interpretation="User wants to accept outlier findings",
-            affected_columns=["orders.amount", "orders.quantity"],
-            entropy_evidence={"outlier_rate": 0.15, "method": "iqr"},
-        )
-        assert fix_input.action_name == "document_accepted_outlier_rate"
-        assert fix_input.parameters["method"] == "iqr"
-        assert len(fix_input.affected_columns) == 2
-
-    def test_defaults(self) -> None:
-        fix_input = FixInput(action_name="document_unit")
-        assert fix_input.parameters == {}
-        assert fix_input.interpretation == ""
-        assert fix_input.affected_columns == []
-        assert fix_input.entropy_evidence == {}
+from dataraum.pipeline.fixes import apply_config_yaml
 
 
 class TestApplyConfigYamlSet:

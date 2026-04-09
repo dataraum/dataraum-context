@@ -110,7 +110,7 @@ def _select_best_candidates(
     """Select best type candidate per column.
 
     Priority:
-    0. Config-driven forced types (from document_type_override fix)
+    0. Config-driven forced types (from type_override teach)
     1. TypeDecision (human override) if exists
     2. Highest confidence TypeCandidate >= threshold
     3. Fallback to VARCHAR
@@ -123,7 +123,7 @@ def _select_best_candidates(
     specs = []
 
     for col in sorted(columns, key=lambda c: c.column_position):
-        # Check config-driven forced types (from document_type_override fix)
+        # Check config-driven forced types (from type_override teach)
         # Value can be a string ("VARCHAR") or a dict ({"target_type": "VARCHAR"})
         # depending on how the fix bridge wrote it.
         forced_key = f"{table_name}.{col.column_name}"
@@ -136,7 +136,7 @@ def _select_best_candidates(
                     column_name=col.column_name,
                     data_type=DataType[forced_type],
                     decision_source="override",
-                    decision_reason=f"Forced to {forced_type} via document_type_override fix",
+                    decision_reason=f"Forced to {forced_type} via type_override teach",
                 )
             )
             continue
@@ -256,7 +256,7 @@ def resolve_types(
         session: SQLAlchemy session
         min_confidence: Minimum confidence threshold for automatic type selection
         forced_types: Optional dict of "table.column" -> type name overrides
-            from document_type_override fixes
+            from type_override teaches
 
     Returns:
         Result containing TypeResolutionResult with table names and row counts

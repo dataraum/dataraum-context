@@ -1,42 +1,15 @@
-"""Inline fix data models and config patch utilities.
+"""Config patch utilities for the teach/fix infrastructure.
 
-Core types for the inline fix system:
-- FixInput: Structured user decision after agent interpretation
-- apply_fixes: Public API for applying fixes and re-running the pipeline
-
-And the utility to apply config changes to YAML files on disk.
+Provides ``apply_config_yaml`` for writing structured changes to YAML
+config files on disk.  Used by the teach tool and ConfigInterpreter.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-
-@dataclass
-class FixInput:
-    """Structured user decision after agent interpretation.
-
-    Produced by the BatchPlanAgent or MCP apply_fix, consumed by the bridge
-    function to build FixDocuments.
-
-    Args:
-        action_name: The entropy action being addressed, e.g. "document_accepted_outlier_rate".
-        parameters: Structured parameters from user interaction.
-        interpretation: Agent's interpretation of user answers.
-        affected_columns: Which columns this fix applies to, e.g. ["orders.amount"].
-        entropy_evidence: Evidence from the detector that triggered this fix.
-    """
-
-    action_name: str
-    dimension: str = ""
-    parameters: dict[str, Any] = field(default_factory=dict)
-    interpretation: str = ""
-    affected_columns: list[str] = field(default_factory=list)
-    entropy_evidence: dict[str, Any] = field(default_factory=dict)
 
 
 def apply_config_yaml(
@@ -151,15 +124,3 @@ def _apply_operation(
 
     else:
         raise ValueError(f"Unknown operation: {operation!r} (expected set/append/remove/merge)")
-
-
-# Re-export public API for convenience
-# Lazy to avoid circular imports (api.py imports from this package's submodules)
-def __getattr__(name: str) -> Any:
-    if name in ("apply_fixes", "ApplyFixResult"):
-        from dataraum.pipeline.fixes.api import ApplyFixResult, apply_fixes
-
-        globals()["apply_fixes"] = apply_fixes
-        globals()["ApplyFixResult"] = ApplyFixResult
-        return globals()[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

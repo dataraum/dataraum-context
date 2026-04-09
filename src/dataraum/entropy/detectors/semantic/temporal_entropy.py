@@ -169,7 +169,7 @@ class TemporalEntropyDetector(EntropyDetector):
         if temporal_status == "unmarked":
             resolution_options.append(
                 ResolutionOption(
-                    action="document_timestamp_role",
+                    action="concept_property",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,
@@ -182,7 +182,7 @@ class TemporalEntropyDetector(EntropyDetector):
         elif temporal_status == "mismatch":
             resolution_options.append(
                 ResolutionOption(
-                    action="document_type_pattern",
+                    action="type_pattern",
                     parameters={
                         "column": context.column_name,
                         "table": context.table_name,

@@ -27,7 +27,7 @@ class TestLogFix:
         entry = log_fix(
             session=session,
             source_id=source_id,
-            action_name="document_unit",
+            action_name="concept_property",
             table_name="transactions",
             column_name="amount",
             user_input="The amount is always in EUR",
@@ -36,7 +36,7 @@ class TestLogFix:
 
         assert entry.fix_id is not None
         assert entry.source_id == source_id
-        assert entry.action_name == "document_unit"
+        assert entry.action_name == "concept_property"
         assert entry.table_name == "transactions"
         assert entry.column_name == "amount"
         assert entry.status == "confirmed"
@@ -48,7 +48,7 @@ class TestLogFix:
         old = log_fix(
             session=session,
             source_id=source_id,
-            action_name="document_unit",
+            action_name="concept_property",
             table_name="transactions",
             column_name="amount",
             user_input="Amount is in USD",
@@ -59,7 +59,7 @@ class TestLogFix:
         new = log_fix(
             session=session,
             source_id=source_id,
-            action_name="document_unit",
+            action_name="concept_property",
             table_name="transactions",
             column_name="amount",
             user_input="Actually it's EUR",
@@ -81,7 +81,7 @@ class TestLogFix:
         fix_a = log_fix(
             session=session,
             source_id=source_id,
-            action_name="document_unit",
+            action_name="concept_property",
             table_name="transactions",
             column_name="amount",
             user_input="EUR",
@@ -91,7 +91,7 @@ class TestLogFix:
         fix_b = log_fix(
             session=session,
             source_id=source_id,
-            action_name="document_unit",
+            action_name="concept_property",
             table_name="transactions",
             column_name="price",
             user_input="USD",
@@ -126,7 +126,7 @@ class TestGetActiveFixes:
         log_fix(
             session=session,
             source_id=source_id,
-            action_name="document_unit",
+            action_name="concept_property",
             table_name="t",
             column_name="c",
             user_input="old",
@@ -135,7 +135,7 @@ class TestGetActiveFixes:
         log_fix(
             session=session,
             source_id=source_id,
-            action_name="document_unit",
+            action_name="concept_property",
             table_name="t",
             column_name="c",
             user_input="new",

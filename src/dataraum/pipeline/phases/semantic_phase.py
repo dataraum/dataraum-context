@@ -307,7 +307,7 @@ class SemanticPhase(BasePhase):
 
         enrichment = enrich_result.unwrap()
 
-        # Metadata fixes (e.g. document_timestamp_role, document_relationship)
+        # Metadata teaches (e.g. concept_property, relationship)
         # are replayed by DataFixesPhase which runs after semantic.
         # No config-YAML intermediary needed.
 

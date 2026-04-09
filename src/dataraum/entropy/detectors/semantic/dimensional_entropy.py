@@ -583,7 +583,7 @@ class DimensionalEntropyDetector(EntropyDetector):
 
             resolution_options = [
                 ResolutionOption(
-                    action="confirm_expected_pattern",
+                    action="explanation",
                     parameters={
                         "pattern_type": pattern.pattern_type,
                         "columns": pattern.columns,
@@ -636,7 +636,7 @@ class DimensionalEntropyDetector(EntropyDetector):
                     evidence=summary_evidence,
                     resolution_options=[
                         ResolutionOption(
-                            action="confirm_expected_pattern",
+                            action="explanation",
                             parameters={"pattern_count": entropy_score.total_patterns},
                             effort="high",
                             description=f"Document all {entropy_score.total_patterns} detected business rules",

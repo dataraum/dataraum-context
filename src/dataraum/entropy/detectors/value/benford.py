@@ -208,17 +208,6 @@ class BenfordDetector(EntropyDetector):
                     description="Investigate Benford's Law deviation — may indicate data quality issues or systematic rounding",
                 )
             )
-            resolution_options.append(
-                ResolutionOption(
-                    action="document_accepted_benford",
-                    parameters={
-                        "column": context.column_name,
-                        "detector_id": self.detector_id,
-                    },
-                    effort="low",
-                    description="Accept Benford deviation as expected for this data",
-                )
-            )
 
         return [
             self.create_entropy_object(

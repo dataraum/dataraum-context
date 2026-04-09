@@ -1,9 +1,8 @@
 """Fix document models.
 
-FixDocument is the universal fix format — what agents write and interpreters apply.
-DataFix is the ORM model that persists fix documents across pipeline re-runs.
+FixDocument is the in-memory representation of a teach/fix operation.
+DataFix is the ORM model that persists these across pipeline re-runs.
 
-A single user-facing fix action produces one or more FixDocuments (composite fix).
 Each document targets exactly one interpreter (config or metadata).
 """
 
@@ -11,11 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.sqlite import JSON
@@ -30,22 +26,21 @@ from dataraum.storage import Base
 
 @dataclass
 class FixDocument:
-    """A single atomic fix operation targeting one interpreter.
+    """A single atomic teach/fix operation targeting one interpreter.
 
-    Agents produce these by filling in a FixSchema. Each document targets
-    exactly one interpreter (config, metadata, or data). A composite fix
-    action produces an ordered list of FixDocuments.
+    Used by the teach tool to represent config writes and metadata patches.
+    Each document targets exactly one interpreter (config or metadata).
 
     Args:
         target: Which interpreter handles this: "config" or "metadata".
-        action: Human-readable action name, e.g. "document_unit".
-        table_name: Scoping — which table this fix applies to.
-        column_name: Scoping — which column (None for table-scoped fixes).
+        action: Teach type name, e.g. "concept", "relationship".
+        table_name: Scoping — which table this applies to.
+        column_name: Scoping — which column (None for table-scoped).
         dimension: Which entropy dimension this addresses.
-        payload: Target-specific data. Shape determined by the fix schema.
-        description: Human-readable summary of what this fix does.
+        payload: Target-specific data for the interpreter.
+        description: Human-readable summary.
         fix_id: Unique identifier (auto-generated).
-        ordinal: Execution order within a composite fix (0-indexed).
+        ordinal: Execution order (0-indexed).
     """
 
     target: str  # "config" | "metadata"
@@ -62,126 +57,6 @@ class FixDocument:
         if self.target not in ("config", "metadata"):
             msg = f"target must be 'config' or 'metadata', got {self.target!r}"
             raise ValueError(msg)
-
-
-@dataclass
-class FixSchemaField:
-    """A single field in a fix schema.
-
-    Tells the agent what value to provide and how to validate it.
-    """
-
-    type: str  # "string" | "float" | "int" | "bool" | "enum" | "regex" | "duckdb_sql"
-    required: bool = True
-    description: str = ""
-    default: Any = None
-    examples: list[str] | None = None
-    enum_values: list[str] | None = None
-
-
-@dataclass
-class FixSchema:
-    """Schema for a valid fix document.
-
-    Exposed by detectors to tell agents what fix documents they can write.
-    The agent fills in the fields to produce a FixDocument payload.
-
-    Args:
-        action: Action name this schema produces.
-        target: Which interpreter: "config" or "metadata".
-        description: What this fix does.
-        fields: Required/optional fields the agent must provide.
-        config_path: For config target — relative YAML path.
-        key_path: For config target — nested key path.
-        operation: For config target — set/append/merge.
-        model: For metadata target — ORM model name.
-        requires_rerun: Phase to re-run after applying (None = no re-run).
-        guidance: LLM guidance for agent Q&A.
-        key_template: Format string for merge key suffix from params
-            (e.g. "{from_table}->{to_table}"). When None, use
-            affected_column as key suffix.
-    """
-
-    action: str
-    target: str  # "config" | "metadata"
-    description: str = ""
-    fields: dict[str, FixSchemaField] = field(default_factory=dict)
-
-    # Config target specifics
-    config_path: str | None = None
-    key_path: list[str] | None = None
-    operation: str | None = None
-
-    # Metadata target specifics
-    model: str | None = None
-
-    # Routing and lifecycle
-    requires_rerun: str | None = None
-    guidance: str = ""
-    key_template: str | None = None
-    routing: str | None = None  # "preprocess" or "postprocess"
-    gate: str | None = None  # gate where this fix is offered
-    dimension_path: str = ""  # full path, e.g. "value.nulls.null_ratio"
-
-    def _build_pydantic_model(self) -> type[BaseModel] | None:
-        """Build a dynamic Pydantic model from self.fields.
-
-        Returns None if there are no fields defined.
-        """
-        if not self.fields:
-            return None
-
-        from enum import Enum
-
-        from pydantic import Field as PydanticField
-        from pydantic import create_model
-
-        _TYPE_MAP: dict[str, type] = {
-            "string": str,
-            "float": float,
-            "int": int,
-            "bool": bool,
-            "enum": str,
-            "regex": str,
-            "duckdb_sql": str,
-        }
-
-        model_fields: dict[str, Any] = {}
-        for name, f in self.fields.items():
-            field_type: type = _TYPE_MAP.get(f.type, str)
-
-            # For enum fields, create a real Enum so Pydantic emits "enum" in JSON schema
-            if f.enum_values:
-                field_type = Enum(name, {v: v for v in f.enum_values}, type=str)  # type: ignore[misc,no-redef]
-
-            field_kwargs: dict[str, Any] = {}
-            if f.description:
-                field_kwargs["description"] = f.description
-
-            if f.required and f.default is None:
-                model_fields[name] = (field_type, PydanticField(..., **field_kwargs))
-            else:
-                model_fields[name] = (field_type, PydanticField(default=f.default, **field_kwargs))
-
-        return create_model("FixParameters", **model_fields)
-
-    def validate_payload(self, payload: dict[str, Any]) -> list[str]:
-        """Validate a payload against this schema using Pydantic.
-
-        Returns:
-            List of validation error messages (empty if valid).
-        """
-        model = self._build_pydantic_model()
-        if model is None:
-            return []
-
-        from pydantic import ValidationError
-
-        try:
-            model.model_validate(payload)
-            return []
-        except ValidationError as e:
-            return [err["msg"] for err in e.errors()]
 
 
 # ---------------------------------------------------------------------------
