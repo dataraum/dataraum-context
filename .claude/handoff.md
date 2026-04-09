@@ -15,7 +15,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - `_resolve_source_path` and `_get_cached_contract` deleted — if eval patches these, remove the patches.
   - Handler signatures changed: `_measure(session, target)`, `_look(session, target, sample, *, cursor)`, etc.
   - `measure` response now shows `status: "running"` with `phases_completed` during pipeline runs (previously returned `pipeline_triggered` repeatedly).
-- **Status**: pending
+- **Status**: verified (2026-04-10, /accept handoff)
 
 ## 2026-03-26: DAT-197 — measure/look target filter fixes
 
@@ -34,6 +34,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 - **Observation**: outlier_rate detector scores 1.0 on 5 columns (invoices.amount, payments.amount, journal_lines.credit, fx_rates.rate, trial_balance.debit_balance). Score 1.0 means maximum entropy — likely a detector threshold issue, not actual data quality.
 - **Observation**: temporal_drift scores 1.0 on bank_transactions.amount. Same concern.
 - **Action**: calibration tests should verify these detectors against ground truth in entropy_map.yaml. If no injection exists for these columns, the detector is producing false positives.
+- **Status**: verified (2026-04-10, /accept handoff). Target filter, readiness, and score recomputation all working.
 
 ### Known issues (not in this handoff)
 - DAT-196: session model redesign (workspace vs. session isolation). Design doc published, blocked by DAT-197.
@@ -44,7 +45,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 - **Changed**: `src/dataraum/cli/` — removed tui, query, sources commands, dev inspect/reset. Only `run` and `dev {phases, context}` remain.
 - **Affects**: any eval harness code that calls CLI commands (e.g. `dataraum sources add`, `dataraum query`). Use MCP tools instead.
 - **Notes**: `textual` dependency removed from pyproject.toml.
-- **Status**: pending
+- **Status**: verified (2026-04-10, /accept handoff). No eval code depends on removed CLI commands.
 
 ## 2026-03-28: Package B — JSON/JSONL loader, format rejection, directory support (DAT-197, DAT-198, DAT-199)
 
@@ -58,7 +59,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 - **Notes**:
   - Nested JSON objects/arrays serialized via `to_json()` → VARCHAR (not `CAST`). Values stored as JSON strings like `{"city":"Berlin"}`.
   - Path escaping fixed across all loaders (CSV, Parquet, JSON, discovery) — single quotes in filenames no longer break SQL.
-- **Status**: pending
+- **Status**: pending (needs JSON testdata fixtures from DAT-219 for format matrix testing)
 
 ### dataraum-testdata (hints)
 - **Suggestion**: Add JSON and JSONL fixtures alongside existing CSV testdata. Same data, different format — enables format matrix testing.
@@ -83,7 +84,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - `begin_session` now checks `ANTHROPIC_API_KEY` (or configured provider's env var) and returns actionable error if missing.
   - `add_source` during active session blocked with "sources are sealed" error (not a soft hint — intentional design decision).
   - Root dir configurable via `DATARAUM_HOME` env var. `DATARAUM_OUTPUT_DIR` accepted as legacy fallback.
-- **Status**: pending
+- **Status**: partially_verified (2026-04-10, /accept handoff). begin_session + end_session work. Resume and source sealing not tested.
 
 ## 2026-03-28: Package D — Export + query UX (DAT-213, DAT-224)
 
@@ -105,7 +106,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - Export path sanitized: regex strips special chars, resolve() containment check.
   - `run_sql` tool description updated with snippet/step/column-mapping guidance (DAT-224).
   - `export_query_result()`, `export_data()`, `_export_tool_result()` all deleted. Net -300 lines.
-- **Status**: pending
+- **Status**: partially_verified (2026-04-10, /accept handoff). Truncation fields and snippet reuse verified. Export not tested.
 
 ## 2026-03-28: Import path unification + source hardening
 
@@ -113,7 +114,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 - **Changed**: `src/dataraum/pipeline/phases/import_phase.py` — `_load_from_path` now delegates to `_load_file_source`. Dead methods deleted (-255 lines). Max 20 files per source. Mixed-format directories load all formats. UTF-8 encoding error surfaced clearly.
 - **Affects**: **BREAKING** — `RunConfig(source_path="/path/to/medium/")` now prefixes table names with `{source_name}__`. Tables become `typed_medium__invoices` instead of `typed_invoices`. Eval tests that hardcode unprefixed table names (e.g. `test_tool_chain.py:202`) need updating.
 - **Action**: Update all SQL in eval that references `typed_invoices`, `typed_journal_lines`, etc. to use the prefixed form. The `source_name` is `path.stem.lower()` — for testdata at `output/medium/`, prefix is `medium__`.
-- **Status**: pending
+- **Status**: verified (2026-04-10, /accept handoff). conftest._strip_source_prefix handles it correctly.
 
 ## 2026-04-06: DAT-254 — Snippet Search + Look Enrichment + run_sql Repair
 
@@ -132,7 +133,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - `look` boundary clarified: detector evidence = context/observations, entropy scores = measure only
   - `run_sql` repair is lazy-init — no LLM cost unless SQL actually fails
   - Table layer validation (raw_ table blocking) was deferred — not implemented
-- **Status**: pending
+- **Status**: partially_verified (2026-04-10, /accept handoff). Snippet saving works. search_snippets and look column-level enrichments not tested.
 
 ## 2026-04-08: DAT-250 — Cold Start Vertical Bootstrap + Induction Agents
 
@@ -152,7 +153,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - `_adhoc` vertical scaffold always created at pipeline setup (idempotent)
   - Induction only fires when config is empty — re-runs with populated config skip induction
   - Relationship filter in induction context: `detection_method != "candidate"` (LLM-confirmed only)
-- **Status**: pending
+- **Status**: verified (2026-04-10, /accept handoff). Cold start with _adhoc vertical passes full calibration.
 
 ## 2026-04-09: DAT-256 — Fix System Retirement
 
@@ -165,7 +166,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 - **EntropyObjectRecord schema change**: `filter_confidence`, `expected_business_pattern`, `business_rule` columns removed. Existing workspace DBs need recreation.
 - **Calibrate**: If eval reads `accepted_targets` or `filter_applied` from MeasurementResult, those fields are gone. If eval checks resolution option action names, update to new names.
 - **Notes**: `interpreters.py` now sets `annotation_source="teach"` and `confirmed_by="teach"` (was `"fix_system"`). `_get_preferred_joins` in relations detector queries `action == "relationship"` (was `"document_join_path"`).
-- **Status**: pending
+- **Status**: verified (2026-04-10, /accept handoff). Dead code removed from eval runner. No eval code references deleted APIs.
 
 ## 2026-04-09: DAT-258 — Retire ResolutionOption
 
@@ -181,7 +182,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - Python SDK `DataRaumContext.actions()` method deleted.
   - All detector scoring and evidence logic untouched — only resolution_options production removed.
   - Replacement: teach system (DAT-251/DAT-257) will provide teachable inventory in `look`.
-- **Status**: pending
+- **Status**: verified (2026-04-10, /accept handoff). No eval code references resolution_actions or resolution_options.
 
 <!--
 ## YYYY-MM-DD: brief description
