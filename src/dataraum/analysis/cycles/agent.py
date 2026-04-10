@@ -167,15 +167,9 @@ class BusinessCycleAgent(LLMFeature):
     ) -> BusinessCycleAnalysis:
         """Parse submit_analysis tool input into structured analysis.
 
-        Args:
-            tool_input: The structured input from submit_analysis tool
-            context: Original context provided
-            start_time: Analysis start time
-            model: Model used for generation
-            vertical: Vertical name
-
-        Returns:
-            Structured BusinessCycleAnalysis
+        The LLM output uses a flat schema (stages and entity_flows are
+        top-level lists referencing cycles by name). This method groups
+        them back into nested DetectedCycle objects.
         """
         # Validate against Pydantic model
         try:
@@ -184,16 +178,39 @@ class BusinessCycleAgent(LLMFeature):
             logger.warning("tool_output_validation_failed", error=str(e))
             output = None
 
-        # Build cycles
+        # Group flat stages by cycle_name
+        stages_by_cycle: dict[str, list[dict[str, Any]]] = {}
+        raw_stages = (
+            [s.model_dump() for s in output.stages] if output else tool_input.get("stages", [])
+        )
+        for s in raw_stages:
+            if isinstance(s, dict):
+                stages_by_cycle.setdefault(s.get("cycle_name", ""), []).append(s)
+
+        # Group flat entity flows by cycle_name
+        flows_by_cycle: dict[str, list[dict[str, Any]]] = {}
+        raw_flows = (
+            [ef.model_dump() for ef in output.entity_flows]
+            if output
+            else tool_input.get("entity_flows", [])
+        )
+        for ef in raw_flows:
+            if isinstance(ef, dict):
+                flows_by_cycle.setdefault(ef.get("cycle_name", ""), []).append(ef)
+
+        # Build cycles from flat summaries + grouped stages/flows
         cycles = []
-        cycle_data_list = output.cycles if output else tool_input.get("cycles", [])
+        cycle_data_list = (
+            [c.model_dump() for c in output.cycles] if output else tool_input.get("cycles", [])
+        )
 
-        for cycle_data in cycle_data_list:
-            if hasattr(cycle_data, "model_dump"):
-                cd = cycle_data.model_dump()
-            else:
-                cd = cycle_data
+        for cd in cycle_data_list:
+            if not isinstance(cd, dict):
+                continue
 
+            cname = cd.get("cycle_name", "Unknown Cycle")
+
+            # Reconstruct nested stages — flat schema uses indicator_value (singular)
             entity_flows = [
                 EntityFlow(
                     entity_type=ef.get("entity_type", "unknown"),
@@ -202,17 +219,32 @@ class BusinessCycleAgent(LLMFeature):
                     fact_table=ef.get("fact_table"),
                     fact_column=ef.get("fact_column"),
                 )
-                for ef in cd.get("entity_flows", [])
+                for ef in flows_by_cycle.get(cname, [])
             ]
+
+            # Group stage entries by (stage_name, stage_order) to collect indicator_values
+            stage_map: dict[tuple[str, int], dict[str, Any]] = {}
+            for s in stages_by_cycle.get(cname, []):
+                key = (s.get("stage_name", ""), s.get("stage_order", 0))
+                if key not in stage_map:
+                    stage_map[key] = {
+                        "stage_name": s.get("stage_name", ""),
+                        "stage_order": s.get("stage_order", 0),
+                        "indicator_column": s.get("indicator_column"),
+                        "indicator_values": [],
+                    }
+                val = s.get("indicator_value")
+                if val and val not in stage_map[key]["indicator_values"]:
+                    stage_map[key]["indicator_values"].append(val)
 
             stages = [
                 CycleStage(
-                    stage_name=s.get("stage_name", ""),
-                    stage_order=s.get("stage_order", 0),
-                    indicator_column=s.get("indicator_column"),
-                    indicator_values=s.get("indicator_values", []),
+                    stage_name=sm["stage_name"],
+                    stage_order=sm["stage_order"],
+                    indicator_column=sm["indicator_column"],
+                    indicator_values=sm["indicator_values"],
                 )
-                for s in cd.get("stages", [])
+                for sm in stage_map.values()
             ]
 
             raw_cycle_type = cd.get("cycle_type", "unknown")
@@ -220,7 +252,7 @@ class BusinessCycleAgent(LLMFeature):
 
             cycle = DetectedCycle(
                 cycle_id=str(uuid4()),
-                cycle_name=cd.get("cycle_name", "Unknown Cycle"),
+                cycle_name=cname,
                 cycle_type=raw_cycle_type,
                 canonical_type=canonical_type,
                 is_known_type=is_known_type,
