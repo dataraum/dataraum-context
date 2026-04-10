@@ -225,9 +225,10 @@ def create_server(output_dir: Path | None = None) -> Server:
                     "Measure data entropy (uncertainty). Returns measurement "
                     "points per column+dimension, layer scores, and BBN readiness "
                     "per column. Triggers pipeline if no data exists yet. Use "
-                    "target to filter to a specific table or column. Poll by "
-                    "calling measure again to get partial results during a "
-                    "pipeline run."
+                    "target to filter to a specific table or column. Use "
+                    "target_phase to rerun only a specific phase and its "
+                    "dependencies (e.g. after teach). Poll by calling measure "
+                    "again to get partial results during a pipeline run."
                 ),
                 inputSchema={
                     "type": "object",
@@ -236,6 +237,14 @@ def create_server(output_dir: Path | None = None) -> Server:
                             "type": "string",
                             "description": (
                                 "Filter to a table or column. E.g. 'orders' or 'orders.amount'."
+                            ),
+                        },
+                        "target_phase": {
+                            "type": "string",
+                            "description": (
+                                "Rerun only this phase and its dependencies. "
+                                "Use after teach to see the effect of config changes. "
+                                "E.g. 'semantic', 'typing', 'validation', 'import'."
                             ),
                         },
                     },
@@ -475,6 +484,54 @@ def create_server(output_dir: Path | None = None) -> Server:
                     },
                 },
             ),
+            # --- Teaching tools ---
+            Tool(
+                name="teach",
+                description=(
+                    "Teach the system domain knowledge. This is the sole write "
+                    "tool — use it to extend the world model with concepts, "
+                    "validations, cycles, type patterns, null values, semantic "
+                    "properties, relationships, and explanations.\n\n"
+                    "Config teaches (concept, validation, cycle, type_pattern, "
+                    "null_value) write to YAML config and need a pipeline rerun "
+                    "to take effect — the response includes a measurement_hint.\n\n"
+                    "Metadata teaches (concept_property, relationship, explanation) "
+                    "apply immediately to the database and are persisted as durable "
+                    "records that survive pipeline reruns."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "required": ["type", "params"],
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "concept",
+                                "validation",
+                                "cycle",
+                                "type_pattern",
+                                "null_value",
+                                "concept_property",
+                                "relationship",
+                                "explanation",
+                            ],
+                            "description": "What kind of domain knowledge to teach.",
+                        },
+                        "target": {
+                            "type": "string",
+                            "description": (
+                                "Target specifier. Required for concept_property and "
+                                "explanation ('table.column'). Optional for relationship "
+                                "(uses from_table/from_column in params instead)."
+                            ),
+                        },
+                        "params": {
+                            "type": "object",
+                            "description": "Type-specific parameters. See each type for details.",
+                        },
+                    },
+                },
+            ),
             # --- Source management ---
             Tool(
                 name="add_source",
@@ -551,7 +608,7 @@ def create_server(output_dir: Path | None = None) -> Server:
             if active_session_id is None:
                 return _json_text_content({"error": "No active session to end."})
         else:
-            # look, measure, query, run_sql — require active session
+            # All other tools require active session
             if active_session_id is None:
                 return _json_text_content({"error": "No active session. Call begin_session first."})
 
@@ -568,10 +625,12 @@ def create_server(output_dir: Path | None = None) -> Server:
                 )
         elif name == "measure":
             measure_target = arguments.get("target")
+            measure_phase = arguments.get("target_phase")
             with mgr.session_scope() as session:
                 result = _measure(session, target=measure_target)
-            # Pipeline trigger: when no entropy data exists, start a pipeline run
-            if result.get("status") == "no_data":
+            # Pipeline trigger: when no entropy data exists OR selective rerun requested
+            needs_pipeline = result.get("status") == "no_data" or measure_phase is not None
+            if needs_pipeline:
                 ctx = server.request_context
                 measure_experimental: Experimental = ctx.experimental
                 if measure_experimental and measure_experimental.is_task:
@@ -583,7 +642,12 @@ def create_server(output_dir: Path | None = None) -> Server:
                     async def _measure_work(task: ServerTaskContext) -> CallToolResult:
                         callback = _make_task_event_callback(task, loop)
                         await asyncio.to_thread(
-                            _run_pipeline, output_dir, callback, _contract, _vertical
+                            _run_pipeline,
+                            output_dir,
+                            callback,
+                            _contract,
+                            _vertical,
+                            measure_phase,
                         )
                         with _get_manager().session_scope() as post_session:
                             measure_result = _measure(post_session, target=measure_target)
@@ -596,18 +660,22 @@ def create_server(output_dir: Path | None = None) -> Server:
                             ]
                         )
 
+                    hint = (
+                        f"Rerunning phase '{measure_phase}' and dependencies."
+                        if measure_phase
+                        else "No entropy data yet. Triggering pipeline — "
+                        "this typically takes 3-7 minutes."
+                    )
                     return await measure_experimental.run_task(
                         _measure_work,
-                        model_immediate_response=(
-                            "No entropy data yet. Triggering pipeline — "
-                            "this typically takes 3-7 minutes. "
-                            "Progress updates will follow."
-                        ),
+                        model_immediate_response=hint + " Progress updates will follow.",
                     )
                 else:
                     # No task API: fire-and-forget
                     bg = asyncio.create_task(
-                        _run_pipeline_background(output_dir, active_contract, active_vertical)
+                        _run_pipeline_background(
+                            output_dir, active_contract, active_vertical, measure_phase
+                        )
                     )
                     _background_tasks.add(bg)
                     bg.add_done_callback(_background_tasks.discard)
@@ -686,6 +754,47 @@ def create_server(output_dir: Path | None = None) -> Server:
                         export_fmt,
                         arguments.get("export_name"),
                         "run_sql",
+                    )
+        elif name == "teach":
+            from dataraum.mcp.teach import handle_teach
+
+            # Use workspace config copy (not global package config).
+            # setup_pipeline copies global config to output_dir/config/.
+            # If pipeline hasn't run yet, config_root is None and config
+            # teaches fail with a clear error.
+            workspace_config = output_dir / "config"
+            teach_config_root = workspace_config if workspace_config.is_dir() else None
+
+            with mgr.session_scope() as session:
+                source = _get_pipeline_source(session)
+                if not source:
+                    result = {"error": "No sources found. Use add_source first."}
+                else:
+                    # Resolve short table names in target and relationship params
+                    teach_target = arguments.get("target")
+                    if teach_target:
+                        teach_target = _resolve_teach_target(
+                            session, source.source_id, teach_target
+                        )
+
+                    teach_params = arguments.get("params", {})
+                    # Resolve from_table/to_table in relationship params
+                    if arguments.get("type") == "relationship":
+                        for key in ("from_table", "to_table"):
+                            if key in teach_params:
+                                resolved = _resolve_teach_target(
+                                    session, source.source_id, teach_params[key]
+                                )
+                                teach_params[key] = resolved
+
+                    result = handle_teach(
+                        teach_type=arguments["type"],
+                        params=teach_params,
+                        source_id=source.source_id,
+                        session=session,
+                        vertical=active_vertical or "_adhoc",
+                        config_root=teach_config_root,
+                        target=teach_target,
                     )
         elif name == "search_snippets":
             with mgr.session_scope() as session:
@@ -913,6 +1022,7 @@ def _run_pipeline(
     event_callback: EventCallback | None = None,
     contract: str | None = None,
     vertical: str | None = None,
+    target_phase: str | None = None,
 ) -> dict[str, Any]:
     """Run the pipeline on registered sources (multi-source mode).
 
@@ -924,6 +1034,7 @@ def _run_pipeline(
         event_callback: Optional callback for pipeline events.
         contract: Active contract name from the session.
         vertical: Domain vertical (e.g. 'finance'). None → '_adhoc'.
+        target_phase: If set, only run this phase and its dependencies.
 
     Returns:
         Dict with pipeline result.
@@ -936,6 +1047,8 @@ def _run_pipeline(
         event_callback=event_callback,
         contract=contract,
         vertical=vertical,
+        target_phase=target_phase,
+        force_phase=target_phase is not None,
     )
 
     result = run(config)
@@ -947,11 +1060,14 @@ def _run_pipeline(
 
 
 async def _run_pipeline_background(
-    output_dir: Path, contract: str | None = None, vertical: str | None = None
+    output_dir: Path,
+    contract: str | None = None,
+    vertical: str | None = None,
+    target_phase: str | None = None,
 ) -> None:
     """Run _run_pipeline in a background thread, logging errors."""
     try:
-        await asyncio.to_thread(_run_pipeline, output_dir, None, contract, vertical)
+        await asyncio.to_thread(_run_pipeline, output_dir, None, contract, vertical, target_phase)
     except Exception:
         _log.exception("Background pipeline failed for %s", output_dir)
 
@@ -1449,6 +1565,27 @@ def _begin_session(
             else "No pipeline data yet. Call measure to trigger the pipeline."
         ),
     }
+
+
+def _resolve_teach_target(session: Any, source_id: str, target: str) -> str:
+    """Resolve short table names in a teach target specifier.
+
+    Supports "invoices.amount" → "zone1__invoices.amount" via suffix matching.
+    Returns the original target if resolution fails (let downstream error).
+    """
+    from sqlalchemy import select
+
+    from dataraum.storage import Table
+
+    table_part, sep, col_part = target.partition(".")
+    # Don't filter by source_id — in multi-source mode, tables belong to
+    # the synthetic "multi_source" record, not the original source.
+    tables = list(session.execute(select(Table).where(Table.layer == "typed")).scalars().all())
+    resolved = _resolve_table_name(tables, table_part)
+    if resolved:
+        # table_name in DB has no typed_ prefix (e.g. "zone1__invoices")
+        return f"{resolved.table_name}{sep}{col_part}" if sep else resolved.table_name
+    return target
 
 
 def _resolve_table_name(tables: list[TableModel], name: str) -> TableModel | None:

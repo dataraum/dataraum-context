@@ -184,6 +184,26 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - Replacement: teach system (DAT-251/DAT-257) will provide teachable inventory in `look`.
 - **Status**: verified (2026-04-10, /accept handoff). No eval code references resolution_actions or resolution_options.
 
+## 2026-04-10: DAT-251 — teach (World Model Write Tool)
+
+### dataraum-eval
+- **Changed**: `src/dataraum/mcp/teach.py` (NEW), `src/dataraum/mcp/server.py` (teach tool + measure target_phase)
+- **Affects**: New `teach` tool (8 types), `measure` tool (new `target_phase` param)
+- **Calibrate**: Smoke test the teach → measure flow. Key scenarios:
+  1. `teach(type="concept", params={name: "revenue", indicators: ["revenue"]})` → check ontology.yaml updated
+  2. `teach(type="concept_property", target="orders.amount", params={field_updates: {semantic_role: "measure"}})` → verify annotation patched immediately
+  3. `measure(target_phase="semantic")` → verify selective rerun works (only semantic + deps)
+  4. `teach(type="null_value", params={value: "TBD"})` → check null_values.yaml updated
+- **Notes**:
+  - 8 teach types: concept, validation, cycle, type_pattern, null_value (config), concept_property, relationship, explanation (metadata)
+  - Config teaches write to workspace config (`output_dir/config/`), NOT global package config
+  - Config teaches return `measurement_hint` telling agent which phase to rerun
+  - `measure(target_phase=...)` triggers selective rerun with `force_phase=True`
+  - `type_override` removed — type overrides lead to quarantine, pattern learning (type_pattern) is the right approach
+  - `forced_types` dead code removed from typing pipeline
+  - Known limitation: relationship resolver uses `scalar_one_or_none()` — fails on columns with multiple relationships
+- **Status**: pending
+
 <!--
 ## YYYY-MM-DD: brief description
 

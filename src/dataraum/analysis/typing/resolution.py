@@ -105,12 +105,10 @@ def _select_best_candidates(
     columns: list[Column],
     min_confidence: float,
     table_name: str = "",
-    forced_types: dict[str, str] | None = None,
 ) -> list[ColumnTypeSpec]:
     """Select best type candidate per column.
 
     Priority:
-    0. Config-driven forced types (from type_override teach)
     1. TypeDecision (human override) if exists
     2. Highest confidence TypeCandidate >= threshold
     3. Fallback to VARCHAR
@@ -119,28 +117,9 @@ def _select_best_candidates(
     """
     pattern_config = load_pattern_config()
     patterns_by_name = {p.name: p for p in pattern_config.get_patterns()}
-    forced = forced_types or {}
     specs = []
 
     for col in sorted(columns, key=lambda c: c.column_position):
-        # Check config-driven forced types (from type_override teach)
-        # Value can be a string ("VARCHAR") or a dict ({"target_type": "VARCHAR"})
-        # depending on how the fix bridge wrote it.
-        forced_key = f"{table_name}.{col.column_name}"
-        if forced_key in forced:
-            raw_val = forced[forced_key]
-            forced_type = raw_val["target_type"] if isinstance(raw_val, dict) else raw_val
-            specs.append(
-                ColumnTypeSpec(
-                    column_id=col.column_id,
-                    column_name=col.column_name,
-                    data_type=DataType[forced_type],
-                    decision_source="override",
-                    decision_reason=f"Forced to {forced_type} via type_override teach",
-                )
-            )
-            continue
-
         # Check for human override (pre-existing TypeDecision)
         if col.type_decision:
             specs.append(
@@ -240,7 +219,6 @@ def resolve_types(
     duckdb_conn: duckdb.DuckDBPyConnection,
     session: Session,
     min_confidence: float,
-    forced_types: dict[str, str] | None = None,
 ) -> Result[TypeResolutionResult]:
     """Resolve types for a raw table using DuckDB SQL.
 
@@ -255,8 +233,6 @@ def resolve_types(
         duckdb_conn: DuckDB connection
         session: SQLAlchemy session
         min_confidence: Minimum confidence threshold for automatic type selection
-        forced_types: Optional dict of "table.column" -> type name overrides
-            from type_override teaches
 
     Returns:
         Result containing TypeResolutionResult with table names and row counts
@@ -290,7 +266,6 @@ def resolve_types(
         table.columns,
         min_confidence,
         table_name=table.table_name,
-        forced_types=forced_types,
     )
 
     # Persist TypeDecision records for columns that don't already have one

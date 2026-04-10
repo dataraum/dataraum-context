@@ -49,9 +49,14 @@ def apply_config_yaml(
         data = {}
 
     if not key_path:
-        raise ValueError("key_path must not be empty")
-
-    _apply_operation(data, key_path, operation, value)
+        # Empty key_path: replace entire file content (only "set" supported)
+        if operation != "set":
+            raise ValueError("key_path must not be empty (except for operation='set')")
+        if not isinstance(value, dict):
+            raise ValueError("Root-level set requires a dict value")
+        data = value
+    else:
+        _apply_operation(data, key_path, operation, value)
 
     with open(file_path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
