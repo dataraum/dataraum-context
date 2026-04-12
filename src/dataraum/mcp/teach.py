@@ -196,6 +196,9 @@ _RERUN_PHASES: dict[str, str] = {
     "metric": "graph_execution",
 }
 
+# Teaches that trigger a near-full or full re-run (warn about cost)
+_EXPENSIVE_RERUNS: set[str] = {"type_pattern", "null_value"}
+
 # ---------------------------------------------------------------------------
 # List upsert helper
 # ---------------------------------------------------------------------------
@@ -580,9 +583,16 @@ def handle_teach(
     # Add measurement hint for config teaches
     rerun_phase = _RERUN_PHASES.get(teach_type)
     if rerun_phase:
-        response["measurement_hint"] = (
-            f"Config updated. Call measure(target_phase='{rerun_phase}') "
-            f"to rerun the {rerun_phase} phase and see the effect."
-        )
+        if teach_type in _EXPENSIVE_RERUNS:
+            response["measurement_hint"] = (
+                f"Config updated. Call measure(target_phase='{rerun_phase}') "
+                f"to rerun {rerun_phase} + all downstream phases. "
+                f"This is a near-full re-run — batch multiple teaches before calling."
+            )
+        else:
+            response["measurement_hint"] = (
+                f"Config updated. Call measure(target_phase='{rerun_phase}') "
+                f"to rerun {rerun_phase} + downstream phases and see the effect."
+            )
 
     return response

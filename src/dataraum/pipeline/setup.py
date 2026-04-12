@@ -28,6 +28,7 @@ from dataraum.core.logging import get_logger
 from dataraum.pipeline.db_models import PipelineRun
 from dataraum.pipeline.pipeline_config import (
     get_all_dependencies_from_declarations,
+    get_downstream_phases_from_declarations,
     load_phase_declarations,
 )
 from dataraum.pipeline.registry import build_yaml_aware_phases
@@ -139,10 +140,11 @@ def setup_pipeline(
     # 8. Load phases from YAML declarations + registry
     phases = build_yaml_aware_phases(pipeline_yaml_config)
 
-    # 9. Filter phases if --phase set
+    # 9. Filter phases if --phase set (upstream deps + target + downstream cascade)
     if target_phase:
         deps = get_all_dependencies_from_declarations(target_phase, declarations)
-        keep = deps | {target_phase}
+        downstream = get_downstream_phases_from_declarations(target_phase, declarations)
+        keep = deps | {target_phase} | downstream
         phases = {n: p for n, p in phases.items() if n in keep}
 
     # 10. Load contract thresholds
@@ -174,12 +176,14 @@ def setup_pipeline(
     # Phase sessions (via session_factory) need write access; holding an
     # uncommitted write transaction here would block them for busy_timeout.
 
-    # 12. Force-clean target phase before scheduling
+    # 12. Force-clean target phase + all downstream before scheduling
+    #     Upstream deps keep their data (should_skip handles them).
+    #     Target + downstream are cleaned so they re-run with fresh data.
     if force_phase and target_phase:
-        from dataraum.pipeline.cleanup import cleanup_phase
+        from dataraum.pipeline.cleanup import cleanup_phase_cascade
 
         assert duckdb_conn is not None
-        cleanup_phase(target_phase, source_id, session, duckdb_conn)
+        cleanup_phase_cascade(target_phase, source_id, session, duckdb_conn)
         session.commit()
 
     # 13. Create scheduler
