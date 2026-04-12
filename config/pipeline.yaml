@@ -106,7 +106,7 @@ phases:
 
   graph_execution:
     description: Compute business metrics via graph agent
-    dependencies: [validation]
+    dependencies: [validation, business_cycles, correlations]
 
 # Limits
 limits:
