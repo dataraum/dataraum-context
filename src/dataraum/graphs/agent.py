@@ -487,11 +487,6 @@ class GraphAgent(LLMFeature):
         execution = GraphExecution.create(graph, parameters, context.period)
         execution.is_period_final = context.is_period_final
 
-        # Extract entropy information from rich context
-        entropy_info = self._extract_entropy_info(context)
-        execution.max_entropy_score = entropy_info.get("max_entropy", 0.0)
-        execution.entropy_warnings = entropy_info.get("warnings", [])
-
         execution.assumptions = []
 
         # Get max repair attempts from config (default 2)
@@ -569,66 +564,6 @@ class GraphAgent(LLMFeature):
         )
 
         return Result.ok(execution)
-
-    def _extract_entropy_info(self, context: ExecutionContext) -> dict[str, Any]:
-        """Extract entropy information from the execution context.
-
-        Returns dict with:
-            - max_entropy: Highest entropy score encountered
-            - warnings: List of warning messages
-            - high_entropy_columns: List of columns with entropy > 0.6
-            - readiness_blockers: List of blocked column descriptions
-        """
-        result: dict[str, Any] = {
-            "max_entropy": 0.0,
-            "warnings": [],
-            "high_entropy_columns": [],
-            "readiness_blockers": [],
-        }
-
-        if context.rich_context is None:
-            return result
-
-        # Check for entropy_summary
-        entropy_summary = getattr(context.rich_context, "entropy_summary", None)
-        if not entropy_summary:
-            return result
-
-        # Extract entropy counts (network-derived)
-        high_count = entropy_summary.get("high_entropy_count", 0)
-        critical_count = entropy_summary.get("critical_entropy_count", 0)
-        blockers = entropy_summary.get("readiness_blockers", [])
-
-        # Build warnings
-        if critical_count > 0:
-            result["warnings"].append(f"{critical_count} columns have critical entropy")
-        if high_count > 0:
-            result["warnings"].append(f"{high_count} columns have high uncertainty")
-
-        # Find max entropy from tables
-        tables = getattr(context.rich_context, "tables", [])
-        for table in tables:
-            for col in getattr(table, "columns", []):
-                entropy_scores = getattr(col, "entropy_scores", None)
-                if entropy_scores:
-                    score = entropy_scores.get("worst_intent_p_high", 0.0)
-                    if score > result["max_entropy"]:
-                        result["max_entropy"] = score
-                    readiness = entropy_scores.get("readiness", "ready")
-                    if readiness != "ready" or score > 0.3:
-                        result["high_entropy_columns"].append(
-                            {
-                                "table": getattr(table, "table_name", "unknown"),
-                                "column": getattr(col, "column_name", "unknown"),
-                                "score": score,
-                                "dimensions": entropy_scores.get("high_entropy_dimensions", []),
-                            }
-                        )
-
-        # Add blockers
-        result["readiness_blockers"] = blockers
-
-        return result
 
     def _build_schema_info(
         self,
