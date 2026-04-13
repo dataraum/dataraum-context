@@ -52,7 +52,7 @@ class GraphExecutionPhase(BasePhase):
         result = session.execute(
             delete(SQLSnippetRecord).where(
                 SQLSnippetRecord.source.like("graph:%"),
-                SQLSnippetRecord.schema_mapping_id == f"{source_id}:semantic",
+                SQLSnippetRecord.schema_mapping_id == source_id,
             )
         )
         count: int = result.rowcount  # type: ignore[attr-defined]
@@ -72,7 +72,7 @@ class GraphExecutionPhase(BasePhase):
             select(SQLSnippetRecord.snippet_id)
             .where(
                 SQLSnippetRecord.source.like("graph:%"),
-                SQLSnippetRecord.schema_mapping_id == f"{ctx.source_id}:semantic",
+                SQLSnippetRecord.schema_mapping_id == ctx.source_id,
             )
             .limit(1)
         ).first()
@@ -176,7 +176,7 @@ class GraphExecutionPhase(BasePhase):
             session=ctx.session,
             duckdb_conn=ctx.duckdb_conn,
             table_ids=table_ids,
-            schema_mapping_id=f"{ctx.source_id}:semantic",
+            schema_mapping_id=ctx.source_id,
         )
 
         # Create graph agent
