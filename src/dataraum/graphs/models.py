@@ -39,6 +39,7 @@ class GraphSource(StrEnum):
     SYSTEM = "system"  # Built-in system graphs
     USER = "user"  # User-defined graphs
     LLM = "llm"  # LLM-generated graphs
+    TEACH = "teach"  # Created via teach(type="metric")
 
 
 class StepType(StrEnum):
