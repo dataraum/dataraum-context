@@ -344,7 +344,7 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - `enable_file_logging()` added to `core/logging.py`. MCP server logs to `{DATARAUM_HOME}/logs/mcp-server.log`.
   - Server instructions updated with snippet promotion flow.
   - DAT-265 created under DAT-196 for incremental phase execution (currently re-runs all metrics, not just the new one)
-- **Status**: smoke-tested (2026-04-16). All features verified against live data.
+- **Status**: verified (2026-04-17, /accept handoff). Provenance fields (field_resolution, assumptions, was_repaired) working in search_snippets. run_sql repair visibility working (repair_attempts + original_sql). mcp:session_* vocabulary filtering working. Degraded: query:* snippets leak into vocabulary (step IDs in standard_fields, UUIDs in graph_ids) — extend filter to exclude query:* sources.
 
 <!--
 ## YYYY-MM-DD: brief description
