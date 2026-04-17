@@ -16,8 +16,7 @@ from typing import Any
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import Dimension, Layer, SubDimension
-from dataraum.entropy.models import EntropyObject, ResolutionOption
-from dataraum.pipeline.fixes.models import FixSchema, FixSchemaField
+from dataraum.entropy.models import EntropyObject
 
 # Fallback thresholds (matching variance.py defaults)
 _DEFAULT_NULL_SPREAD = 0.10
@@ -51,36 +50,6 @@ class SliceVarianceDetector(EntropyDetector):
     sub_dimension = SubDimension.SLICE_STABILITY
     scope = "column"
     description = "Measures cross-slice statistical variance for a column"
-
-    @property
-    def fix_schemas(self) -> list[FixSchema]:
-        """Schema for accepting slice variance findings."""
-        return [
-            FixSchema(
-                action="accept_finding",
-                target="config",
-                description="Mark slice variance findings as reviewed and accepted",
-                config_path="entropy/thresholds.yaml",
-                key_path=["detectors", "slice_variance", "accepted_columns"],
-                operation="append",
-                requires_rerun="quality_review",
-                guidance=(
-                    "Present ALL affected columns in a numbered list with their key "
-                    "variance metrics. For each column show: table.column — which "
-                    "spread thresholds were exceeded — spread values.\n"
-                    "Ask the user to select columns by number (comma-separated), or 'all'.\n"
-                    "Then ask WHY the variance is acceptable (e.g., 'expected regional "
-                    "differences', 'known data partitioning')."
-                ),
-                fields={
-                    "reason": FixSchemaField(
-                        type="string",
-                        required=False,
-                        description="Why the finding was accepted",
-                    ),
-                },
-            )
-        ]
 
     def _resolve_source_id(self, context: DetectorContext) -> str | None:
         """Resolve source_id from context, falling back to table_id lookup."""
@@ -252,9 +221,6 @@ class SliceVarianceDetector(EntropyDetector):
         )
         outlier_threshold = detector_config.get("outlier_spread_threshold", _DEFAULT_OUTLIER_SPREAD)
         benford_threshold = detector_config.get("benford_spread_threshold", _DEFAULT_BENFORD_SPREAD)
-        accepted_columns: list[str] = self.config.get("accepted_columns") or detector_config.get(
-            "accepted_columns", []
-        )
 
         # Compute spread metrics
         null_ratios = [p["null_ratio"] for p in slice_profiles]
@@ -321,30 +287,10 @@ class SliceVarianceDetector(EntropyDetector):
             }
         ]
 
-        resolution_options: list[ResolutionOption] = []
-        if score > 0:
-            resolution_options.append(
-                ResolutionOption(
-                    action="accept_finding",
-                    parameters={
-                        "column": context.column_name,
-                        "detector_id": self.detector_id,
-                    },
-                    effort="low",
-                    description="Accept slice variance as expected for this column",
-                )
-            )
-
-        # Mark as accepted (score stays honest, contract overrule handles gate)
-        target_key = f"{context.table_name}.{context.column_name}"
-        if target_key in accepted_columns:
-            evidence[0]["accepted"] = True
-
         return [
             self.create_entropy_object(
                 context=context,
                 score=score,
                 evidence=evidence,
-                resolution_options=resolution_options,
             )
         ]

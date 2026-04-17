@@ -230,7 +230,6 @@ class TypingPhase(BasePhase):
 
         typing_config = load_typing_config(ctx.config)
         min_confidence = typing_config["min_confidence"]
-        forced_types = typing_config.get("overrides", {}).get("forced_types", {})
 
         typed_tables: list[str] = []
         type_decisions: dict[str, str] = {}
@@ -290,7 +289,6 @@ class TypingPhase(BasePhase):
                 duckdb_conn=ctx.duckdb_conn,
                 session=ctx.session,
                 min_confidence=min_confidence,
-                forced_types=forced_types or None,
             )
 
             if not resolution_result.success:

@@ -75,7 +75,7 @@ class MetadataInterpreter:
 
         For markers (no ``model`` in payload), the DataFix record itself
         is the fix — nothing to patch on an ORM model.  This covers
-        acceptance markers and DataFix-only fixes (e.g. document_join_path).
+        explanation markers and DataFix-only teaches (e.g. relationship).
 
         For model-based fixes, resolves the target row, applies field
         updates, and runs model-specific side effects (e.g. setting
@@ -90,9 +90,9 @@ class MetadataInterpreter:
             ValueError: If the model is unknown or the target row is not found.
         """
         if "model" not in doc.payload:
-            # Marker — the persisted DataFix record is the fix.
-            # Gate queries DataFix for acceptance; detectors query
-            # DataFix for join preferences and documented patterns.
+            # Marker — the persisted DataFix record is the teaching.
+            # Detectors query DataFix for documented preferences
+            # (e.g. join path, relationship declarations).
             logger.info(
                 "metadata_marker_recorded",
                 action=doc.action,
@@ -103,18 +103,28 @@ class MetadataInterpreter:
 
         model_name = doc.payload["model"]
         field_updates = doc.payload["field_updates"]
+        hints = doc.payload.get("hints", {})
 
         resolver = self._get_resolver(model_name)
-        instance = resolver(session, doc.table_name, doc.column_name)
+        instance = resolver(session, doc.table_name, doc.column_name, hints=hints)
 
         if instance is None:
-            raise ValueError(f"No {model_name} found for {doc.table_name}.{doc.column_name}")
+            # For Relationship, create a new record if none exists
+            factory = _MODEL_FACTORIES.get(model_name)
+            if factory:
+                instance = factory(session, doc.table_name, doc.column_name, hints)
+                if instance is None:
+                    raise ValueError(
+                        f"Cannot create {model_name}: columns not found for "
+                        f"{doc.table_name}.{doc.column_name}"
+                    )
+                session.add(instance)
+            else:
+                raise ValueError(f"No {model_name} found for {doc.table_name}.{doc.column_name}")
 
         applied_fields: list[str] = []
         for field_name, value in field_updates.items():
             if not hasattr(instance, field_name):
-                # Skip resolution hints (e.g. from_table, to_table) that
-                # are schema fields but not model attributes.
                 continue
             setattr(instance, field_name, value)
             applied_fields.append(field_name)
@@ -152,40 +162,49 @@ class MetadataInterpreter:
 
 
 # ---------------------------------------------------------------------------
-# Model resolvers
+# Shared column resolver
 # ---------------------------------------------------------------------------
 
 
-def _resolve_semantic_annotation(session: Session, table_name: str, column_name: str | None) -> Any:
-    """Find a SemanticAnnotation by (table_name, column_name)."""
+def _resolve_typed_column(session: Session, table_name: str, column_name: str) -> Any:
+    """Find a Column in the typed layer by (table_name, column_name).
+
+    Table names in the DB don't carry a ``typed_`` prefix — the prefix is
+    only in ``duckdb_path``.  The ``layer`` column distinguishes raw /
+    quarantine / typed records that share the same ``table_name``.
+    """
     from sqlalchemy import select
 
-    from dataraum.analysis.semantic.db_models import SemanticAnnotation
     from dataraum.storage import Column, Table
 
-    if column_name is None:
-        raise ValueError("SemanticAnnotation requires a column_name")
-
-    col = session.execute(
+    return session.execute(
         select(Column)
         .join(Table, Column.table_id == Table.table_id)
         .where(
-            Table.table_name == f"typed_{table_name}",
+            Table.table_name == table_name,
+            Table.layer == "typed",
             Column.column_name == column_name,
         )
     ).scalar_one_or_none()
 
-    if col is None:
-        col = session.execute(
-            select(Column)
-            .join(Table, Column.table_id == Table.table_id)
-            .where(
-                Table.table_name == table_name,
-                Table.layer == "typed",
-                Column.column_name == column_name,
-            )
-        ).scalar_one_or_none()
 
+# ---------------------------------------------------------------------------
+# Model resolvers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_semantic_annotation(
+    session: Session, table_name: str, column_name: str | None, **_kw: Any
+) -> Any:
+    """Find a SemanticAnnotation by (table_name, column_name)."""
+    from sqlalchemy import select
+
+    from dataraum.analysis.semantic.db_models import SemanticAnnotation
+
+    if column_name is None:
+        raise ValueError("SemanticAnnotation requires a column_name")
+
+    col = _resolve_typed_column(session, table_name, column_name)
     if col is None:
         return None
 
@@ -194,11 +213,16 @@ def _resolve_semantic_annotation(session: Session, table_name: str, column_name:
     ).scalar_one_or_none()
 
 
-def _resolve_relationship(session: Session, table_name: str, column_name: str | None) -> Any:
+def _resolve_relationship(
+    session: Session, table_name: str, column_name: str | None, **kwargs: Any
+) -> Any:
     """Find a Relationship by (table_name, column_name).
 
     Checks both from_column_id and to_column_id so that relationships
     are found regardless of which side the column is on.
+
+    When hints contain ``to_table``, the resolver disambiguates by
+    filtering to relationships whose other side matches that table.
     """
     from sqlalchemy import or_, select
 
@@ -208,26 +232,40 @@ def _resolve_relationship(session: Session, table_name: str, column_name: str | 
     if column_name is None:
         raise ValueError("Relationship resolution requires a column_name")
 
-    col = session.execute(
-        select(Column)
-        .join(Table, Column.table_id == Table.table_id)
-        .where(
-            Table.table_name == f"typed_{table_name}",
-            Column.column_name == column_name,
-        )
-    ).scalar_one_or_none()
-
+    col = _resolve_typed_column(session, table_name, column_name)
     if col is None:
         return None
 
-    return session.execute(
-        select(Relationship).where(
-            or_(
-                Relationship.from_column_id == col.column_id,
-                Relationship.to_column_id == col.column_id,
-            )
+    hints = kwargs.get("hints", {})
+    to_table = hints.get("to_table")
+
+    query = select(Relationship).where(
+        or_(
+            Relationship.from_column_id == col.column_id,
+            Relationship.to_column_id == col.column_id,
         )
-    ).scalar_one_or_none()
+    )
+
+    # Disambiguate when column participates in multiple relationships
+    if to_table:
+        to_col_ids = (
+            session.execute(
+                select(Column.column_id)
+                .join(Table, Column.table_id == Table.table_id)
+                .where(Table.table_name == to_table, Table.layer == "typed")
+            )
+            .scalars()
+            .all()
+        )
+        if to_col_ids:
+            query = query.where(
+                or_(
+                    Relationship.to_column_id.in_(to_col_ids),
+                    Relationship.from_column_id.in_(to_col_ids),
+                )
+            )
+
+    return session.execute(query).scalars().first()
 
 
 # Module-level resolver registry — populated at import time (no lazy init)
@@ -238,17 +276,70 @@ _MODEL_RESOLVERS: dict[str, Any] = {
 }
 
 
+def _create_relationship(
+    session: Session, table_name: str, column_name: str | None, hints: dict[str, Any]
+) -> Any:
+    """Create a new Relationship when the resolver finds no existing one.
+
+    Resolves column IDs from table/column names in hints (from_table,
+    from_column, to_table, to_column).
+    """
+    from sqlalchemy import select
+
+    from dataraum.analysis.relationships.db_models import Relationship
+    from dataraum.storage import Table
+
+    to_table = hints.get("to_table")
+    to_column = hints.get("to_column") or column_name
+    if not to_table or not to_column or not column_name:
+        return None
+
+    from_col = _resolve_typed_column(session, table_name, column_name)
+    to_col = _resolve_typed_column(session, to_table, to_column)
+
+    if from_col is None or to_col is None:
+        return None
+
+    from_table_obj = session.execute(
+        select(Table).where(Table.table_name == table_name, Table.layer == "typed")
+    ).scalar_one_or_none()
+    to_table_obj = session.execute(
+        select(Table).where(Table.table_name == to_table, Table.layer == "typed")
+    ).scalar_one_or_none()
+
+    if from_table_obj is None or to_table_obj is None:
+        return None
+
+    # relationship_type and cardinality come via field_updates (applied
+    # by the setattr loop after creation), not hints.
+    return Relationship(
+        from_table_id=from_table_obj.table_id,
+        from_column_id=from_col.column_id,
+        to_table_id=to_table_obj.table_id,
+        to_column_id=to_col.column_id,
+        relationship_type="foreign_key",
+        confidence=1.0,
+        detection_method="manual",
+    )
+
+
+# Factory registry — models that can be created when resolver returns None
+_MODEL_FACTORIES: dict[str, Any] = {
+    "Relationship": _create_relationship,
+}
+
+
 def _apply_model_defaults(model_name: str, instance: Any) -> None:
     """Apply standard side-effect fields after user-provided updates.
 
     Always unconditional so that replayed fixes update the audit trail.
     """
     if model_name == "SemanticAnnotation":
-        instance.annotation_source = "fix_system"
+        instance.annotation_source = "teach"
     elif model_name == "Relationship":
         instance.is_confirmed = True
         instance.confirmed_at = datetime.now(UTC)
-        instance.confirmed_by = "fix_system"
+        instance.confirmed_by = "teach"
 
 
 # ---------------------------------------------------------------------------

@@ -77,6 +77,28 @@ class OntologyLoader:
         self._cache[vertical] = ontology
         return ontology
 
+    def save(self, vertical: str, definition: OntologyDefinition) -> Path:
+        """Write an OntologyDefinition to YAML.
+
+        Args:
+            vertical: Vertical name (e.g. '_adhoc')
+            definition: The ontology to persist
+
+        Returns:
+            Path to the written YAML file
+        """
+        ontology_path = self.verticals_dir / vertical / "ontology.yaml"
+        ontology_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(ontology_path, "w") as f:
+            yaml.dump(
+                definition.model_dump(exclude_none=True),
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+        self._cache.pop(vertical, None)
+        return ontology_path
+
     def list_verticals(self) -> list[str]:
         """List available verticals with ontology definitions."""
         if not self.verticals_dir.exists():

@@ -6,7 +6,7 @@ This module provides:
 - DetectorContext: Context passed to detectors with analysis data
 
 Each detector focuses on a specific sub-dimension of entropy and
-produces EntropyObject instances with scores, evidence, and resolution options.
+produces EntropyObject instances with scores and evidence.
 """
 
 from __future__ import annotations
@@ -16,15 +16,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
-from dataraum.entropy.models import (
-    EntropyObject,
-    ResolutionOption,
-)
+from dataraum.entropy.models import EntropyObject
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
-
-    from dataraum.pipeline.fixes.models import FixSchema
 
 
 @dataclass
@@ -84,7 +79,6 @@ class EntropyDetector(ABC):
     EntropyObject instances with:
     - Score (0.0 = deterministic, 1.0 = maximum uncertainty)
     - Evidence (what led to this score)
-    - Resolution options (how to fix it)
     - Context for LLM and human consumers
     """
 
@@ -152,7 +146,6 @@ class EntropyDetector(ABC):
         context: DetectorContext,
         score: float,
         evidence: list[dict[str, Any]] | None = None,
-        resolution_options: list[ResolutionOption] | None = None,
     ) -> EntropyObject:
         """Helper to create an EntropyObject with detector metadata.
 
@@ -160,7 +153,6 @@ class EntropyDetector(ABC):
             context: Detection context
             score: Entropy score (0.0-1.0)
             evidence: Evidence supporting the score
-            resolution_options: Ways to reduce entropy
 
         Returns:
             Configured EntropyObject
@@ -178,7 +170,6 @@ class EntropyDetector(ABC):
             target=context.target_ref,
             score=score,
             evidence=enriched_evidence,
-            resolution_options=resolution_options or [],
             detector_id=self.detector_id,
             source_analysis_ids=[],
         )
@@ -246,29 +237,6 @@ class DetectorRegistry:
             List of detector IDs
         """
         return list(self.detectors.keys())
-
-    def get_fix_schema(
-        self, action_name: str, dimension_path: str | None = None
-    ) -> FixSchema | None:
-        """Find a FixSchema by action name, optionally scoped by dimension.
-
-        Delegates to the YAML fix schema loader.
-
-        Each action name is now unique (e.g. ``document_accepted_null_ratio``).
-        *dimension_path* can still be used to scope the search to a specific
-        detector.
-
-        Args:
-            action_name: The action to look up.
-            dimension_path: If provided, only consider detectors whose
-                dimension_path matches.
-
-        Returns:
-            The matching FixSchema, or None if not found.
-        """
-        from dataraum.entropy.fix_schemas import get_fix_schema as yaml_get_fix_schema
-
-        return yaml_get_fix_schema(action_name, dimension_path=dimension_path)
 
 
 # Global registry instance

@@ -106,34 +106,15 @@ class BusinessCycleAnalysis(BaseModel):
 
 # =============================================================================
 # Pydantic output models for LLM tool use (submit_analysis)
+#
+# Flat schema (max depth 2) to avoid LLM stringification of nested arrays.
+# Stages and entity flows are top-level lists that reference cycles by name.
+# _parse_output groups them back into DetectedCycle objects.
 # =============================================================================
 
 
-class CycleStageOutput(BaseModel):
-    """Stage output for LLM tool."""
-
-    stage_name: str = Field(description="Name of this stage, e.g., 'Invoice Created'")
-    stage_order: int = Field(description="Position in cycle (1, 2, 3...)")
-    indicator_column: str | None = Field(
-        default=None, description="Column that indicates this stage"
-    )
-    indicator_values: list[str] = Field(
-        default_factory=list, description="Values that mean this stage"
-    )
-
-
-class EntityFlowOutput(BaseModel):
-    """Entity flow output for LLM tool."""
-
-    entity_type: str = Field(description="Type of entity, e.g., 'customer', 'vendor'")
-    entity_column: str = Field(description="Column that identifies the entity")
-    entity_table: str = Field(description="Table containing entity data")
-    fact_table: str | None = Field(default=None, description="Related fact/transaction table")
-    fact_column: str | None = Field(default=None, description="Column in fact table")
-
-
-class DetectedCycleOutput(BaseModel):
-    """Detected cycle output for LLM tool."""
+class CycleSummaryOutput(BaseModel):
+    """Flat cycle summary — no nested objects."""
 
     cycle_name: str = Field(description="Descriptive name, e.g., 'Accounts Receivable Cycle'")
     cycle_type: str = Field(
@@ -149,28 +130,14 @@ class DetectedCycleOutput(BaseModel):
     business_value: str = Field(
         default="medium", description="Business importance: high, medium, or low"
     )
-
-    # Structure
-    entity_flows: list[EntityFlowOutput] = Field(
-        default_factory=list, description="Entities that flow through this cycle"
-    )
-    stages: list[CycleStageOutput] = Field(
-        default_factory=list, description="Stages in the cycle progression"
-    )
-
-    # Status tracking
     status_column: str | None = Field(default=None, description="Column tracking cycle completion")
     status_table: str | None = Field(default=None, description="Table containing status column")
     completion_value: str | None = Field(
         default=None, description="Value indicating cycle complete, e.g., 'Paid'"
     )
-
-    # Tables
     tables_involved: list[str] = Field(
         default_factory=list, description="All tables involved in this cycle"
     )
-
-    # Metrics
     total_records: int | None = Field(default=None, description="Total records in cycle")
     completed_cycles: int | None = Field(default=None, description="Number of completed cycles")
     completion_rate: float | None = Field(
@@ -183,22 +150,54 @@ class DetectedCycleOutput(BaseModel):
             "posting ratio, balance ratio, period coverage, or similar metric."
         ),
     )
-
-    # Confidence
     confidence: float = Field(default=0.5, description="Confidence in this detection (0.0-1.0)")
     evidence: list[str] = Field(
         default_factory=list, description="Evidence supporting this cycle detection"
     )
 
 
+class StageEntryOutput(BaseModel):
+    """Flat stage — references a cycle by name."""
+
+    cycle_name: str = Field(description="Name of the cycle this stage belongs to")
+    stage_name: str = Field(description="Name of this stage, e.g., 'Invoice Created'")
+    stage_order: int = Field(description="Position in cycle (1, 2, 3...)")
+    indicator_column: str | None = Field(
+        default=None, description="Column that indicates this stage"
+    )
+    indicator_value: str | None = Field(
+        default=None, description="Value that means this stage (one row per value)"
+    )
+
+
+class EntityFlowEntryOutput(BaseModel):
+    """Flat entity flow — references a cycle by name."""
+
+    cycle_name: str = Field(description="Name of the cycle this entity participates in")
+    entity_type: str = Field(description="Type of entity, e.g., 'customer', 'vendor'")
+    entity_column: str = Field(description="Column that identifies the entity")
+    entity_table: str = Field(description="Table containing entity data")
+    fact_table: str | None = Field(default=None, description="Related fact/transaction table")
+    fact_column: str | None = Field(default=None, description="Column in fact table")
+
+
 class BusinessCycleAnalysisOutput(BaseModel):
     """Complete analysis output for submit_analysis tool.
 
-    This is the structured output the LLM must provide when done analyzing.
+    Flat schema: cycles, stages, and entity_flows are separate top-level lists.
+    Stages and entity_flows reference their parent cycle via cycle_name.
     """
 
-    cycles: list[DetectedCycleOutput] = Field(
-        default_factory=list, description="List of detected business cycles"
+    cycles: list[CycleSummaryOutput] = Field(
+        default_factory=list, description="Detected business cycles (one per cycle)"
+    )
+    stages: list[StageEntryOutput] = Field(
+        default_factory=list,
+        description="Cycle stages (one row per stage per cycle, referencing cycle_name)",
+    )
+    entity_flows: list[EntityFlowEntryOutput] = Field(
+        default_factory=list,
+        description="Entity flows (one row per entity per cycle, referencing cycle_name)",
     )
     business_summary: str = Field(
         description="Overall interpretation of the business model and its cycles"

@@ -58,6 +58,7 @@ class RunConfig:
     force_phase: bool = False
     event_callback: EventCallback | None = None
     contract: str | None = None  # Target contract name
+    vertical: str | None = None  # Domain vertical (e.g. 'finance')
 
 
 @dataclass
@@ -138,6 +139,7 @@ def run(config: RunConfig) -> Result[RunResult]:
             target_phase=config.target_phase,
             force_phase=config.force_phase,
             contract=config.contract,
+            vertical=config.vertical,
         )
         source_id = setup.source_id
         session = setup.session

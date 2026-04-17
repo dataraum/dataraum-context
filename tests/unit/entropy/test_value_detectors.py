@@ -78,10 +78,6 @@ class TestNullRatioDetector:
         assert len(results) == 1
         assert results[0].score == pytest.approx(0.5, abs=0.01)
         assert results[0].evidence[0]["null_impact"] == "critical"
-        # Should have resolution options
-        actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_null_semantics" in actions
-        assert "transform_filter_nulls" in actions
 
     def test_max_entropy_at_full_nulls(self, detector: NullRatioDetector):
         """Test entropy is 1.0 for fully null column."""
@@ -184,10 +180,6 @@ class TestOutlierRateDetector:
         # 8% is 60% through the 5-10% (significant) band → score ~0.55
         assert results[0].score == pytest.approx(0.55, abs=0.01)
         assert results[0].evidence[0]["outlier_impact"] == "significant"
-        # Should have resolution options
-        actions = [opt.action for opt in results[0].resolution_options]
-        assert "transform_winsorize" in actions
-        assert "document_accepted_outlier_rate" in actions
 
     def test_high_outliers(self, detector: OutlierRateDetector):
         """Test high entropy for 20%+ outliers (piecewise scoring reaches 1.0)."""
@@ -568,21 +560,6 @@ class TestTemporalDriftDetector:
         assert ev["worst_period"] == "2024-Q3"
         assert len(ev["top_shifts"]) == 1
 
-    def test_resolution_options_for_high_drift(self, detector: TemporalDriftDetector):
-        """High drift produces document_accepted_temporal_drift resolution option."""
-        summary = _MockDriftSummary("amount", 0.8, 0.4, 5, 4)
-        context = DetectorContext(
-            table_name="orders",
-            column_name="amount",
-            analysis_results={
-                "drift_summaries": [summary],
-                "semantic": {"semantic_role": "measure"},
-            },
-        )
-        results = detector.detect(context)
-        actions = [opt.action for opt in results[0].resolution_options]
-        assert "document_accepted_temporal_drift" in actions
-
     def test_skip_key_column(self, detector: TemporalDriftDetector):
         """Drift detection is skipped for key columns."""
         summary = _MockDriftSummary("order_id", 0.693, 0.5, 5, 5)
@@ -718,7 +695,6 @@ class TestBenfordDetector:
         # p_value=0.8 → score = 0.1 + (0.7 - 0.1) * (1 - 0.8) = 0.22
         assert results[0].score == pytest.approx(0.22, abs=0.01)
         assert results[0].evidence[0]["is_compliant"] is True
-        assert len(results[0].resolution_options) == 0
 
     def test_non_compliant_mild(self, detector: BenfordDetector):
         """Non-compliant column with p_value above escalation threshold uses p-value gradient."""
@@ -747,8 +723,6 @@ class TestBenfordDetector:
         # p_value=0.02 > 0.01 threshold → p-value gradient
         # score = 0.1 + 0.6 * (1 - 0.02) = 0.688
         assert results[0].score == pytest.approx(0.688, abs=0.01)
-        actions = [opt.action for opt in results[0].resolution_options]
-        assert "investigate_benford_deviation" in actions
 
     def test_non_compliant_severe_chi_square(self, detector: BenfordDetector):
         """Non-compliant column with very low p-value uses Cramér's V severity."""

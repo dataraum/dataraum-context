@@ -12,7 +12,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from dataraum.query.execution import ExecutionResult, SQLStep, execute_sql_steps
+from dataraum.query.execution import ExecutionResult, RepairFn, SQLStep, execute_sql_steps
 
 if TYPE_CHECKING:
     import duckdb
@@ -35,6 +35,7 @@ def run_sql(
     sql: str | None = None,
     column_mappings: dict[str, str] | None = None,
     limit: int = DEFAULT_ROW_LIMIT,
+    repair_fn: RepairFn | None = None,
 ) -> dict[str, Any]:
     """Execute SQL and return results as a structured dict.
 
@@ -126,7 +127,7 @@ def run_sql(
         steps=sql_steps,
         final_sql=final_sql,
         duckdb_conn=cursor,
-        repair_fn=None,
+        repair_fn=repair_fn,
         return_table=True,
         display_limit=effective_limit,
     )
@@ -193,7 +194,7 @@ def run_sql(
         except Exception:
             _log.debug("Quality metadata lookup failed", exc_info=True)
 
-    # --- Build step execution info with snippet status ---
+    # --- Build step execution info with snippet status + repair visibility ---
     step_info: list[dict[str, Any]] = []
     for sr in exec_result.step_results:
         entry: dict[str, Any] = {"step_id": sr.step_id, "sql": sr.sql_executed}
@@ -201,6 +202,9 @@ def run_sql(
         if match:
             entry["snippet_status"] = match[0]
             entry["snippet_id"] = match[1]
+        if sr.repair_attempts > 0:
+            entry["repair_attempts"] = sr.repair_attempts
+            entry["original_sql"] = sr.original_sql
         step_info.append(entry)
 
     from dataraum.mcp.formatters import format_run_sql_result
@@ -392,7 +396,16 @@ def _build_column_quality(
         # Support qualified "table.column" in column_mappings
         if "." in mapping:
             qual_table, qual_col = mapping.split(".", 1)
-            matches = [(qual_table, qual_col)] if col_id_map.get((qual_table, qual_col)) else []
+            # Try exact match first, then suffix match for source-prefixed names
+            if col_id_map.get((qual_table, qual_col)):
+                matches = [(qual_table, qual_col)]
+            else:
+                suffix = f"__{qual_table}"
+                matches = [
+                    (tname, qual_col)
+                    for tname in table_names.values()
+                    if tname.endswith(suffix) and col_id_map.get((tname, qual_col)) is not None
+                ]
         else:
             # Unqualified: collect all tables that have this column
             matches = [

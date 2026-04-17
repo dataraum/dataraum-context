@@ -29,7 +29,7 @@ def log_fix(
     Args:
         session: Database session
         source_id: Source ID the fix belongs to
-        action_name: Action name being resolved (e.g. "document_unit")
+        action_name: Action name being resolved (e.g. "concept_property")
         table_name: Table name (denormalized)
         column_name: Column name, or None for table-level actions
         user_input: Raw user text

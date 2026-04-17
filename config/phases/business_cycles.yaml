@@ -1,2 +1,2 @@
 # Business cycles phase settings
-vertical: finance
+# Vertical comes from runtime_config (set via begin_session).

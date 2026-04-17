@@ -1,37 +1,11 @@
-"""Tests for inline fix data models and config YAML utilities."""
+"""Tests for config YAML patch utilities."""
 
 from pathlib import Path
 
 import pytest
 import yaml
 
-from dataraum.pipeline.fixes import (
-    FixInput,
-    apply_config_yaml,
-)
-
-
-class TestFixInput:
-    """Tests for FixInput dataclass."""
-
-    def test_create_with_all_fields(self) -> None:
-        fix_input = FixInput(
-            action_name="document_accepted_outlier_rate",
-            parameters={"method": "iqr"},
-            interpretation="User wants to accept outlier findings",
-            affected_columns=["orders.amount", "orders.quantity"],
-            entropy_evidence={"outlier_rate": 0.15, "method": "iqr"},
-        )
-        assert fix_input.action_name == "document_accepted_outlier_rate"
-        assert fix_input.parameters["method"] == "iqr"
-        assert len(fix_input.affected_columns) == 2
-
-    def test_defaults(self) -> None:
-        fix_input = FixInput(action_name="document_unit")
-        assert fix_input.parameters == {}
-        assert fix_input.interpretation == ""
-        assert fix_input.affected_columns == []
-        assert fix_input.entropy_evidence == {}
+from dataraum.pipeline.fixes import apply_config_yaml
 
 
 class TestApplyConfigYamlSet:
@@ -288,7 +262,7 @@ class TestApplyConfigYamlMerge:
 class TestApplyConfigYamlEdgeCases:
     """Edge case tests for apply_config_yaml."""
 
-    def test_empty_key_path_raises(self, tmp_path: Path) -> None:
+    def test_empty_key_path_rejects_non_set_operations(self, tmp_path: Path) -> None:
         config_root = tmp_path / "config"
         config_root.mkdir()
         (config_root / "test.yaml").write_text("{}\n")
@@ -297,9 +271,40 @@ class TestApplyConfigYamlEdgeCases:
             apply_config_yaml(
                 config_root,
                 config_path="test.yaml",
-                operation="set",
+                operation="append",
                 key_path=[],
                 value="whatever",
+            )
+
+    def test_empty_key_path_set_replaces_entire_file(self, tmp_path: Path) -> None:
+        config_root = tmp_path / "config"
+        config_root.mkdir()
+        (config_root / "test.yaml").write_text("old_key: old_value\n")
+
+        apply_config_yaml(
+            config_root,
+            config_path="test.yaml",
+            operation="set",
+            key_path=[],
+            value={"new_key": "new_value", "version": "1.0"},
+        )
+
+        result = yaml.safe_load((config_root / "test.yaml").read_text())
+        assert result == {"new_key": "new_value", "version": "1.0"}
+        assert "old_key" not in result
+
+    def test_empty_key_path_set_rejects_non_dict(self, tmp_path: Path) -> None:
+        config_root = tmp_path / "config"
+        config_root.mkdir()
+        (config_root / "test.yaml").write_text("{}\n")
+
+        with pytest.raises(ValueError, match="Root-level set requires a dict"):
+            apply_config_yaml(
+                config_root,
+                config_path="test.yaml",
+                operation="set",
+                key_path=[],
+                value="not_a_dict",
             )
 
     def test_unknown_operation_raises(self, tmp_path: Path) -> None:

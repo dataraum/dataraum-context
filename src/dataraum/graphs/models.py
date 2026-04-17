@@ -39,6 +39,7 @@ class GraphSource(StrEnum):
     SYSTEM = "system"  # Built-in system graphs
     USER = "user"  # User-defined graphs
     LLM = "llm"  # LLM-generated graphs
+    TEACH = "teach"  # Created via teach(type="metric")
 
 
 class StepType(StrEnum):
@@ -118,6 +119,7 @@ class GraphMetadata:
     created_at: str | None = None
     tags: list[str] = field(default_factory=list)
     applies_to: AppliesTo | None = None  # For rule-based filters
+    inspiration_snippet_id: str | None = None  # For snippet promotion via teach
 
 
 @dataclass
@@ -223,15 +225,6 @@ class Interpretation:
 
 
 @dataclass
-class FilterRequirement:
-    """A filter graph required by a metric graph."""
-
-    graph_id: str
-    required: bool = True
-    required_classification: Classification = Classification.CLEAN
-
-
-@dataclass
 class TransformationGraph:
     """A unified transformation graph (filter or metric)."""
 
@@ -245,7 +238,6 @@ class TransformationGraph:
 
     # Optional
     parameters: list[ParameterDef] = field(default_factory=list)
-    requires_filters: list[FilterRequirement] = field(default_factory=list)
     interpretation: Interpretation | None = None
 
     # Scope for metrics (global vs per-slice)
@@ -403,10 +395,8 @@ class GraphExecution:
     # Links to other executions
     depends_on_executions: list[str] = field(default_factory=list)
 
-    # Entropy-related tracking
+    # Assumptions made during execution (populated from LLM output)
     assumptions: list[QueryAssumption] = field(default_factory=list)
-    max_entropy_score: float = 0.0  # Highest entropy encountered
-    entropy_warnings: list[str] = field(default_factory=list)
 
     @classmethod
     def create(
@@ -428,58 +418,6 @@ class GraphExecution:
 
 
 # =============================================================================
-# Schema Mapping Models (integrated from calculations/)
-# =============================================================================
-
-
-@dataclass
-class ColumnMapping:
-    """Mapping from a concrete column to an abstract field.
-
-    Represents one source column that contributes to an abstract field.
-    Multiple columns can map to the same abstract field.
-    """
-
-    table: str
-    column: str
-    confidence: float  # 0.0 to 1.0
-    reasoning: str | None = None
-    filter_condition: str | None = None  # Optional WHERE clause
-    sign_adjustment: int = 1  # Multiply by -1 for contra accounts
-
-
-@dataclass
-class AggregationDefinition:
-    """How to aggregate origin columns into the target field."""
-
-    method: str  # sum, end_of_period, average, count, min, max
-    group_by: list[str] = field(default_factory=list)
-    time_column: str | None = None
-    period_type: str | None = None  # month, quarter, year
-
-
-@dataclass
-class SchemaMapping:
-    """Mapping from abstract field to concrete columns."""
-
-    abstract_field: str
-    origin_mappings: list[ColumnMapping]
-    aggregation: AggregationDefinition
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    created_by: str | None = None  # "llm", "user", "system"
-
-
-@dataclass
-class DatasetSchemaMapping:
-    """Complete schema mapping for a dataset."""
-
-    dataset_id: str
-    mappings: dict[str, SchemaMapping]  # abstract_field -> mapping
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    version: str = "1.0"
-
-
-# =============================================================================
 # Pydantic models for LLM tool output
 # =============================================================================
 
@@ -494,6 +432,37 @@ class SQLStepOutput(BaseModel):
         "Should return a single scalar value or simple row."
     )
     description: str = Field(description="What this step does")
+
+
+class GraphAssumptionOutput(BaseModel):
+    """An assumption made during graph SQL generation."""
+
+    dimension: str = Field(description="Entropy dimension (e.g., 'semantic.units', 'value.nulls')")
+    target: str = Field(description="What the assumption applies to (e.g., 'column:orders.amount')")
+    assumption: str = Field(description="Human-readable assumption (e.g., 'Currency is EUR')")
+    basis: str = Field(
+        description="Basis for assumption: 'system_default', 'inferred', or 'user_specified'"
+    )
+    confidence: float = Field(
+        ge=0.0, le=1.0, description="Confidence in this assumption (0.0 to 1.0)"
+    )
+
+
+class GraphProvenanceOutput(BaseModel):
+    """Provenance of how the LLM grounded business concepts to SQL."""
+
+    field_resolution: str = Field(
+        description="How fields were resolved: 'direct' (taught concept, deterministic mapping) "
+        "or 'inferred' (LLM bridged vocabulary gap using enriched views)"
+    )
+    column_mappings_basis: dict[str, dict[str, str]] = Field(
+        default_factory=dict,
+        description="Per-concept grounding: {concept: {column, filter, resolution}}",
+    )
+    llm_reasoning: str = Field(
+        default="",
+        description="Brief explanation of how business concepts were mapped to columns",
+    )
 
 
 class GraphSQLGenerationOutput(BaseModel):
@@ -519,4 +488,12 @@ class GraphSQLGenerationOutput(BaseModel):
     column_mappings: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping from abstract field names to concrete column names",
+    )
+    assumptions: list[GraphAssumptionOutput] = Field(
+        default_factory=list,
+        description="Assumptions made due to data uncertainty during SQL generation",
+    )
+    provenance: GraphProvenanceOutput | None = Field(
+        default=None,
+        description="How business concepts were grounded to concrete columns",
     )

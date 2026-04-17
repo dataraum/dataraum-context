@@ -100,7 +100,8 @@ class TestLoadPhaseConfig:
     def test_loads_semantic_phase_config(self):
         data = load_phase_config("semantic")
         assert isinstance(data, dict)
-        assert "vertical" in data
+        # vertical removed from phase YAML — now comes from runtime_config
+        assert "vertical" not in data
 
     def test_loads_missing_phase_config_returns_empty(self):
         data = load_phase_config("nonexistent_phase")

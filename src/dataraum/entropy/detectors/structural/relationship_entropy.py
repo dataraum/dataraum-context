@@ -18,7 +18,7 @@ from typing import Any
 from dataraum.entropy.config import get_entropy_config
 from dataraum.entropy.detectors.base import DetectorContext, EntropyDetector
 from dataraum.entropy.dimensions import AnalysisKey, Dimension, Layer, SubDimension
-from dataraum.entropy.models import EntropyObject, ResolutionOption
+from dataraum.entropy.models import EntropyObject
 
 
 class RelationshipEntropyDetector(EntropyDetector):
@@ -174,57 +174,11 @@ class RelationshipEntropyDetector(EntropyDetector):
                 },
             }
 
-            # Resolution options
-            resolution_options: list[ResolutionOption] = []
-
-            if score > 0.3:
-                if not is_confirmed:
-                    resolution_options.append(
-                        ResolutionOption(
-                            action="document_relationship",
-                            parameters={
-                                "from_table": from_table,
-                                "to_table": to_table,
-                                "column": context.column_name,
-                            },
-                            effort="low",
-                            description=f"Confirm relationship between {from_table} and {to_table}",
-                        )
-                    )
-
-                if ri_entropy > 0.3:
-                    resolution_options.append(
-                        ResolutionOption(
-                            action="transform_fix_referential_integrity",
-                            parameters={
-                                "from_table": from_table,
-                                "to_table": to_table,
-                                "orphan_count": orphan_count,
-                            },
-                            effort="high",
-                            description="Fix referential integrity issues (orphan records)",
-                        )
-                    )
-
-            if score > 0:
-                resolution_options.append(
-                    ResolutionOption(
-                        action="document_accepted_relationship_quality",
-                        parameters={
-                            "column": context.column_name,
-                            "detector_id": self.detector_id,
-                        },
-                        effort="low",
-                        description="Accept relationship quality findings as expected",
-                    )
-                )
-
             objects.append(
                 self.create_entropy_object(
                     context=context,
                     score=score,
                     evidence=[rel_evidence],
-                    resolution_options=resolution_options,
                 )
             )
 

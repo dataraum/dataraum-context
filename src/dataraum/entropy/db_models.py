@@ -2,8 +2,6 @@
 
 SQLAlchemy models for persisting entropy measurements:
 - EntropyObjectRecord: Individual entropy measurements
-
-See also interpretation_db_models.py (deprecated, scheduled for removal).
 """
 
 from __future__ import annotations
@@ -25,8 +23,8 @@ JSON_TYPE = JSONB().with_variant(JSON, "sqlite")
 class EntropyObjectRecord(Base):
     """Persisted entropy measurement.
 
-    Stores individual entropy measurements with their evidence,
-    resolution options, and context for both LLM and human consumers.
+    Stores individual entropy measurements with their evidence
+    and context for both LLM and human consumers.
     """
 
     __tablename__ = "entropy_objects"
@@ -58,19 +56,11 @@ class EntropyObjectRecord(Base):
     # Evidence (detector-specific)
     evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
 
-    # Resolution options
-    resolution_options: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON_TYPE)
-
     # Metadata
     detector_id: Mapped[str] = mapped_column(String, nullable=False)  # Which detector produced this
     source_analysis_ids: Mapped[list[str] | None] = mapped_column(
         JSON_TYPE
     )  # Links to source analyses
-
-    # Business pattern filter (set by pattern_filter at gate time)
-    expected_business_pattern: Mapped[str | None] = mapped_column(String, nullable=True)
-    business_rule: Mapped[str | None] = mapped_column(String, nullable=True)
-    filter_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Timestamps
     computed_at: Mapped[datetime] = mapped_column(

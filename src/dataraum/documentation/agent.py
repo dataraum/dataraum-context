@@ -64,7 +64,7 @@ class BatchPlanAgent:
 
     Uses the config_fix prompt in batch_plan mode to propose one action
     per violating target. The user confirms or edits the plan in one
-    round, producing multiple FixInputs.
+    round, producing multiple teach calls.
     """
 
     def __init__(
@@ -85,7 +85,7 @@ class BatchPlanAgent:
 
         For multi-target dimensions, proposes the best action for each
         target based on component evidence. The user confirms or edits
-        the plan in one round, producing multiple FixInputs.
+        the plan in one round, producing multiple teach calls.
 
         Args:
             context: Structured context with per-column evidence and actions.
