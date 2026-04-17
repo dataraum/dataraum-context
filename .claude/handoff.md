@@ -346,6 +346,28 @@ Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
   - DAT-265 created under DAT-196 for incremental phase execution (currently re-runs all metrics, not just the new one)
 - **Status**: verified (2026-04-17, /accept handoff). Provenance fields (field_resolution, assumptions, was_repaired) working in search_snippets. run_sql repair visibility working (repair_attempts + original_sql). mcp:session_* vocabulary filtering working. Degraded: query:* snippets leak into vocabulary (step IDs in standard_fields, UUIDs in graph_ids) — extend filter to exclude query:* sources.
 
+## 2026-04-17: /accept findings — vocabulary pollution + query agent grounding
+
+### dataraum-context (vocabulary pollution)
+- **Bug**: `query:*` snippets leak into `search_snippets` vocabulary. After running `query` tool:
+  1. Step IDs appear in `standard_fields` (e.g. `revenue_march_2025` — a one-off step, not a reusable concept)
+  2. Execution UUIDs appear in `graph_ids` (e.g. `df2b8659-7d7d-47f5-969f-076c3912503c`)
+- **Root cause**: Vocabulary filter excludes `mcp:%` sources but `query:%` sources pass through. Graph_id extractor parses `query:{uuid}` the same as `graph:{name}`.
+- **Fix**: Extend vocabulary filter to `NOT LIKE 'mcp:%' AND NOT LIKE 'query:%'`, or only extract graph_ids from `graph:*` prefix.
+- **Affects**: `search_snippets` vocabulary cleanliness
+- **Status**: pending
+
+### dataraum-context (query agent grounding — critical)
+- **Bug**: Query agent and graph agent misinterpret trial balance structure. They treat each period's row as a balance snapshot, but the trial balance has **periodic (monthly) figures** — debit_balance and credit_balance are monthly activity, not cumulative balances.
+- **Evidence**: CoA has correct account names ("Accounts Receivable", "Cost of Goods Sold"). The pattern matching works. But:
+  - DSO = 0.0 because `MAX(period)` is 2026-02 where AR activity = 0
+  - Ending AR = 1,368,258 (December monthly change) vs expected 13,070,114 (cumulative through December)
+  - Cumulative SUM of all monthly AR figures through December = 13,070,114.83 (matches ground truth exactly)
+  - Gross profit wrong because COGS is under-counted (same periodic vs cumulative issue)
+- **Fix needed**: Query/graph agents must understand that `SUM(debit_balance - credit_balance)` across all periods through the target date gives the cumulative balance, not a single period's debit_balance - credit_balance.
+- **Affects**: `query` tool accuracy for balance-based metrics (DSO, AR, AP, any balance sheet item), graph snippets for DPO/current_ratio/etc.
+- **Status**: pending
+
 <!--
 ## YYYY-MM-DD: brief description
 
