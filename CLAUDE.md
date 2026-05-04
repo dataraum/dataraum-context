@@ -133,6 +133,7 @@ This project uses skills to structure development work. Skills encode the checkp
 | Approved approach after `/refine` | `/implement` | Phased execution with checkpoints and review gate |
 | MCP tool changes completed | Remind: restart session, then `/smoke` | Server runs old code until restarted |
 | Implementation verified and reviewed | Update `.claude/handoff.md` | Bridge to dataraum-eval and dataraum-testdata |
+| "Cut a release", "prep v0.x.y", before tagging | `/release-prep` | Editorial sweep on README/docs/CHANGELOG; CI enforces counts |
 | Quick fix, <3 files, obvious change | Direct implementation | S-size tasks don't need ceremony |
 
 ### Skills (`.claude/skills/`)
@@ -145,6 +146,7 @@ This project uses skills to structure development work. Skills encode the checkp
 - **`/refine <issue>`** — Pre-implementation: explore feasibility, surface spec vs. reality conflicts, align on approach. No code.
 - **`/implement <issue>`** — Phased execution with mandatory self-audit checkpoints. Invokes senior-code-reviewer + spec-compliance-reviewer at the end. Updates `handoff.md`.
 - **`/smoke [tool]`** — Quick MCP UX check: call the tools you just built, feel how they work. Requires session restart if server code changed.
+- **`/release-prep [version]`** — Pre-release editorial sweep across README, `docs/`, `CHANGELOG.md`, and version metadata. Runs `scripts/check_doc_counts.py`. Stops before tagging.
 
 ### Cross-repo handoff
 

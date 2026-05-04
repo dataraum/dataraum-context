@@ -41,7 +41,7 @@ Then in Claude Desktop:
 
 > Add the CSV files in /path/to/my/data and measure data quality
 
-The server runs a 17-phase analysis pipeline and makes these tools available:
+The server runs an 18-phase analysis pipeline and makes these tools available:
 
 | Tool | Description |
 |------|-------------|
@@ -49,8 +49,11 @@ The server runs a 17-phase analysis pipeline and makes these tools available:
 | `add_source` | Register a data source (CSV, Parquet, JSON, or directory) |
 | `look` | Explore data structure, relationships, and semantic metadata |
 | `measure` | Measure entropy scores, readiness, and data quality |
+| `why` | Explain elevated entropy and propose teach suggestions |
+| `teach` | Extend the world model — sole write tool (concepts, metrics, validations, ...) |
 | `query` | Natural language query against the data |
 | `run_sql` | Execute SQL directly with export support |
+| `search_snippets` | Discover reusable SQL patterns from prior queries and graph execution |
 | `end_session` | Archive workspace and end the session |
 
 ### Typical Workflow
@@ -122,7 +125,7 @@ uv run ruff format --check src/
 ## Documentation
 
 - [Architecture](docs/architecture.md) — system design and pipeline overview
-- [Pipeline](docs/pipeline.md) — 17-phase pipeline reference
+- [Pipeline](docs/pipeline.md) — 18-phase pipeline reference
 - [Entropy](docs/entropy.md) — uncertainty quantification system
 - [Data Model](docs/data-model.md) — metadata schema
 - [CLI Reference](docs/cli.md) — command-line interface

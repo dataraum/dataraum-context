@@ -33,6 +33,9 @@ jobs:
                   curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
                   ./mcp-publisher validate server.json
 
+            - name: Check doc counts (phases / tools / detectors)
+              run: python scripts/check_doc_counts.py
+
     pypi:
         name: Publish to PyPI
         needs: preflight
