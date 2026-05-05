@@ -151,9 +151,10 @@ def detect_unit(values: list[str], sample_size: int = 100) -> UnitDetectionResul
             # Try to parse as a unit expression
             quantity = ureg.parse_expression(str_value)
 
-            # Check if we got a Quantity (has units) vs just a number
-            if isinstance(quantity, ureg.Quantity):
-                # Extract unit as string
+            # Check if we got a Quantity with actual units. pint >= 0.25.3
+            # returns a dimensionless Quantity for bare numeric strings; treat
+            # those the same as "no unit detected".
+            if isinstance(quantity, ureg.Quantity) and not quantity.dimensionless:
                 unit_str = str(quantity.units)
                 detected_units[unit_str] = detected_units.get(unit_str, 0) + 1
                 successfully_parsed += 1
