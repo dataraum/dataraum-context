@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ActiveSession` pointer table in `workspace.db` — single-row pointer that resolves "which session DB is active" before any session manager opens
 - DAT-192 isolation invariants test suite (`tests/integration/mcp/test_session_isolation.py`) — verifies workspace-only writes for `add_source`, fingerprint-keyed reuse, cross-source isolation, two-DB write atomicity, and orphan-session cleanup on retry
 
+### Removed
+- **Graph-module dead code (DAT-266)**: ~865 lines deleted in a clean-cut sweep. Filter type scaffolding (`GraphType.FILTER`, `Classification`, `AppliesTo`, `ClassificationSummary`, `StepType.PREDICATE`), execution-persistence layer (`graphs/persistence.py`, `GraphExecutionRecord`/`StepResultRecord`, `graph_executions`/`step_results` tables), react-flow export pipeline (`graphs/export.py` — was exported but never called), the `graph_type` discriminator (single-valued enum after filter removal), and ~25 dead fields across `GraphStep`, `StepResult`, `GraphExecution`, `OutputDef`, `GraphMetadata`, `QueryAssumption`, `ExecutionContext`. LLM prompt sweep removed filter-graph guidance from `graph_sql_generation.yaml`.
+
 ## [0.2.1] - 2026-04-17
 
 ### Added
