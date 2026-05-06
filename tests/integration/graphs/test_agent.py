@@ -59,7 +59,6 @@ def sample_graph() -> TransformationGraph:
         steps={
             "value": GraphStep(
                 step_id="value",
-                level=1,
                 step_type=StepType.EXTRACT,
                 source=StepSource(
                     standard_field="test_field",
@@ -164,7 +163,6 @@ class TestExecutionContext:
         )
 
         assert context.schema_mapping_id == "test-mapping"
-        assert context.period is None
 
 
 class TestDescribeTable:
