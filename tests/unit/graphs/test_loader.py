@@ -75,7 +75,6 @@ class TestValidateStandardFields:
         graph_yaml.write_text(
             """
 graph_id: fake_metric
-graph_type: metric
 version: "1.0"
 metadata:
   name: Fake Metric

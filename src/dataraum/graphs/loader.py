@@ -21,7 +21,6 @@ from .models import (
     GraphMetadata,
     GraphSource,
     GraphStep,
-    GraphType,
     Interpretation,
     InterpretationRange,
     OutputDef,
@@ -84,11 +83,11 @@ class GraphLoader:
 
         metrics_dir = self.graphs_dir / "metrics"
         if metrics_dir.exists():
-            self._load_directory(metrics_dir, GraphType.METRIC)
+            self._load_directory(metrics_dir)
 
         return self.graphs
 
-    def _load_directory(self, directory: Path, expected_type: GraphType) -> None:
+    def _load_directory(self, directory: Path) -> None:
         """Recursively load graphs from a directory.
 
         Supports multi-document YAML files (separated by ---).
@@ -97,15 +96,6 @@ class GraphLoader:
             try:
                 graphs = self.load_graphs_from_file(yaml_file)
                 for graph in graphs:
-                    if graph.graph_type != expected_type:
-                        self._load_errors.append(
-                            GraphLoadError(
-                                yaml_file,
-                                f"Expected {expected_type.value} graph '{graph.graph_id}', "
-                                f"got {graph.graph_type.value}",
-                            )
-                        )
-                        continue
                     self.graphs[graph.graph_id] = graph
             except GraphLoadError as e:
                 self._load_errors.append(e)
@@ -142,15 +132,6 @@ class GraphLoader:
         if not graph_id:
             raise GraphLoadError(path, "Missing required field: graph_id")
 
-        graph_type_str = data.get("graph_type")
-        if not graph_type_str:
-            raise GraphLoadError(path, "Missing required field: graph_type")
-
-        try:
-            graph_type = GraphType(graph_type_str)
-        except ValueError as e:
-            raise GraphLoadError(path, f"Invalid graph_type: {graph_type_str}") from e
-
         version = data.get("version", "1.0")
 
         metadata = self._parse_metadata(path, data.get("metadata", {}))
@@ -161,7 +142,6 @@ class GraphLoader:
 
         return TransformationGraph(
             graph_id=graph_id,
-            graph_type=graph_type,
             version=version,
             metadata=metadata,
             output=output,
@@ -300,7 +280,7 @@ class GraphLoader:
 
     def get_metric_graphs(self) -> list[TransformationGraph]:
         """Get all metric graphs."""
-        return [g for g in self.graphs.values() if g.graph_type == GraphType.METRIC]
+        return list(self.graphs.values())
 
     def get_load_errors(self) -> list[GraphLoadError]:
         """Get any errors encountered during loading."""

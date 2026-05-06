@@ -359,7 +359,6 @@ class GraphAgent(LLMFeature):
         # Build prompt context
         prompt_context = {
             "graph_yaml": graph_yaml,
-            "graph_type": graph.graph_type.value,
             "table_schema": json.dumps(schema_info, indent=2),
             "parameters": json.dumps(parameters, indent=2),
         }
@@ -674,7 +673,6 @@ class GraphAgent(LLMFeature):
         # Convert graph to dict for YAML serialization
         graph_dict: dict[str, Any] = {
             "graph_id": graph.graph_id,
-            "graph_type": graph.graph_type.value,
             "version": graph.version,
             "metadata": {
                 "name": graph.metadata.name,

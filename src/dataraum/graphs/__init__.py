@@ -43,7 +43,6 @@ from .models import (
     GraphMetadata,
     GraphSource,
     GraphStep,
-    GraphType,
     Interpretation,
     InterpretationRange,
     MetricScope,
@@ -80,7 +79,6 @@ __all__ = [
     "DimensionBehavior",
     "get_default_config",
     # Enums
-    "GraphType",
     "GraphSource",
     "StepType",
     "OutputType",

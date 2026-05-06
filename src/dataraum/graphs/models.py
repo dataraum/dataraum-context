@@ -19,12 +19,6 @@ from pydantic import BaseModel, Field
 # =============================================================================
 
 
-class GraphType(StrEnum):
-    """Type of transformation graph."""
-
-    METRIC = "metric"
-
-
 class GraphSource(StrEnum):
     """Source of the graph definition."""
 
@@ -169,7 +163,6 @@ class TransformationGraph:
     """A metric transformation graph."""
 
     graph_id: str
-    graph_type: GraphType
     version: str
 
     metadata: GraphMetadata

@@ -26,7 +26,6 @@ from dataraum.graphs.models import (
     GraphMetadata,
     GraphSource,
     GraphStep,
-    GraphType,
     OutputDef,
     OutputType,
     StepSource,
@@ -40,7 +39,6 @@ def sample_graph() -> TransformationGraph:
     """Create a simple test graph."""
     return TransformationGraph(
         graph_id="test_metric",
-        graph_type=GraphType.METRIC,
         version="1.0",
         metadata=GraphMetadata(
             name="Test Metric",
