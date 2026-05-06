@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Workspace layout (DAT-192)**: the MCP server now isolates investigations by source set. The flat `~/.dataraum/workspace/{metadata.db, data.duckdb}` layout is gone. New layout:
+  - `~/.dataraum/workspace.db` — source registry + active-session pointer (SQLite-only, no DuckDB)
+  - `~/.dataraum/sessions/{fingerprint}/{metadata.db, data.duckdb}` — per-source-set analysis data; `begin_session` with the same sources reuses the same fingerprint directory and skips re-running the pipeline
+  - `~/.dataraum/archive/{session_id}/` — ended sessions (existing flow, now archives a session directory rather than the workspace)
+- **Migration: wipe-and-restart.** No automatic migration. Users upgrading from v0.2.1 must `rm -rf ~/.dataraum/` (or move it elsewhere) before the first v0.2.2 invocation. Source registrations and prior session data do not transfer.
+
+### Added
+- `ConnectionConfig.for_workspace(root)` factory — SQLite-only configuration for the workspace registry
+- `ActiveSession` pointer table in `workspace.db` — single-row pointer that resolves "which session DB is active" before any session manager opens
+- DAT-192 isolation invariants test suite (`tests/integration/mcp/test_session_isolation.py`) — verifies workspace-only writes for `add_source`, fingerprint-keyed reuse, cross-source isolation, two-DB write atomicity, and orphan-session cleanup on retry
+
 ## [0.2.1] - 2026-04-17
 
 ### Added

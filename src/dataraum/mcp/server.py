@@ -11,12 +11,13 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlalchemy.orm import Session as SASession
 
     from dataraum.core.connections import ConnectionManager
@@ -2039,6 +2040,20 @@ def _begin_new_session(
             if snapshot["source_id"] in existing_ids:
                 continue
             session.add(Source(**snapshot))
+
+        # Mark any orphan "active" InvestigationSession rows as abandoned.
+        # Handles retries where a prior begin_session wrote to the session DB
+        # but failed to set the workspace pointer — without cleanup these
+        # rows accumulate silently.
+        from sqlalchemy import update
+
+        from dataraum.investigation.db_models import (
+            InvestigationSession as _InvSession,
+        )
+
+        session.execute(
+            update(_InvSession).where(_InvSession.status == "active").values(status="abandoned")
+        )
         session.flush()
 
         # Pick the source_id used to anchor the InvestigationSession

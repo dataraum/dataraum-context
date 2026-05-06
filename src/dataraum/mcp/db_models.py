@@ -34,7 +34,7 @@ class ActiveSession(Base):
     # Single-row enforcement: primary key is constant.
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
 
-    session_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    session_id: Mapped[str] = mapped_column(String, nullable=False)
     fingerprint: Mapped[str] = mapped_column(String, nullable=False)
     started_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)
