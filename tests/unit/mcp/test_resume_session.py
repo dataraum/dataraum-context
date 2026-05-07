@@ -67,6 +67,41 @@ class TestArchivedSessionWritten:
         assert json.loads(source_names) == ["src"]
 
 
+class TestResponseFormatting:
+    """Surface-level invariants on the listing response."""
+
+    @pytest.mark.asyncio
+    async def test_datetimes_serialized_as_iso_utc(self, server_with_key, tmp_path: Path) -> None:
+        """started_at / ended_at come back as ISO 8601 UTC, not naive Python repr."""
+        import re
+
+        csv = _make_csv(tmp_path)
+        await _call(server_with_key, "add_source", {"name": "src", "path": str(csv)})
+        await _call(server_with_key, "begin_session", {"intent": "fmt"})
+        await _call(server_with_key, "end_session", {"outcome": "delivered"})
+
+        listing = await _call(server_with_key, "resume_session", {})
+        archive = listing["archived_sessions"][0]
+
+        iso_utc = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+        assert iso_utc.match(archive["started_at"]), archive["started_at"]
+        assert iso_utc.match(archive["ended_at"]), archive["ended_at"]
+
+    @pytest.mark.asyncio
+    async def test_vertical_normalized_to_adhoc_in_listing(
+        self, server_with_key, tmp_path: Path
+    ) -> None:
+        """Cold-start sessions (no vertical) show '_adhoc' in listing,
+        matching what begin_session and resume_session responses emit."""
+        csv = _make_csv(tmp_path)
+        await _call(server_with_key, "add_source", {"name": "src", "path": str(csv)})
+        await _call(server_with_key, "begin_session", {"intent": "fmt"})
+        await _call(server_with_key, "end_session", {"outcome": "delivered"})
+
+        listing = await _call(server_with_key, "resume_session", {})
+        assert listing["archived_sessions"][0]["vertical"] == "_adhoc"
+
+
 class TestResumeSessionListing:
     """resume_session without args lists archived sessions."""
 

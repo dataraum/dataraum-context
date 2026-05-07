@@ -45,9 +45,24 @@ _pipeline_idle = threading.Event()
 _pipeline_idle.set()  # starts idle (query/run_sql allowed)
 
 
+def _json_default(obj: Any) -> Any:
+    """JSON fallback that emits ISO 8601 UTC for datetimes.
+
+    Storage is always UTC (recorders use ``datetime.now(UTC)``), but SQLite
+    strips tzinfo on round-trip so values come back naive. We treat naive
+    datetimes as UTC here and emit ``...Z`` so the wire format is
+    unambiguous. Other unknown types fall back to ``str()``.
+    """
+    if isinstance(obj, datetime):
+        if obj.tzinfo is None:
+            obj = obj.replace(tzinfo=UTC)
+        return obj.isoformat().replace("+00:00", "Z")
+    return str(obj)
+
+
 def _json_text_content(data: dict[str, Any]) -> list[TextContent]:
     """Serialize a dict to JSON and wrap in MCP TextContent."""
-    return [TextContent(type="text", text=json.dumps(data, indent=2, default=str))]
+    return [TextContent(type="text", text=json.dumps(data, indent=2, default=_json_default))]
 
 
 def _make_task_event_callback(
@@ -1023,7 +1038,9 @@ def create_server(output_dir: Path | None = None) -> Server:
                                 content=[
                                     TextContent(
                                         type="text",
-                                        text=json.dumps(measure_result, indent=2, default=str),
+                                        text=json.dumps(
+                                            measure_result, indent=2, default=_json_default
+                                        ),
                                     )
                                 ]
                             )
@@ -1374,7 +1391,7 @@ def _list_archived_sessions(workspace_mgr: ConnectionManager) -> list[dict[str, 
                 "fingerprint": r.fingerprint,
                 "intent": r.intent,
                 "contract": r.contract,
-                "vertical": r.vertical,
+                "vertical": r.vertical or "_adhoc",
                 "outcome": r.outcome,
                 "summary": r.summary,
                 "sources": list(r.source_names),
