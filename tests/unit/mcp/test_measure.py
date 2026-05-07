@@ -412,6 +412,44 @@ class TestMeasureSurfacesPipelineFailure:
         # No stale points — measure() short-circuits to the failure response
         assert "points" not in result
 
+    def test_run_level_error_with_no_phase_logs_synthesizes_entry(self, session: Session) -> None:
+        """When the runner's outer try/except catches an exception (no
+        per-phase PhaseLog written), measure() must still surface a
+        phases_failed entry so the response is never 'failed but empty'."""
+        source_id, _, _ = _setup_source_and_table(session)
+
+        run_id = _id()
+        session.add(
+            PipelineRun(
+                run_id=run_id,
+                source_id=source_id,
+                status="failed",
+                started_at=datetime.now(UTC),
+                error="(sqlite3.IntegrityError) UNIQUE constraint failed: tables.source_id",
+            )
+        )
+        session.flush()
+        # Note: NO PhaseLog rows — simulates the outer-boundary exception path.
+
+        with (
+            patch(
+                "dataraum.mcp.server._get_pipeline_source",
+                return_value=session.get(Source, source_id),
+            ),
+            patch(
+                "dataraum.entropy.measurement.measure_entropy",
+                return_value=MeasurementResult(),
+            ),
+        ):
+            from dataraum.mcp.server import _measure
+
+            result = _measure(session)
+
+        assert result["pipeline_status"] == "failed"
+        assert len(result["phases_failed"]) == 1
+        assert result["phases_failed"][0]["phase"] == "(unknown)"
+        assert "IntegrityError" in result["phases_failed"][0]["error"]
+
 
 class TestMeasureTargetFilter:
     def test_filter_by_table(self, session: Session) -> None:

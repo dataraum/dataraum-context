@@ -178,6 +178,37 @@ class TestRunPipeline:
         assert result["phases_blocked"] == ["enriched_views"]
         assert result["error"] == "semantic failed"
 
+    def test_outer_exception_synthesizes_phases_failed(self, tmp_path):
+        """When an exception escapes the per-phase try/except, runner sets
+        success=False and error=str(e) but produces no phase entries.
+        _run_pipeline must synthesize a phases_failed entry so callers
+        never see 'failed but no failed phases'."""
+        from dataraum.pipeline.runner import RunResult
+
+        run_result = RunResult(
+            success=False,
+            source_id="src-1",
+            duration_seconds=1.5,
+            phases=[],
+            error="(sqlite3.IntegrityError) UNIQUE constraint failed: tables.source_id",
+        )
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.value = run_result
+
+        with patch("dataraum.pipeline.runner.run", return_value=mock_result):
+            result = _run_pipeline(output_dir=tmp_path)
+
+        assert result["pipeline_status"] == "failed"
+        assert result["phases_failed"] == [
+            {
+                "phase": "(unknown)",
+                "error": "(sqlite3.IntegrityError) UNIQUE constraint failed: tables.source_id",
+            }
+        ]
+        assert result["phases_completed"] == []
+        assert result["phases_blocked"] == []
+
     def test_success_returns_complete(self, tmp_path):
         """Returns pipeline_status=complete on success with phase names."""
         from dataraum.pipeline.runner import PhaseRunResult, RunResult

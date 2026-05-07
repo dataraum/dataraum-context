@@ -1341,6 +1341,11 @@ def _run_pipeline(
     blocked = [p.phase_name for p in run_result.phases if p.status == "blocked"]
 
     if not run_result.success:
+        # Outer-boundary exceptions skip per-phase logging; surface the
+        # run-level error as a synthetic entry so the response is never
+        # "failed but no failed phases listed".
+        if not failed and run_result.error:
+            failed = [{"phase": "(unknown)", "error": run_result.error}]
         return {
             "pipeline_status": "failed",
             "phases_completed": completed,
@@ -2725,6 +2730,13 @@ def _build_failed_pipeline_response(session: SASession, latest_run: Any) -> dict
         for log in logs
         if log.status == "failed"
     ]
+    # When an exception escapes the per-phase try/except (e.g. raised
+    # during commit), the runner catches it at the outer boundary and
+    # records the failure on PipelineRun.error without writing a
+    # PhaseLog row. Surface that as a synthetic phases_failed entry so
+    # the agent never sees status="failed" with an empty failure list.
+    if not phases_failed and latest_run.error:
+        phases_failed = [{"phase": "(unknown)", "error": latest_run.error}]
     # Dependents that never ran are absent from PhaseLog (no row written
     # for PENDING phases). The pipeline records them only in
     # PipelineResult, which isn't persisted — we can't enumerate them
