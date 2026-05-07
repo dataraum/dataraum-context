@@ -101,6 +101,72 @@ class TestResponseFormatting:
         listing = await _call(server_with_key, "resume_session", {})
         assert listing["archived_sessions"][0]["vertical"] == "_adhoc"
 
+    @pytest.mark.asyncio
+    async def test_multi_source_artifact_not_in_listing(
+        self, server_with_key, tmp_path: Path
+    ) -> None:
+        """The pipeline creates a synthetic 'multi_source' Source row in the
+        session DB. It must not surface in the archived-session listing."""
+        from uuid import uuid4
+
+        csv = _make_csv(tmp_path)
+        await _call(server_with_key, "add_source", {"name": "src", "path": str(csv)})
+        await _call(server_with_key, "begin_session", {"intent": "fmt"})
+
+        # Simulate the pipeline injecting the synthetic multi_source row into
+        # the session DB. (Real pipeline does this in import_phase.py.)
+        session_dirs = list((tmp_path / "sessions").iterdir())
+        assert len(session_dirs) == 1
+        with sqlite3.connect(str(session_dirs[0] / "metadata.db")) as conn:
+            conn.execute(
+                "INSERT INTO sources "
+                "(source_id, name, source_type, status, created_at, updated_at) "
+                "VALUES (?, 'multi_source', 'multi_source', 'active', "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                (str(uuid4()),),
+            )
+            conn.commit()
+
+        await _call(server_with_key, "end_session", {"outcome": "delivered"})
+        listing = await _call(server_with_key, "resume_session", {})
+        assert listing["archived_sessions"][0]["sources"] == ["src"]
+
+    @pytest.mark.asyncio
+    async def test_multi_source_not_copied_back_to_workspace_on_restore(
+        self, server_with_key, tmp_path: Path
+    ) -> None:
+        """Restoring an archived session must not write multi_source into
+        workspace.db — that table is for user-registered sources only."""
+        from uuid import uuid4
+
+        csv = _make_csv(tmp_path)
+        await _call(server_with_key, "add_source", {"name": "src", "path": str(csv)})
+        await _call(server_with_key, "begin_session", {"intent": "fmt"})
+
+        session_dirs = list((tmp_path / "sessions").iterdir())
+        with sqlite3.connect(str(session_dirs[0] / "metadata.db")) as conn:
+            conn.execute(
+                "INSERT INTO sources "
+                "(source_id, name, source_type, status, created_at, updated_at) "
+                "VALUES (?, 'multi_source', 'multi_source', 'active', "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                (str(uuid4()),),
+            )
+            conn.commit()
+
+        await _call(server_with_key, "end_session", {"outcome": "delivered"})
+        listing = await _call(server_with_key, "resume_session", {})
+        archive_id = listing["archived_sessions"][0]["session_id"]
+
+        result = await _call(server_with_key, "resume_session", {"session_id": archive_id})
+        assert "error" not in result
+        assert result["sources"] == ["src"]
+
+        with sqlite3.connect(str(tmp_path / "workspace.db")) as conn:
+            workspace_names = [r[0] for r in conn.execute("SELECT name FROM sources").fetchall()]
+        assert "multi_source" not in workspace_names
+        assert workspace_names == ["src"]
+
 
 class TestResumeSessionListing:
     """resume_session without args lists archived sessions."""

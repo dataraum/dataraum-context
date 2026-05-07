@@ -104,6 +104,12 @@ def _make_task_event_callback(
     return _callback
 
 
+# The pipeline creates a synthetic "multi_source" Source row in the session DB
+# to anchor multi-source runs. It is internal plumbing and must never surface
+# in workspace.db or in archived-session listings shown to the agent.
+_PIPELINE_INTERNAL_SOURCE_NAME = "multi_source"
+
+
 def _resolve_root_dir() -> Path:
     """Resolve the DataRaum root directory.
 
@@ -141,7 +147,10 @@ def _read_archive_summary(archive_dir: Path, session_id: str, fingerprint: str) 
             if inv_row is None:
                 return None
             source_rows = conn.execute(
-                "SELECT name FROM sources WHERE archived_at IS NULL ORDER BY created_at"
+                "SELECT name FROM sources "
+                "WHERE archived_at IS NULL AND name != ? "
+                "ORDER BY created_at",
+                (_PIPELINE_INTERNAL_SOURCE_NAME,),
             ).fetchall()
     except sqlite3.OperationalError:
         _log.warning("Could not read archive metadata at %s", metadata_db, exc_info=True)
@@ -1487,9 +1496,17 @@ def _restore_archived_session(
         resume_intent = intent or f"Resumed: {archived_intent}"
 
         with session_mgr.session_scope() as session:
+            # Skip the synthetic multi_source row — pipeline plumbing that
+            # must not be copied into workspace.db or shown to the agent.
+            # The session DB keeps it (pipeline data references its id).
             archive_sources = list(
                 session.execute(
-                    select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
+                    select(Source)
+                    .where(
+                        Source.archived_at.is_(None),
+                        Source.name != _PIPELINE_INTERNAL_SOURCE_NAME,
+                    )
+                    .order_by(Source.created_at)
                 )
                 .scalars()
                 .all()
