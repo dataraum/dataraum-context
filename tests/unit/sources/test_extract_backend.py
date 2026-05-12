@@ -265,3 +265,55 @@ class TestExtractBackendCleanup:
         # subsequent queries against memory.main.* resolve correctly.
         result = duckdb_conn.execute("SELECT current_database()").fetchone()
         assert result[0] == "memory"
+
+
+class TestExtractBackendFileBackedConnection:
+    """In production the DuckDB connection is file-backed (session data.duckdb),
+    not :memory:. extract_backend must use the connection's actual catalog name
+    rather than a hardcoded "memory" — otherwise CREATE TABLE fails with
+    "Catalog Error: Catalog with name memory does not exist".
+    """
+
+    def test_extracts_into_file_backed_catalog(self, sqlite_source, tmp_path):
+        """File-backed DuckDB has a catalog named after the file. Recipe tables
+        must materialize there, not in a phantom 'memory' catalog."""
+        db_path = tmp_path / "session_data.duckdb"
+        conn = duckdb.connect(str(db_path))
+        try:
+            result = extract_backend(
+                backend="sqlite",
+                url=sqlite_source,
+                queries=[RecipeTable(name="customers", sql="SELECT * FROM customers")],
+                duckdb_conn=conn,
+                raw_prefix="aw_",
+            )
+            assert result.success, result.error
+            assert result.value is not None
+            assert len(result.value.tables) == 1
+            assert result.value.tables[0].duckdb_table == "aw_customers"
+
+            # The materialized table lives in the file-backed catalog, not in "memory".
+            current_catalog = conn.execute("SELECT current_catalog()").fetchone()[0]
+            count = conn.execute(
+                f'SELECT count(*) FROM {current_catalog}.main."aw_customers"'
+            ).fetchone()
+            assert count is not None
+            assert count[0] >= 1
+        finally:
+            conn.close()
+
+    def test_default_catalog_restored_after_extraction_file_backed(self, sqlite_source, tmp_path):
+        """The finally-block USE must restore the file-backed catalog, not 'memory'."""
+        db_path = tmp_path / "session_data.duckdb"
+        conn = duckdb.connect(str(db_path))
+        try:
+            expected_catalog = conn.execute("SELECT current_catalog()").fetchone()[0]
+            extract_backend(
+                backend="sqlite",
+                url=sqlite_source,
+                queries=[RecipeTable(name="customers", sql="SELECT * FROM customers")],
+                duckdb_conn=conn,
+            )
+            assert conn.execute("SELECT current_catalog()").fetchone()[0] == expected_catalog
+        finally:
+            conn.close()
