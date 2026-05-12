@@ -1337,16 +1337,9 @@ def _orient_to_active_session(
         if inv is None:
             return {"error": f"Active session pointer references missing session {session_id}"}
 
-        all_sources = list(
-            session.execute(
-                select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
-            )
-            .scalars()
-            .all()
-        )
-
         source = _get_pipeline_source(session)
         source_id = source.source_id if source else inv.source_id
+        source_name = source.name if source else None
 
         has_data = (
             session.execute(
@@ -1373,7 +1366,7 @@ def _orient_to_active_session(
     )
 
     return {
-        "sources": [s.name for s in all_sources],
+        "source": source_name,
         "contract": contract_info,
         "has_pipeline_data": has_data,
         "vertical": vertical,

@@ -101,7 +101,7 @@ class TestOrientToActiveSession:
             result = _orient_to_active_session(_mock_manager(session), inv.session_id)
 
         assert result["resumed"] is True
-        assert result["sources"] == ["zone1"]
+        assert result["source"] == "zone1"
         assert result["contract"]["name"] == "exploratory_analysis"
         assert result["has_pipeline_data"] is False
         assert "end_session" in result["hint"]
