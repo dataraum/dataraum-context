@@ -1326,7 +1326,6 @@ def _orient_to_active_session(
     from dataraum.entropy.contracts import get_contract
     from dataraum.entropy.db_models import EntropyObjectRecord
     from dataraum.investigation.db_models import InvestigationSession
-    from dataraum.storage import Source
 
     with session_manager.session_scope() as session:
         inv = session.execute(
@@ -1338,8 +1337,20 @@ def _orient_to_active_session(
             return {"error": f"Active session pointer references missing session {session_id}"}
 
         source = _get_pipeline_source(session)
-        source_id = source.source_id if source else inv.source_id
-        source_name = source.name if source else None
+        if source is None:
+            # In a correctly-formed DAT-290 session this cannot happen —
+            # begin_session copies the Source row from workspace.db into the
+            # session DB *before* writing the ActiveSession pointer. A pointer
+            # without a session-DB Source row means the workspace is corrupted.
+            return {
+                "error": (
+                    f"Active session {session_id} has no bound source in the "
+                    "session DB. The workspace is corrupted; recover with "
+                    "end_session, then begin_session again."
+                )
+            }
+        source_id = source.source_id
+        source_name = source.name
 
         has_data = (
             session.execute(

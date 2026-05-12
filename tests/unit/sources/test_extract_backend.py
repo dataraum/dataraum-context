@@ -263,7 +263,7 @@ class TestExtractBackendCleanup:
         )
         # After extraction, the default catalog must be memory again so
         # subsequent queries against memory.main.* resolve correctly.
-        result = duckdb_conn.execute("SELECT current_database()").fetchone()
+        result = duckdb_conn.execute("SELECT current_catalog()").fetchone()
         assert result[0] == "memory"
 
 
