@@ -232,8 +232,10 @@ class TestRunPipeline:
         assert result["pipeline_status"] == "complete"
         assert result["phases_completed"] == ["import", "typing"]
 
-    def test_always_multi_source_mode(self, tmp_path):
-        """Pipeline always runs in multi-source mode (source_path=None)."""
+    def test_mcp_runs_without_source_path(self, tmp_path):
+        """MCP-driven runs leave source_path=None — setup_pipeline reads the
+        bound source from the session DB. CLI runs (the other caller) supply
+        their own source_path."""
         from dataraum.pipeline.runner import RunResult
 
         mock_result = MagicMock()

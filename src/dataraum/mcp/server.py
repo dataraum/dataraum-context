@@ -104,12 +104,6 @@ def _make_task_event_callback(
     return _callback
 
 
-# The pipeline creates a synthetic "multi_source" Source row in the session DB
-# to anchor multi-source runs. It is internal plumbing and must never surface
-# in workspace.db or in archived-session listings shown to the agent.
-_PIPELINE_INTERNAL_SOURCE_NAME = "multi_source"
-
-
 def _resolve_root_dir() -> Path:
     """Resolve the DataRaum root directory.
 
@@ -147,13 +141,14 @@ def _read_archive_summary(archive_dir: Path, session_id: str, fingerprint: str) 
             if inv_row is None:
                 return None
             source_rows = conn.execute(
-                "SELECT name FROM sources "
-                "WHERE archived_at IS NULL AND name != ? "
-                "ORDER BY created_at",
-                (_PIPELINE_INTERNAL_SOURCE_NAME,),
+                "SELECT name FROM sources WHERE archived_at IS NULL ORDER BY created_at LIMIT 1"
             ).fetchall()
     except sqlite3.OperationalError:
         _log.warning("Could not read archive metadata at %s", metadata_db, exc_info=True)
+        return None
+
+    if not source_rows:
+        _log.warning("Archive %s has no source row to index", metadata_db)
         return None
 
     intent, contract, vertical, status, outcome_summary, started_at, ended_at, step_count = inv_row
@@ -165,7 +160,7 @@ def _read_archive_summary(archive_dir: Path, session_id: str, fingerprint: str) 
         vertical=vertical,
         outcome=status,
         summary=outcome_summary,
-        source_names=[r[0] for r in source_rows],
+        source_name=source_rows[0][0],
         started_at=_parse_sqlite_datetime(started_at),
         ended_at=_parse_sqlite_datetime(ended_at) or datetime.now(UTC),
         step_count=step_count or 0,
@@ -1297,42 +1292,22 @@ def create_server(output_dir: Path | None = None) -> Server:
 
 
 def _get_pipeline_source(session: Any) -> Any | None:
-    """Find the source that has pipeline data (typed tables).
+    """Return the session's bound source.
 
-    In multi-source mode (MCP onboarding flow), the pipeline runs against a
-    synthetic "multi_source" record.  Otherwise, pick the source that has
-    typed tables.
+    Per DAT-290 each session is bound to a single source, copied from the
+    workspace registry by ``begin_session`` into the session DB. This helper
+    is a thin lookup convenience used by tools (look, query, measure,
+    resume_session, ...) that need the Source row attached to ``ctx.source_id``
+    or to the active investigation. Returns None if no non-archived Source
+    exists (unexpected state — surfaces as a tool-level error in callers).
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import select
 
-    from dataraum.storage import Source, Table
+    from dataraum.storage import Source
 
-    # Multi-source mode: explicit record
-    source = session.execute(
-        select(Source).where(Source.name == "multi_source", Source.archived_at.is_(None))
+    return session.execute(
+        select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at).limit(1)
     ).scalar_one_or_none()
-    if source:
-        return source
-
-    # Find the source with typed tables
-    sources = list(
-        session.execute(
-            select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
-        )
-        .scalars()
-        .all()
-    )
-    for s in sources:
-        count = session.execute(
-            select(func.count())
-            .select_from(Table)
-            .where(Table.source_id == s.source_id, Table.layer == "typed")
-        ).scalar()
-        if count > 0:
-            return s
-
-    # Fallback to first active source
-    return sources[0] if sources else None
 
 
 def _orient_to_active_session(
@@ -1431,7 +1406,7 @@ def _list_archived_sessions(workspace_mgr: ConnectionManager) -> list[dict[str, 
                 "vertical": r.vertical or "_adhoc",
                 "outcome": r.outcome,
                 "summary": r.summary,
-                "sources": list(r.source_names),
+                "source": r.source_name,
                 "started_at": r.started_at,
                 "ended_at": r.ended_at,
                 "step_count": r.step_count,
@@ -1524,17 +1499,9 @@ def _restore_archived_session(
         resume_intent = intent or f"Resumed: {archived_intent}"
 
         with session_mgr.session_scope() as session:
-            # Skip the synthetic multi_source row — pipeline plumbing that
-            # must not be copied into workspace.db or shown to the agent.
-            # The session DB keeps it (pipeline data references its id).
             archive_sources = list(
                 session.execute(
-                    select(Source)
-                    .where(
-                        Source.archived_at.is_(None),
-                        Source.name != _PIPELINE_INTERNAL_SOURCE_NAME,
-                    )
-                    .order_by(Source.created_at)
+                    select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
                 )
                 .scalars()
                 .all()
@@ -1543,6 +1510,13 @@ def _restore_archived_session(
                 raise RuntimeError(
                     "Restored session has no active sources. The archive may be "
                     "corrupted; investigate manually."
+                )
+            if len(archive_sources) > 1:
+                names = [s.name for s in archive_sources]
+                raise RuntimeError(
+                    f"Restored session has multiple sources ({names}). DAT-290 "
+                    "guarantees one source per session — this archive is from "
+                    "an older multi-source build; manual cleanup required."
                 )
             source_snapshots = [
                 {
@@ -1647,7 +1621,7 @@ def _restore_archived_session(
         "_session_id": new_session_id,
         "_fingerprint": fingerprint,
         "resumed_from": session_id,
-        "sources": [s["name"] for s in source_snapshots],
+        "source": source_snapshots[0]["name"],
         "contract": contract_info,
         "has_pipeline_data": has_data,
         "vertical": archived_vertical or "_adhoc",
@@ -1749,13 +1723,13 @@ def _run_pipeline(
     vertical: str | None = None,
     target_phase: str | None = None,
 ) -> dict[str, Any]:
-    """Run the pipeline on registered sources (multi-source mode).
+    """Run the pipeline against the session's bound source.
 
-    Always runs in multi-source mode (source_path=None) — sources are
-    registered via add_source and read from the database by the import phase.
+    Leaves ``source_path=None`` so ``setup_pipeline`` reads the (single)
+    Source row that ``begin_session`` already wrote into the session DB.
 
     Args:
-        output_dir: Pipeline output directory.
+        output_dir: Pipeline output directory (the session_dir).
         event_callback: Optional callback for pipeline events.
         contract: Active contract name from the session.
         vertical: Domain vertical (e.g. 'finance'). None → '_adhoc'.
@@ -2546,9 +2520,6 @@ def _begin_new_session(
         session.flush()
 
         # The session anchors directly on the chosen source's source_id.
-        # Phase 4 will delete the _get_pipeline_source helper entirely; for
-        # now we still call it so multi_source-aware code paths elsewhere
-        # remain coherent — but we prefer the snapshot's real source_id.
         source_id: str = str(source_snapshot["source_id"])
 
         # Create investigation session in the session DB
@@ -2603,8 +2574,8 @@ def _resolve_teach_target(session: Any, source_id: str, target: str) -> str:
     from dataraum.storage import Table
 
     table_part, sep, col_part = target.partition(".")
-    # Don't filter by source_id — in multi-source mode, tables belong to
-    # the synthetic "multi_source" record, not the original source.
+    # Session is single-source per DAT-290; one Source row means table_name
+    # is unambiguous by source. Filter only by layer.
     tables = list(session.execute(select(Table).where(Table.layer == "typed")).scalars().all())
     resolved = _resolve_table_name(tables, table_part)
     if resolved:
