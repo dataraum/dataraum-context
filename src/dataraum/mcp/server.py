@@ -2446,7 +2446,7 @@ def _begin_new_session(
     from dataraum.entropy.db_models import EntropyObjectRecord
     from dataraum.investigation.recorder import begin_session
     from dataraum.mcp.db_models import ActiveSession
-    from dataraum.pipeline.setup import _compute_source_set_fingerprint
+    from dataraum.pipeline.setup import _compute_source_fingerprint
     from dataraum.storage import Source
 
     # --- Prerequisite checks (fail fast with actionable messages) ---
@@ -2513,15 +2513,13 @@ def _begin_new_session(
             "discovered_schema": chosen.discovered_schema,
             "archived_at": chosen.archived_at,
         }
-        fingerprint_input = [
-            {
-                "name": source_snapshot["name"],
-                "source_type": source_snapshot["source_type"],
-                "connection_config": source_snapshot["connection_config"] or {},
-            }
-        ]
-
-    fingerprint = _compute_source_set_fingerprint(fingerprint_input)
+    fingerprint = _compute_source_fingerprint(
+        {
+            "name": source_snapshot["name"],
+            "source_type": source_snapshot["source_type"],
+            "connection_config": source_snapshot["connection_config"] or {},
+        }
+    )
 
     # --- Open session manager + seed session DB ---
     session_mgr = open_session_manager(fingerprint)

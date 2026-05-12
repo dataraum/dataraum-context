@@ -1,4 +1,11 @@
-"""Tests for multi-source import and column limits."""
+"""Tests for the import phase and per-source fingerprint.
+
+Phase 2 of DAT-290 collapsed multi-source semantics into single-source-per-
+session. This file still carries TestColumnLimit + TestLoadRegisteredSources
+from before; Phase 3 will rewrite or delete them when the import phase is
+itself rewritten. The fingerprint tests below cover the new
+``_compute_source_fingerprint`` (per single source).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from dataraum.pipeline.base import PhaseContext, PhaseResult, PhaseStatus
 from dataraum.pipeline.phases.import_phase import ImportPhase
-from dataraum.pipeline.setup import _compute_source_set_fingerprint
+from dataraum.pipeline.setup import _compute_source_fingerprint
 
 
 class TestColumnLimit:
@@ -94,62 +101,43 @@ class TestColumnLimit:
         assert "No source_path or registered_sources" in (result.error or "")
 
 
-class TestSourceSetFingerprint:
-    """Tests for SourceSet fingerprint computation."""
+class TestSourceFingerprint:
+    """Tests for single-source fingerprint computation."""
 
-    def test_fingerprint_deterministic(self):
-        """Same sources produce same fingerprint."""
-        sources: list[dict[str, Any]] = [
-            {"name": "a", "source_type": "csv", "connection_config": {"path": "/a.csv"}},
-            {"name": "b", "source_type": "csv", "connection_config": {"path": "/b.csv"}},
-        ]
+    def _spec(self, name: str = "a", path: str = "/a.csv") -> dict[str, Any]:
+        return {
+            "name": name,
+            "source_type": "csv",
+            "connection_config": {"path": path},
+        }
 
-        fp1 = _compute_source_set_fingerprint(sources)
-        fp2 = _compute_source_set_fingerprint(sources)
+    def test_fingerprint_deterministic(self) -> None:
+        """Same source produces same fingerprint."""
+        spec = self._spec()
+        assert _compute_source_fingerprint(spec) == _compute_source_fingerprint(spec)
 
-        assert fp1 == fp2
+    def test_fingerprint_changes_with_connection_config(self) -> None:
+        """Changing the connection_config changes the fingerprint."""
+        a = self._spec(path="/a.csv")
+        b = self._spec(path="/a_v2.csv")
+        assert _compute_source_fingerprint(a) != _compute_source_fingerprint(b)
 
-    def test_fingerprint_order_independent(self):
-        """Different order produces same fingerprint."""
-        sources_1: list[dict[str, Any]] = [
-            {"name": "a", "source_type": "csv", "connection_config": {"path": "/a.csv"}},
-            {"name": "b", "source_type": "csv", "connection_config": {"path": "/b.csv"}},
-        ]
-        sources_2: list[dict[str, Any]] = [
-            {"name": "b", "source_type": "csv", "connection_config": {"path": "/b.csv"}},
-            {"name": "a", "source_type": "csv", "connection_config": {"path": "/a.csv"}},
-        ]
+    def test_fingerprint_changes_with_name(self) -> None:
+        """Renaming the source changes the fingerprint."""
+        a = self._spec(name="a")
+        b = self._spec(name="b")
+        assert _compute_source_fingerprint(a) != _compute_source_fingerprint(b)
 
-        assert _compute_source_set_fingerprint(sources_1) == _compute_source_set_fingerprint(
-            sources_2
-        )
-
-    def test_fingerprint_changes_with_different_sources(self):
-        """Different sources produce different fingerprint."""
-        sources_1: list[dict[str, Any]] = [
-            {"name": "a", "source_type": "csv", "connection_config": {"path": "/a.csv"}},
-        ]
-        sources_2: list[dict[str, Any]] = [
-            {"name": "a", "source_type": "csv", "connection_config": {"path": "/a_v2.csv"}},
-        ]
-
-        assert _compute_source_set_fingerprint(sources_1) != _compute_source_set_fingerprint(
-            sources_2
-        )
-
-    def test_fingerprint_changes_with_added_source(self):
-        """Adding a source changes the fingerprint."""
-        sources_1: list[dict[str, Any]] = [
-            {"name": "a", "source_type": "csv", "connection_config": {"path": "/a.csv"}},
-        ]
-        sources_2: list[dict[str, Any]] = [
-            {"name": "a", "source_type": "csv", "connection_config": {"path": "/a.csv"}},
-            {"name": "b", "source_type": "csv", "connection_config": {"path": "/b.csv"}},
-        ]
-
-        assert _compute_source_set_fingerprint(sources_1) != _compute_source_set_fingerprint(
-            sources_2
-        )
+    def test_fingerprint_handles_none_connection_config(self) -> None:
+        """Sources without connection_config (edge case) hash without error."""
+        spec: dict[str, Any] = {
+            "name": "a",
+            "source_type": "csv",
+            "connection_config": None,
+        }
+        fp = _compute_source_fingerprint(spec)
+        assert isinstance(fp, str)
+        assert len(fp) == 16
 
 
 class TestLoadRegisteredSources:
