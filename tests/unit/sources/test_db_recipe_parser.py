@@ -104,14 +104,10 @@ class TestFileLevelRejections:
         assert ".yaml" in result.error or ".yml" in result.error
 
     def test_malformed_yaml(self, write_recipe):
-        path = write_recipe("backend: mssql\ntables:\n  - this is a list not a map\n")
+        path = write_recipe("backend: mssql\n  bad_indent:\n: : :\n")
         result = parse_recipe(path)
-        # YAML parses fine but the structure is wrong — that's a different error.
-        # We want to make sure outright YAML syntax errors also fail loud.
-        truly_bad = write_recipe("backend: mssql\n  bad_indent:\n: : :\n")
-        result_bad = parse_recipe(truly_bad)
-        assert not result_bad.success
-        assert "invalid" in result_bad.error.lower() or "yaml" in result_bad.error.lower()
+        assert not result.success
+        assert "invalid" in result.error.lower() or "yaml" in result.error.lower()
 
     def test_top_level_not_a_mapping(self, write_recipe):
         path = write_recipe("- just a list\n- of items\n")
@@ -127,9 +123,7 @@ class TestSecretFreeEnforcement:
     )
     def test_credential_like_top_level_keys_rejected(self, write_recipe, forbidden_key):
         path = write_recipe(
-            f"backend: mssql\n"
-            f"{forbidden_key}: anything\n"
-            f"tables:\n  t:\n    sql: SELECT 1\n"
+            f"backend: mssql\n{forbidden_key}: anything\ntables:\n  t:\n    sql: SELECT 1\n"
         )
         result = parse_recipe(path)
         assert not result.success
@@ -139,10 +133,7 @@ class TestSecretFreeEnforcement:
 
     def test_multiple_forbidden_keys_listed(self, write_recipe):
         path = write_recipe(
-            "backend: mssql\n"
-            "connection: x\n"
-            "password: y\n"
-            "tables:\n  t:\n    sql: SELECT 1\n"
+            "backend: mssql\nconnection: x\npassword: y\ntables:\n  t:\n    sql: SELECT 1\n"
         )
         result = parse_recipe(path)
         assert not result.success

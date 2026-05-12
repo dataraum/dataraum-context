@@ -1,7 +1,8 @@
-"""Backend validation via DuckDB ATTACH.
+"""Backend extraction via DuckDB ATTACH.
 
-Every supported database backend is accessed through DuckDB extensions.
-This module validates connections and discovers table schemas.
+Every supported database backend is accessed through a DuckDB extension.
+This module materializes recipe queries into local raw tables and
+harvests structural metadata (PK/FK/indexes) for downstream phases.
 """
 
 from __future__ import annotations
@@ -12,11 +13,13 @@ from dataclasses import dataclass, field
 import duckdb
 
 from dataraum.core.models import Result
+from dataraum.sources.db_recipe import RecipeTable
 
 _log = logging.getLogger(__name__)
 
 # DuckDB extension names per backend.
 BACKEND_EXTENSIONS: dict[str, str] = {
+    "mssql": "mssql",
     "postgres": "postgres",
     "mysql": "mysql",
     "sqlite": "sqlite",
@@ -24,17 +27,170 @@ BACKEND_EXTENSIONS: dict[str, str] = {
 
 # DuckDB ATTACH type per backend.
 BACKEND_ATTACH_TYPES: dict[str, str] = {
+    "mssql": "MSSQL",
     "postgres": "POSTGRES",
     "mysql": "MYSQL",
     "sqlite": "SQLITE",
 }
 
+# Some extensions are community-maintained and need INSTALL FROM community.
+# DuckDB's `core` repository hosts postgres/mysql/sqlite directly; mssql
+# lives in the community repository.
+_COMMUNITY_EXTENSIONS: frozenset[str] = frozenset({"mssql"})
+
 SUPPORTED_BACKENDS = set(BACKEND_EXTENSIONS.keys())
+
+_ATTACH_ALIAS = "src"
+
+
+@dataclass
+class ExtractedTable:
+    """One materialized recipe table."""
+
+    name: str  # Recipe table name (becomes raw_{name} in DuckDB)
+    duckdb_table: str  # Actual DuckDB table name created
+    row_count: int
+    columns: list[tuple[str, str]]  # (column_name, duckdb_type)
+
+
+@dataclass
+class BackendExtractionResult:
+    """Result of materializing all queries in a recipe."""
+
+    tables: list[ExtractedTable] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def extract_backend(
+    backend: str,
+    url: str,
+    queries: list[RecipeTable],
+    duckdb_conn: duckdb.DuckDBPyConnection,
+    raw_prefix: str = "raw_",
+) -> Result[BackendExtractionResult]:
+    """Materialize each recipe query into a `raw_{name}` table in DuckDB.
+
+    Steps: INSTALL + LOAD the backend extension; ATTACH READ_ONLY;
+    `USE src` so the user's SQL can reference attached tables by
+    `schema.table` without an alias prefix; CREATE TABLE per query;
+    restore catalog; DETACH.
+
+    Fails loud at every step (DAT-274 pattern). On failure mid-extraction
+    we still attempt to DETACH so the connection is left clean.
+
+    Args:
+        backend: One of `mssql`, `postgres`, `mysql`, `sqlite`.
+        url: Connection URL resolved from the credential chain.
+        queries: Recipe tables (name + sql), order preserved.
+        duckdb_conn: DuckDB connection to materialize against.
+        raw_prefix: Prefix applied to the recipe table name in DuckDB.
+
+    Returns:
+        Result with the list of extracted tables. Zero-row tables are
+        surfaced as warnings, not errors.
+    """
+    if backend not in SUPPORTED_BACKENDS:
+        return Result.fail(
+            f"Unsupported backend: {backend}. Supported: {', '.join(sorted(SUPPORTED_BACKENDS))}"
+        )
+    if not queries:
+        return Result.fail("extract_backend requires at least one query.")
+
+    extension = BACKEND_EXTENSIONS[backend]
+    attach_type = BACKEND_ATTACH_TYPES[backend]
+
+    # 1. Install + load extension.
+    try:
+        if extension in _COMMUNITY_EXTENSIONS:
+            duckdb_conn.execute(f"INSTALL {extension} FROM community")
+        else:
+            duckdb_conn.execute(f"INSTALL {extension}")
+        duckdb_conn.execute(f"LOAD {extension}")
+    except Exception as exc:
+        return Result.fail(f"DuckDB extension '{extension}' failed to install/load: {exc}")
+
+    # 2. ATTACH the source database READ_ONLY.
+    try:
+        duckdb_conn.execute(f"ATTACH '{url}' AS {_ATTACH_ALIAS} (TYPE {attach_type}, READ_ONLY)")
+    except Exception as exc:
+        return Result.fail(f"ATTACH failed for {backend} source: {exc}")
+
+    extracted: list[ExtractedTable] = []
+    warnings: list[str] = []
+    extraction_error: str | None = None
+    try:
+        # 3. Switch default catalog so user SQL referencing `schema.table`
+        # resolves against the attached database without alias prefix.
+        # The original `memory` catalog is restored in the finally block.
+        # Some extensions (e.g., sqlite) defer connection errors to the
+        # first USE, so we surface those as ATTACH-level failures.
+        try:
+            duckdb_conn.execute(f"USE {_ATTACH_ALIAS}")
+        except Exception as exc:
+            extraction_error = f"ATTACH failed for {backend} source: {exc}"
+        else:
+            for q in queries:
+                duckdb_table = f"{raw_prefix}{q.name}"
+                try:
+                    duckdb_conn.execute(f'CREATE TABLE memory.main."{duckdb_table}" AS {q.sql}')
+                except Exception as exc:
+                    extraction_error = f"Recipe table '{q.name}' SELECT failed: {exc}"
+                    break
+
+                row_count_row = duckdb_conn.execute(
+                    f'SELECT count(*) FROM memory.main."{duckdb_table}"'
+                ).fetchone()
+                row_count = int(row_count_row[0]) if row_count_row else 0
+
+                col_rows = duckdb_conn.execute(
+                    "SELECT column_name, data_type "
+                    "FROM information_schema.columns "
+                    "WHERE table_catalog = 'memory' AND table_schema = 'main' "
+                    "AND table_name = ? "
+                    "ORDER BY ordinal_position",
+                    [duckdb_table],
+                ).fetchall()
+                columns = [(str(r[0]), str(r[1])) for r in col_rows]
+
+                if row_count == 0:
+                    warnings.append(f"Recipe table '{q.name}' returned 0 rows.")
+
+                extracted.append(
+                    ExtractedTable(
+                        name=q.name,
+                        duckdb_table=duckdb_table,
+                        row_count=row_count,
+                        columns=columns,
+                    )
+                )
+    finally:
+        # Restore default catalog and DETACH. Suppress secondary errors —
+        # the primary error (if any) is already captured.
+        try:
+            duckdb_conn.execute("USE memory")
+        except Exception:
+            _log.debug("USE memory failed during cleanup", exc_info=True)
+        try:
+            duckdb_conn.execute(f"DETACH {_ATTACH_ALIAS}")
+        except Exception:
+            _log.debug("DETACH failed during cleanup", exc_info=True)
+
+    if extraction_error is not None:
+        return Result.fail(extraction_error)
+
+    return Result.ok(BackendExtractionResult(tables=extracted, warnings=warnings))
+
+
+# ---------------------------------------------------------------------------
+# Legacy validate-only API — used by `SourceManager.add_database_source` which
+# is itself being deleted in Phase 5. Kept here only so the codebase compiles
+# between Phase 3 and Phase 5 commits. Do not extend.
+# ---------------------------------------------------------------------------
 
 
 @dataclass
 class TablePreview:
-    """Preview of a discovered table."""
+    """Preview of a discovered table (legacy)."""
 
     name: str
     columns: list[str]
@@ -43,7 +199,7 @@ class TablePreview:
 
 @dataclass
 class BackendValidationResult:
-    """Result of backend validation."""
+    """Result of legacy validate-only flow."""
 
     tables: list[TablePreview] = field(default_factory=list)
     credential_source: str | None = None
@@ -54,38 +210,29 @@ def validate_backend(
     url: str,
     duckdb_conn: duckdb.DuckDBPyConnection,
 ) -> Result[BackendValidationResult]:
-    """Test connection via DuckDB ATTACH and discover tables.
-
-    Args:
-        backend: Backend type (postgres, mysql, sqlite).
-        url: Connection URL resolved from credential chain.
-        duckdb_conn: DuckDB connection to use for ATTACH.
-
-    Returns:
-        Result containing table names and column previews, or error.
-    """
+    """Legacy validate-only entry point. Slated for removal in Phase 5."""
     if backend not in SUPPORTED_BACKENDS:
         return Result.fail(
             f"Unsupported backend: {backend}. Supported: {', '.join(sorted(SUPPORTED_BACKENDS))}"
         )
 
-    attach_type = BACKEND_ATTACH_TYPES[backend]
     extension = BACKEND_EXTENSIONS[backend]
+    attach_type = BACKEND_ATTACH_TYPES[backend]
     alias = f"_validate_{backend}"
 
     try:
-        # Install and load the extension
-        duckdb_conn.execute(f"INSTALL {extension}")
+        if extension in _COMMUNITY_EXTENSIONS:
+            duckdb_conn.execute(f"INSTALL {extension} FROM community")
+        else:
+            duckdb_conn.execute(f"INSTALL {extension}")
         duckdb_conn.execute(f"LOAD {extension}")
 
-        # ATTACH the database
         duckdb_conn.execute(f"ATTACH '{url}' AS {alias} (TYPE {attach_type}, READ_ONLY)")
 
         try:
             tables = discover_tables(duckdb_conn, alias)
             return Result.ok(BackendValidationResult(tables=tables))
         finally:
-            # Always detach
             try:
                 duckdb_conn.execute(f"DETACH {alias}")
             except Exception:
@@ -103,32 +250,20 @@ def discover_tables(
     duckdb_conn: duckdb.DuckDBPyConnection,
     alias: str,
 ) -> list[TablePreview]:
-    """Discover tables in an attached database.
-
-    Args:
-        duckdb_conn: DuckDB connection with the database attached.
-        alias: The ATTACH alias to query.
-
-    Returns:
-        List of table previews with column names.
-    """
+    """Discover tables in an attached database (legacy)."""
     tables: list[TablePreview] = []
-
-    # Query information_schema for tables
     rows = duckdb_conn.execute(
         f"SELECT table_name FROM information_schema.tables "
-        f"WHERE table_catalog = '{alias}' AND table_schema NOT IN ('information_schema', 'pg_catalog')"
+        f"WHERE table_catalog = '{alias}' "
+        f"AND table_schema NOT IN ('information_schema', 'pg_catalog')"
     ).fetchall()
 
     for (table_name,) in rows:
-        # Get columns for each table
         col_rows = duckdb_conn.execute(
             f"SELECT column_name FROM information_schema.columns "
             f"WHERE table_catalog = '{alias}' AND table_name = '{table_name}' "
             f"ORDER BY ordinal_position"
         ).fetchall()
-        columns = [col[0] for col in col_rows]
-
-        tables.append(TablePreview(name=table_name, columns=columns))
+        tables.append(TablePreview(name=table_name, columns=[col[0] for col in col_rows]))
 
     return tables

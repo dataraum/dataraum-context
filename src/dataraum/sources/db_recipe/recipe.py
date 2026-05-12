@@ -94,14 +94,12 @@ def parse_recipe(path: str | Path) -> Result[Recipe]:
     backend_raw = data.get("backend")
     if not isinstance(backend_raw, str) or not backend_raw.strip():
         return Result.fail(
-            "Recipe must declare `backend:` (one of: "
-            f"{', '.join(sorted(SUPPORTED_BACKENDS))})."
+            f"Recipe must declare `backend:` (one of: {', '.join(sorted(SUPPORTED_BACKENDS))})."
         )
     backend = backend_raw.strip().lower()
     if backend not in SUPPORTED_BACKENDS:
         return Result.fail(
-            f"Unsupported backend '{backend}'. "
-            f"Supported: {', '.join(sorted(SUPPORTED_BACKENDS))}."
+            f"Unsupported backend '{backend}'. Supported: {', '.join(sorted(SUPPORTED_BACKENDS))}."
         )
 
     tables_raw = data.get("tables")
@@ -116,19 +114,13 @@ def parse_recipe(path: str | Path) -> Result[Recipe]:
         normalized = name.strip()
         lowered = normalized.lower()
         if lowered in seen:
-            return Result.fail(
-                f"Duplicate table name (case-insensitive): {normalized!r}."
-            )
+            return Result.fail(f"Duplicate table name (case-insensitive): {normalized!r}.")
         seen.add(lowered)
         if not isinstance(body, Mapping):
-            return Result.fail(
-                f"Table '{normalized}' must be a mapping with a `sql:` key."
-            )
+            return Result.fail(f"Table '{normalized}' must be a mapping with a `sql:` key.")
         sql_raw = body.get("sql")
         if not isinstance(sql_raw, str) or not sql_raw.strip():
-            return Result.fail(
-                f"Table '{normalized}' has an empty or missing `sql:` field."
-            )
+            return Result.fail(f"Table '{normalized}' has an empty or missing `sql:` field.")
         tables.append(RecipeTable(name=normalized, sql=sql_raw.strip()))
 
     recipe_hash = hashlib.sha256(raw_bytes).hexdigest()
