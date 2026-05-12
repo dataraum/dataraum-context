@@ -111,6 +111,15 @@ def extract_backend(
     extension = BACKEND_EXTENSIONS[backend]
     attach_type = BACKEND_ATTACH_TYPES[backend]
 
+    # 0. Snapshot the connection's default catalog BEFORE we switch into
+    # the attached source. For in-memory connections this is "memory"; for
+    # file-backed connections (the production case — session data.duckdb)
+    # it's named after the file. Tables we create here must live in the
+    # ORIGINAL catalog (not the read-only attached one), so all CREATE /
+    # SELECT / information_schema queries qualify with this name.
+    default_catalog_row = duckdb_conn.execute("SELECT current_catalog()").fetchone()
+    default_catalog = default_catalog_row[0] if default_catalog_row else "memory"
+
     # 1. Install + load extension.
     try:
         if extension in _COMMUNITY_EXTENSIONS:
@@ -138,12 +147,12 @@ def extract_backend(
     try:
         # 3. Switch default catalog+schema so user SQL referencing
         # `schema.table` (e.g. `FROM dbo.Invoices`) resolves against the
-        # attached database without an alias prefix. The original
-        # `memory` catalog is restored in the finally block. Multi-schema
-        # backends (mssql, postgres) require `USE catalog.schema` —
-        # `USE catalog` alone fails with "no catalog + schema found".
-        # Some extensions (e.g., sqlite) defer connection errors to the
-        # first USE, so we surface those as ATTACH-level failures.
+        # attached database without an alias prefix. The original catalog
+        # is restored in the finally block. Multi-schema backends (mssql,
+        # postgres) require `USE catalog.schema` — `USE catalog` alone
+        # fails with "no catalog + schema found". Some extensions (e.g.,
+        # sqlite) defer connection errors to the first USE, so we surface
+        # those as ATTACH-level failures.
         default_schema = BACKEND_DEFAULT_SCHEMA[backend]
         try:
             duckdb_conn.execute(f"USE {_ATTACH_ALIAS}.{default_schema}")
@@ -160,23 +169,25 @@ def extract_backend(
             for q in queries:
                 duckdb_table = f"{raw_prefix}{q.name}"
                 try:
-                    duckdb_conn.execute(f'CREATE TABLE memory.main."{duckdb_table}" AS {q.sql}')
+                    duckdb_conn.execute(
+                        f'CREATE TABLE {default_catalog}.main."{duckdb_table}" AS {q.sql}'
+                    )
                 except Exception as exc:
                     extraction_error = f"Recipe table '{q.name}' SELECT failed: {exc}"
                     break
 
                 row_count_row = duckdb_conn.execute(
-                    f'SELECT count(*) FROM memory.main."{duckdb_table}"'
+                    f'SELECT count(*) FROM {default_catalog}.main."{duckdb_table}"'
                 ).fetchone()
                 row_count = int(row_count_row[0]) if row_count_row else 0
 
                 col_rows = duckdb_conn.execute(
                     "SELECT column_name, data_type "
                     "FROM information_schema.columns "
-                    "WHERE table_catalog = 'memory' AND table_schema = 'main' "
+                    "WHERE table_catalog = ? AND table_schema = 'main' "
                     "AND table_name = ? "
                     "ORDER BY ordinal_position",
-                    [duckdb_table],
+                    [default_catalog, duckdb_table],
                 ).fetchall()
                 columns = [(str(r[0]), str(r[1])) for r in col_rows]
 
@@ -195,9 +206,9 @@ def extract_backend(
         # Restore default catalog and DETACH. Suppress secondary errors —
         # the primary error (if any) is already captured.
         try:
-            duckdb_conn.execute("USE memory")
+            duckdb_conn.execute(f"USE {default_catalog}")
         except Exception:
-            _log.debug("USE memory failed during cleanup", exc_info=True)
+            _log.debug("USE %s failed during cleanup", default_catalog, exc_info=True)
         try:
             duckdb_conn.execute(f"DETACH {_ATTACH_ALIAS}")
         except Exception:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dataraum.storage.base import Base
@@ -52,6 +52,9 @@ class ArchivedSession(Base):
 
     The row is consumed (deleted) when the session is resumed — the data
     moves back into the active session DB.
+
+    Per DAT-290 each session is bound to exactly one source, so
+    ``source_name`` is a scalar (not the prior ``source_names`` JSON list).
     """
 
     __tablename__ = "archived_sessions"
@@ -63,7 +66,7 @@ class ArchivedSession(Base):
     vertical: Mapped[str | None] = mapped_column(String, nullable=True)
     outcome: Mapped[str] = mapped_column(String, nullable=False)
     summary: Mapped[str | None] = mapped_column(String, nullable=True)
-    source_names: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    source_name: Mapped[str] = mapped_column(String, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ended_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)

@@ -104,12 +104,6 @@ def _make_task_event_callback(
     return _callback
 
 
-# The pipeline creates a synthetic "multi_source" Source row in the session DB
-# to anchor multi-source runs. It is internal plumbing and must never surface
-# in workspace.db or in archived-session listings shown to the agent.
-_PIPELINE_INTERNAL_SOURCE_NAME = "multi_source"
-
-
 def _resolve_root_dir() -> Path:
     """Resolve the DataRaum root directory.
 
@@ -147,13 +141,14 @@ def _read_archive_summary(archive_dir: Path, session_id: str, fingerprint: str) 
             if inv_row is None:
                 return None
             source_rows = conn.execute(
-                "SELECT name FROM sources "
-                "WHERE archived_at IS NULL AND name != ? "
-                "ORDER BY created_at",
-                (_PIPELINE_INTERNAL_SOURCE_NAME,),
+                "SELECT name FROM sources WHERE archived_at IS NULL ORDER BY created_at LIMIT 1"
             ).fetchall()
     except sqlite3.OperationalError:
         _log.warning("Could not read archive metadata at %s", metadata_db, exc_info=True)
+        return None
+
+    if not source_rows:
+        _log.warning("Archive %s has no source row to index", metadata_db)
         return None
 
     intent, contract, vertical, status, outcome_summary, started_at, ended_at, step_count = inv_row
@@ -165,7 +160,7 @@ def _read_archive_summary(archive_dir: Path, session_id: str, fingerprint: str) 
         vertical=vertical,
         outcome=status,
         summary=outcome_summary,
-        source_names=[r[0] for r in source_rows],
+        source_name=source_rows[0][0],
         started_at=_parse_sqlite_datetime(started_at),
         ended_at=_parse_sqlite_datetime(ended_at) or datetime.now(UTC),
         step_count=step_count or 0,
@@ -491,9 +486,9 @@ def create_server(output_dir: Path | None = None) -> Server:
             Tool(
                 name="begin_session",
                 description=(
-                    "Start an investigation session. Required before using any "
-                    "other tools except add_source. Sources are sealed at session "
-                    "start — register all sources first.\n\n"
+                    "Start an investigation session bound to a single source. "
+                    "Register sources with add_source first, then pick one here. "
+                    "Call list_sources if you don't remember what's registered.\n\n"
                     "The response includes has_pipeline_data. If false, call "
                     "measure next to trigger the pipeline. If true, data is "
                     "already profiled — proceed with look.\n\n"
@@ -505,13 +500,21 @@ def create_server(output_dir: Path | None = None) -> Server:
                     "- aggregation_safe: SUM/AVG/COUNT queries (moderate)\n"
                     "- executive_dashboard: C-level KPIs (strict)\n"
                     "- regulatory_reporting: audit submissions (very strict)\n\n"
-                    "Default: exploratory_analysis. You can always end the session "
-                    "and start a new one with a stricter contract."
+                    "Default: exploratory_analysis. To switch to a different "
+                    "source or contract, end the current session and begin a new one."
                 ),
                 inputSchema={
                     "type": "object",
-                    "required": ["intent"],
+                    "required": ["source", "intent"],
                     "properties": {
+                        "source": {
+                            "type": "string",
+                            "description": (
+                                "Name of the registered source to investigate. Must match "
+                                "a source previously registered with add_source. Use "
+                                "list_sources to see what's available."
+                            ),
+                        },
                         "intent": {
                             "type": "string",
                             "description": "What you're investigating (e.g. 'check data quality for dashboard').",
@@ -868,6 +871,16 @@ def create_server(output_dir: Path | None = None) -> Server:
             ),
             # --- Source management ---
             Tool(
+                name="list_sources",
+                description=(
+                    "List sources registered in the workspace. Use to discover "
+                    "available source names before calling begin_session, or to "
+                    "verify what was registered. Returns name, type, status, "
+                    "path, backend (for recipes), and recipe table names."
+                ),
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            Tool(
                 name="add_source",
                 description=(
                     "Register a data source before starting a session. Sources "
@@ -952,6 +965,8 @@ def create_server(output_dir: Path | None = None) -> Server:
                         )
                     }
                 )
+        elif name == "list_sources":
+            pass  # Always available — read-only workspace registry lookup.
         elif name == "begin_session":
             pass  # begin_session handles its own logic (idempotent resume)
         elif name == "end_session":
@@ -1079,16 +1094,27 @@ def create_server(output_dir: Path | None = None) -> Server:
                 assert session_mgr is not None
                 result = _orient_to_active_session(session_mgr, active_session_id)
             else:
-                result = _begin_new_session(
-                    workspace_mgr=ws_mgr,
-                    open_session_manager=_get_session_manager,
-                    intent=arguments["intent"],
-                    contract=arguments.get("contract"),
-                    vertical=arguments.get("vertical"),
-                )
-                # Internal bookkeeping fields stripped from agent response
-                result.pop("_session_id", None)
-                result.pop("_fingerprint", None)
+                source_arg = arguments.get("source")
+                if not source_arg:
+                    result = {
+                        "error": (
+                            "'source' is required. Use list_sources to see "
+                            "registered sources, then begin_session(source='name', "
+                            "intent='...'). Each session is bound to a single source."
+                        )
+                    }
+                else:
+                    result = _begin_new_session(
+                        workspace_mgr=ws_mgr,
+                        open_session_manager=_get_session_manager,
+                        source=source_arg,
+                        intent=arguments["intent"],
+                        contract=arguments.get("contract"),
+                        vertical=arguments.get("vertical"),
+                    )
+                    # Internal bookkeeping fields stripped from agent response
+                    result.pop("_session_id", None)
+                    result.pop("_fingerprint", None)
         elif name == "end_session":
             assert session_mgr is not None and active_session_fp is not None
             result = _end_session(
@@ -1238,6 +1264,9 @@ def create_server(output_dir: Path | None = None) -> Server:
         elif name == "add_source":
             with ws_mgr.session_scope() as session:
                 result = _add_source(session, arguments)
+        elif name == "list_sources":
+            with ws_mgr.session_scope() as session:
+                result = _list_sources(session)
         else:
             result = {"error": f"Unknown tool: {name}"}
 
@@ -1263,42 +1292,22 @@ def create_server(output_dir: Path | None = None) -> Server:
 
 
 def _get_pipeline_source(session: Any) -> Any | None:
-    """Find the source that has pipeline data (typed tables).
+    """Return the session's bound source.
 
-    In multi-source mode (MCP onboarding flow), the pipeline runs against a
-    synthetic "multi_source" record.  Otherwise, pick the source that has
-    typed tables.
+    Per DAT-290 each session is bound to a single source, copied from the
+    workspace registry by ``begin_session`` into the session DB. This helper
+    is a thin lookup convenience used by tools (look, query, measure,
+    resume_session, ...) that need the Source row attached to ``ctx.source_id``
+    or to the active investigation. Returns None if no non-archived Source
+    exists (unexpected state — surfaces as a tool-level error in callers).
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import select
 
-    from dataraum.storage import Source, Table
+    from dataraum.storage import Source
 
-    # Multi-source mode: explicit record
-    source = session.execute(
-        select(Source).where(Source.name == "multi_source", Source.archived_at.is_(None))
+    return session.execute(
+        select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at).limit(1)
     ).scalar_one_or_none()
-    if source:
-        return source
-
-    # Find the source with typed tables
-    sources = list(
-        session.execute(
-            select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
-        )
-        .scalars()
-        .all()
-    )
-    for s in sources:
-        count = session.execute(
-            select(func.count())
-            .select_from(Table)
-            .where(Table.source_id == s.source_id, Table.layer == "typed")
-        ).scalar()
-        if count > 0:
-            return s
-
-    # Fallback to first active source
-    return sources[0] if sources else None
 
 
 def _orient_to_active_session(
@@ -1317,7 +1326,6 @@ def _orient_to_active_session(
     from dataraum.entropy.contracts import get_contract
     from dataraum.entropy.db_models import EntropyObjectRecord
     from dataraum.investigation.db_models import InvestigationSession
-    from dataraum.storage import Source
 
     with session_manager.session_scope() as session:
         inv = session.execute(
@@ -1328,16 +1336,21 @@ def _orient_to_active_session(
         if inv is None:
             return {"error": f"Active session pointer references missing session {session_id}"}
 
-        all_sources = list(
-            session.execute(
-                select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
-            )
-            .scalars()
-            .all()
-        )
-
         source = _get_pipeline_source(session)
-        source_id = source.source_id if source else inv.source_id
+        if source is None:
+            # In a correctly-formed DAT-290 session this cannot happen —
+            # begin_session copies the Source row from workspace.db into the
+            # session DB *before* writing the ActiveSession pointer. A pointer
+            # without a session-DB Source row means the workspace is corrupted.
+            return {
+                "error": (
+                    f"Active session {session_id} has no bound source in the "
+                    "session DB. The workspace is corrupted; recover with "
+                    "end_session, then begin_session again."
+                )
+            }
+        source_id = source.source_id
+        source_name = source.name
 
         has_data = (
             session.execute(
@@ -1364,7 +1377,7 @@ def _orient_to_active_session(
     )
 
     return {
-        "sources": [s.name for s in all_sources],
+        "source": source_name,
         "contract": contract_info,
         "has_pipeline_data": has_data,
         "vertical": vertical,
@@ -1397,7 +1410,7 @@ def _list_archived_sessions(workspace_mgr: ConnectionManager) -> list[dict[str, 
                 "vertical": r.vertical or "_adhoc",
                 "outcome": r.outcome,
                 "summary": r.summary,
-                "sources": list(r.source_names),
+                "source": r.source_name,
                 "started_at": r.started_at,
                 "ended_at": r.ended_at,
                 "step_count": r.step_count,
@@ -1490,17 +1503,9 @@ def _restore_archived_session(
         resume_intent = intent or f"Resumed: {archived_intent}"
 
         with session_mgr.session_scope() as session:
-            # Skip the synthetic multi_source row — pipeline plumbing that
-            # must not be copied into workspace.db or shown to the agent.
-            # The session DB keeps it (pipeline data references its id).
             archive_sources = list(
                 session.execute(
-                    select(Source)
-                    .where(
-                        Source.archived_at.is_(None),
-                        Source.name != _PIPELINE_INTERNAL_SOURCE_NAME,
-                    )
-                    .order_by(Source.created_at)
+                    select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
                 )
                 .scalars()
                 .all()
@@ -1509,6 +1514,13 @@ def _restore_archived_session(
                 raise RuntimeError(
                     "Restored session has no active sources. The archive may be "
                     "corrupted; investigate manually."
+                )
+            if len(archive_sources) > 1:
+                names = [s.name for s in archive_sources]
+                raise RuntimeError(
+                    f"Restored session has multiple sources ({names}). DAT-290 "
+                    "guarantees one source per session — this archive is from "
+                    "an older multi-source build; manual cleanup required."
                 )
             source_snapshots = [
                 {
@@ -1613,7 +1625,7 @@ def _restore_archived_session(
         "_session_id": new_session_id,
         "_fingerprint": fingerprint,
         "resumed_from": session_id,
-        "sources": [s["name"] for s in source_snapshots],
+        "source": source_snapshots[0]["name"],
         "contract": contract_info,
         "has_pipeline_data": has_data,
         "vertical": archived_vertical or "_adhoc",
@@ -1715,13 +1727,13 @@ def _run_pipeline(
     vertical: str | None = None,
     target_phase: str | None = None,
 ) -> dict[str, Any]:
-    """Run the pipeline on registered sources (multi-source mode).
+    """Run the pipeline against the session's bound source.
 
-    Always runs in multi-source mode (source_path=None) — sources are
-    registered via add_source and read from the database by the import phase.
+    Leaves ``source_path=None`` so ``setup_pipeline`` reads the (single)
+    Source row that ``begin_session`` already wrote into the session DB.
 
     Args:
-        output_dir: Pipeline output directory.
+        output_dir: Pipeline output directory (the session_dir).
         event_callback: Optional callback for pipeline events.
         contract: Active contract name from the session.
         vertical: Domain vertical (e.g. 'finance'). None → '_adhoc'.
@@ -2390,17 +2402,18 @@ def _check_prerequisites() -> str | None:
 def _begin_new_session(
     workspace_mgr: ConnectionManager,
     open_session_manager: Callable[[str], ConnectionManager],
+    source: str,
     intent: str,
     contract: str | None = None,
     vertical: str | None = None,
 ) -> dict[str, Any]:
-    """Start a fresh investigation session.
+    """Start a fresh investigation session bound to a single source.
 
-    Reads sources from the workspace registry, computes a fingerprint of the
-    source set, opens (or reuses) the per-fingerprint session DB, copies
-    Source records into the session DB so the pipeline can find them, creates
-    an InvestigationSession in the session DB, and finally writes the
-    ActiveSession pointer in the workspace.
+    Looks up the named source in the workspace registry, computes a
+    fingerprint of its config, opens (or reuses) the per-fingerprint
+    session DB, copies the Source record into the session DB so the
+    pipeline can find it, creates an InvestigationSession in the session
+    DB, and finally writes the ActiveSession pointer in the workspace.
 
     The ``_session_id`` and ``_fingerprint`` keys are stripped by call_tool
     before the response reaches the agent.
@@ -2411,7 +2424,7 @@ def _begin_new_session(
     from dataraum.entropy.db_models import EntropyObjectRecord
     from dataraum.investigation.recorder import begin_session
     from dataraum.mcp.db_models import ActiveSession
-    from dataraum.pipeline.setup import _compute_source_set_fingerprint
+    from dataraum.pipeline.setup import _compute_source_fingerprint
     from dataraum.storage import Source
 
     # --- Prerequisite checks (fail fast with actionable messages) ---
@@ -2436,55 +2449,64 @@ def _begin_new_session(
         if vertical not in available_verticals:
             return {"error": f"Unknown vertical '{vertical}'. Available: {available_verticals}"}
 
-    # --- Read sources from workspace ---
+    # --- Resolve the chosen source from the workspace registry ---
     with workspace_mgr.session_scope() as ws_session:
-        workspace_sources = list(
+        all_active = list(
             ws_session.execute(
                 select(Source).where(Source.archived_at.is_(None)).order_by(Source.created_at)
             )
             .scalars()
             .all()
         )
-        if not workspace_sources:
-            return {"error": "No sources registered. Use add_source first."}
-
-        # Snapshot source data into plain dicts for cross-DB transfer
-        source_snapshots = [
-            {
-                "source_id": s.source_id,
-                "name": s.name,
-                "source_type": s.source_type,
-                "connection_config": s.connection_config,
-                "created_at": s.created_at,
-                "updated_at": s.updated_at,
-                "status": s.status,
-                "backend": s.backend,
-                "discovered_schema": s.discovered_schema,
-                "archived_at": s.archived_at,
+        if not all_active:
+            return {
+                "error": (
+                    "No sources registered. Use add_source first, then begin_session "
+                    "with the source name."
+                )
             }
-            for s in workspace_sources
-        ]
-        fingerprint_input = [
-            {
-                "name": s["name"],
-                "source_type": s["source_type"],
-                "connection_config": s["connection_config"] or {},
-            }
-            for s in source_snapshots
-        ]
 
-    fingerprint = _compute_source_set_fingerprint(fingerprint_input)
+        chosen = next((s for s in all_active if s.name == source), None)
+        if chosen is None:
+            available = [s.name for s in all_active]
+            return {
+                "error": (
+                    f"Source '{source}' not found. Available: {available}. "
+                    "Use list_sources to see registered sources."
+                )
+            }
+
+        # Snapshot the chosen source's data into a plain dict for cross-DB transfer.
+        # Each session is bound to exactly one source — the session_dir fingerprint
+        # is keyed on this source's config only.
+        source_snapshot = {
+            "source_id": chosen.source_id,
+            "name": chosen.name,
+            "source_type": chosen.source_type,
+            "connection_config": chosen.connection_config,
+            "created_at": chosen.created_at,
+            "updated_at": chosen.updated_at,
+            "status": chosen.status,
+            "backend": chosen.backend,
+            "discovered_schema": chosen.discovered_schema,
+            "archived_at": chosen.archived_at,
+        }
+    fingerprint = _compute_source_fingerprint(
+        {
+            "name": source_snapshot["name"],
+            "source_type": source_snapshot["source_type"],
+            "connection_config": source_snapshot["connection_config"] or {},
+        }
+    )
 
     # --- Open session manager + seed session DB ---
     session_mgr = open_session_manager(fingerprint)
 
     with session_mgr.session_scope() as session:
-        # Copy Source records into session DB if not already present
+        # Copy the Source record into session DB if not already present
         existing_ids = set(session.execute(select(Source.source_id)).scalars().all())
-        for snapshot in source_snapshots:
-            if snapshot["source_id"] in existing_ids:
-                continue
-            session.add(Source(**snapshot))
+        if source_snapshot["source_id"] not in existing_ids:
+            session.add(Source(**source_snapshot))
 
         # Mark any orphan "active" InvestigationSession rows as abandoned.
         # Handles retries where a prior begin_session wrote to the session DB
@@ -2501,11 +2523,8 @@ def _begin_new_session(
         )
         session.flush()
 
-        # Pick the source_id used to anchor the InvestigationSession
-        pipeline_source = _get_pipeline_source(session)
-        source_id: str = (
-            pipeline_source.source_id if pipeline_source else str(source_snapshots[0]["source_id"])
-        )
+        # The session anchors directly on the chosen source's source_id.
+        source_id: str = str(source_snapshot["source_id"])
 
         # Create investigation session in the session DB
         inv = begin_session(session, source_id, intent, contract=contract_name, vertical=vertical)
@@ -2520,7 +2539,6 @@ def _begin_new_session(
             is not None
         )
 
-        all_source_names = [s["name"] for s in source_snapshots]
         new_session_id = inv.session_id
 
     # --- Set ActiveSession pointer in workspace (last, after session DB is ready) ---
@@ -2533,7 +2551,7 @@ def _begin_new_session(
     return {
         "_session_id": new_session_id,
         "_fingerprint": fingerprint,
-        "sources": all_source_names,
+        "source": source_snapshot["name"],
         "contract": {
             "name": contract_profile.name,
             "display_name": contract_profile.display_name,
@@ -2560,8 +2578,8 @@ def _resolve_teach_target(session: Any, source_id: str, target: str) -> str:
     from dataraum.storage import Table
 
     table_part, sep, col_part = target.partition(".")
-    # Don't filter by source_id — in multi-source mode, tables belong to
-    # the synthetic "multi_source" record, not the original source.
+    # Session is single-source per DAT-290; one Source row means table_name
+    # is unambiguous by source. Filter only by layer.
     tables = list(session.execute(select(Table).where(Table.layer == "typed")).scalars().all())
     resolved = _resolve_table_name(tables, table_part)
     if resolved:
@@ -3478,7 +3496,7 @@ def _add_source(
     if info.discovered_schema:
         output["source"]["schema_discovered"] = info.discovered_schema
 
-    # Include total source count for multi-source flow
+    # Include workspace inventory so the agent can pick the next source.
     all_sources = (
         session.execute(select(Source.name).where(Source.archived_at.is_(None))).scalars().all()
     )
@@ -3487,10 +3505,46 @@ def _add_source(
         "names": list(all_sources),
     }
     output["next_steps"] = (
-        "Add more sources with add_source, or call measure to trigger the pipeline."
+        f"Call begin_session(source='{info.name}', intent='...') to investigate this "
+        "source, or add_source again to register another. Each session is bound to "
+        "exactly one source."
     )
 
     return output
+
+
+def _list_sources(session: SASession) -> dict[str, Any]:
+    """List sources registered in the workspace.
+
+    Read-only inspection of the workspace registry. Returns the same fields
+    that ``add_source`` surfaces, so the agent has enough context to pick
+    a source for ``begin_session`` without re-reading the underlying files.
+    """
+    from dataraum.core.credentials import CredentialChain
+    from dataraum.sources.manager import SourceManager
+
+    src_mgr = SourceManager(session=session, credential_chain=CredentialChain())
+    infos = src_mgr.list_sources()
+
+    sources: list[dict[str, Any]] = []
+    for info in infos:
+        entry: dict[str, Any] = {
+            "name": info.name,
+            "type": info.source_type,
+            "status": info.status,
+        }
+        if info.path:
+            entry["path"] = info.path
+        if info.backend:
+            entry["backend"] = info.backend
+        if info.recipe_tables:
+            entry["recipe_tables"] = info.recipe_tables
+        sources.append(entry)
+
+    return {
+        "sources": sources,
+        "count": len(sources),
+    }
 
 
 async def run_server() -> None:

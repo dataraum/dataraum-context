@@ -178,7 +178,7 @@ Add this to the file (create it if it doesn't exist):
 
 **Important:** Claude Desktop doesn't inherit your shell's working directory, so use absolute paths for both `--project` and `DATARAUM_HOME`.
 
-Restart Claude Desktop after editing. The hammer icon in the text input should show 10 DataRaum tools.
+Restart Claude Desktop after editing. The hammer icon in the text input should show 12 DataRaum tools.
 
 ---
 
@@ -192,12 +192,14 @@ See the plugin repo's README for installation and configuration instructions. Th
 
 ## Available Tools
 
-10 tools organized around a session-based investigation workflow. The server also emits **session instructions** on connect — the host client shows them to the agent as guidance for when to use each tool.
+12 tools organized around a session-based investigation workflow. The server also emits **session instructions** on connect — the host client shows them to the agent as guidance for when to use each tool.
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `add_source` | `name`, `path` | Register a data source (CSV, Parquet, JSON, or directory). |
-| `begin_session` | `intent`, `contract?` | Start an investigation session. Triggers the pipeline on first run; resumes if data exists. |
+| `add_source` | `name`, `path` | Register a data source (CSV, Parquet, JSON, recipe yaml, or directory). Errors on duplicate name. |
+| `list_sources` | — | List sources registered in the workspace (name, type, status, path/backend, recipe tables). |
+| `begin_session` | `source`, `intent`, `contract?` | Start an investigation session bound to one registered source. Triggers the pipeline on first `measure`; resumes if data exists. |
+| `resume_session` | `session_id?`, `intent?` | List archived sessions (no args) or restore one by id. Pipeline data, snippets, and teach overlays are preserved. |
 | `look` | `target?`, `sample?` | Explore structure, relationships, semantic metadata, and readiness. Target: omit for dataset, `table`, or `table.col`. |
 | `measure` | `target?`, `target_phase?` | Entropy scores + readiness. Also polls/triggers pipeline; `target_phase` reruns a specific phase. |
 | `why` | `target` | Evidence-synthesis agent — explains elevated entropy and proposes `teach` actions. |
@@ -211,7 +213,9 @@ See the plugin repo's README for installation and configuration instructions. Th
 
 ```
 add_source(name="accounting", path="/path/to/data")
-  → begin_session(intent="explore data quality", contract="exploratory_analysis")
+  → begin_session(source="accounting",
+                  intent="explore data quality",
+                  contract="exploratory_analysis")
   → look()                       # Understand the data
   → measure()                    # Check quality scores and readiness
   → why(target="table.col")      # Explain elevated entropy
@@ -223,10 +227,12 @@ add_source(name="accounting", path="/path/to/data")
   → end_session(outcome="delivered")
 ```
 
+Each session is bound to **one** source. To investigate a different source, end the current session and begin a new one; multiple sources can coexist in the workspace and be selected by name via `begin_session(source=...)`.
+
 ### Session flow
 
-1. **`add_source`** — registers data. Pipeline runs automatically on first `begin_session`.
-2. **`begin_session`** — creates a workspace, picks a contract. Sources are sealed — no new sources during a session.
+1. **`add_source`** — registers data. Use `list_sources` to confirm what's available.
+2. **`begin_session`** — picks one registered source and a contract. Sources are sealed for the session's lifetime — no new sources during a session.
 3. **`look` / `measure` / `why`** — understand structure, quality, and root causes.
 4. **`teach`** — extend the operation model: concepts, validations, metrics, cycles, type patterns, relationships, explanations. Config teaches trigger a targeted phase re-run.
 5. **`query` / `run_sql` / `search_snippets`** — answer questions. `query` reasons with context; `run_sql` executes directly; `search_snippets` discovers reusable patterns.
