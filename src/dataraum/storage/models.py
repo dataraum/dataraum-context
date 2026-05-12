@@ -166,52 +166,6 @@ class Column(Base):
     )
 
 
-class DBMetadataHints(Base):
-    """Structural metadata harvested from a database source.
-
-    Captured at extraction time from the source database's
-    information_schema (PK, FK, indexes, CHECK constraints) so the
-    pipeline has authoritative DB-side context without re-querying the
-    source. Phase A captures; Phase B consumes (FKs become prior
-    evidence in the relationships phase; PKs/uniques inform the
-    typing/key-candidate logic).
-
-    One row per source. Payloads are JSON lists with backend-agnostic
-    shapes so adding new backends does not require schema migrations.
-    """
-
-    __tablename__ = "db_metadata_hints"
-
-    hint_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    source_id: Mapped[str] = mapped_column(
-        ForeignKey("sources.source_id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-    )
-
-    # [{"table": "Invoices", "columns": ["invoice_id"]}, ...]
-    primary_keys: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
-
-    # [{"from_table": "Orders", "from_columns": ["customer_id"],
-    #   "to_table": "Customers", "to_columns": ["customer_id"],
-    #   "constraint_name": "fk_orders_customers"}, ...]
-    foreign_keys: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
-
-    # [{"table": "Invoices", "name": "ix_invoices_date",
-    #   "columns": ["invoice_date"], "unique": false}, ...]
-    indexes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
-
-    # [{"table": "Invoices", "name": "ck_total_positive",
-    #   "expression": "total > 0"}, ...]
-    check_constraints: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON, nullable=False, default=list
-    )
-
-    harvested_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.now(UTC)
-    )
-
-
 # Indexes for common queries
 Index("idx_columns_table", Column.table_id)
 Index("idx_tables_source", Table.source_id)
