@@ -44,19 +44,6 @@ class OutputType(StrEnum):
     TABLE = "table"  # Multi-column result
 
 
-class MetricScope(StrEnum):
-    """Scope at which a metric can be computed.
-
-    - GLOBAL: Computed once for the entire dataset
-    - SLICE: Computed once per slice value (requires slice dimension)
-    - BOTH: Computed at both global and per-slice levels
-    """
-
-    GLOBAL = "global"
-    SLICE = "slice"
-    BOTH = "both"
-
-
 # =============================================================================
 # Graph Definition Models
 # =============================================================================
@@ -95,15 +82,6 @@ class StepSource:
     column: str | None = None  # Concrete column name
     standard_field: str | None = None  # Abstract field (resolved by schema mapping)
     statement: str | None = None  # balance_sheet, income_statement
-
-
-@dataclass
-class StepValidation:
-    """Validation rule for a step."""
-
-    condition: str
-    severity: str  # error, warning
-    message: str
 
 
 @dataclass
@@ -172,10 +150,6 @@ class TransformationGraph:
     # Optional
     parameters: list[ParameterDef] = field(default_factory=list)
     interpretation: Interpretation | None = None
-
-    # Scope (global vs per-slice)
-    scope: MetricScope = MetricScope.GLOBAL
-    slice_dimension: str | None = None  # Column to slice by (for SLICE or BOTH scope)
 
     def get_output_step(self) -> GraphStep | None:
         """Get the final output step."""

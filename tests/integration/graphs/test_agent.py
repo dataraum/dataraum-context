@@ -133,8 +133,6 @@ class TestGeneratedCode:
         code = GeneratedCode(
             code_id="test-123",
             graph_id="dso",
-            graph_version="1.0",
-            schema_mapping_id="mapping-456",
             summary="Calculates Days Sales Outstanding (DSO) metric.",
             steps=[{"step_id": "ar", "sql": "SELECT 1", "description": "test"}],
             final_sql="SELECT 1",
