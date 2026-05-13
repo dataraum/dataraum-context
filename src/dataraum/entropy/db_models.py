@@ -66,7 +66,6 @@ class EntropyObjectRecord(Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 # Indexes for common queries

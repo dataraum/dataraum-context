@@ -1,14 +1,12 @@
-"""Unified Graph Agent for SQL generation and execution.
+"""Graph agent: generates and executes SQL for a metric graph spec.
 
-This agent handles ALL graph types (filters and metrics) through a unified approach:
+Pipeline per graph:
 1. Load graph specification (YAML with accounting context)
 2. Analyze actual data schema (columns, types, samples)
 3. Look up cached SQL snippets from the knowledge base
 4. Use LLM to generate executable SQL (with snippet hints)
 5. Cache generated SQL in-memory + save as snippets for cross-agent reuse
 6. Execute SQL and capture results
-
-See docs/CALCULATION_ENGINE_DESIGN.md for full architecture.
 """
 
 from __future__ import annotations
@@ -52,8 +50,6 @@ class GeneratedCode:
 
     code_id: str
     graph_id: str
-    graph_version: str
-    schema_mapping_id: str
 
     # Generated SQL
     summary: str  # Plain English description of what the query calculates
@@ -324,8 +320,6 @@ class GraphAgent(LLMFeature):
         return GeneratedCode(
             code_id=str(uuid4()),
             graph_id=graph.graph_id,
-            graph_version=graph.version,
-            schema_mapping_id=context.schema_mapping_id or "default",
             summary=f"Assembled from {len(steps)} cached snippets",
             steps=steps,
             final_sql=final_sql,
@@ -466,8 +460,6 @@ class GraphAgent(LLMFeature):
         generated_code = GeneratedCode(
             code_id=str(uuid4()),
             graph_id=graph.graph_id,
-            graph_version=graph.version,
-            schema_mapping_id=context.schema_mapping_id or "default",
             summary=output.summary,
             steps=[
                 {

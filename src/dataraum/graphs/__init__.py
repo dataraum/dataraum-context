@@ -45,7 +45,6 @@ from .models import (
     GraphStep,
     Interpretation,
     InterpretationRange,
-    MetricScope,
     OutputDef,
     OutputType,
     ParameterDef,
@@ -53,7 +52,6 @@ from .models import (
     StepResult,
     StepSource,
     StepType,
-    StepValidation,
     TransformationGraph,
 )
 
@@ -82,13 +80,11 @@ __all__ = [
     "GraphSource",
     "StepType",
     "OutputType",
-    "MetricScope",
     # Graph definition models
     "TransformationGraph",
     "GraphMetadata",
     "GraphStep",
     "StepSource",
-    "StepValidation",
     "ParameterDef",
     "OutputDef",
     "Interpretation",

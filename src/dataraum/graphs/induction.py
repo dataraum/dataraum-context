@@ -106,17 +106,6 @@ _METRICS_SCHEMA: dict[str, Any] = {
                                     "items": {"type": "string"},
                                 },
                                 "output_step": {"type": "boolean"},
-                                "validation": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "condition": {"type": "string"},
-                                            "severity": {"type": "string"},
-                                            "message": {"type": "string"},
-                                        },
-                                    },
-                                },
                             },
                         },
                     },
