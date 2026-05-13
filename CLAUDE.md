@@ -159,6 +159,17 @@ This project uses skills to structure development work. Skills encode the checkp
 - **S-size tasks** (1-3 files, <50 lines, obvious): implement directly
 - **Bug fixes with failing tests**: fix → verify → done
 - **Documentation-only changes**: no workflow needed
+- **Verified-dead deletions**: if grep proves zero consumers, just delete — don't refine, don't audit-doc, don't invoke reviewers
+
+### Bundle small work
+
+Per-ticket nano-branches are friction without payoff. Default to bundling:
+
+- **Combine multiple small tickets in one branch/PR**, even if topically unrelated. A "v0.2.2 cleanup" branch with three small commits (one per ticket) is cheaper to ship than three back-to-back branches each paying the rebase + CI + PR overhead.
+- **Piggyback small fixes onto an open larger branch** when discovered mid-flight. If `/smoke` surfaces a one-file bug while testing a feature branch, stack the fix as a commit on that branch rather than spinning up a new branch — the bundled PR is easier to review and rolls back together.
+- **One ticket = one branch is wrong as a default.** One ticket = one commit (or one commit group), shipped in whatever branch is convenient.
+
+The line: bundle anything S-size and Light (see above). Keep Heavy items (behavior changes, prompt engineering, response-shape changes, detector changes) on their own branches so reviewers can isolate them.
 
 ### When NOT to skip
 
