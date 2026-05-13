@@ -4,6 +4,23 @@ Changes in dataraum that need attention in other repos.
 
 Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 
+## 2026-05-13: DAT-284 — Quick wins (Sonnet 4.6 + graph prompt enrichment + has_trend)
+
+### dataraum-eval
+- **Changed**: `config/llm/config.yaml` (Sonnet 4.5 → 4.6 on `default_model` + `balanced`), `src/dataraum/graphs/context.py` (`ColumnContext.has_trend` field + populate + emit), `config/llm/prompts/graph_sql_generation.yaml` (new `<temporal_signals>` section).
+- **Affects**: every LLM call routed through the `balanced` or `default` tier (semantic / column / validation / cycle / metric induction, graph SQL generation, enrichment, `why`). Graph SQL generation prompt now includes explicit `temporal_behavior` → aggregation guidance.
+- **Calibrate**: graph-agent metric set smoke. Key scenarios:
+  1. Existing finance metrics (DSO, gross_profit, current_ratio, etc.) still compute against `clean_eval` — no regression from added prompt context.
+  2. Metrics on tables with `temporal_behavior: point_in_time` annotated columns (e.g. balance-sheet items) should pick the `end_of_period` aggregation pattern more reliably.
+  3. Metric YAMLs whose declared `aggregation` conflicts with the column's `temporal_behavior` annotation — the LLM now explicitly trusts the column annotation and notes the override in assumptions.
+- **Notes**:
+  - **Model swap**: `claude-sonnet-4-5` → `claude-sonnet-4-6`. Sonnet 4.6 is the current generation; the short-form ID is canonical (no date suffix, matches existing Haiku pattern). Output format unchanged; structured-output prompts should remain stable but eval should validate.
+  - **`has_trend` surface**: added as `bool | None` on `ColumnContext`, populated from `TemporalColumnProfile.has_trend` (only set for DATE/TIMESTAMP/TIMESTAMPTZ columns by construction). Emitted in the metadata-document's per-column Notes column as `"Trending over time."` when truthy. No DB schema change — `has_trend` was already persisted.
+  - **`<temporal_signals>` prompt section**: bridges existing `temporal_behavior` semantic annotation to existing `<aggregation_types>` block. Includes conflict-resolution rule (trust the column annotation over a misaligned step aggregation). Explicitly notes that the `Trending over time.` note appears on the time-axis column and should be paired with the measure column's `temporal_behavior`.
+  - **`detected_granularity` (AC7 second half)**: already emitted at `src/dataraum/graphs/context.py:1008-1009` for `table.time_column`. No code change in this PR.
+  - **DAT-284 descope**: cold-start baseline + parallelism investigation (originally ACs 1, 3, 4, 5) split to **DAT-299** in v0.2.3. This PR is the quick-wins half (ACs 2, 6, 7, 8).
+- **Status**: pending
+
 ## 2026-05-12: DAT-290 — Single source per session, multi_source pattern retired
 
 ### dataraum-eval
