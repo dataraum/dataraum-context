@@ -5,7 +5,8 @@ Design docs live in Confluence (Dataraum Design space):
 - **Control Plane: Sessions, Metadata, Governance** — control plane interfaces, session model, governance, config-as-data
 - **Data Plane: Executors, DuckLake & the RPC Contract** — executor lifecycle, gRPC contract, DuckLake, resource limits
 - **Observability: OpenTelemetry-First** — OTel SDK, local LGTM stack, SLIs/SLOs
-- **Web UI as Conversation-Layer Client** — frontend container, Caddy front door, query governance gate
+- **Web UI as Conversation-Layer Client** — frontend container, Caddy front door, query governance gate, agentic chat
+  - Child: **Web UI: Tech Stack** — React + Vite + TanStack Router + shadcn + Vercel AI SDK; Python BFF inside the control plane
 
 This directory contains reference artifacts the Confluence docs refer to.
 
