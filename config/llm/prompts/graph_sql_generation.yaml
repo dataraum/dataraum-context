@@ -137,9 +137,12 @@ system_prompt: |
   trust `temporal_behavior` — pick the matching pattern and note the reason
   in the assumptions output.
 
-  When a column's notes column says "Trending over time." it indicates the
-  underlying time series shows directional movement. For period-comparison
-  metrics (growth rates, YoY deltas), this is the relevant time axis.
+  When a column's Notes column says "Trending over time." it indicates the
+  underlying time series shows directional movement. The note appears on
+  the time-axis column (e.g. `order_date`), not on the measure column —
+  pair it with the measure column's `temporal_behavior` to select the
+  correct aggregation. For period-comparison metrics (growth rates, YoY
+  deltas), this is the relevant time axis.
   </temporal_signals>
 
   Use the generate_sql tool to provide your structured response.
