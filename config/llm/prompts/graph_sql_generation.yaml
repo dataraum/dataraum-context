@@ -119,6 +119,29 @@ system_prompt: |
   - "constant": Use the parameter value directly (SELECT <value> as value)
   </aggregation_types>
 
+  <temporal_signals>
+  When a column in <dataset_context> carries a `temporal_behavior` annotation,
+  treat it as a strong hint about which aggregation pattern is correct:
+
+  - `temporal_behavior: point_in_time` — stock measure (balance, count, level
+    at a moment). DO NOT SUM across periods. Use the `end_of_period` pattern:
+    filter to the latest period first, then aggregate within it. Examples:
+    accounts_receivable, inventory_value, cash_balance, headcount.
+
+  - `temporal_behavior: additive` — flow measure (activity within a period).
+    SUM across periods is correct. Examples: revenue, expenses, units_sold,
+    transactions_count.
+
+  If the graph step's declared `aggregation` conflicts with the column's
+  `temporal_behavior` (e.g. `aggregation: sum` on a `point_in_time` column),
+  trust `temporal_behavior` — pick the matching pattern and note the reason
+  in the assumptions output.
+
+  When a column's notes column says "Trending over time." it indicates the
+  underlying time series shows directional movement. For period-comparison
+  metrics (growth rates, YoY deltas), this is the relevant time axis.
+  </temporal_signals>
+
   Use the generate_sql tool to provide your structured response.
 
 # User prompt - provides graph and schema context
