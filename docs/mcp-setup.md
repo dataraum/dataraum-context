@@ -14,6 +14,8 @@ pip install dataraum
 docker pull ghcr.io/dataraum/dataraum
 ```
 
+> **PyPI workaround.** The v0.2.x wheel doesn't currently ship the `config/` directory ([DAT-292](https://real-dataraum.atlassian.net/browse/DAT-292)). After `pip install`, also `export DATARAUM_CONFIG_PATH=/path/to/dataraum-checkout/config`, or run from a source checkout (`git clone … && uv sync && uv run dataraum-mcp`). The Docker image (Option B) is unaffected.
+
 > **Python version note:** if you're invoking via `uvx` and have a free-threaded interpreter (`3.14t`) on your system, pin to a non-free-threaded one — e.g. `uvx --python 3.13 --from dataraum dataraum-mcp`. C-extension dependencies (`duckdb`, `pgmpy`) don't yet ship free-threaded wheels and will build from sdist.
 
 Set your Anthropic API key (required for semantic analysis):
