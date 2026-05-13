@@ -20,7 +20,6 @@ Usage:
         print(result.value.confidence_level)  # GREEN, YELLOW, ORANGE, RED
 """
 
-from dataraum.query.agent import QueryAgent
 from dataraum.query.core import answer_question
 from dataraum.query.db_models import QueryExecutionRecord
 from dataraum.query.models import (
@@ -31,7 +30,6 @@ from dataraum.query.snippet_library import SnippetGraph, SnippetLibrary, Snippet
 from dataraum.query.snippet_models import SnippetUsageRecord, SQLSnippetRecord
 
 __all__ = [
-    "QueryAgent",
     "QueryAnalysisOutput",
     "QueryExecutionRecord",
     "QueryResult",
