@@ -289,10 +289,17 @@ def create_server(output_dir: Path | None = None) -> Server:
 
         from sqlalchemy import delete
 
+        from dataraum.core.config import reset_config_root
         from dataraum.mcp.db_models import ActiveSession
 
         # Close session connections before moving files
         _close_session_manager()
+
+        # Clear the per-session config-root override that pipeline setup
+        # pushed via set_config_root(). Without this, a subsequent
+        # begin_session in the same process tries to read vertical config
+        # from the now-archived session path.
+        reset_config_root()
 
         session_dir = _session_dir_for(fingerprint)
         archive_dir = root_dir / "archive" / session_id
