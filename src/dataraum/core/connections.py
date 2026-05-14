@@ -292,16 +292,20 @@ class ConnectionManager:
 
     @contextmanager
     def duckdb_cursor(self) -> Generator[duckdb.DuckDBPyConnection]:
-        """Get a DuckDB cursor for read operations.
+        """Get an independent DuckDB cursor on the shared connection.
 
-        Cursors from the same connection are thread-safe for reads.
-        Use this for SELECT queries that don't modify data.
+        Each call returns a fresh cursor via `connection.cursor()`. Cursors
+        have independent statement state and are safe to use from separate
+        threads. Concurrent writes through multiple cursors are serialized
+        by DuckDB internally (DuckDB ≥ 0.10). The underlying connection
+        itself is shared — do not pass the cursor across threads, but each
+        thread holding its own cursor is supported.
 
         Yields:
-            DuckDB cursor for read operations
+            Independent DuckDB cursor on the shared connection.
 
         Raises:
-            RuntimeError: If manager not initialized
+            RuntimeError: If manager not initialized.
 
         Example:
             with manager.duckdb_cursor() as cursor:
