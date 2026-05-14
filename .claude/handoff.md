@@ -4,6 +4,22 @@ Changes in dataraum that need attention in other repos.
 
 Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 
+## 2026-05-14: DAT-299 — Concurrent per-metric LLM dispatch in graph_execution
+
+### dataraum-eval
+- **Changed**: `src/dataraum/pipeline/phases/graph_execution_phase.py` (per-metric loop refactored: prep → execute (parallel/serial) → post), `src/dataraum/graphs/agent.py` (lock around `_code_cache`), `src/dataraum/core/connections.py` (docstring tightening only), `tests/unit/pipeline/test_graph_execution_dispatch.py` (new, 9 tests).
+- **Affects**: `measure` / `_run_pipeline` wall clock during cold-start runs. Per-metric `agent.execute()` calls now dispatch concurrently via `asyncio.to_thread` + `asyncio.gather` with a semaphore cap of 5. **No MCP response shape or schema changes.** Per-metric results (snippets written, snippet promotion via inspiration_snippet_id delete) are functionally unchanged.
+- **Calibrate**: graph-agent metric set wall-clock check on cold-start `clean_eval`. Expected: `graph_execution` phase drops from ~4-5 min sequential to ~60-90s on the same metric count. Snippets produced and metric correctness should be identical to pre-DAT-299 (the LLM is called the same number of times, just concurrently).
+- **Notes**:
+  - **Per-call resource isolation**: each parallel `agent.execute()` opens its own `manager.session_scope()` (auto-commit) and its own `manager.duckdb_cursor()`. The main `ctx.session` is untouched during parallel execution.
+  - **Snippet promotion** (deleting the inspiration snippet after metric success) stays sequential on the main session, post-gather.
+  - **Concurrency cap = 5** (hardcoded `_MAX_CONCURRENT_METRICS`). Sonnet 4.6 tier-3+ workspaces handle this easily; bump in the constant if profiling shows underutilization.
+  - **Free-threading note**: `GraphAgent._code_cache` is now guarded by a `threading.Lock` because the same agent instance is shared across N concurrent workers; under PYTHON_GIL=0 the check-then-set was a race.
+  - **Exception handling**: unexpected exceptions inside the parallel path (e.g. `session_scope` failing) are captured per-worker as `Result.fail(...)` — they no longer abort sibling workers via `asyncio.gather` propagation. The phase's failure semantics (`metrics_executed` / `metrics_failed` in `PhaseResult.outputs`, hard-fail when all failed) are unchanged.
+  - **Serial fallback**: when `ctx.manager is None` (unit tests with no real connection manager), the phase falls back to the previous sequential loop with shared session/cursor. No behavior change for that path.
+  - **Out of scope (deferred)**: cold-start induction parallelism across phases, AsyncAnthropic provider rewrite, configurable concurrency cap.
+- **Status**: pending
+
 ## 2026-05-13: DAT-273 — Post-DAT-266 audit (dead symbols + db column + re-exports)
 
 ### dataraum-eval
