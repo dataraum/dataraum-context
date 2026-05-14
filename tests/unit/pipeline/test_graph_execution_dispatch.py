@@ -208,6 +208,54 @@ class TestExecuteMetricsParallel:
         out = gep._execute_metrics_parallel([], _stub_manager(), MagicMock(), "src", [])
         assert out == []
 
+    def test_exception_in_one_worker_does_not_abort_siblings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unexpected exception in one _execute_isolated must be captured as
+        Result.fail for that graph, with the other workers still completing.
+
+        Without the try/except guard around `to_thread`, asyncio.gather would
+        propagate the first exception and discard sibling results.
+        """
+        monkeypatch.setattr(
+            "dataraum.graphs.agent.ExecutionContext.with_rich_context",
+            classmethod(lambda cls, **kw: MagicMock()),
+        )
+
+        # Agent that raises on graph_id="bad", succeeds otherwise
+        class _FlakyAgent:
+            def execute(
+                self,
+                session: Any,
+                graph: _StubGraph,
+                context: Any,
+                inspiration_sql: str | None = None,
+            ) -> Result[str]:
+                if graph.graph_id == "bad":
+                    raise RuntimeError("simulated infra failure")
+                return Result.ok(graph.graph_id)
+
+        manager = _stub_manager()
+        prep = [
+            ("g0", _graph("g0"), None, None),
+            ("bad", _graph("bad"), None, "insp-bad"),
+            ("g2", _graph("g2"), None, None),
+        ]
+
+        out = gep._execute_metrics_parallel(prep, manager, _FlakyAgent(), "src", ["t"])
+
+        by_id = {gid: (r, iid) for gid, r, iid in out}
+        # All three results are present
+        assert set(by_id.keys()) == {"g0", "bad", "g2"}
+        # Siblings succeeded
+        assert by_id["g0"][0].success is True
+        assert by_id["g2"][0].success is True
+        # Failed worker returned a structured Result.fail (not a raised exception)
+        assert by_id["bad"][0].success is False
+        assert "simulated infra failure" in (by_id["bad"][0].error or "")
+        # inspiration_id passthrough preserved even on failure
+        assert by_id["bad"][1] == "insp-bad"
+
 
 # ---------------------------------------------------------------------------
 # Isolated dispatch (per-call session + cursor)
@@ -261,12 +309,15 @@ class TestExecuteIsolated:
 def test_asyncio_run_does_not_deadlock_with_nested_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`asyncio.run` from inside a synchronous phase must not deadlock.
+    """`asyncio.run` is safe only because callers are synchronous.
 
-    The pipeline scheduler calls phases synchronously (sometimes from
-    a ThreadPoolExecutor in the parallel-phases path). Each call into
-    `_execute_metrics_parallel` creates its own event loop via
-    `asyncio.run` — this test verifies that pattern works.
+    The pipeline scheduler calls phases synchronously — either from the
+    main thread or from a ThreadPoolExecutor worker (the parallel-phases
+    path). Neither has a running event loop, so `asyncio.run` inside the
+    phase creates a fresh loop without conflict. If a future async-native
+    scheduler ever calls this phase from inside an existing loop, this
+    pattern would raise `RuntimeError: This event loop is already
+    running` — that case is out of scope for v0.2.2 and tracked separately.
     """
     # Make sure no event loop is already running in this thread
     with pytest.raises(RuntimeError):

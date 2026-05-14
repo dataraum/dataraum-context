@@ -140,8 +140,14 @@ class GraphAgent(LLMFeature):
         prompt_renderer: PromptRenderer,
     ):
         """Initialize the graph agent."""
+        import threading
+
         super().__init__(config, provider, prompt_renderer)
         self._code_cache: dict[str, GeneratedCode] = {}  # In-memory cache
+        # Cache is read+written from concurrent graph_execution_phase workers
+        # under free-threading (Python 3.14t, PYTHON_GIL=0). The check-then-set
+        # pattern at lines 182/244 is not atomic, so guard with a lock.
+        self._code_cache_lock = threading.Lock()
 
     def execute(
         self,
@@ -178,8 +184,9 @@ class GraphAgent(LLMFeature):
         generated_code: GeneratedCode | None = None
 
         if not force_regenerate:
-            # Check in-memory cache
-            generated_code = self._code_cache.get(cache_key)
+            # Check in-memory cache (lock guards concurrent worker reads)
+            with self._code_cache_lock:
+                generated_code = self._code_cache.get(cache_key)
 
         if generated_code is None:
             # Check snippet library for cached individual steps
@@ -241,7 +248,8 @@ class GraphAgent(LLMFeature):
             if generated_code is None:
                 return Result.fail("Failed to generate or assemble SQL code")
 
-            self._code_cache[cache_key] = generated_code
+            with self._code_cache_lock:
+                self._code_cache[cache_key] = generated_code
 
         # Execute the generated SQL
         exec_result = self._execute_sql(generated_code, context, graph)

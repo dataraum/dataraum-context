@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import delete, select
 
 from dataraum.core.logging import get_logger
+from dataraum.core.models.base import Result
 from dataraum.pipeline.base import PhaseContext, PhaseResult
 from dataraum.pipeline.phases.base import BasePhase
 from dataraum.pipeline.registry import analysis_phase
@@ -40,7 +41,6 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from dataraum.core.connections import ConnectionManager
-    from dataraum.core.models.base import Result
     from dataraum.graphs.agent import ExecutionContext as _ExecutionContext
     from dataraum.graphs.agent import GraphAgent
     from dataraum.graphs.models import GraphExecution, TransformationGraph
@@ -346,9 +346,17 @@ def _execute_metrics_parallel(
             inspiration_id: str | None,
         ) -> MetricResult:
             async with sem:
-                result = await asyncio.to_thread(
-                    _execute_isolated, graph, hint_sql, manager, agent, source_id, table_ids
-                )
+                # Capture unexpected exceptions as Result.fail so one worker
+                # raising doesn't abort siblings via gather propagation.
+                # agent.execute already returns Result for the happy path —
+                # this catches infrastructure failures (session_scope raises,
+                # ExecutionContext.with_rich_context raises, etc.).
+                try:
+                    result = await asyncio.to_thread(
+                        _execute_isolated, graph, hint_sql, manager, agent, source_id, table_ids
+                    )
+                except Exception as exc:
+                    result = Result.fail(f"Unexpected error executing {graph_id}: {exc}")
             return graph_id, result, inspiration_id
 
         return await asyncio.gather(*(_run_one(gid, g, hsql, iid) for gid, g, hsql, iid in prep))
