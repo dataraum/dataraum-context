@@ -29,7 +29,7 @@ dependencies = [
     "psycopg[binary]==3.3.4",
     # Platform HTTP surface
     "fastapi==0.136.1",
-    "uvicorn[standard]",
+    "uvicorn[standard]==0.47.0",
     # Pydantic
     "pydantic>=2.0.0",
     # MCP

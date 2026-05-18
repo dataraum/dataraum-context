@@ -27,12 +27,15 @@ jobs:
             - name: Verify both Postgres databases exist
               run: |
                   set -euo pipefail
+                  # shellcheck disable=SC1091
+                  . ./.env
                   dbs=$(docker compose exec -T postgres \
-                      psql -U dataraum -d dataraum -tAc \
-                      "SELECT datname FROM pg_database WHERE datname IN ('dataraum','dataraum_lake_catalog') ORDER BY datname")
+                      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+                      "SELECT datname FROM pg_database WHERE datname IN ('$POSTGRES_DB','$DUCKLAKE_CATALOG_DB') ORDER BY datname")
                   echo "Found databases:"
                   echo "$dbs"
-                  test "$(echo "$dbs" | tr '\n' ',')" = "dataraum,dataraum_lake_catalog,"
+                  echo "$dbs" | grep -qx "$POSTGRES_DB"
+                  echo "$dbs" | grep -qx "$DUCKLAKE_CATALOG_DB"
 
             - name: Verify dataraum_lake volume is mounted and writable
               run: |

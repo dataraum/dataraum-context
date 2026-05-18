@@ -14,16 +14,21 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Lock + manifest first for layer caching
+# Resolve deps first so the slow install layer caches across source-only changes.
 COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --no-dev --frozen --no-install-project
+
+# Now copy the project itself and re-sync to install the package
 COPY src/ src/
 COPY config/ config/
-
-# Production deps + package, frozen to the locked resolution
 RUN uv sync --no-dev --frozen
 
-# DuckLake local-FS data path (mounted as a named volume from docker-compose)
-RUN mkdir -p /var/lib/dataraum/lake /var/lib/dataraum/sources
+# Non-root runtime user; own the data dirs so named volumes initialize correctly.
+RUN groupadd -r dataraum && useradd -r -g dataraum -u 1001 dataraum && \
+    mkdir -p /var/lib/dataraum/lake /var/lib/dataraum/sources && \
+    chown -R dataraum:dataraum /app /var/lib/dataraum
+
+USER dataraum
 
 EXPOSE 8000
 

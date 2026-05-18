@@ -339,7 +339,7 @@ requires-dist = [
     { name = "statsmodels", specifier = ">=0.14.0" },
     { name = "structlog", specifier = ">=24.1.0" },
     { name = "typer", specifier = ">=0.9.0" },
-    { name = "uvicorn", extras = ["standard"] },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.47.0" },
 ]
 
 [package.metadata.requires-dev]
