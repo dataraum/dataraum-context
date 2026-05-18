@@ -108,11 +108,13 @@ def pg_url_clean(pg_url: str) -> str:
     """
     from sqlalchemy import inspect
 
-    from dataraum.core.connections import ConnectionManager as _CM  # noqa: F401
     from dataraum.storage import Base
 
-    # Importing ConnectionManager triggers _import_all_models registration
-    # so Base.metadata has every per-session table by the time we truncate.
+    # Filter by Postgres-side existence: TRUNCATE on a missing table is an
+    # error, so phases before any ConnectionManager.initialize() runs stay
+    # no-ops. Once a test triggers initialize() the side-effect of
+    # _import_all_models registers every model on Base.metadata for the
+    # rest of the pytest invocation.
     engine = create_engine(pg_url, future=True)
     try:
         existing = set(inspect(engine).get_table_names())
