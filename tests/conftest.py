@@ -32,6 +32,8 @@ def _close_mcp_servers_after_test(monkeypatch: pytest.MonkeyPatch):
     ``Server`` and calls ``server.close()`` on teardown. Tests do not need
     to opt in.
     """
+    import warnings
+
     from dataraum.mcp import server as server_mod
 
     created: list = []
@@ -47,8 +49,8 @@ def _close_mcp_servers_after_test(monkeypatch: pytest.MonkeyPatch):
     for s in created:
         try:
             s.close()  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(f"Failed to close MCP server during test teardown: {s!r} ({exc!r})")
 
 
 @event.listens_for(Session, "before_flush")
