@@ -13,6 +13,27 @@ from testcontainers.postgres import PostgresContainer
 
 from dataraum.storage import init_database
 
+_TEST_SESSION_ID = "00000000-0000-0000-0000-000000000001"
+_TEST_SOURCE_ID = "00000000-0000-0000-0000-000000000002"
+
+
+@event.listens_for(Session, "before_flush")
+def _autofill_session_id_globally(sess, _flush_ctx, _instances):
+    """Auto-fill per-session FK on any pending row that left it None.
+
+    Pure test convenience — production code always sets ``session_id`` via the
+    hybrid plumbing introduced in DAT-321. This hook keeps test fixtures that
+    construct DB rows directly from having to know about the new FK.
+
+    Excludes ``InvestigationSession`` itself — its ``session_id`` is the PK,
+    not a FK, so autofilling would collide with the baseline row.
+    """
+    for obj in sess.new:
+        if type(obj).__name__ == "InvestigationSession":
+            continue
+        if hasattr(obj, "session_id") and getattr(obj, "session_id", None) is None:
+            obj.session_id = _TEST_SESSION_ID
+
 
 @pytest.fixture(scope="function")
 def engine() -> Engine:
@@ -42,14 +63,44 @@ def engine() -> Engine:
 def session(engine: Engine) -> Session:
     """Create a test database session.
 
-    Creates a session tied to the test's engine.
+    Seeds a baseline ``Source`` + ``InvestigationSession`` row so tests that
+    construct per-session DB models have a valid FK target. The
+    ``session_id`` is auto-populated by the global ``before_flush`` hook
+    above; tests that need the value explicitly call ``baseline_session_id()``.
     """
+    from datetime import UTC, datetime
+
+    from dataraum.investigation.db_models import InvestigationSession
+    from dataraum.storage import Source
+
     factory = sessionmaker(
         bind=engine,
         expire_on_commit=False,
     )
     with factory() as sess:
+        sess.add(Source(source_id=_TEST_SOURCE_ID, name="test_baseline", source_type="csv"))
+        sess.flush()
+        sess.add(
+            InvestigationSession(
+                session_id=_TEST_SESSION_ID,
+                source_id=_TEST_SOURCE_ID,
+                intent="conftest baseline",
+                status="active",
+                started_at=datetime.now(UTC),
+            )
+        )
+        sess.flush()
         yield sess
+
+
+def baseline_session_id() -> str:
+    """Return the baseline InvestigationSession id seeded by the ``session`` fixture.
+
+    Per-session DB models post-DAT-321 carry a NOT NULL FK to
+    ``investigation_sessions.session_id``; tests that ``session.add(...)``
+    one of those rows should set ``session_id=baseline_session_id()``.
+    """
+    return _TEST_SESSION_ID
 
 
 @pytest.fixture

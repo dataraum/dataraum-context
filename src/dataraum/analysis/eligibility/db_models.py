@@ -32,6 +32,9 @@ class ColumnEligibilityRecord(Base):
     eligibility_id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid4())
     )
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("investigation_sessions.session_id"), nullable=False, index=True
+    )
     column_id: Mapped[str] = mapped_column(String(36), nullable=False)  # Preserved for audit, no FK
     table_id: Mapped[str] = mapped_column(
         ForeignKey("tables.table_id", ondelete="CASCADE"), nullable=False

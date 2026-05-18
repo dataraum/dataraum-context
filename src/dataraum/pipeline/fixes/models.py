@@ -74,6 +74,9 @@ class DataFix(Base):
     __tablename__ = "data_fixes"
 
     fix_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("investigation_sessions.session_id"), nullable=False, index=True
+    )
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.source_id"), nullable=False)
 
     # What this fix does
@@ -99,10 +102,11 @@ class DataFix(Base):
     applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     @classmethod
-    def from_document(cls, source_id: str, doc: FixDocument) -> DataFix:
+    def from_document(cls, source_id: str, doc: FixDocument, *, session_id: str) -> DataFix:
         """Create a DataFix record from an in-memory FixDocument."""
         return cls(
             fix_id=doc.fix_id,
+            session_id=session_id,
             source_id=source_id,
             action=doc.action,
             target=doc.target,
