@@ -9,8 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from dataraum.storage import Base
