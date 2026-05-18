@@ -112,11 +112,5 @@ def test_no_home_dataraum_references_outside_mcp() -> None:
         "--include=*.py",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    hits = [
-        line
-        for line in proc.stdout.splitlines()
-        if line and "/src/dataraum/mcp/" not in line
-    ]
-    assert hits == [], (
-        "Expected zero hits in src/ outside mcp/, got:\n  " + "\n  ".join(hits)
-    )
+    hits = [line for line in proc.stdout.splitlines() if line and "/src/dataraum/mcp/" not in line]
+    assert hits == [], "Expected zero hits in src/ outside mcp/, got:\n  " + "\n  ".join(hits)
