@@ -110,8 +110,12 @@ def _make_task_event_callback(
 def _resolve_root_dir() -> Path:
     """Resolve the DataRaum root directory.
 
-    The root contains workspace/, archive/, and credentials.yaml.
-    Reads DATARAUM_HOME env var, falling back to ~/.dataraum/.
+    The root contains ``workspace/``, ``archive/``, and ``logs/``.
+    Reads DATARAUM_HOME env var, falling back to ``~/.dataraum/``.
+
+    Used by the stdio MCP entry for workspace/log/archive resolution
+    only. Source registration (see ``_add_source``) goes through the
+    container-fixed :data:`dataraum.core.paths.SOURCES_DIR` instead.
     """
     home = os.environ.get("DATARAUM_HOME")
     if home:
@@ -412,6 +416,8 @@ def create_server(output_dir: Path | None = None) -> Server:
     @server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[Tool]:
         """List available tools."""
+        from dataraum.core.paths import SOURCES_DIR
+
         return [
             # --- Orientation ---
             Tool(
@@ -918,12 +924,13 @@ def create_server(output_dir: Path | None = None) -> Server:
                                 "(mssql today; other backends arrive in a follow-up "
                                 "release) and named SELECT queries; credentials are "
                                 "resolved from DATARAUM_{NAME}_URL in the "
-                                "environment. Recipes can be referenced by a bare "
-                                "name (e.g. 'erp') or filename — DataRaum searches "
-                                "/var/lib/dataraum/sources/ as a fallback. "
-                                "Data files are mounted at /var/lib/dataraum/sources/ "
-                                "in the container; try that path or a filename under it "
-                                "if the user hasn't specified one."
+                                f"environment. Recipes can be referenced by a bare "
+                                f"name (e.g. 'erp') or filename — DataRaum searches "
+                                f"{SOURCES_DIR} as a fallback. In the container, "
+                                f"that directory is bind-mounted from the host; "
+                                "try a filename under it if the user hasn't specified "
+                                "a path. For non-container installs, pass an explicit "
+                                "absolute path."
                             ),
                         },
                     },

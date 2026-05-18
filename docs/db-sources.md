@@ -136,10 +136,10 @@ Three things to know:
 
 ### 4. Register the source
 
-Save a recipe pointing at the tables you want. A starter against AdventureWorksLT — drop it at `~/.dataraum/recipes/aw.yaml`:
+Save a recipe pointing at the tables you want. A starter against AdventureWorksLT — drop it at `./sources/aw.yaml` on the host (which is bind-mounted at `/var/lib/dataraum/sources/aw.yaml` in the container):
 
 ```yaml
-# ~/.dataraum/recipes/aw.yaml
+# ./sources/aw.yaml  →  /var/lib/dataraum/sources/aw.yaml (in container)
 backend: mssql
 tables:
   customers:
@@ -155,16 +155,16 @@ tables:
 Then:
 
 ```python
-# Via MCP tool from Claude — bare name resolves against the recipes home
+# Via MCP tool from Claude — bare name resolves against SOURCES_DIR
 add_source(path="aw", name="aw")
 begin_session(source="aw", intent="...")  # session is bound to this one source
 measure  # runs the pipeline — extracts via the recipe and analyzes
 ```
 
-Or pass an absolute path if you keep the recipe elsewhere:
+Or pass an absolute container path if you keep the recipe outside the bind-mount:
 
 ```python
-add_source(path="/path/to/my/aw.yaml", name="aw")
+add_source(path="/some/other/container/path/aw.yaml", name="aw")
 ```
 
 > **Identifier quoting.** Recipe SQL is parsed by DuckDB before forwarding to MSSQL. If a column or table has a space in its name (e.g. AdventureWorksLT's `dbo.BuildVersion."Database Version"`), quote it with **double quotes**, not square brackets.

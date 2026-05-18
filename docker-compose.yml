@@ -44,7 +44,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - dataraum_lake:/var/lib/dataraum/lake
-      - ${HOST_SOURCES_DIR:-./sources}:/var/lib/dataraum/sources
+      - ${HOST_SOURCES_DIR:-./sources}:/var/lib/dataraum/sources:ro
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
