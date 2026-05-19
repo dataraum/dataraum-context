@@ -4,6 +4,121 @@ Changes in dataraum that need attention in other repos.
 
 Updated by `/implement` in this repo. Read by `/accept` in dataraum-eval.
 
+## 2026-05-19: Open vendor bugs surfaced by eval tools-test port (NOT in PR #118)
+
+While porting `calibration/tools/test_tool_chain.py` and friends to drive the
+control plane over HTTP MCP, three real upstream bugs in `begin_session` /
+`resume_session` / `look` / `run_sql` came out. These are **not fixed in
+PR #118** — they need their own ticket(s) and an architectural call.
+
+### Root cause: per-session lake schema + workspace-scoped entropy + resume that doesn't resume
+
+Post-DAT-323 each `begin_session` creates a brand-new
+`lake.session_<id>` schema. Pipeline writes (raw/typed/quarantine tables)
+go to that schema. But entropy scores live in workspace Postgres
+(`EntropyObjectRecord` keyed by `source_id`), so `_measure` sees scores
+from the FIRST session that ran the pipeline and reports `status:complete`
+regardless of which session is currently active.
+
+Net effect when a user begins a second session on the same source:
+- `measure()` returns the existing (workspace) scores — no pipeline trigger
+- `look()` and `look(target=tbl)` work because they go through SQLAlchemy
+  against workspace tables
+- **`look(target=tbl, sample=N)` fails** — it executes
+  `SELECT * FROM "typed_<src>__<tbl>" LIMIT N` on the per-session DuckDB
+  cursor, which USEs an empty `lake.session_<new id>` schema
+- **`run_sql` fails for raw-SQL paths that reference typed tables** — same
+  reason; LLM repair masks this nondeterministically (sometimes patches
+  the SQL with the schema prefix, sometimes doesn't, so the same test
+  flips between PASS and XPASS)
+
+DuckDB's error message even hints at the right schema:
+
+```
+Catalog Error: Table with name typed_detection_v1__invoices does not exist!
+Did you mean "session_d71492d0_8e89_481d_8e4d_bfa49a284be1.typed_detection_v1__invoices"?
+```
+
+### The intended escape hatch (`resume_session`) is broken
+
+`_restore_archived_session` in `src/dataraum/mcp/server.py:1481-1641` is
+documented (and intended) to rebind the manager to the *existing*
+`lake.session_<archived id>` schema — that's where the populated tables
+live. The implementation instead calls `begin_session(...)` to mint a
+**new** `InvestigationSession` id and binds the manager to that:
+
+```python
+# server.py:1619-1631
+inv = begin_session(
+    session,
+    anchor_source_id,
+    resume_intent,
+    contract=archived_contract,
+    vertical=archived_vertical,
+)
+new_session_id = inv.session_id
+session_mgr.bind_session_id(new_session_id)   # ← wrong id; should be the archived session_id
+```
+
+So restoring an archive lands you in *another* empty lake schema. The
+"data reused as-is" promise in the docstring (`# Pipeline data, snippets,
+and teach overlays are reused as-is`) is false post-DAT-323 because the
+schema isn't reused.
+
+### Reproduction
+
+```python
+# Two fresh begin_sessions against the same source on a populated workspace
+async with mcp_session(handle) as s:
+    await call_tool(s, "add_source", {"name": "detection_v1", "path": "/var/lib/dataraum/sources/detection-v1"})
+    await call_tool(s, "begin_session", {"source": "detection_v1", "intent": "first"})
+    await call_tool(s, "measure", {})                      # triggers pipeline → populates lake.session_<id_A>
+    await call_tool(s, "end_session", {"outcome": "delivered"})
+    # Resume the archived session — supposedly attaches to id_A's schema
+    archives = await call_tool(s, "resume_session", {})
+    target = next(a["session_id"] for a in archives["archived_sessions"] if a["source"] == "detection_v1")
+    await call_tool(s, "resume_session", {"session_id": target, "intent": "second"})
+    # Should see typed data via raw SQL — fails because manager is bound to a NEW empty schema
+    r = await call_tool(s, "run_sql", {"sql": "SELECT COUNT(*) FROM typed_detection_v1__invoices"})
+    print(r)  # → "Catalog Error: Table ... does not exist! Did you mean session_<id_A>.typed_..."
+```
+
+### Design question (not just a one-line fix)
+
+The architectural tension is: per-session lake schemas (DAT-323) make
+session isolation clean, but the "resume" UX needs the resumed session
+to see the prior session's data. Three plausible directions:
+
+1. **Make `_restore_archived_session` pass the archived session_id to
+   `bind_session_id` instead of a new one.** Loses the audit-trail
+   benefit of a new `InvestigationSession` record per resume, but the
+   schema reuse works. Probably 5-line patch.
+2. **Pipeline data lives in a per-source schema (not per-session)** —
+   `lake.source_<id>` instead of `lake.session_<id>`. Session schemas
+   become a layer of overlays (teach, snippets, …) on top of shared
+   pipeline data. Bigger refactor, cleaner UX.
+3. **Resume copies the prior schema to the new session's schema.**
+   Duplicates data on every resume; probably worst option.
+
+### Where the bug bites in eval
+
+Two ported tests live as `xfail(strict=True)` in
+`calibration/tools/test_tool_chain.py` linked to this writeup:
+`TestLookSample.test_sample_rows` and `TestRunSql.test_columns_metadata`.
+Remove the `xfail` markers once the vendor fix lands.
+
+### Status
+
+- **PR #118** ships the seven other bugs we found end-to-end. This one is
+  **not in it** — a fix would either be a 5-line patch with stronger
+  semantic claims to make (option 1), or a real architectural change
+  (option 2).
+- **No urgency for the detector-recall eval** — that flow only uses
+  `look` (short-name target) and `measure`, both of which work today.
+- **Blocks the practitioner tools-test surface** — `look(sample)` and
+  `run_sql` against typed tables can't be exercised reliably until this
+  is fixed.
+
 ## 2026-05-19: DAT-325 — L6 Cutover (HTTP MCP is the only entrypoint; CLI + stdio + rich gone)
 
 ### dataraum-eval
