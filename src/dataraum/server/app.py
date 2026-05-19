@@ -41,40 +41,49 @@ from dataraum.server.storage import bootstrap_lake, health_probe, teardown_lake
 _TOKEN_ENV_VAR = "DATARAUM_MCP_TOKEN"
 
 
-def _build_mcp_subapp() -> Starlette:
-    """Build the streamable-HTTP MCP transport as a mountable sub-app.
+class _StreamableHTTPASGIApp:
+    """ASGI3 callable that forwards to the lifespan-managed session manager.
 
-    ``create_server`` is heavy (boots ConnectionManager etc.); it runs inside
-    the sub-app's lifespan, not at module load. Until the lifespan has
-    executed, requests receive 503 — in practice this only happens if a probe
-    races with shutdown.
+    Must be a class (not an async function) because ``starlette.routing.Route``
+    auto-wraps coroutine-function endpoints as request/response handlers; a
+    callable class is treated as a raw ASGI app, which is what the streamable-
+    HTTP transport requires (it controls the response stream itself — SSE for
+    GET, JSON-RPC over POST).
 
-    The handler is a pure ASGI3 callable because ``StreamableHTTPSessionManager``
-    drives its own response stream (SSE for GET, JSON-RPC over POST); FastAPI's
-    request/response model would interfere.
+    The session manager is built in the sub-app's lifespan (not at module
+    load) so ``create_server``'s heavy init does not run on import. Until the
+    lifespan has executed, requests receive 503 — in practice this only
+    happens if a probe races with shutdown.
     """
-    holder: dict[str, StreamableHTTPSessionManager | None] = {"sm": None}
 
-    async def handle(scope: Any, receive: Any, send: Any) -> None:
-        sm = holder["sm"]
+    def __init__(self) -> None:
+        self.session_manager: StreamableHTTPSessionManager | None = None
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        sm = self.session_manager
         if sm is None:
             response = JSONResponse({"error": "mcp_not_ready"}, status_code=503)
             await response(scope, receive, send)
             return
         await sm.handle_request(scope, receive, send)
 
+
+def _build_mcp_subapp() -> Starlette:
+    """Build the streamable-HTTP MCP transport as a mountable sub-app."""
+    asgi_app = _StreamableHTTPASGIApp()
+
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncIterator[None]:
         server = create_server()
         sm = StreamableHTTPSessionManager(app=server)
-        holder["sm"] = sm
+        asgi_app.session_manager = sm
         async with sm.run():
             try:
                 yield
             finally:
-                holder["sm"] = None
+                asgi_app.session_manager = None
 
-    return Starlette(routes=[Route("/", endpoint=handle)], lifespan=lifespan)
+    return Starlette(routes=[Route("/", endpoint=asgi_app)], lifespan=lifespan)
 
 
 _mcp_subapp = _build_mcp_subapp()
