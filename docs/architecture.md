@@ -266,10 +266,11 @@ Primary interface for AI agents. Tools return markdown formatted for LLM consump
 | Endpoint | Purpose |
 |---------|---------|
 | `GET /health` | Substrate liveness — DuckLake catalog + workspace Postgres |
-| `POST /mcp/` | Streamable-HTTP MCP transport (bearer-gated) |
+| `/api/*` | Engine REST surface (in development — extracted route-by-route from `src/dataraum/mcp/server.py`) |
 
-Run as `uvicorn dataraum.server.app:app` or via `docker compose up`. See
-[mcp-setup](mcp-setup.md) for the full setup.
+Run as `uvicorn dataraum.server.app:app` or via `docker compose up`. The
+HTTP MCP transport that v0.2.x exposed is gone; engine logic migrates into
+the FastAPI app at `src/dataraum/api/` as the cockpit needs each route.
 
 ### Python API
 

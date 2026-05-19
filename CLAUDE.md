@@ -428,7 +428,7 @@ Check [Jira](https://real-dataraum.atlassian.net/jira/software/projects/DAT/boar
 - **Ontologies as configuration** — Domain ontologies (financial_reporting, marketing, etc.) are YAML configs that map column patterns to business terms, define computable metrics, and guide semantic interpretation.
 - **Pipeline measures, doesn't interpret** — Pipeline runs detectors as post-steps. Interpretation (why, hypothesize) happens interactively via MCP tools. No gate phases.
 - **BBN readiness replaces LLM quality grades** — Per-column readiness (ready/investigate/blocked) via Bayesian network. `column_quality` detector retired (was circular with BBN).
-- **MCP tools** — 6 practitioner tools: look, measure, begin_session, query, run_sql, add_source. See `src/dataraum/mcp/server.py`.
+- **MCP code retained, transport retired** — `src/dataraum/mcp/server.py` still holds the 12-tool engine logic; the HTTP MCP mount is gone (v1 plan pivot). Engine logic migrates into FastAPI handlers at `src/dataraum/api/` as the v1 plan progresses.
 - **Free-threading** — Python 3.14t with GIL disabled for true CPU parallelism in pipeline phases.
 
 ### Module Structure
@@ -445,8 +445,9 @@ src/dataraum/
 ├── storage/        # SQLAlchemy models, migrations
 ├── llm/            # LLM providers and prompts
 ├── core/           # Config, connections, utilities
-├── server/         # FastAPI control plane (app, DuckLake bootstrap, /mcp/ mount, bearer auth)
-└── mcp/            # MCP tool implementations + tool registry (create_server)
+├── server/         # FastAPI control plane shell (/health, DuckLake bootstrap)
+├── api/            # Engine REST surface (lands in v1 plan step 3b)
+└── mcp/            # Legacy MCP tool implementations — kept for extraction; no transport mounted
 ```
 
 SQLAlchemy DB models are co-located with business logic in `db_models.py` files within each module.
@@ -467,17 +468,11 @@ Source (CSV/Parquet/JSON) → [staging] VARCHAR → raw_{table}
 # Bring up the platform substrate (Postgres + control plane container)
 docker compose up -d --wait
 
-# Or run the control plane directly (DATARAUM_MCP_TOKEN + DUCKLAKE_* env required)
+# Or run the control plane directly (DUCKLAKE_* env required)
 uvicorn dataraum.server.app:app --host 0.0.0.0 --port 8000
 
 # Health probe (substrate + DuckLake + Postgres)
 curl -fsS http://localhost:8000/health
-
-# MCP endpoint (bearer required; SSE/POST per the streamable-HTTP spec)
-curl -X POST http://localhost:8000/mcp/ \
-  -H "Authorization: Bearer $DATARAUM_MCP_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
 ```
 
 ### Code Patterns
