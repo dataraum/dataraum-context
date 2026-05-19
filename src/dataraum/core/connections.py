@@ -150,7 +150,7 @@ class _LakeScopedConnection:
         try:
             self._conn.close()
         except Exception:
-            pass
+            logger.debug("Ignoring error while closing DuckDB scoped cursor", exc_info=True)
 
     def __getattr__(self, name: str) -> Any:
         # Falls through for everything except ``cursor`` and the two stored
