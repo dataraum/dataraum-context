@@ -151,6 +151,37 @@ class TestPerSessionSchemaScoping:
         finally:
             mgr.close()
 
+    def test_cursor_of_cursor_inherits_use(self):
+        """Cursor-of-cursor chains must preserve USE.
+
+        Analysis modules in ``analysis/*`` open sub-cursors via
+        ``duckdb_conn.cursor()`` where ``duckdb_conn`` is itself a cursor
+        handed down from a phase. The wrapper returns ``_LakeScopedConnection``
+        instances from ``cursor()`` so chained derivations stay in the
+        session schema; without the recursive wrapping, a raw DuckDB cursor's
+        ``.cursor()`` opens with ``current_database='memory', current_schema='main'``.
+        """
+        sid = "smoke-cursor-of-cursor"
+        mgr = ConnectionManager(ConnectionConfig.for_workspace(), session_id=sid)
+        mgr.initialize()
+        try:
+            with mgr.duckdb_cursor() as phase_cursor:
+                with phase_cursor.cursor() as sub_cursor:
+                    sub_cursor.execute("CREATE TABLE sub_marker (x INT)")
+
+            schema = _session_id_to_schema(sid)
+            rows = (
+                get_anchor()
+                .execute(
+                    "SELECT table_name FROM duckdb_tables() "
+                    f"WHERE database_name = '{LAKE_CATALOG_ALIAS}' AND schema_name = '{schema}'"
+                )
+                .fetchall()
+            )
+            assert ("sub_marker",) in rows
+        finally:
+            mgr.close()
+
     def test_two_sessions_do_not_leak(self):
         a = ConnectionManager(ConnectionConfig.for_workspace(), session_id="smoke-aaa-leak")
         b = ConnectionManager(ConnectionConfig.for_workspace(), session_id="smoke-bbb-leak")

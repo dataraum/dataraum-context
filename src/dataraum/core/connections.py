@@ -85,9 +85,10 @@ class _LakeScopedConnection:
     DuckDB Python's ``connection.cursor()`` opens a fresh handle whose
     connection state (``USE``/search_path) is the default — it does NOT
     inherit the parent connection's state (verified against DuckDB 1.5.2).
-    Without this wrapper, every cursor opened by pipeline phases or
-    analysis modules would resolve unqualified table names against
-    ``memory.main`` instead of the per-session lake schema.
+    The same applies to ``cursor.cursor()`` (cursor-of-cursor): the
+    derived cursor lands in ``memory.main``. Without this wrapper, every
+    cursor opened by pipeline phases or analysis modules would resolve
+    unqualified table names against the wrong schema.
 
     The wrapper:
 
@@ -96,11 +97,21 @@ class _LakeScopedConnection:
       :meth:`ConnectionManager._init_duckdb` — so direct
       ``conn.execute(sql)`` resolves against the lake schema);
     * intercepts ``cursor()`` to issue ``USE lake.<schema>`` on the new
-      cursor before returning it.
+      cursor AND wraps the result so cursor-of-cursor chains also stay
+      scoped;
+    * supports ``with`` (``__enter__`` / ``__exit__``) so callers can use
+      the canonical ``with conn.cursor() as sub:`` pattern — dunder
+      methods bypass ``__getattr__``, so they must be explicit.
 
     Implementing this with composition rather than subclassing because
     ``duckdb.DuckDBPyConnection`` is a C extension type and not safely
     subclassable.
+
+    A note on flushes: DuckLake buffers writes in memory until ``CHECKPOINT``
+    runs. ``INSERT`` statements via this wrapper land in the lake's catalog
+    but parquet files don't appear under ``DATA_PATH`` until checkpoint.
+    Pipeline code paths that need files-on-disk semantics (export,
+    hand-off) must call ``cursor.execute('CHECKPOINT')`` explicitly.
     """
 
     # Class-level annotations so mypy can resolve ``self._conn.cursor()``
@@ -118,10 +129,28 @@ class _LakeScopedConnection:
         object.__setattr__(self, "_conn", conn)
         object.__setattr__(self, "_qualified_schema", qualified_schema)
 
-    def cursor(self) -> duckdb.DuckDBPyConnection:
+    def cursor(self) -> _LakeScopedConnection:
+        """Open a derived cursor and ``USE`` the session schema on it.
+
+        Returns another wrapper so cursor-of-cursor chains (analysis modules
+        opening a sub-cursor from a phase cursor) stay scoped to the same
+        lake schema.
+        """
         c = self._conn.cursor()
         c.execute(f"USE {self._qualified_schema}")
-        return c
+        return _LakeScopedConnection(c, self._qualified_schema)
+
+    def __enter__(self) -> _LakeScopedConnection:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        # Close the underlying handle on context-manager exit. The wrapper
+        # itself owns the lifecycle of the raw cursor returned by ``cursor()``;
+        # ``ConnectionManager.close()`` owns the top-level per-session conn.
+        try:
+            self._conn.close()
+        except Exception:
+            pass
 
     def __getattr__(self, name: str) -> Any:
         # Falls through for everything except ``cursor`` and the two stored
@@ -488,6 +517,7 @@ class ConnectionManager:
 
 # Convenience function for simple scripts
 _default_manager: ConnectionManager | None = None
+_default_manager_lock = threading.Lock()
 
 
 def get_connection_manager(
@@ -497,7 +527,8 @@ def get_connection_manager(
     """Get or create a default ConnectionManager.
 
     For simple scripts that don't need multiple managers. Creates a
-    singleton manager on first call.
+    singleton manager on first call. Thread-safe; concurrent callers
+    serialize on ``_default_manager_lock`` so only one manager is created.
 
     Args:
         output_dir: Output directory for per-session DuckDB (if config not provided).
@@ -508,25 +539,27 @@ def get_connection_manager(
     """
     global _default_manager
 
-    if _default_manager is None:
-        if config is None:
-            if output_dir is None:
-                output_dir = Path("./pipeline_output")
-            config = ConnectionConfig.for_directory(output_dir)
+    with _default_manager_lock:
+        if _default_manager is None:
+            if config is None:
+                if output_dir is None:
+                    output_dir = Path("./pipeline_output")
+                config = ConnectionConfig.for_directory(output_dir)
 
-        _default_manager = ConnectionManager(config)
-        _default_manager.initialize()
+            _default_manager = ConnectionManager(config)
+            _default_manager.initialize()
 
-    return _default_manager
+        return _default_manager
 
 
 def close_default_manager() -> None:
     """Close the default ConnectionManager if it exists."""
     global _default_manager
 
-    if _default_manager is not None:
-        _default_manager.close()
-        _default_manager = None
+    with _default_manager_lock:
+        if _default_manager is not None:
+            _default_manager.close()
+            _default_manager = None
 
 
 def get_manager_for_directory(output_dir: Path) -> ConnectionManager:

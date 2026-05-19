@@ -25,6 +25,7 @@ DATA_PATH; the FastAPI app does the same against the compose stack.
 
 from __future__ import annotations
 
+import os
 import threading
 from urllib.parse import unquote, urlparse
 
@@ -45,9 +46,22 @@ state (schemas, ATTACHed DBs, tables). The anchor keeps the database alive.
 LAKE_CATALOG_ALIAS = "lake"
 """Alias under which the DuckLake catalog is ATTACHed.
 
-Per-session schemas live as ``lake.session_<id>``; archived sessions as
-``lake.archive_<id>`` (see :mod:`dataraum.mcp.server`).
+Per-session schemas live as ``lake.session_<id>`` and are not renamed at
+end_session — DuckDB does not support ``ALTER SCHEMA RENAME``. Archived
+state lives in the workspace Postgres ``archived_sessions`` row, not in
+the lake schema name.
 """
+
+_PG_POOL_MAX_DEFAULT = 64
+_PG_POOL_MAX_ENV = "DUCKLAKE_PG_POOL_MAX"
+_SKIP_INSTALL_ENV = "DUCKLAKE_SKIP_INSTALL"
+
+# NOTE on flushes: DuckLake buffers writes in memory until ``CHECKPOINT``.
+# ``INSERT`` against a ``lake.*`` table does not appear under ``DATA_PATH``
+# on disk until a checkpoint runs (manual ``CHECKPOINT``, connection close
+# in some configurations, or the periodic checkpointer DuckDB may run).
+# Callers that need files-on-disk semantics (export, hand-off, snapshot)
+# must issue ``CHECKPOINT`` explicitly.
 
 
 _anchor: duckdb.DuckDBPyConnection | None = None
@@ -84,6 +98,11 @@ def _pg_url_to_libpq(url: str) -> str:
     return " ".join(parts)
 
 
+def _escape_sql_literal(value: str) -> str:
+    r"""Backslash-escape ``\`` and ``'`` for safe single-quoted SQL interpolation."""
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
 def bootstrap_lake(catalog_url: str, data_path: str) -> None:
     """Open the process-wide DuckLake anchor.
 
@@ -101,6 +120,14 @@ def bootstrap_lake(catalog_url: str, data_path: str) -> None:
     Raises:
         RuntimeError: If bootstrap fails. The original DuckDB exception is
             chained for inspection.
+
+    Environment overrides:
+        DUCKLAKE_PG_POOL_MAX: Postgres extension pool ceiling (default 64).
+            DuckDB's default is 8, which exhausts under multi-session churn.
+        DUCKLAKE_SKIP_INSTALL: Set to ``1`` to skip the network ``INSTALL
+            ducklake`` step. Container builds should pre-install the extension
+            at image build time and set this to avoid the cold-start round
+            trip (and to allow air-gapped deployments).
     """
     global _anchor
 
@@ -109,20 +136,24 @@ def bootstrap_lake(catalog_url: str, data_path: str) -> None:
             return
 
         libpq = _pg_url_to_libpq(catalog_url)
+        safe_data_path = _escape_sql_literal(data_path)
         attach_sql = (
-            f"ATTACH 'ducklake:postgres:{libpq}' AS {LAKE_CATALOG_ALIAS} (DATA_PATH '{data_path}')"
+            f"ATTACH 'ducklake:postgres:{libpq}' AS {LAKE_CATALOG_ALIAS} "
+            f"(DATA_PATH '{safe_data_path}')"
         )
+        pool_max = int(os.environ.get(_PG_POOL_MAX_ENV, _PG_POOL_MAX_DEFAULT))
 
         try:
             conn = duckdb.connect(LAKE_DB_NAME)
-            conn.execute("INSTALL ducklake")
+            if not os.environ.get(_SKIP_INSTALL_ENV):
+                conn.execute("INSTALL ducklake")
             conn.execute("LOAD ducklake")
             # Raise the Postgres pool ceiling and unpin connections from
             # threads — DuckLake routes every catalog op through the postgres
             # extension's pool, and the defaults (max=8, thread-local pinning
             # ON) exhaust under multi-session churn. Must be ``SET GLOBAL`` and
             # ``BEFORE`` the ATTACH for the lake's pool to inherit the values.
-            conn.execute("SET GLOBAL pg_pool_max_connections = 64")
+            conn.execute(f"SET GLOBAL pg_pool_max_connections = {pool_max}")
             conn.execute("SET GLOBAL pg_pool_enable_thread_local_cache = false")
             conn.execute(attach_sql)
             # Smoke probe: ATTACH took effect (catalog reachable). DuckLake does
@@ -142,6 +173,7 @@ def bootstrap_lake(catalog_url: str, data_path: str) -> None:
             "ducklake_bootstrapped",
             catalog_url=catalog_url,
             data_path=data_path,
+            pg_pool_max=pool_max,
         )
 
 
@@ -151,13 +183,16 @@ def get_anchor() -> duckdb.DuckDBPyConnection:
     Raises:
         RuntimeError: If :func:`bootstrap_lake` has not been called.
     """
-    if _anchor is None:
+    # Capture into a local — without it, a teardown_lake() racing this call
+    # could null out the global between the None-check and the return.
+    anchor = _anchor
+    if anchor is None:
         raise RuntimeError(
             "DuckLake not bootstrapped. Call bootstrap_lake(...) at server "
             "startup (or via the test fixture) before opening per-session "
             "connections."
         )
-    return _anchor
+    return anchor
 
 
 def connect_session() -> duckdb.DuckDBPyConnection:
@@ -203,10 +238,13 @@ def health_probe() -> dict[str, str]:
     ``not_bootstrapped`` when the bootstrap hook hasn't run, or
     ``unreachable`` when the catalog query fails.
     """
-    if _anchor is None:
+    # Local capture: a teardown_lake() racing this can null the global
+    # between the None-check and ``anchor.execute(...)``.
+    anchor = _anchor
+    if anchor is None:
         return {"status": "not_bootstrapped"}
     try:
-        _anchor.execute(
+        anchor.execute(
             f"SELECT 1 FROM duckdb_schemas() WHERE database_name = '{LAKE_CATALOG_ALIAS}' LIMIT 1"
         )
     except Exception as e:
