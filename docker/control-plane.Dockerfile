@@ -27,12 +27,24 @@ RUN uv sync --no-dev --frozen
 # baked-in /opt/dataraum/config/ rather than auto-detecting via package layout.
 ENV DATARAUM_CONFIG_PATH=/opt/dataraum/config
 
-# Non-root runtime user; own the data dirs so named volumes initialize correctly.
-RUN groupadd -r dataraum && useradd -r -g dataraum -u 1001 dataraum && \
+# Non-root runtime user with a writable home — DuckDB caches extensions under
+# ``$HOME/.duckdb/extensions/`` and refuses to LOAD if the home dir is missing.
+# ``useradd -m`` creates /home/dataraum; the named volumes get their own chown.
+RUN groupadd -r dataraum && useradd -r -m -g dataraum -u 1001 dataraum && \
     mkdir -p /var/lib/dataraum/lake /var/lib/dataraum/sources && \
-    chown -R dataraum:dataraum /app /opt/dataraum /var/lib/dataraum
+    chown -R dataraum:dataraum /app /opt/dataraum /var/lib/dataraum /home/dataraum
+
+ENV HOME=/home/dataraum
 
 USER dataraum
+
+# Pre-install the DuckLake extension at build time so runtime startup doesn't
+# hit the network (and works in air-gapped deploys). The extension cache lands
+# under $HOME/.duckdb/; runtime sets DUCKLAKE_SKIP_INSTALL=1 to skip the
+# redundant network INSTALL.
+RUN /app/.venv/bin/python -c "import duckdb; c = duckdb.connect(); c.execute('INSTALL ducklake'); c.execute('LOAD ducklake'); c.close()"
+
+ENV DUCKLAKE_SKIP_INSTALL=1
 
 EXPOSE 8000
 
