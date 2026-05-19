@@ -97,7 +97,7 @@ Only proceed to handoff after both reviewers approve (or after discussing unreso
 
 After implementation is complete (honestly complete, reviewers satisfied):
 
-1. Update `.claude/handoff.md` with entries for EACH affected area:
+1. **If this work touched MCP tool surface, detectors, or pipeline phases**, update `.claude/handoff.md` with entries for EACH affected area:
 
    **For dataraum-eval:**
    - What changed (files, modules, behaviors)
@@ -109,6 +109,8 @@ After implementation is complete (honestly complete, reviewers satisfied):
    - Hints for new injection types that would test this feature
    - New ground truth values that should be generated
    - Keep it directional — testdata has its own design concerns
+
+   **Skip the handoff entirely if this is platform-shell work** — control plane, executor wiring, frontend, observability, REST/SSE adapters, contract artifacts. The engine is unchanged, so eval/testdata are unaffected. For platform work, follow the "Parallel platform work" runbook below instead.
 
 2. Summarize to the user:
    - What was done

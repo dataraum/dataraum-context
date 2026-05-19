@@ -177,6 +177,52 @@ The line: bundle anything S-size and Light (see above). Keep Heavy items (behavi
 - **MCP tool changes**: always `/smoke` after — UX can't be judged from source code
 - **Detector changes**: always update `handoff.md` — calibration is the definition of done
 
+### Contracts-first for DAT-294 platform work
+
+The DAT-294 platform splits the codebase into parallel work streams (control plane, executors, frontend, observability, chat BFF). Parallel work without locked contracts produces merge mush. The rule:
+
+- **No implementation work starts on a platform phase until its contract is locked** on the [Platform Contracts](https://real-dataraum.atlassian.net/wiki/spaces/DD/pages/18972674/Platform+Contracts) page.
+- **Contracts are the sync point.** Frontend codes against types generated from the contract; backend codes against the same contract; they meet at smoke. Don't synchronize on running code — synchronize on the spec.
+- **Spec is source of truth, code generates from spec.** Protos live in `src/dataraum/proto/`, OpenAPI in `src/dataraum/control_plane/openapi.yaml`, etc. Never the reverse.
+- **The seven contracts** are inventoried on the page: Mcp-Session-Id semantics, CP↔executor gRPC service, sessions/principals SQLAlchemy schema, coordination events schema, config storage shape, OpenAPI for `/api/*`, TanStack AI wire format. Each gates a specific phase (P1, P2, P3, P8, P9).
+- **Per the no-backwards-compat rule**, "migration" means porting SQLAlchemy code to Postgres dialect, not Alembic scripts. Schemas drop-and-reinit at cutover.
+
+This rule applies only to DAT-294 phases (P1+). It does NOT apply to v0.2.x maintenance work on `main`.
+
+### Parallel platform work runbook
+
+For DAT-294 phase tasks (decomposed children of P1–P11), multiple tasks within a phase can run as parallel lanes. Each lane = one worktree = one branch = one PR. This runbook replaces the library-style handoff in `/implement` for platform work.
+
+**Invoke `/take {task-id}` to run this end-to-end as one lane.** The skill executes the steps below. To run N lanes concurrently from one orchestrator session, call `/take` via the Agent tool with `isolation: "worktree"` in a single message with multiple tool blocks — that's where the parallelism comes from.
+
+**Per-lane workflow** (what `/take` does):
+
+1. **Verify prerequisites.** The task's contract is locked (see Platform Contracts page). All `is blocked by` dependencies are merged. No other lane already claims this task ID — check `.claude/platform-status.md` and `gh pr list --search "{task-id} in:title"`.
+2. **Open the worktree.**
+   ```bash
+   git fetch origin main
+   git worktree add .worktrees/{task-id} -b feat/{task-id}-{slug} origin/main
+   cd .worktrees/{task-id}
+   ```
+3. **Run `/refine` then `/implement` {task-id}** inside the worktree. The discipline (scope, checkpoints, psych safety, review gate) belongs to `/implement`; its handoff section auto-skips for platform-shell work.
+4. **Lane smoke** scoped to this task's contract surface only (`tests/platform/smoke_{task-id}.py`).
+5. **Open the PR.**
+   ```bash
+   gh pr create --title "{task-id}: {title}" --body "..."
+   ```
+   PR body must reference the contract version (file + sha) consumed and list other open lanes via `gh pr list --search "DAT-294 in:body"` so reviewers see the parallel context.
+6. **Update `.claude/platform-status.md`** with one row per active lane (Task | Worktree | Branch | PR | Contract | Status). Remove the row when the PR merges.
+
+**Parallel etiquette (mandatory):**
+
+- **Never edit a contract from inside a lane.** Contracts change only via dedicated contract-lock PRs. If you find a contract is wrong, STOP the lane and surface it — don't fix it in passing.
+- **Never reach into another lane's code.** Drive-by fixes break parallel discipline. File a follow-up ticket; don't cross lanes.
+- **Rebase once, at the end.** Continuous rebasing during parallel work is merge soup. If `main` moved, rebase before opening the PR — not during.
+- **Lane smoke is yours; integration smoke is `main`'s.** Don't try to keep integration green from inside a lane — `main` is allowed to flicker red between phases per DAT-294.
+- **If a lane needs more than ~2 days, decompose further.** Multi-day lanes usually have hidden coupling.
+
+**Parallel launch (orchestrator pattern):** to run N lanes concurrently from one orchestrator session, launch each as `/take {task-id}` via the Agent tool with `isolation: "worktree"`, in a single message with multiple tool blocks. The orchestrator does NOT touch code — it decomposes the phase into tasks (`/decompose`), spawns the lanes, watches `gh pr list` and `.claude/platform-status.md`, surfaces conflicts, unblocks downstream lanes as PRs merge, and triggers journey smoke at milestones.
+
 ## Work Decomposition Protocol
 
 ### Task Sizing
