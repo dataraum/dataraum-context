@@ -29,9 +29,7 @@ DOC_FILES = [
     "docs/architecture.md",
     "docs/pipeline.md",
     "docs/entropy.md",
-    "docs/mcp-setup.md",
     "docs/contributing.md",
-    "docs/cli.md",
     "docs/configuration.md",
     "docs/data-model.md",
 ]

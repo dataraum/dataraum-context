@@ -13,38 +13,35 @@ Traditional semantic layers tell BI tools "what things are called." DataRaum tel
 
 The core insight: AI agents don't need tools to discover metadata at runtime. They need **rich, pre-computed context** delivered in a format optimized for LLM consumption.
 
-## Quick Start
+## Status — transitioning to v1
 
-DataRaum runs as a containerized control plane that speaks the streamable HTTP MCP transport. Bring it up with `docker compose`, point an MCP client (Claude Code, Claude Desktop) at `http://localhost:8000/mcp/`, and investigate.
+DataRaum is mid-pivot. v0.2.x exposed a 12-tool MCP server over HTTP for use from Claude Code / Claude Desktop. **That transport is gone.** The v1 plan splits the system into:
+
+- **Python engine + thin FastAPI REST shell** (this repo) — the analysis pipeline and engine primitives over REST
+- **[dataraum-cockpit](https://github.com/dataraum/dataraum-cockpit)** — TanStack Start web UI that hosts the chat surface and renders the agentic widgets
+- **[dataraum-api](https://github.com/dataraum/dataraum-api)** — OpenAPI contract published by this repo, consumed by the cockpit
+
+Today the substrate boots cleanly and you can poke `/health`; the engine REST routes (`/api/*`) are being extracted from `src/dataraum/mcp/server.py` route-by-route. The cockpit is scaffolded; chat lands in a later step. **There is no working end-user surface yet** — if you need v0.2.x MCP behavior, pin `dataraum==0.2.2`.
+
+## Quick Start (substrate only — v1 surface in development)
 
 ```bash
 git clone https://github.com/dataraum/dataraum
 cd dataraum
 
-# Generate a bearer secret + set the LLM key
+# Set the LLM key (the engine needs it; the substrate boot does not)
 cp .env.example .env
-echo "DATARAUM_MCP_TOKEN=$(uuidgen)" >> .env
 echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
 
 # Bring up Postgres + control plane
 docker compose up -d --wait
 
-# Verify
+# Verify the substrate
 curl -fsS http://localhost:8000/health
-# → {"status":"ok",...}
-
-# Register the MCP server with Claude Code
-claude mcp add --transport http dataraum http://localhost:8000/mcp/ \
-  --header "Authorization: Bearer $DATARAUM_MCP_TOKEN"
+# → {"status":"ok","ducklake":{"status":"ok",...},"postgres":{"status":"ok"}}
 ```
 
-Then in Claude Code:
-
-> Add the CSV files in /path/to/my/data and measure data quality
-
-See [MCP Setup](docs/mcp-setup.md) for full bring-up, host integration, and troubleshooting.
-
-The server runs an 18-phase analysis pipeline and makes these tools available:
+The engine runs an 18-phase analysis pipeline. The 12 tools the v1 cockpit exposes (also the shape the engine REST will publish, route by route):
 
 | Tool | Description |
 |------|-------------|
@@ -61,7 +58,7 @@ The server runs an 18-phase analysis pipeline and makes these tools available:
 | `search_snippets` | Discover reusable SQL patterns from prior queries and graph execution |
 | `end_session` | Archive workspace and end the session |
 
-### Typical Workflow
+### Typical Workflow (the shape the v1 cockpit will surface)
 
 ```
 add_source(name="accounting", path="/var/lib/dataraum/sources/accounting")
@@ -75,7 +72,7 @@ add_source(name="accounting", path="/var/lib/dataraum/sources/accounting")
   → end_session(outcome="delivered")
 ```
 
-Each session is bound to **one** registered source. Register multiple sources in the workspace and pick one by name at session start.
+Each session is bound to **one** registered source. The engine logic that powered these tools in v0.2.x lives in `src/dataraum/mcp/server.py`; the v1 plan extracts it into FastAPI route handlers as the cockpit needs each route.
 
 ## What It Produces
 
@@ -115,7 +112,6 @@ uv run ruff check src/
 uv run ruff format --check src/
 
 # Run the control plane locally (without docker)
-export DATARAUM_MCP_TOKEN=$(uuidgen)
 export DUCKLAKE_CATALOG_URL=postgresql://...
 export DUCKLAKE_DATA_PATH=/var/lib/dataraum/lake
 export DATABASE_URL=postgresql://...
@@ -129,7 +125,6 @@ uv run uvicorn dataraum.server.app:app --host 0.0.0.0 --port 8000
 - [Pipeline](docs/pipeline.md) — 18-phase pipeline reference
 - [Entropy](docs/entropy.md) — uncertainty quantification system
 - [Data Model](docs/data-model.md) — metadata schema
-- [MCP Setup](docs/mcp-setup.md) — control plane bring-up + MCP client wiring
 - [Configuration](docs/configuration.md) — config directory reference
 - [Contributing](docs/contributing.md) — development setup and patterns
 

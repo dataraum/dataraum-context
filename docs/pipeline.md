@@ -20,8 +20,9 @@ begin_session(source="data")
 measure(contract="aggregation_safe")      # triggers the pipeline (3–7 min)
 ```
 
-See [mcp-setup](mcp-setup.md) for the control-plane bring-up and client
-wiring.
+The HTTP MCP transport that v0.2.x exposed is gone — engine logic is being
+extracted into a FastAPI REST surface at `src/dataraum/api/` for the v1
+cockpit. See the project README for current status.
 
 Via Python (programmatic, in-process):
 ```python

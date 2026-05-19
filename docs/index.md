@@ -6,10 +6,9 @@ Traditional semantic layers tell BI tools "what things are called." DataRaum tel
 
 The system combines a metadata pipeline (profiles the data), an entropy layer (measures uncertainty), and an interactive MCP surface (explore, explain, teach) so the operation model improves progressively through use.
 
-## Getting Started
+## Status
 
-- [MCP Setup](mcp-setup.md) — configure DataRaum as an MCP server in Claude Code, Claude Desktop, and Claude for Work
-- [CLI Reference](cli.md) — run the pipeline and inspect results from the command line
+DataRaum is mid-pivot to a TypeScript cockpit + Python engine REST architecture. The previous MCP transport and CLI are retired; the v1 cockpit and engine REST are in active development. See the project README and the `dataraum-cockpit` repo for the current state.
 
 ## Concepts
 
