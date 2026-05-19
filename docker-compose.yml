@@ -58,6 +58,26 @@ services:
       timeout: 3s
       retries: 10
 
+  # TanStack Start cockpit (dataraum/dataraum-cockpit). Build context is the
+  # sibling clone — clone dataraum-cockpit next to this repo before bringing
+  # the stack up. The cockpit's bundle has VITE_ENGINE_API_URL baked in for
+  # cross-origin browser fetches; CORS on the control-plane side allows it.
+  cockpit:
+    build:
+      context: ../dataraum-cockpit
+      args:
+        VITE_ENGINE_API_URL: http://localhost:8000
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--spider", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
 volumes:
   postgres_data:
   dataraum_lake:

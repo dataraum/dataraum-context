@@ -23,23 +23,33 @@ DataRaum is mid-pivot. v0.2.x exposed a 12-tool MCP server over HTTP for use fro
 
 Today the substrate boots cleanly and you can poke `/health`; the engine REST routes (`/api/*`) are being extracted from `src/dataraum/mcp/server.py` route-by-route. The cockpit is scaffolded; chat lands in a later step. **There is no working end-user surface yet** — if you need v0.2.x MCP behavior, pin `dataraum==0.2.2`.
 
-## Quick Start (substrate only — v1 surface in development)
+## Quick Start (substrate + cockpit — v1 surface in development)
 
 ```bash
+# Clone both repos as siblings — docker-compose builds the cockpit from
+# the sibling path.
 git clone https://github.com/dataraum/dataraum
+git clone https://github.com/dataraum/dataraum-cockpit
 cd dataraum
 
 # Set the LLM key (the engine needs it; the substrate boot does not)
 cp .env.example .env
 echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
 
-# Bring up Postgres + control plane
+# Bring up Postgres + control plane + cockpit
 docker compose up -d --wait
 
 # Verify the substrate
 curl -fsS http://localhost:8000/health
 # → {"status":"ok","ducklake":{"status":"ok",...},"postgres":{"status":"ok"}}
+
+# Open the cockpit
+open http://localhost:3000
 ```
+
+For UI iteration, skip the cockpit container and run the dev server outside
+docker for hot reload (see `dataraum-cockpit/README.md`). The compose
+cockpit service is for end-to-end smoke and prod-like serving.
 
 The engine runs an 18-phase analysis pipeline. The 12 tools the v1 cockpit exposes (also the shape the engine REST will publish, route by route):
 

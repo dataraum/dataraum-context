@@ -465,7 +465,9 @@ Source (CSV/Parquet/JSON) → [staging] VARCHAR → raw_{table}
 
 ### Quick Reference Commands
 ```bash
-# Bring up the platform substrate (Postgres + control plane container)
+# Bring up the full stack (Postgres + control-plane + cockpit container).
+# Requires dataraum-cockpit cloned as a sibling — docker-compose builds the
+# cockpit from ../dataraum-cockpit.
 docker compose up -d --wait
 
 # Or run the control plane directly (DUCKLAKE_* env required)
@@ -473,6 +475,9 @@ uvicorn dataraum.server.app:app --host 0.0.0.0 --port 8000
 
 # Health probe (substrate + DuckLake + Postgres)
 curl -fsS http://localhost:8000/health
+
+# Cockpit (TanStack Start)
+open http://localhost:3000
 ```
 
 ### Code Patterns
