@@ -264,13 +264,15 @@ Primary interface for AI agents. Tools return markdown formatted for LLM consump
 | `search_snippets` | Discover reusable SQL snippets with provenance |
 | `end_session` | Archive workspace and end session |
 
-### CLI
+### HTTP control plane
 
-| Command | Purpose |
+| Endpoint | Purpose |
 |---------|---------|
-| `dataraum run` | Execute the analysis pipeline |
-| `dataraum dev phases` | List pipeline phases and dependencies |
-| `dataraum dev context` | Print the full metadata context document |
+| `GET /health` | Substrate liveness — DuckLake catalog + workspace Postgres |
+| `POST /mcp/` | Streamable-HTTP MCP transport (bearer-gated) |
+
+Run as `uvicorn dataraum.server.app:app` or via `docker compose up`. See
+[mcp-setup](mcp-setup.md) for the full setup.
 
 ### Python API
 
