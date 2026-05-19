@@ -50,7 +50,10 @@ def _close_mcp_servers_after_test(monkeypatch: pytest.MonkeyPatch):
         try:
             s.close()  # type: ignore[attr-defined]
         except Exception as exc:
-            warnings.warn(f"Failed to close MCP server during test teardown: {s!r} ({exc!r})")
+            warnings.warn(
+                f"Failed to close MCP server during test teardown: {s!r} ({exc!r})",
+                stacklevel=2,
+            )
 
 
 @event.listens_for(Session, "before_flush")

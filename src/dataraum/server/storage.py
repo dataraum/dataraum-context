@@ -110,14 +110,20 @@ def bootstrap_lake(catalog_url: str, data_path: str) -> None:
 
         libpq = _pg_url_to_libpq(catalog_url)
         attach_sql = (
-            f"ATTACH 'ducklake:postgres:{libpq}' AS {LAKE_CATALOG_ALIAS} "
-            f"(DATA_PATH '{data_path}')"
+            f"ATTACH 'ducklake:postgres:{libpq}' AS {LAKE_CATALOG_ALIAS} (DATA_PATH '{data_path}')"
         )
 
         try:
             conn = duckdb.connect(LAKE_DB_NAME)
             conn.execute("INSTALL ducklake")
             conn.execute("LOAD ducklake")
+            # Raise the Postgres pool ceiling and unpin connections from
+            # threads — DuckLake routes every catalog op through the postgres
+            # extension's pool, and the defaults (max=8, thread-local pinning
+            # ON) exhaust under multi-session churn. Must be ``SET GLOBAL`` and
+            # ``BEFORE`` the ATTACH for the lake's pool to inherit the values.
+            conn.execute("SET GLOBAL pg_pool_max_connections = 64")
+            conn.execute("SET GLOBAL pg_pool_enable_thread_local_cache = false")
             conn.execute(attach_sql)
             # Smoke probe: ATTACH took effect (catalog reachable). DuckLake does
             # not expose ``information_schema``; ``duckdb_schemas()`` filtered by
@@ -128,8 +134,7 @@ def bootstrap_lake(catalog_url: str, data_path: str) -> None:
             )
         except Exception as e:
             raise RuntimeError(
-                f"DuckLake bootstrap failed (catalog_url={catalog_url}, "
-                f"data_path={data_path}): {e}"
+                f"DuckLake bootstrap failed (catalog_url={catalog_url}, data_path={data_path}): {e}"
             ) from e
 
         _anchor = conn
@@ -202,8 +207,7 @@ def health_probe() -> dict[str, str]:
         return {"status": "not_bootstrapped"}
     try:
         _anchor.execute(
-            "SELECT 1 FROM duckdb_schemas() "
-            f"WHERE database_name = '{LAKE_CATALOG_ALIAS}' LIMIT 1"
+            f"SELECT 1 FROM duckdb_schemas() WHERE database_name = '{LAKE_CATALOG_ALIAS}' LIMIT 1"
         )
     except Exception as e:
         return {"status": "unreachable", "error": str(e)}

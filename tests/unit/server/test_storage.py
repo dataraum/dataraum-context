@@ -12,7 +12,6 @@ from dataraum.server.storage import (
     connect_session,
     get_anchor,
     health_probe,
-    teardown_lake,
 )
 
 
