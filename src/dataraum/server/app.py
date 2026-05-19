@@ -1,9 +1,9 @@
 """Platform FastAPI control plane shell.
 
-Substrate-only entrypoint: ``/health`` (DuckLake catalog + workspace Postgres
-probes) and the DuckLake anchor opened at startup. Engine REST routes
-(``/api/*``) land in step 3b of the Cockpit + Engine REST v1 plan; the chat
-BFF moves to TanStack Start (TypeScript), not this app.
+Hosts ``/health`` (DuckLake catalog + workspace Postgres probes) and the
+engine REST surface at ``/api/*`` (lives in ``src/dataraum/api/``). The
+DuckLake anchor opens at startup; engine logic in ``src/dataraum/mcp/``
+migrates into ``src/dataraum/api/`` route-by-route per the v1 plan.
 
 Run via ``uvicorn dataraum.server.app:app`` or ``docker compose up``.
 
@@ -20,9 +20,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, text
 
+from dataraum.api import api_router
 from dataraum.core.logging import get_logger
 from dataraum.server.storage import bootstrap_lake, health_probe, teardown_lake
 
@@ -59,6 +61,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="DataRaum Control Plane", version="0.2.2", lifespan=lifespan)
+
+# CORS for the cockpit dev server. Origins are localhost-only by design —
+# v1 is single-user and the cockpit runs on http://localhost:3000 (TanStack
+# Start default). 5173 covers Vite's default in case the cockpit is run
+# with a stock Vite config. Tighten / extend when the cockpit ships behind
+# a real domain.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Engine REST surface at /api/*. Routes are extracted from the MCP tool
+# handlers in src/dataraum/mcp/server.py — engine logic moves to
+# src/dataraum/api/services.py; the MCP-protocol envelope is dropped.
+app.include_router(api_router, prefix="/api")
 
 
 def _postgres_probe() -> dict[str, str]:

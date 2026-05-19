@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`mcp/__init__.py` public surface**: drops `run_server` re-export. Only `create_server` remains for in-process callers that build their own transport.
 
 ### Added
+- **Engine REST surface at `/api/*` (PR 3b of v1 plan, 2026-05-19)**. New `src/dataraum/api/` package — `routes.py` (APIRouter), `services.py` (engine logic extracted from MCP handlers), `schemas.py` (Pydantic response models), `deps.py` (workspace session dependency, lazy-cached ConnectionManager). First route: `GET /api/sources` extracted from the MCP `_list_sources` handler — same data, Pydantic-shaped response (`list[Source]`), no MCP envelope. Mounted into the FastAPI control plane at `/api`. CORS middleware allows `http://localhost:3000` and `http://localhost:5173` (cockpit dev origins; tighten when the cockpit ships behind a real domain). OpenAPI 3.1 spec auto-generated at `/openapi.json`; `scripts/export_openapi.py` dumps it as YAML for publication to `dataraum-api` (CI publish-on-diff lands in PR 3c).
 - **`DATARAUM_MCP_TOKEN` is mandatory at startup**. The FastAPI lifespan raises if unset, so misconfigured deploys fail fast with a clear error instead of accepting unauthenticated requests. `docker-compose.yml` and `.env.example` now reference it.
 
 ## [0.2.2] - 2026-05-14
